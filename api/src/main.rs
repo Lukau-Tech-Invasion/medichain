@@ -170,7 +170,7 @@ async fn main() -> std::io::Result<()> {
     // Fail fast if a production deployment is configured with demo/default
     // secrets; warn (but continue) in demo mode. (Phase 6.1)
     if let Err(msg) = validate_production_secrets() {
-        eprintln!("\n[ERROR] STARTUP ABORTED: {}\n", msg);
+        log::error!("startup aborted: {msg}");
         return Err(std::io::Error::other(msg));
     }
 
@@ -218,7 +218,7 @@ async fn main() -> std::io::Result<()> {
                             let on_disk = db::available_migration_count();
                             eprintln!("\n=================================================");
                             eprintln!("  [WARN] DATABASE MIGRATIONS DID NOT APPLY");
-                            eprintln!("  {e}");
+                            log::warn!("database migration did not apply: {e}");
                             match (applied, on_disk) {
                                 (Some(a), Some(d)) if d > a => eprintln!(
                                     "  Schema is STALE: {a} of {d} migrations applied — {} missing.\n  \
@@ -236,7 +236,7 @@ async fn main() -> std::io::Result<()> {
                             );
                             eprintln!("=================================================\n");
                         } else {
-                            eprintln!("\n[ERROR] STARTUP ABORTED: database migrations failed: {e}");
+                            log::error!("startup aborted because database migrations failed: {e}");
                             eprintln!(
                                 "        Starting now would serve clinical traffic against an \
                                  unknown schema. Fix the migration, or set IS_DEMO=true for a \
@@ -263,7 +263,7 @@ async fn main() -> std::io::Result<()> {
                         // the startup banner and the demo-secret warnings.
                         eprintln!("\n============================================================");
                         eprintln!("  [DEGRADED] DATABASE_URL was set, but the database is");
-                        eprintln!("             unreachable: {}", e);
+                        log::warn!("database configured but unreachable: {e}");
                         eprintln!();
                         eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
                         eprintln!("  No seeded users, patients or records exist in this mode:");
@@ -276,9 +276,8 @@ async fn main() -> std::io::Result<()> {
                         eprintln!("============================================================\n");
                         None
                     } else {
-                        eprintln!(
-                            "\n[ERROR] STARTUP ABORTED: DATABASE_URL is set but the \
-                                   database is unreachable: {e}"
+                        log::error!(
+                            "startup aborted because configured database is unreachable: {e}"
                         );
                         eprintln!(
                             "        Refusing to fall back to volatile in-memory storage: \
@@ -317,7 +316,7 @@ async fn main() -> std::io::Result<()> {
     // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
     let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
         Some(ws_url) => {
-            println!("  [CHAIN] Connecting to Substrate node at {}...", ws_url);
+            log::info!("connecting to configured Substrate node");
             match crate::blockchain::SubstrateClient::new(&ws_url).await {
                 Ok(client) => {
                     let connected = client.health_check().await;
@@ -338,7 +337,7 @@ async fn main() -> std::io::Result<()> {
                             "blockchain client initialization failed: {e}"
                         )));
                     }
-                    eprintln!("  [WARN] Blockchain client init failed: {}", e);
+                    log::warn!("blockchain client initialization failed: {e}");
                     None
                 }
             }
@@ -387,7 +386,7 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize authorization users: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load demo users: {}", e),
+            Err(e) => log::warn!("failed to load demo users: {e}"),
         }
 
         // Load demo patients from database into in-memory cache
@@ -401,7 +400,7 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize patient cache: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load demo patients: {}", e),
+            Err(e) => log::warn!("failed to load demo patients: {e}"),
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
@@ -413,7 +412,7 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize MFA security state: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load security state: {}", e),
+            Err(e) => log::warn!("failed to load security state: {e}"),
         }
     }
 
