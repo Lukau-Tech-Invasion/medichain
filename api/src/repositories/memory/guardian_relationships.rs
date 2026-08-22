@@ -90,6 +90,16 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         Ok(relationship.clone())
     }
 
+    async fn update_permissions_with_audit(
+        &self,
+        id: &str,
+        permissions: Vec<String>,
+        expires_at: Option<chrono::DateTime<Utc>>,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity> {
+        self.update_permissions(id, permissions, expires_at).await
+    }
+
     async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()> {
         let mut relationships = self.relationships.write().map_err(|_| {
             RepositoryError::Internal("guardian relationship store poisoned".into())

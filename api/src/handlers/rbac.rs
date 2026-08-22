@@ -459,29 +459,31 @@ pub async fn update_guardian_permissions(
         .map(|p| p.as_str().to_string())
         .collect();
 
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_permissions_updated".into(),
+        "guardian_relationship".into(),
+        relationship_id.clone(),
+        serde_json::json!({"updated_by": current_user_id, "permissions": permissions}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .update_permissions(&relationship_id, permissions.clone(), body.expires_at)
+        .update_permissions_with_audit(
+            &relationship_id,
+            permissions,
+            body.expires_at,
+            event.clone(),
+        )
         .await
     {
         Ok(updated) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_permissions_updated".into(),
-                    "guardian_relationship".into(),
-                    updated.id.clone(),
-                    serde_json::json!({
-                        "updated_by": current_user_id,
-                        "permissions": permissions,
-                    }),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(updated)
         }

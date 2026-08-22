@@ -6087,6 +6087,16 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         expires_at: Option<DateTime<Utc>>,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
+    /// Update delegated permissions and persist the mandatory audit event in
+    /// one production transaction.
+    async fn update_permissions_with_audit(
+        &self,
+        id: &str,
+        permissions: Vec<String>,
+        expires_at: Option<DateTime<Utc>>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
     /// Revoke a previously verified relationship (e.g. the ward reaches
     /// majority, guardianship is legally terminated, or the assertion was
     /// made in error).

@@ -137,6 +137,36 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         Ok(result)
     }
 
+    async fn update_permissions_with_audit(
+        &self,
+        id: &str,
+        permissions: Vec<String>,
+        expires_at: Option<DateTime<Utc>>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
+            "UPDATE guardian_relationships SET permissions = $2, expires_at = $3
+             WHERE id = $1 RETURNING {SELECT_COLUMNS}"
+        ))
+        .bind(id)
+        .bind(&permissions)
+        .bind(expires_at)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
+             payload, occurred_at, delivered_at, delivery_attempts, last_error)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
+        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
+        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
+        .bind(&event.last_error).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
     async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()> {
         sqlx::query(
             "UPDATE guardian_relationships
