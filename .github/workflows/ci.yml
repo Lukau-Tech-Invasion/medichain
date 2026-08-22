@@ -310,6 +310,30 @@ jobs:
                   path: "**/*.cdx.json"
                   if-no-files-found: warn
 
+    # The runtime image must identify the exact source revision it was built
+    # from. This job does not publish a release artifact; it validates the
+    # source-to-image link that a release workflow must preserve.
+    api-image-provenance:
+        name: API image provenance
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Build API image with source revision
+              run: >-
+                  docker build
+                  --build-arg SOURCE_REVISION=${{ github.sha }}
+                  --label org.opencontainers.image.revision=${{ github.sha }}
+                  -f api/Dockerfile
+                  -t medichain-api:${{ github.sha }}
+                  .
+
+            - name: Verify image revision label
+              run: |
+                  actual="$(docker image inspect medichain-api:${{ github.sha }} --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+                  test "$actual" = "${{ github.sha }}"
+
     # ============================================================================
     # Snyk (11.2) — dependency vulnerability scanning, Rust + frontend.
     # Needs a SNYK_TOKEN repo secret (Settings → Secrets and variables → Actions)

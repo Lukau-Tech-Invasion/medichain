@@ -52,6 +52,8 @@ RUN find crypto/src api/src -type f -exec touch {} + \
 
 # ---- Runtime ----------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
+ARG SOURCE_REVISION=local-unverified
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 curl \
     && rm -rf /var/lib/apt/lists/*

@@ -61,6 +61,10 @@ services:
       # available to the build; see api/Dockerfile.
       context: .
       dockerfile: api/Dockerfile
+      args:
+        # Local Compose artifacts are deliberately not release-provenance
+        # evidence. CI supplies the immutable checkout SHA instead.
+        SOURCE_REVISION: ${SOURCE_REVISION:-local-unverified}
     container_name: medichain_api
     restart: unless-stopped
     expose:
