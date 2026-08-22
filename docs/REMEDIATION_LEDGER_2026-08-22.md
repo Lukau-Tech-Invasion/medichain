@@ -15,6 +15,13 @@ PRESENT`, and `UNKNOWN`.
 | Browser workflows | Not yet executed |
 | Database verification | Migration startup verified; no data-flow/race rehearsal yet |
 
+Manual inventory at this checkpoint: 918 tracked source/config files in scope,
+including 241 Rust files, 320 TypeScript/TSX files, and 63 SQL migrations.
+This is inventory coverage, not a statement that every file has been manually
+reviewed. Static follow-up still finds 235 `X-User-Id` references and 152 direct
+`println!`/`eprintln!`/`dbg!` calls in API source; those counts define remaining
+authentication and log-sink audit scope.
+
 ## Findings
 
 | ID | Severity | Root cause | Changed files | Automated evidence | Runtime/API evidence | Browser/DB evidence | Commit | Status |
