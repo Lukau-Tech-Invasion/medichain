@@ -174,9 +174,11 @@ export class ApiClient {
   /**
    * Set JWT access + refresh tokens (Phase 9.4).
    *
-   * Once set, requests carry `Authorization: Bearer <access>` (preferred by the
-   * backend) and a 401 triggers a one-time refresh + retry. `X-User-Id` is still
-   * sent as a backward-compatible fallback.
+   * Once set, requests carry `Authorization: Bearer <access>` and a 401 triggers
+   * a one-time refresh + retry. The shared client does not also send the raw
+   * wallet header: the API derives identity from the verified JWT subject.
+   * Header-only identity remains a demo-only compatibility path when no token
+   * has been established.
    */
   setTokens(accessToken: string | undefined, refreshToken?: string): void {
     this.accessToken = accessToken;
@@ -407,8 +409,11 @@ export class ApiClient {
           headers['Authorization'] = `Bearer ${this.accessToken}`;
         }
 
-        // Add legacy auth header if user ID is set (backward-compatible fallback).
-        if (this.userId) {
+        // A Bearer session is the normal identity contract. Do not accompany it
+        // with a raw wallet address, which keeps that identifier out of requests
+        // and prevents legacy-header dependence from spreading through typed
+        // callers. Header-only calls remain for explicit demo compatibility.
+        if (this.userId && !this.accessToken) {
           headers['X-User-Id'] = this.userId;
 
           // If a signature provider is available, sign a challenge
