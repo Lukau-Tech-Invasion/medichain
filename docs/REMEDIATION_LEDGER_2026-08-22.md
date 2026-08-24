@@ -18,7 +18,8 @@ PRESENT`, and `UNKNOWN`.
 Manual inventory at this checkpoint: 940 tracked source/config files in scope,
 including 272 Rust files, 335 TypeScript/TSX files, and 64 SQL migrations.
 This is inventory coverage, not a statement that every file has been manually
-reviewed. Static follow-up still finds 124 `X-User-Id` references and 142 direct
+reviewed. Static follow-up currently finds 126 production-source and 24
+test/fixture `X-User-Id` references, plus 142 direct
 `println!`/`eprintln!`/`dbg!` calls in API source; those counts define remaining
 authentication and log-sink audit scope.
 
@@ -441,6 +442,15 @@ authentication and log-sink audit scope.
   whether to start them, the secret is required even for a non-monitoring
   production render. This is configuration evidence only; no Grafana instance,
   login, dashboard, or alert delivery was exercised.
+* Legacy identity-header source audit: `rg` found 150 `X-User-Id` references in
+  `api/src` Rust files (126 production source, 24 tests/fixtures). The shared
+  resolver prefers a verified JWT subject and otherwise reads the legacy header;
+  with production signature middleware enabled, any request that supplies that
+  header must present a valid wallet signature bound to method, path, and body.
+  The shared log backend redacts the raw wallet in failed-signature messages,
+  which is covered by existing `privacy_logging` sink tests. This is source and
+  automated evidence, not a replacement for a full authenticated role/browser
+  matrix or a complete handler-by-handler authorization audit.
 
 ## Remaining release blockers
 
