@@ -683,6 +683,13 @@ authentication and log-sink audit scope.
   including the strict-lint refactor, against its local test and PostgreSQL
   harness; it does not supply blockchain, browser mutation, external provider,
   hosted CI, or production-release-image proof.
+* Post-refactor API runtime parity (2026-08-24): `docker compose build api`
+  produced image manifest
+  `sha256:16d782035df3e98703007dd440f16288a369d258b8cbc1cb438a06ed06624242`.
+  Recreating only `medichain_api` yielded a healthy container; `/health` and
+  `/health/ready` returned `200`. The image label remains `local-unverified`,
+  so this is current local-runtime evidence only, not hosted CI, registry
+  attestation, or release provenance.
 
 ## Remaining release blockers
 
