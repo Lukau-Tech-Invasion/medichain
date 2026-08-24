@@ -605,6 +605,15 @@ authentication and log-sink audit scope.
   middleware-level enforcement evidence; TLS termination, proxy forwarding,
   mobile transport, and all deployed ingress paths remain separately
   unqualified.
+* Full API regression (2026-08-24): `cargo test --bin medichain-api` completed
+  with `454 passed; 0 failed; 1 ignored` in 709.43 seconds. The ignored test is
+  the documented finalized-chain E2E case, which requires a running MediChain
+  node. The run exercised the new exact-path signature and HTTPS policy tests,
+  PostgreSQL approval/audit rollback and race tests, challenge replay/rate
+  limits, token rotation, restart persistence, consent, and telehealth failure
+  handling. This is full local automated evidence for the API binary; it does
+  not establish browser mutation coverage, real external-provider behavior,
+  multi-validator blockchain proof, hosted CI, or a production release image.
 
 ## Remaining release blockers
 
