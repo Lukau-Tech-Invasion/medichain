@@ -290,6 +290,13 @@ authentication and log-sink audit scope.
   middleware tests passed; `client npm run build:shared` passed; and the full
   API suite passed `441 passed; 0 failed; 1 ignored` in 165.84 seconds. Runtime
   deployment and direct HTTP proof of the new rejection remain pending.
+* Idempotency runtime probe: rebuilt API image manifest
+  `sha256:5d1cd1e6d73098c77145171542747e238a6cd97f2a9c7177ac1a3853d2026f74`
+  was recreated healthy. A newly issued synthetic `//Alice` wallet JWT sent a
+  `POST /api/nonexistent-idempotency-probe` through Nginx without an
+  `Idempotency-Key`; it returned `409 IDEMPOTENCY_KEY_REQUIRED`. The route does
+  not exist and no business mutation was attempted. The local image remains
+  `local-unverified`; this is runtime behavior, not release provenance.
 
 ## Remaining release blockers
 
