@@ -12,7 +12,7 @@ PRESENT`, and `UNKNOWN`.
 | Deep Scan | 0 files; tooling unavailable |
 | Manual source coverage | Measured separately per finding below |
 | Runtime/API adversarial | Recorded per finding below |
-| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across nine read/navigation routes plus dashboard reload persistence. On 2026-08-24, the public landing and clinician entry flow (including the alternate Polkadot-extension option) rendered in the in-app browser with no console warnings/errors. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
+| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across nine read/navigation routes plus dashboard reload persistence. On 2026-08-24, the public landing and clinician entry flow rendered with no console warnings/errors; selecting the unavailable Polkadot-extension path showed its explicit error state (“No Polkadot extension found…”) with no console error. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
 | Database verification | Migration startup; targeted idempotency, retention maker-checker, and consent-revocation transition rehearsals; and bounded backup/restore read-back. Not a full business-write/race, decrypted-record, or application-against-restored-DB verification. |
 
 Manual inventory at this checkpoint: 940 tracked source/config files in scope,
