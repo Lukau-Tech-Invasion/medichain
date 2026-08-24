@@ -12,7 +12,7 @@ PRESENT`, and `UNKNOWN`.
 | Deep Scan | 0 files; tooling unavailable |
 | Manual source coverage | Measured separately per finding below |
 | Runtime/API adversarial | Recorded per finding below |
-| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across eight read/navigation routes plus reload persistence. A further headed-browser attempt is blocked: the declared in-app browser skill is absent and the supported Playwright CLI fallback could not download because npm timed out. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
+| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across nine read/navigation routes plus dashboard reload persistence. The in-app browser captured no console errors on that route set. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
 | Database verification | Migration startup; targeted idempotency, retention maker-checker, and consent-revocation transition rehearsals; and bounded backup/restore read-back. Not a full business-write/race, decrypted-record, or application-against-restored-DB verification. |
 
 Manual inventory at this checkpoint: 940 tracked source/config files in scope,
@@ -576,6 +576,17 @@ authentication and log-sink audit scope.
   expiry, then deleted the fixture. This fixes TTL reclamation only; it does not
   add response replay, response-loss proof, multi-replica testing, or atomic
   coupling of every business write to its idempotency completion marker.
+* Browser read-only refresh (2026-08-24): the in-app browser rendered the
+  public synthetic-data landing page, the unauthenticated clinician credential
+  entry page, and a pre-existing synthetic patient session. The patient routes
+  `/dashboard`, `/records`, `/medications`, `/appointments`, `/messages`,
+  `/settings`, `/emergency-card`, `/consent`, and `/profile` all loaded their
+  intended route; each collected zero browser-console errors. Reloading the
+  dashboard retained the `Hello, Pat` synthetic-session state with zero errors.
+  No controls that create, modify, revoke, book, sign in, sign out, or disclose
+  medical information were used. This is browser route/read persistence
+  evidence only, not a test of form validation, data mutation, access denial,
+  clinician authentication, or cross-role consequences.
 
 ## Remaining release blockers
 
