@@ -49,6 +49,14 @@ authentication and log-sink audit scope.
 
 ## Commands and immutable evidence identifiers
 
+* JWT-migration source reconciliation (2026-08-24): after the selector,
+  emergency/peri-operative, and analytics workflow commits, `rg` finds 63
+  remaining `X-User-Id` occurrences across 30 clinician portal files. This
+  supersedes the earlier 71/34 checkpoint in the AUTH-003 row; no patient-app
+  production source occurrence remains. The count is source coverage only and
+  does not substitute for a rebuilt image, browser workflow, or API runtime
+  proof.
+
 * `cargo test --bin medichain-api auth_challenges -- --nocapture` — pass (2 tests).
 * `cargo test --bin medichain-api jwt_issue_tests -- --nocapture` — pass (1 test).
 * `cargo fmt --all --check` — pass.
