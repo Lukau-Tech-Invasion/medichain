@@ -15,10 +15,10 @@ PRESENT`, and `UNKNOWN`.
 | Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across eight read/navigation routes plus reload persistence. A further headed-browser attempt is blocked: the declared in-app browser skill is absent and the supported Playwright CLI fallback could not download because npm timed out. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
 | Database verification | Migration startup plus targeted idempotency, retention maker-checker, and consent-revocation transition rehearsals; not a full business-write/race or restore verification |
 
-Manual inventory at this checkpoint: 918 tracked source/config files in scope,
-including 241 Rust files, 320 TypeScript/TSX files, and 63 SQL migrations.
+Manual inventory at this checkpoint: 940 tracked source/config files in scope,
+including 272 Rust files, 335 TypeScript/TSX files, and 63 SQL migrations.
 This is inventory coverage, not a statement that every file has been manually
-reviewed. Static follow-up still finds 235 `X-User-Id` references and 152 direct
+reviewed. Static follow-up still finds 124 `X-User-Id` references and 142 direct
 `println!`/`eprintln!`/`dbg!` calls in API source; those counts define remaining
 authentication and log-sink audit scope.
 
