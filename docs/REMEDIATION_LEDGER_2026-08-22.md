@@ -565,6 +565,17 @@ authentication and log-sink audit scope.
   direct application dependency. `hickory-proto` 0.25.2 has one advisory with
   no fixed version; the remaining proposed upgrades must be evaluated as a
   coordinated supported-SDK update. No lockfile override was applied blindly.
+* Idempotency-expiry repair (2026-08-24): the original unique key outlived an
+  operation's TTL and no retention worker reclaimed expired records, making a
+  key permanently unusable despite the stated 24-hour expiry. The claim insert
+  now atomically replaces only an expired record for that exact subject, method,
+  route, and key; a live record continues to win the conflict. `cargo check
+  --bin medichain-api` and the focused idempotency suite (2 tests) passed. A
+  direct PostgreSQL rehearsal inserted an expired synthetic operation, observed
+  the conditional upsert replace it with the new ID/digest/state and future
+  expiry, then deleted the fixture. This fixes TTL reclamation only; it does not
+  add response replay, response-loss proof, multi-replica testing, or atomic
+  coupling of every business write to its idempotency completion marker.
 
 ## Remaining release blockers
 

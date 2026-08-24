@@ -57,11 +57,18 @@ async fn claim_operation(
     key: &str,
     digest: &str,
 ) -> Result<ClaimResult, sqlx::Error> {
-    let inserted = sqlx::query(
+    let claimed = sqlx::query(
         "INSERT INTO idempotency_operations
              (id, subject, method, route, idempotency_key, request_digest, state, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, 'processing', NOW() + ($7 * INTERVAL '1 hour'))
-         ON CONFLICT (subject, method, route, idempotency_key) DO NOTHING",
+         ON CONFLICT (subject, method, route, idempotency_key) DO UPDATE
+         SET id = EXCLUDED.id,
+             request_digest = EXCLUDED.request_digest,
+             state = 'processing',
+             created_at = NOW(),
+             updated_at = NOW(),
+             expires_at = EXCLUDED.expires_at
+         WHERE idempotency_operations.expires_at <= NOW()",
     )
     .bind(Uuid::new_v4())
     .bind(subject)
@@ -72,7 +79,7 @@ async fn claim_operation(
     .bind(OPERATION_TTL_HOURS)
     .execute(pool)
     .await?;
-    if inserted.rows_affected() == 1 {
+    if claimed.rows_affected() == 1 {
         return Ok(ClaimResult::Claimed);
     }
 
@@ -90,8 +97,9 @@ async fn claim_operation(
     Ok(match existing_digest {
         Some(existing) if existing == digest => ClaimResult::Duplicate,
         Some(_) => ClaimResult::DigestMismatch,
-        // A just-expired row can race with the insert. Fail closed; the client
-        // can retry with a fresh operation key after retention removes it.
+        // A concurrent transaction may still hold the expired row's unique key
+        // while the reclaiming upsert is in progress. Fail closed rather than
+        // allowing a second execution in that narrow race.
         None => ClaimResult::Duplicate,
     })
 }
