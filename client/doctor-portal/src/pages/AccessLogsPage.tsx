@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -51,7 +51,7 @@ function AccessLogsPage() {
         // Fetch all access logs from the access logs endpoint
         const response = await fetch(apiUrl('/api/access/logs'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });

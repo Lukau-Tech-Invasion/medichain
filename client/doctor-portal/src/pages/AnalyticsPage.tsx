@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, useTranslation, RestrictedSection } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation, RestrictedSection } from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, XCircle, Calendar, Loader2 } from 'lucide-react';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
@@ -197,7 +197,7 @@ const AnalyticsPage: React.FC = () => {
         const response = await fetch(apiUrl(`/api/platform/analytics/dashboard?start_date=${startDate}&end_date=${endDate}`), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor'
           }
         });
@@ -229,7 +229,7 @@ const AnalyticsPage: React.FC = () => {
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
               'X-Provider-Role': user.role || 'Doctor',
             },
           }
@@ -242,7 +242,7 @@ const AnalyticsPage: React.FC = () => {
         const qualityResponse = await fetch(apiUrl('/api/platform/analytics/quality'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
@@ -314,7 +314,7 @@ const AnalyticsPage: React.FC = () => {
           const opsResponse = await fetch(apiUrl('/api/platform/analytics/operations'), {
             headers: {
               'Content-Type': 'application/json',
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
             },
           });
           if (opsResponse.ok) {
@@ -324,7 +324,7 @@ const AnalyticsPage: React.FC = () => {
           const criticalResponse = await fetch(apiUrl('/api/platform/list/critical-values'), {
             headers: {
               'Content-Type': 'application/json',
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
             },
           });
           if (criticalResponse.ok) {

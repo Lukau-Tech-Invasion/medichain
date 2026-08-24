@@ -17,7 +17,7 @@ import {
   Activity,
   Loader2
 } from 'lucide-react';
-import { apiUrl, EmptyState, useTranslation } from '@medichain/shared';
+import { apiUrl, EmptyState, getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -88,7 +88,7 @@ const BarcodePage: React.FC = () => {
         const response = await fetch(apiUrl('/api/barcode/scans/my'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
@@ -151,7 +151,7 @@ const BarcodePage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role || 'Doctor',
         },
         body: JSON.stringify({
