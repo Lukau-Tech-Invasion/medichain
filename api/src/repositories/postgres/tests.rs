@@ -3505,3 +3505,34 @@ async fn test_pg_auth_challenge_cannot_be_replayed() {
     .expect("replayed consume"));
     pool.close().await;
 }
+
+/// Expired challenges must remain unusable even when their nonce still matches.
+#[tokio::test]
+async fn test_pg_auth_challenge_expiry_is_enforced() {
+    let pool = get_test_pool().await;
+    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7";
+    let challenge_id = uuid::Uuid::new_v4();
+    let nonce = "expired-challenge-nonce";
+    let nonce_hash = {
+        use sha3::{Digest, Sha3_256};
+        format!("{:x}", Sha3_256::digest(nonce.as_bytes()))
+    };
+
+    sqlx::query(
+        "INSERT INTO auth_challenges (id, wallet_address, nonce_hash, created_at, expires_at) \
+         VALUES ($1, $2, $3, NOW() - INTERVAL '2 seconds', NOW() - INTERVAL '1 second')",
+    )
+    .bind(challenge_id)
+    .bind(wallet)
+    .bind(nonce_hash)
+    .execute(&pool)
+    .await
+    .expect("insert expired challenge");
+
+    assert!(
+        !crate::auth_challenges::consume(&pool, &challenge_id.to_string(), wallet, nonce)
+            .await
+            .expect("expired consume")
+    );
+    pool.close().await;
+}
