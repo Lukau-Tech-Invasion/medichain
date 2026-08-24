@@ -451,6 +451,17 @@ authentication and log-sink audit scope.
   which is covered by existing `privacy_logging` sink tests. This is source and
   automated evidence, not a replacement for a full authenticated role/browser
   matrix or a complete handler-by-handler authorization audit.
+* Authorization-gate refresh: `python scripts/check-endpoint-auth.py` scanned
+  424 handlers and reported 74 resource/patient-scoped, 246 role-authorized,
+  67 registered-identity-resolved, zero presence-only, and zero no-decision
+  handlers. It reported 39 `list_all` deployment-wide reads, bounded by the
+  single-organisation startup invariant rather than tenant isolation. `python
+  scripts/check-write-authorization.py` accepted 13 reviewed state-changing
+  handlers, while retaining three explicit owner decisions: the roles allowed
+  to initiate break-glass access, mint its NFC token, and issue a patient NFC
+  identity credential. These are policy decisions requiring clinical/governance
+  approval, not implementation closure; no browser or production role matrix
+  was exercised.
 
 ## Remaining release blockers
 
