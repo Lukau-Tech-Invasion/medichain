@@ -972,6 +972,20 @@ mod tests {
         assert!(matches!(result, Err(TelehealthError::ConfigError(_))));
     }
 
+    #[tokio::test]
+    async fn unavailable_provider_creates_no_session_or_join_credentials() {
+        let service = TelehealthService::with_provider(Box::new(DisabledProvider));
+        let result = service
+            .create_session(make_params("TH-disabled-service-001"))
+            .await;
+
+        assert!(matches!(result, Err(TelehealthError::ConfigError(_))));
+        assert!(service.get_session("TH-disabled-service-001").is_none());
+        assert!(service
+            .join_credentials("TH-disabled-service-001", "any-user", "User", "patient")
+            .is_none());
+    }
+
     #[test]
     fn test_role_to_moderator_mapping() {
         assert!(role_is_moderator("Doctor"));

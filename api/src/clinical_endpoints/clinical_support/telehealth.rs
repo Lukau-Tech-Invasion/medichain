@@ -41,9 +41,8 @@ pub(crate) fn within_join_window(scheduled_start: i64, now: i64) -> bool {
 /// A freshly provisioned session, plus which backend produced its URLs.
 pub(crate) struct ProvisionedSession {
     pub session: crate::clinical::TelehealthSession,
-    /// The video backend that issued the room, or `jitsi-fallback` when the
-    /// configured provider was unreachable. Reported so an operator can tell
-    /// which sessions were created while the primary provider was down.
+    /// The video backend that issued the room. Provider failures return an
+    /// error; this field never represents a fallback room.
     pub platform: String,
 }
 
