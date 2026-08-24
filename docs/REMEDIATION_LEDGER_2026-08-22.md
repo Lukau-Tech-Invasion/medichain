@@ -587,6 +587,15 @@ authentication and log-sink audit scope.
   medical information were used. This is browser route/read persistence
   evidence only, not a test of form validation, data mutation, access denial,
   clinician authentication, or cross-role consequences.
+* Landing favicon repair (2026-08-24): terminal browser evidence found a
+  `404` for the public landing page's implicit `/favicon.ico` request. The
+  landing now declares the existing `/patient/medichain-icon.svg` asset. After
+  the web image rebuilt and only Nginx was recreated healthy, a fresh in-app
+  browser tab loaded the landing page with that icon link and zero console
+  warnings/errors. The pre-recreation patient tab logged two SSE fetch failures
+  while its proxy was deliberately being restarted; the fresh steady-state tab
+  did not reproduce them. This is a P3 public-page repair, not proof of SSE
+  resiliency or authenticated browser workflow correctness.
 
 ## Remaining release blockers
 
