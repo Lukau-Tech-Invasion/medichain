@@ -206,7 +206,7 @@ pub async fn update_demographics(
     if let Err(response) = save_profile(&data, &profile, &entity).await {
         return response;
     }
-    log::info!("demographics updated for patient {patient_id}");
+    log::info!("patient demographics updated");
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "patient_id": patient_id,

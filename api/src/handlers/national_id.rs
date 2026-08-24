@@ -134,7 +134,7 @@ pub async fn simulate_nfc_tap(
     });
     let qr_code = generate_qr_code_base64(&qr_data.to_string());
 
-    log::info!("NFC tap simulated for patient: {}", req.patient_id);
+    log::info!("NFC tap simulated");
 
     HttpResponse::Ok().json(SimulateNfcTapResponse {
         success: true,

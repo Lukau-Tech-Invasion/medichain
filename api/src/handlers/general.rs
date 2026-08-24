@@ -540,7 +540,7 @@ pub async fn register_patient(
         crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
             .await
     {
-        log::error!("Emergency capsule publication failed for {patient_id}: {error}");
+        log::error!("Emergency capsule publication failed: {error}");
         return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
             success: false,
             patient_id,

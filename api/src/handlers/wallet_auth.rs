@@ -260,7 +260,7 @@ pub async fn wallet_register(
     };
 
     if let Err(e) = data.persist_then_cache_user(user).await {
-        log::error!("Failed to persist new user {}: {}", body.wallet_address, e);
+        log::error!("Failed to persist new user: {e}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             success: false,
             error: "User registration could not be persisted".to_string(),

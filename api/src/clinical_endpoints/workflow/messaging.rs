@@ -107,7 +107,7 @@ pub async fn log_symptom(
         })
         .await
     {
-        log::error!("symptom entry persist failed for {}: {}", patient_id, e);
+        log::error!("symptom entry persist failed: {e}");
         return HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
             error: "Could not save the symptom entry".to_string(),
@@ -179,7 +179,7 @@ pub async fn get_symptom_history(
     {
         Ok(r) => r,
         Err(e) => {
-            log::error!("symptom history load failed for {}: {}", patient_id, e);
+            log::error!("symptom history load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not load symptom history".to_string(),
@@ -363,7 +363,7 @@ pub async fn get_messages(
     {
         Ok(r) => r,
         Err(e) => {
-            log::error!("message load failed for {}: {}", current_user_id, e);
+            log::error!("message load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not load messages".to_string(),

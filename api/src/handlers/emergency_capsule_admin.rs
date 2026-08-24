@@ -111,7 +111,7 @@ pub async fn publish_emergency_capsule(
             }))
         }
         Err(e) => {
-            log::error!("Capsule publication failed for {patient_id}: {e}");
+            log::error!("Capsule publication failed: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(
                 error_codes::INTERNAL_ERROR,
                 "Could not publish emergency capsule",
@@ -162,7 +162,7 @@ pub async fn revoke_emergency_capsule(
             HttpResponse::NotFound().json(error_envelope_json(error_codes::NOT_FOUND, &msg, None))
         }
         Err(e) => {
-            log::error!("Capsule revocation failed for {patient_id}: {e}");
+            log::error!("Capsule revocation failed: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(
                 error_codes::INTERNAL_ERROR,
                 "Could not revoke emergency capsule",
@@ -225,7 +225,7 @@ pub async fn get_emergency_capsule_access_log(
             "accesses": entries,
         })),
         Err(e) => {
-            log::error!("Capsule access-log read failed for {patient_id}: {e}");
+            log::error!("Capsule access-log read failed: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(
                 error_codes::INTERNAL_ERROR,
                 "Could not read emergency access log",

@@ -992,7 +992,7 @@ pub async fn get_barcode_scan_history(
     {
         Ok(r) => r,
         Err(e) => {
-            log::error!("scan history load failed for {}: {}", current_user_id, e);
+            log::error!("scan history load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not load scan history".to_string(),

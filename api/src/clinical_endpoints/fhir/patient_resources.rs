@@ -192,7 +192,7 @@ pub async fn fhir_get_patient(
                 // Undecryptable profile: say so in-band rather than emitting a
                 // resource that looks complete and says the patient has no
                 // name, address or next of kin.
-                log::error!("FHIR Patient {patient_id}: profile could not be decrypted");
+                log::error!("FHIR Patient profile could not be decrypted");
                 object.insert(
                     "_name".to_string(),
                     serde_json::json!({
@@ -528,7 +528,7 @@ pub async fn fhir_get_conditions(
         match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
             Some(profile) => profile.emergency_info.chronic_conditions,
             None => {
-                log::error!("FHIR Condition {patient_id}: profile could not be decrypted");
+                log::error!("FHIR Condition profile could not be decrypted");
                 return HttpResponse::ServiceUnavailable().json(serde_json::json!({
                     "resourceType": "OperationOutcome",
                     "issue": [{

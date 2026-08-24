@@ -148,7 +148,7 @@ pub async fn create_mar(
     match outcome {
         Ok(()) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("MAR persistence failed for {}: {e}", record.patient_id);
+            log::error!("MAR persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Failed to save the medication record".to_string(),
@@ -311,7 +311,7 @@ pub async fn administer_medication(
             "message": "Medication administered and recorded"
         })),
         Err(e) => {
-            log::error!("MAR administration failed for {}: {}", patient_id, e);
+            log::error!("MAR administration failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not record the administration".to_string(),
@@ -542,7 +542,7 @@ pub async fn record_fluid(
             "message": "Fluid intake/output recorded"
         })),
         Err(e) => {
-            log::error!("I/O write failed for {}: {}", patient_id, e);
+            log::error!("I/O write failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not record the fluid event".to_string(),
@@ -979,7 +979,7 @@ pub async fn create_iv_site(
                 .map(|_| ())
         };
         if let Err(e) = outcome {
-            log::error!("IV site persistence failed for {}: {e}", site.id);
+            log::error!("IV site persistence failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Failed to save the IV site record".to_string(),

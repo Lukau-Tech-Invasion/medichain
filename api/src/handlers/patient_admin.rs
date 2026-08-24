@@ -251,7 +251,7 @@ pub async fn get_patient_by_id(
             // so this fails loudly instead.
             None => {
                 let reason = unreadable_reason(&entity, &data.encryption_keyring);
-                log::error!("patient {patient_id} exists but its profile is unreadable ({reason})");
+                log::error!("patient profile is unreadable ({reason})");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: format!(

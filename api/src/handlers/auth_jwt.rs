@@ -328,7 +328,7 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
     // success response for a memory-only enrollment would disappear on restart
     // and make server-side assurance checks disagree across replicas.
     if let Err(error) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
-        log::error!("Failed to persist MFA enrollment for {}: {}", wallet, error);
+        log::error!("Failed to persist MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             success: false,
             error: "MFA enrollment is temporarily unavailable".to_string(),
@@ -345,7 +345,7 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
             enrollments.insert(wallet.clone(), record);
         }
         Err(_) => {
-            log::error!("MFA cache is unavailable after persisting enrollment for {wallet}");
+            log::error!("MFA cache is unavailable after persisting enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,
                 error:
@@ -413,7 +413,7 @@ pub async fn mfa_verify(
     }
 
     if let Err(error) = data.update_mfa_enabled(&wallet, true).await {
-        log::error!("Failed to persist MFA activation for {}: {}", wallet, error);
+        log::error!("Failed to persist MFA activation: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             success: false,
             error: "MFA activation is temporarily unavailable".to_string(),
@@ -424,7 +424,7 @@ pub async fn mfa_verify(
         Ok(mut enrollments) => match enrollments.get_mut(&wallet) {
             Some(record) => record.enabled = true,
             None => {
-                log::error!("Persisted MFA activation has no cache record for {wallet}");
+                log::error!("Persisted MFA activation has no cache record");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                     success: false,
                     error: "MFA was stored but cannot be used until the service recovers"
@@ -434,7 +434,7 @@ pub async fn mfa_verify(
             }
         },
         Err(_) => {
-            log::error!("MFA cache is unavailable after activation for {wallet}");
+            log::error!("MFA cache is unavailable after activation");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,
                 error: "MFA was stored but cannot be used until the service recovers".to_string(),
@@ -568,7 +568,7 @@ pub async fn mfa_disable(
     }
 
     if let Err(error) = data.delete_mfa_enrollment(&wallet).await {
-        log::error!("Failed to delete MFA enrollment for {}: {}", wallet, error);
+        log::error!("Failed to delete MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             success: false,
             error: "MFA could not be disabled because the durable record is unavailable"
@@ -581,7 +581,7 @@ pub async fn mfa_disable(
             enrollments.remove(&wallet);
         }
         Err(_) => {
-            log::error!("MFA cache is unavailable after disabling enrollment for {wallet}");
+            log::error!("MFA cache is unavailable after disabling enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,
                 error: "MFA was disabled but the local session cache has not recovered".to_string(),

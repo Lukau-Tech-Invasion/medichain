@@ -140,7 +140,7 @@ pub async fn list_patient_pre_op(
             HttpResponse::Ok().json(items)
         }
         Err(e) => {
-            log::error!("pre-op assessments for {patient_id} could not be listed: {e}");
+            log::error!("pre-op assessments could not be listed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -271,7 +271,7 @@ pub async fn list_patient_operative_notes(
             HttpResponse::Ok().json(items)
         }
         Err(e) => {
-            log::error!("operative note list for {patient_id} failed: {e}");
+            log::error!("operative note list failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -399,7 +399,7 @@ pub async fn list_patient_post_op(
             HttpResponse::Ok().json(items)
         }
         Err(e) => {
-            log::error!("post-op note list for {patient_id} failed: {e}");
+            log::error!("post-op note list failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }

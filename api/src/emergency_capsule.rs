@@ -403,7 +403,7 @@ pub async fn log_access(
     };
 
     if let Err(e) = data.repositories.emergency_capsules.log_access(entry).await {
-        log::error!("Emergency capsule access log write FAILED for {patient_id}: {e}");
+        log::error!("Emergency capsule access log write failed: {e}");
     }
 }
 

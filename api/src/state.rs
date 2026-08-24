@@ -721,7 +721,7 @@ impl AppState {
                             }
                         },
                         Err(e) => {
-                            log::warn!("Failed to decrypt MFA secret for {}: {}", wallet, e);
+                            log::warn!("Failed to decrypt MFA secret: {e}");
                             continue;
                         }
                     };

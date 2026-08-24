@@ -159,7 +159,7 @@ pub async fn nursing_administer_medication(
             "message": "Medication administration recorded"
         })),
         Err(e) => {
-            log::error!("MAR administration failed for {}: {}", patient_id, e);
+            log::error!("MAR administration failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not record the administration".to_string(),
@@ -232,7 +232,7 @@ pub async fn nursing_record_fluid(
             "message": "Fluid intake/output recorded"
         })),
         Err(e) => {
-            log::error!("I/O write failed for {}: {}", patient_id, e);
+            log::error!("I/O write failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Could not record the fluid event".to_string(),

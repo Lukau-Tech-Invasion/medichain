@@ -184,7 +184,7 @@ pub async fn trigger_emergency_notification(
     let profile = match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
         Some(profile) => profile,
         None => {
-            log::error!("emergency notify {patient_id}: profile could not be decrypted");
+            log::error!("emergency notification profile could not be decrypted");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,
                 error: "Emergency contacts could not be read, so no notification was sent."

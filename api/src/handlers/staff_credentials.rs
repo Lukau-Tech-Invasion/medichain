@@ -236,11 +236,7 @@ pub async fn staff_login(
     // must not be able to tell that their credentials were otherwise correct.
     if row.status != "active" {
         record_failure(&identifier);
-        log::warn!(
-            "STAFF_LOGIN_INACTIVE wallet={} status={}",
-            row.wallet_address,
-            row.status
-        );
+        log::warn!("STAFF_LOGIN_INACTIVE status={}", row.status);
         return invalid_credentials();
     }
 
@@ -249,7 +245,7 @@ pub async fn staff_login(
     };
 
     clear_failures(&identifier);
-    log::info!("STAFF_LOGIN_OK wallet={}", user.wallet_address);
+    log::info!("STAFF_LOGIN_OK");
 
     // Note what this response is *not*: it is not a session. The client still
     // has to open the keystore and sign the auth challenge to obtain a JWT, so
