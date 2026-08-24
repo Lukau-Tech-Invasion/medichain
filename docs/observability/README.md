@@ -48,10 +48,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile monito
 `METRICS_TOKEN` is required by the production override. It is passed to the API
 as its bearer-token verifier and mounted in Prometheus at
 `/run/secrets/metrics_token`; it is not written into `prometheus.yml`.
+`GRAFANA_ADMIN_PASSWORD` is also required by the production Compose
+configuration. Compose resolves variables for profile services before deciding
+whether to start them, so set it even when the optional `monitoring` profile is
+not enabled; the configuration has no default Grafana administrator credential.
 
 - **Prometheus** loads `prometheus.yml` + `prometheus-alerts.yml` from this folder
   (mounted read-only) and scrapes `api:8080/api/metrics` on the shared network.
-- **Grafana** (host `:3001`, admin password via `GRAFANA_ADMIN_PASSWORD`) auto-provisions
+- **Grafana** (host `:3001`, administrator password via `GRAFANA_ADMIN_PASSWORD`) auto-provisions
   the Prometheus datasource (`grafana/provisioning/datasources/`) and the bundled
   dashboard (`grafana/provisioning/dashboards/` → mounts `grafana-dashboard.json`).
   The dashboard's `${datasource}` variable resolves to the provisioned Prometheus.

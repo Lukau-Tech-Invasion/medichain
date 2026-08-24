@@ -138,8 +138,11 @@ services:
     container_name: medichain_grafana
     restart: always
     environment:
-      # DEV-friendly default; override GF_SECURITY_ADMIN_PASSWORD in .env.
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Compose interpolates profile services during configuration, so this is
+      # required for every production Compose invocation even when the optional
+      # monitoring profile is not started. That prevents an accidental Grafana
+      # administrator with a public default credential.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3001:3000"
