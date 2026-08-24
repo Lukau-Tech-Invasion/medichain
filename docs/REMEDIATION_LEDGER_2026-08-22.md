@@ -502,6 +502,25 @@ authentication and log-sink audit scope.
   dynamic direct output is confined to blockchain and PostgreSQL test code using
   synthetic signer, commitment, and fixture values. This is a static source
   result, not evidence about external collectors or telemetry sinks.
+* Backup/restore follow-up (2026-08-24): the local Windows backup procedure
+  produced a custom dump, SHA-256 checksum, and row-count manifest in a fresh
+  temporary evidence directory. The restore procedure created the isolated
+  `medichain_remediation_restore_20260824` database. Direct database read-back
+  confirmed 63 `_sqlx_migrations` rows and matched the representative
+  `patients` count (`81` source, `81` restored). The repository's separate
+  `test-backup-manifest.sh` harness was not run because it is intentionally
+  bound to the non-running `medichain_horizon_postgres` isolated stack. The
+  terminal integration did not return the restore script's final manifest
+  transcript, so this is bounded database read-back evidence rather than a
+  claim that every table, decrypted record, or application workflow was
+  restored successfully.
+* Dependency-advisory follow-up (2026-08-24): `cargo audit` was not installed
+  locally. Installation of the external `cargo-audit` developer utility was
+  started without changing MediChain dependencies or lockfiles, but it had not
+  completed by the end of this verification slice. Consequently there is no
+  current local advisory result; the configured CI scan, SBOM generation, and
+  provenance workflow remain unverified until an actual hosted or completed
+  local run is captured.
 
 ## Remaining release blockers
 
