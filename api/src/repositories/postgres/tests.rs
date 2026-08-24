@@ -1895,6 +1895,40 @@ async fn test_pg_approve_is_not_replayable() {
     pool.close().await;
 }
 
+/// Competing approvals must produce one committed transition and one refusal,
+/// even when both callers observe the request while it is still pending.
+#[tokio::test]
+async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let patient_id = format!("PAT-APPROVAL-RACE-{}", Utc::now().timestamp_millis());
+    let now = Utc::now();
+    let svc = pg_patient_access(&pool);
+    let request = svc
+        .create_request(patient_id.clone(), test_provider(), now)
+        .await
+        .expect("create_request failed");
+
+    let (first, second) = tokio::join!(
+        svc.approve_request(&request.id, AccessType::Limited, None, now),
+        svc.approve_request(&request.id, AccessType::Limited, None, now)
+    );
+    let successful = [first, second]
+        .into_iter()
+        .filter(|result| result.is_ok())
+        .count();
+    assert_eq!(successful, 1, "exactly one concurrent approval must succeed");
+
+    let grants = svc
+        .list_grants_by_patient(&patient_id, now)
+        .await
+        .expect("list failed");
+    assert_eq!(grants.len(), 1, "concurrent approval minted multiple grants");
+
+    pool.close().await;
+}
+
 /// A denied request stays denied, and never mints a grant.
 #[tokio::test]
 async fn test_pg_denial_survives_restart() {

@@ -341,6 +341,12 @@ authentication and log-sink audit scope.
   JITSI_APP_ID and JITSI_APP_SECRET token authentication`. No provider request
   or application data mutation occurred. Authenticated-room and provider-outage
   evidence remain absent.
+* Patient-access approval race probe: `cargo test --bin medichain-api
+  test_pg_concurrent_approvals_mint_exactly_one_grant -- --nocapture` passed
+  (`1 passed`, 446 filtered, 10.87 seconds). Two simultaneous PostgreSQL
+  approval attempts produced exactly one successful transition and one
+  persisted grant. This is repository/database evidence only; authenticated
+  cross-role and browser approval workflow coverage remain absent.
 
 ## Remaining release blockers
 
