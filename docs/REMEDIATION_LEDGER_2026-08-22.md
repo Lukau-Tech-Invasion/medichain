@@ -676,6 +676,13 @@ authentication and log-sink audit scope.
   rollback cases), and the two-case `mobile_records` filter all passed. This is
   local source and targeted database-test evidence, not a deployment or browser
   workflow qualification.
+* Post-refactor full API regression (2026-08-24): `cargo test --bin
+  medichain-api` completed with `454 passed; 0 failed; 1 ignored` in 605.72
+  seconds. The ignored case is the documented finalized-chain E2E, which needs
+  a running MediChain development node. This validates the current API source,
+  including the strict-lint refactor, against its local test and PostgreSQL
+  harness; it does not supply blockchain, browser mutation, external provider,
+  hosted CI, or production-release-image proof.
 
 ## Remaining release blockers
 
