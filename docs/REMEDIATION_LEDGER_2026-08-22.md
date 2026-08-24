@@ -334,6 +334,13 @@ authentication and log-sink audit scope.
   only `STAFF_LOGIN_UNKNOWN identifier_hash=ae1414ceb69a`. This verifies one
   operational log path only; it is not complete metric, collector, or browser
   leakage coverage.
+* Telehealth production-startup probe: a disposable current-image container
+  with `APP_ENV=production`, signatures enabled, and telehealth enabled using
+  default Jitsi configuration exited before database startup with `Refusing
+  production startup: Jitsi must use a non-public self-hosted domain with
+  JITSI_APP_ID and JITSI_APP_SECRET token authentication`. No provider request
+  or application data mutation occurred. Authenticated-room and provider-outage
+  evidence remain absent.
 
 ## Remaining release blockers
 
