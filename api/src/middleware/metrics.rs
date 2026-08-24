@@ -169,32 +169,58 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum MetricsAuthorizationMode {
+    BearerToken,
+    DemoRegisteredIdentity,
+    NotConfigured,
+}
+
+fn metrics_authorization_mode(is_demo: bool, token: Option<&str>) -> MetricsAuthorizationMode {
+    match token.filter(|value| !value.is_empty()) {
+        Some(_) => MetricsAuthorizationMode::BearerToken,
+        None if is_demo => MetricsAuthorizationMode::DemoRegisteredIdentity,
+        None => MetricsAuthorizationMode::NotConfigured,
+    }
+}
+
 pub async fn metrics_endpoint(
     data: actix_web::web::Data<crate::AppState>,
     http_req: actix_web::HttpRequest,
 ) -> impl Responder {
     // Metrics describe internal operational behaviour — request volumes, error
     // rates, latency by route — which is reconnaissance for an attacker and was
-    // previously readable by anyone. Require a known caller. `METRICS_TOKEN`
-    // exists because Prometheus scrapes without a user identity; when it is set,
-    // a matching `Authorization: Bearer` is accepted instead.
-    let authorized = match std::env::var("METRICS_TOKEN") {
-        Ok(token) if !token.is_empty() => http_req
-            .headers()
-            .get(actix_web::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(|presented| constant_time_eq(presented.as_bytes(), token.as_bytes()))
-            .unwrap_or(false),
-        // RESOLVE the caller, don't just observe a header. A first cut of this
-        // used `get_current_user_id(...).is_some()`, which is satisfied by
-        // `X-User-Id: anything` — the precise "authentication mistaken for
-        // authorization" defect this whole pass exists to remove. The suite's
-        // forged-identity assertion caught it.
-        _ => crate::support::get_current_user_id(&http_req)
-            .and_then(|id| crate::support::get_user(&data, &id))
-            .is_some(),
-    };
+    // previously readable by anyone. Production must use `METRICS_TOKEN`:
+    // `/api/metrics` is deliberately bypassed by request-signature middleware
+    // for Prometheus, so a known legacy `X-User-Id` is not cryptographic proof.
+    // Demo retains the registered-identity fallback for local diagnostics only.
+    let token = std::env::var("METRICS_TOKEN").ok();
+    let authorized =
+        match metrics_authorization_mode(crate::support::is_demo_mode(), token.as_deref()) {
+            MetricsAuthorizationMode::BearerToken => http_req
+                .headers()
+                .get(actix_web::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .map(|presented| {
+                    constant_time_eq(
+                        presented.as_bytes(),
+                        token.as_deref().unwrap_or_default().as_bytes(),
+                    )
+                })
+                .unwrap_or(false),
+            // RESOLVE the caller, don't just observe a header. A first cut of this
+            // used `get_current_user_id(...).is_some()`, which is satisfied by
+            // `X-User-Id: anything` — the precise "authentication mistaken for
+            // authorization" defect this whole pass exists to remove. The suite's
+            // forged-identity assertion caught it.
+            MetricsAuthorizationMode::DemoRegisteredIdentity => {
+                crate::support::get_current_user_id(&http_req)
+                    .and_then(|id| crate::support::get_user(&data, &id))
+                    .is_some()
+            }
+            MetricsAuthorizationMode::NotConfigured => false,
+        };
     if !authorized {
         return HttpResponse::Unauthorized().json(serde_json::json!({
             "error": {
@@ -302,5 +328,25 @@ mod tests {
             .inc();
         let families = m.registry.gather();
         assert!(!families.is_empty());
+    }
+
+    #[test]
+    fn production_metrics_require_a_bearer_token_configuration() {
+        assert_eq!(
+            metrics_authorization_mode(false, None),
+            MetricsAuthorizationMode::NotConfigured
+        );
+        assert_eq!(
+            metrics_authorization_mode(false, Some("")),
+            MetricsAuthorizationMode::NotConfigured
+        );
+        assert_eq!(
+            metrics_authorization_mode(false, Some("scrape-secret")),
+            MetricsAuthorizationMode::BearerToken
+        );
+        assert_eq!(
+            metrics_authorization_mode(true, None),
+            MetricsAuthorizationMode::DemoRegisteredIdentity
+        );
     }
 }
