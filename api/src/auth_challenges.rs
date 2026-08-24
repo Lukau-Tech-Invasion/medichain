@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 pub const CHALLENGE_TTL_SECS: i64 = 300;
+pub const MAX_CHALLENGES_PER_WALLET_PER_MINUTE: i64 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IssuedAuthChallenge {
@@ -17,6 +18,12 @@ pub struct IssuedAuthChallenge {
     pub nonce: String,
     pub message: String,
     pub expires_in_secs: i64,
+}
+
+#[derive(Debug)]
+pub enum IssueError {
+    Database(sqlx::Error),
+    RateLimited,
 }
 
 pub fn login_message(challenge_id: &str, wallet_address: &str, nonce: &str) -> String {
@@ -27,13 +34,31 @@ fn nonce_hash(nonce: &str) -> String {
     format!("{:x}", Sha3_256::digest(nonce.as_bytes()))
 }
 
-pub async fn issue(
-    pool: &PgPool,
-    wallet_address: &str,
-) -> Result<IssuedAuthChallenge, sqlx::Error> {
+pub async fn issue(pool: &PgPool, wallet_address: &str) -> Result<IssuedAuthChallenge, IssueError> {
     let challenge_id = Uuid::new_v4();
     let nonce = Uuid::new_v4().to_string();
     let expires_at = Utc::now() + Duration::seconds(CHALLENGE_TTL_SECS);
+    let mut transaction = pool.begin().await.map_err(IssueError::Database)?;
+
+    // Serialize issuance for this wallet across all API instances. The generic
+    // IP limiter remains useful for broad DoS, but it is process-local and
+    // cannot safely enforce a per-wallet authentication budget under replicas.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(wallet_address)
+        .execute(&mut *transaction)
+        .await
+        .map_err(IssueError::Database)?;
+    let recent: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_challenges WHERE wallet_address = $1 \
+         AND created_at >= NOW() - INTERVAL '1 minute'",
+    )
+    .bind(wallet_address)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(IssueError::Database)?;
+    if recent >= MAX_CHALLENGES_PER_WALLET_PER_MINUTE {
+        return Err(IssueError::RateLimited);
+    }
 
     sqlx::query(
         "INSERT INTO auth_challenges (id, wallet_address, nonce_hash, expires_at) \
@@ -43,8 +68,11 @@ pub async fn issue(
     .bind(wallet_address)
     .bind(nonce_hash(&nonce))
     .bind(expires_at)
-    .execute(pool)
-    .await?;
+    .execute(&mut *transaction)
+    .await
+    .map_err(IssueError::Database)?;
+
+    transaction.commit().await.map_err(IssueError::Database)?;
 
     Ok(IssuedAuthChallenge {
         message: login_message(&challenge_id.to_string(), wallet_address, &nonce),

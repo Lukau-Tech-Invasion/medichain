@@ -41,7 +41,14 @@ pub async fn get_auth_challenge(
     };
     let challenge = match crate::auth_challenges::issue(pool, &body.wallet_address).await {
         Ok(challenge) => challenge,
-        Err(error) => {
+        Err(crate::auth_challenges::IssueError::RateLimited) => {
+            return HttpResponse::TooManyRequests().json(ErrorResponse {
+                success: false,
+                error: "Too many authentication challenges. Please try again shortly.".to_string(),
+                code: "AUTH_CHALLENGE_RATE_LIMITED".to_string(),
+            });
+        }
+        Err(crate::auth_challenges::IssueError::Database(error)) => {
             log::error!("Could not create authentication challenge: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,

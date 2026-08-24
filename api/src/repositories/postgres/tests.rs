@@ -3443,3 +3443,36 @@ async fn test_pg_audit_outbox_rejects_an_event_with_no_identity() {
 
     pool.close().await;
 }
+
+/// Concurrent challenge issuance across pools must share one durable budget.
+#[tokio::test]
+async fn test_pg_auth_challenge_throttle_is_atomic_across_concurrent_requests() {
+    let pool = get_test_pool().await;
+    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7".to_string();
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for _ in 0..(crate::auth_challenges::MAX_CHALLENGES_PER_WALLET_PER_MINUTE + 1) {
+        let pool = pool.clone();
+        let wallet = wallet.clone();
+        tasks.spawn(async move { crate::auth_challenges::issue(&pool, &wallet).await });
+    }
+
+    let mut issued = 0;
+    let mut limited = 0;
+    while let Some(result) = tasks.join_next().await {
+        match result.expect("challenge task must not panic") {
+            Ok(_) => issued += 1,
+            Err(crate::auth_challenges::IssueError::RateLimited) => limited += 1,
+            Err(crate::auth_challenges::IssueError::Database(error)) => {
+                panic!("unexpected challenge database error: {error}")
+            }
+        }
+    }
+
+    assert_eq!(
+        issued,
+        crate::auth_challenges::MAX_CHALLENGES_PER_WALLET_PER_MINUTE
+    );
+    assert_eq!(limited, 1);
+    pool.close().await;
+}
