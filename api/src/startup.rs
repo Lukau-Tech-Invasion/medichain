@@ -382,6 +382,20 @@ pub fn dev_account_addresses() -> Vec<String> {
         .collect()
 }
 
+fn privileged_dev_account_error(offenders: &[(String, String)]) -> String {
+    let mut roles: Vec<&str> = offenders.iter().map(|(_, role)| role.as_str()).collect();
+    roles.sort_unstable();
+    roles.dedup();
+    format!(
+        "Refusing to start: {} well-known Substrate development account(s) hold privileged role(s) \
+         in this deployment ({}). Their private keys are published, so anyone could authenticate \
+         as them. Deactivate or delete these users, or set IS_DEMO=true if this is a demonstration \
+         instance. The affected wallet addresses are intentionally omitted from operational output.",
+        offenders.len(),
+        roles.join(", ")
+    )
+}
+
 /// Refuse to start a production instance where a well-known dev key holds a
 /// privileged role.
 ///
@@ -423,17 +437,7 @@ pub async fn validate_no_privileged_dev_accounts(
         return Ok(());
     }
 
-    let listed = offenders
-        .iter()
-        .map(|(wallet, role)| format!("{role} {wallet}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(format!(
-        "Refusing to start: well-known Substrate development account(s) hold privileged roles \
-         in this deployment ({listed}). Their private keys are published, so anyone could \
-         authenticate as them. Deactivate or delete these users, or set IS_DEMO=true if this \
-         is a demonstration instance."
-    ))
+    Err(privileged_dev_account_error(&offenders))
 }
 
 /// Refuse to serve two organisations from one instance (ADR-0007).
@@ -556,5 +560,19 @@ mod dev_account_tests {
             addresses.contains(&"5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string()),
             "//Bob must derive to his published address, got: {addresses:?}"
         );
+    }
+
+    #[test]
+    fn privileged_dev_account_error_omits_wallet_addresses() {
+        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+        let error = privileged_dev_account_error(&[
+            (wallet.to_string(), "Admin".to_string()),
+            ("another-wallet".to_string(), "Doctor".to_string()),
+        ]);
+
+        assert!(!error.contains(wallet));
+        assert!(!error.contains("another-wallet"));
+        assert!(error.contains("2 well-known"));
+        assert!(error.contains("Admin, Doctor"));
     }
 }
