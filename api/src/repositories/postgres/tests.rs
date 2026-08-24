@@ -3476,3 +3476,32 @@ async fn test_pg_auth_challenge_throttle_is_atomic_across_concurrent_requests() 
     assert_eq!(limited, 1);
     pool.close().await;
 }
+
+/// A durable login challenge is single-use even when a later request has the
+/// same wallet, nonce, and challenge identifier.
+#[tokio::test]
+async fn test_pg_auth_challenge_cannot_be_replayed() {
+    let pool = get_test_pool().await;
+    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7";
+    let challenge = crate::auth_challenges::issue(&pool, wallet)
+        .await
+        .expect("issue challenge");
+
+    assert!(crate::auth_challenges::consume(
+        &pool,
+        &challenge.challenge_id,
+        wallet,
+        &challenge.nonce,
+    )
+    .await
+    .expect("first consume"));
+    assert!(!crate::auth_challenges::consume(
+        &pool,
+        &challenge.challenge_id,
+        wallet,
+        &challenge.nonce,
+    )
+    .await
+    .expect("replayed consume"));
+    pool.close().await;
+}
