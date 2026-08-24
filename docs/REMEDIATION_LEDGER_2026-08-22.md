@@ -43,6 +43,7 @@ authentication and log-sink audit scope.
 | TEST-002 | P2 | The clinician frontend full-test gate was vulnerable to a legitimate crypto test exceeding the global 10-second timeout under suite contention; compatibility warnings remain. | `client/doctor-portal/src/store/credentialKeystore.test.ts`, Vitest configuration, affected page rendering keys | Patient full suite passed: 26 files, 82 tests. The seed-derived credential round-trip has a local 30-second budget; the fresh complete clinician suite passed 83 files / 304 tests in 177.16 seconds. Focused provider and note-template duplicate-key tests remain green. React Router v7 future warnings remain. | No browser mutation or production build proof for these cases. | Unit tests are not browser evidence. The keystore test is security-relevant because it covers a clinician signing credential. | pending | PARTIALLY FIXED |
 | UI-001 | P3 | The patient wearable page force-cast typed API envelopes to UI arrays and called the readings route with a patient ID although the API path parameter is a device ID. | `client/patient-app/src/pages/WearablesPage.tsx`, its focused test, `client/shared/src/api/endpoints.ts`, shared wearable types, API wearable handlers | The page now consumes typed device/reading envelopes, requests readings for each returned device ID, maps server records into the display model, and retains the latest supported metric per type. The focused contract test and patient typecheck pass; full patient suite passed 26 files / 83 tests. | Source comparison confirms `getWearableDevices()` returns `{ success, devices, count }`, `getWearableReadings()` returns `{ success, readings, count }`, and `/api/wearables/readings/{device_id}` requires a device ID. | No live wearable integration, browser flow, or authenticated API read-back. Server-provided trend/history semantics remain limited to the current page display model. | pending | PARTIALLY FIXED |
 | SC-001 | P1 | The separately locked Substrate/Polkadot node dependency graph contains unresolved RustSec vulnerabilities and unsound/unmaintained crates. | `blockchain/Cargo.lock`, upstream Substrate/Polkadot dependency constraints | `cargo audit --file blockchain/Cargo.lock --no-yanked` scanned 1,171 packages and reported 10 vulnerabilities plus 13 allowed warnings. A dependency-tree trace connects affected packages to node networking/RPC/tracing components. | No node is currently running, so external reachability and exploitability are not verified; vulnerable versions are nevertheless present in the lockfile. | No blockchain runtime, peer-network, or multi-validator proof. | pending | STILL PRESENT |
+| SC-002 | P1 | The main API workspace fails its configured dependency-policy gate due to current RustSec findings and unresolved license metadata/policy mismatches. | Root `Cargo.lock`, `crypto/Cargo.toml`, `deny.toml`, and upstream Actix/Reqwest/SQLx/Subxt dependency constraints | `cargo deny check` failed. Advisory-only output confirms `RUSTSEC-2026-0258` in `h2` 0.3.27 (via Actix) and 0.4.15 (via Reqwest/Tonic), plus unmaintained `RUSTSEC-2026-0173` (`proc-macro-error2`) and `RUSTSEC-2026-0215` (`smallstr`) in the Subxt graph. License output rejects transitive NCSA and CDLA-Permissive-2.0 packages and identifies `medichain-crypto` as unlicensed. | Lockfile evidence only; no exploitability, runtime reachability, or upstream upgrade compatibility has been demonstrated. | No browser, provider, or deployment evidence applies. | pending | STILL PRESENT |
 | CI-001 | P2 | API image artifacts lacked a machine-verifiable source revision and client CI could resolve dependencies differently from the committed lockfile. | `api/Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `client/package-lock.json` | API runtime image now carries OCI `org.opencontainers.image.revision`; local Compose explicitly marks builds `local-unverified`. CI builds the API using `github.sha` and inspects the image label for exact equality. Client and Lighthouse CI now use lockfile-enforced `npm ci`; a local `npm ci --dry-run --ignore-scripts` accepted the committed lockfile. | No successful Docker rebuild after this change and no hosted CI run; therefore no release artifact, digest, or registry attestation evidence yet. | Not applicable. | pending | PARTIALLY FIXED |
 
 ## Commands and immutable evidence identifiers
@@ -690,10 +691,22 @@ authentication and log-sink audit scope.
   `/health/ready` returned `200`. The image label remains `local-unverified`,
   so this is current local-runtime evidence only, not hosted CI, registry
   attestation, or release provenance.
+* Main-workspace dependency-policy audit (2026-08-24): `cargo deny check`
+  failed (`advisories FAILED`, `licenses FAILED`; bans and sources passed).
+  Advisory-only extraction confirms `RUSTSEC-2026-0258` in locked `h2` 0.3.27
+  through `actix-http`/`actix-web` and 0.4.15 through
+  `reqwest`/`tonic`/`hyper`; `RUSTSEC-2026-0173` in `proc-macro-error2` and
+  `RUSTSEC-2026-0215` in `smallstr`, both reached through Subxt. The policy
+  also rejects NCSA (`libfuzzer-sys` through image/qrcode) and
+  CDLA-Permissive-2.0 (`webpki` root-cert packages through SQLx and Subxt),
+  while `medichain-crypto` has no declared SPDX license. These are confirmed
+  current lockfile/policy facts, not an exploitability finding. No dependency
+  or license-policy override was applied without a compatibility and legal
+  decision.
 
 ## Remaining release blockers
 
-`DATA-001`, `PRIV-001`, and `SC-001` remain P1 blockers. SEC-001, SEC-002,
+`DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
 APP-001, and INT-001 require their missing runtime, browser, database, and
 external-service evidence before they can become `CONFIRMED FIXED`. The Phase
 B/C trust, session, outbox, consent, and durability work has not been closed
