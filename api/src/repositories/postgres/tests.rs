@@ -1382,6 +1382,16 @@ async fn test_pg_mobile_device_authority_survives_restart_and_revocation() {
         .revoke_device_durable(&device.id, "phone lost".into(), Utc::now())
         .await
         .expect("revoke device");
+    let session_status: String =
+        sqlx::query_scalar("SELECT status FROM protected_mobile_record_sessions WHERE id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read revoked protected session");
+    assert_eq!(
+        session_status, "revoked",
+        "device revocation must revoke active protected sessions"
+    );
     let after_restart = MobileRecordStore::with_pool(pool.clone());
     assert_eq!(
         after_restart

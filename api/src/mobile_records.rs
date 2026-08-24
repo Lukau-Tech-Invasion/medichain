@@ -261,13 +261,25 @@ impl MobileRecordStore {
         if reason.trim().is_empty() {
             return Err("A revocation reason is required");
         }
-        let mut transaction = self.pool.as_ref().expect("pool checked").begin().await.map_err(|_| "Mobile device store is unavailable")?;
+        let mut transaction = self
+            .pool
+            .as_ref()
+            .expect("pool checked")
+            .begin()
+            .await
+            .map_err(|_| "Mobile device store is unavailable")?;
         let row: Option<(String,String,String,String,String,String,Option<DateTime<Utc>>,Option<DateTime<Utc>>,Option<String>)> = sqlx::query_as("UPDATE patient_mobile_devices SET status = 'revoked', revoked_at = $2, revocation_reason = $3 WHERE id = $1 AND status = 'active' RETURNING id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason")
             .bind(device_id).bind(now).bind(&reason).fetch_optional(&mut *transaction).await.map_err(|_| "Mobile device store is unavailable")?;
-        let device = row.map(row_to_device).transpose()?.ok_or("Mobile device not found")?;
+        let device = row
+            .map(row_to_device)
+            .transpose()?
+            .ok_or("Mobile device not found")?;
         sqlx::query("UPDATE protected_mobile_record_sessions SET status = 'revoked', revoked_at = $2, revoke_reason = $3 WHERE device_id = $1 AND status = 'active'")
             .bind(device_id).bind(now).bind(&reason).execute(&mut *transaction).await.map_err(|_| "Mobile device store is unavailable")?;
-        transaction.commit().await.map_err(|_| "Mobile device store is unavailable")?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| "Mobile device store is unavailable")?;
         Ok(device)
     }
 
