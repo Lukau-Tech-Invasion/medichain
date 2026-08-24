@@ -711,6 +711,13 @@ authentication and log-sink audit scope.
   advisories` no longer reports the former 0.4.15 instance; it still reports
   the Actix-bound 0.3.27 instance and the two Subxt maintenance advisories.
   This reduces, but does not close, `SC-002`.
+* Post-`h2` full API regression (2026-08-24): `cargo test --bin
+  medichain-api` completed with `454 passed; 0 failed; 1 ignored` in 731.57
+  seconds after rebuilding the affected HTTP, SQLx, and Subxt test graph. The
+  ignored finalized-chain E2E still needs a running MediChain development node.
+  This validates the lockfile update against the local API and PostgreSQL test
+  harness only; it does not close the remaining dependency-policy, blockchain,
+  provider, browser, CI, or production-artifact gaps.
 
 ## Remaining release blockers
 
