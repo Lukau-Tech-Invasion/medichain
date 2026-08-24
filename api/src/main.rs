@@ -242,9 +242,7 @@ async fn main() -> std::io::Result<()> {
                                  unknown schema. Fix the migration, or set IS_DEMO=true for a \
                                  synthetic-data demo."
                             );
-                            return Err(std::io::Error::other(format!(
-                                "database migrations failed: {e}"
-                            )));
+                            return Err(std::io::Error::other("database migrations failed"));
                         }
                     } else {
                         println!("  [OK] Migrations completed");
@@ -285,7 +283,7 @@ async fn main() -> std::io::Result<()> {
                              healthy. Fix connectivity, or set IS_DEMO=true for a \
                              synthetic-data demo."
                         );
-                        return Err(std::io::Error::other(format!("database unreachable: {e}")));
+                        return Err(std::io::Error::other("database unreachable"));
                     }
                 }
             }

@@ -487,6 +487,14 @@ authentication and log-sink audit scope.
   use the actual `/health` liveness route. This is local demo-runtime and
   database-startup evidence only; it does not qualify production credentials,
   alert delivery, external dependencies, or browser role workflows.
+* Startup process-error privacy follow-up: database migration and connectivity
+  startup failures now return stable `database migrations failed` or
+  `database unreachable` categories rather than interpolating underlying
+  errors into process-level output. The redacted structured logger still
+  retains operational diagnostics. `cargo check --bin medichain-api` passed,
+  and `cargo test --bin medichain-api dev_account_tests -- --nocapture`
+  passed (`2 passed`, `451 filtered`). This narrows one direct-output path;
+  it does not qualify collectors, all error paths, or browser telemetry.
 
 ## Remaining release blockers
 
