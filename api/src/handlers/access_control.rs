@@ -8,7 +8,9 @@
 //! See [`crate::patient_access`] for the store and the state machine.
 
 use super::*;
-use crate::patient_access::{AccessType, RequestingProvider, STORE_UNAVAILABLE};
+use crate::patient_access::{
+    AccessType, RequestingProvider, PENDING_REQUEST_EXISTS, STORE_UNAVAILABLE,
+};
 use crate::repositories::traits::GuardianPermission;
 
 const MAX_ACCESS_GRANT_DAYS: i64 = 30;
@@ -70,6 +72,12 @@ fn unavailable() -> HttpResponse {
 fn transition_error(error: &'static str) -> HttpResponse {
     if error == STORE_UNAVAILABLE {
         unavailable()
+    } else if error == PENDING_REQUEST_EXISTS {
+        HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: error.to_string(),
+            code: "ACCESS_REQUEST_ALREADY_PENDING".to_string(),
+        })
     } else {
         bad_request(error)
     }

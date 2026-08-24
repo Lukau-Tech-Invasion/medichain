@@ -1936,6 +1936,39 @@ async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
     pool.close().await;
 }
 
+/// A provider may not flood one patient's approval queue with equivalent
+/// pending requests, even when two API instances submit concurrently.
+#[tokio::test]
+async fn test_pg_concurrent_access_requests_create_exactly_one_pending_request() {
+    let pool = get_test_pool().await;
+    let patient_id = format!("PAT-REQUEST-RACE-{}", Utc::now().timestamp_millis());
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+
+    let (first, second) = tokio::join!(
+        service.create_request(patient_id.clone(), test_provider(), now),
+        service.create_request(patient_id.clone(), test_provider(), now)
+    );
+    assert_eq!(
+        [first.is_ok(), second.is_ok()]
+            .into_iter()
+            .filter(|success| *success)
+            .count(),
+        1,
+        "one provider may create only one pending request for a patient"
+    );
+    assert!([first, second]
+        .into_iter()
+        .any(|result| matches!(result, Err(crate::patient_access::PENDING_REQUEST_EXISTS))));
+    let requests = service
+        .list_requests_by_patient(&patient_id)
+        .await
+        .expect("list requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].status, "pending");
+    pool.close().await;
+}
+
 /// Approval and denial compete for the same pending row. Whichever transition
 /// wins must make the other a no-op, and only approval may mint a grant.
 #[tokio::test]

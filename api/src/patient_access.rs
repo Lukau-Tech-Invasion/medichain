@@ -21,7 +21,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::repositories::traits::{
-    AccessGrantEntity, AccessRequestEntity, PatientAccessRepository,
+    AccessGrantEntity, AccessRequestEntity, PatientAccessRepository, RepositoryError,
 };
 
 /// How much of the record a grant opens up.
@@ -61,6 +61,8 @@ pub struct RequestingProvider {
 pub const STORE_UNAVAILABLE: &str = "Patient access records are unavailable";
 const REQUEST_NOT_FOUND: &str = "Access request not found";
 const REQUEST_ALREADY_DECIDED: &str = "Access request has already been decided";
+pub const PENDING_REQUEST_EXISTS: &str =
+    "A pending access request already exists for this provider and patient";
 const GRANT_NOT_FOUND: &str = "Access grant not found";
 const GRANT_NOT_ACTIVE: &str = "Access grant is not active";
 
@@ -106,10 +108,10 @@ impl PatientAccessService {
             reason: provider.reason,
             status: "pending".to_string(),
         };
-        self.repo.create_request(request).await.map_err(|e| {
-            log::error!("patient access: create_request failed: {e}");
-            STORE_UNAVAILABLE
-        })
+        self.repo
+            .create_request(request)
+            .await
+            .map_err(map_create_request_error)
     }
 
     /// Create a request and mandatory outbox event in the same production
@@ -141,10 +143,7 @@ impl PatientAccessService {
         self.repo
             .create_request_with_audit(request, event)
             .await
-            .map_err(|e| {
-                log::error!("patient access: create_request_with_audit failed: {e}");
-                STORE_UNAVAILABLE
-            })
+            .map_err(map_create_request_error)
     }
 
     /// This patient's requests, newest first.
@@ -375,6 +374,16 @@ impl PatientAccessService {
             Ok(Some(_)) => GRANT_NOT_ACTIVE,
             Ok(None) => GRANT_NOT_FOUND,
             Err(_) => STORE_UNAVAILABLE,
+        }
+    }
+}
+
+fn map_create_request_error(error: RepositoryError) -> &'static str {
+    match error {
+        RepositoryError::Duplicate(_) => PENDING_REQUEST_EXISTS,
+        other => {
+            log::error!("patient access: create request failed: {other}");
+            STORE_UNAVAILABLE
         }
     }
 }

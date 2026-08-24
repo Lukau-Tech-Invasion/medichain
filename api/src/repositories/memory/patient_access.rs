@@ -39,10 +39,17 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         &self,
         request: AccessRequestEntity,
     ) -> RepositoryResult<AccessRequestEntity> {
-        self.requests
-            .write()
-            .map_err(|_| poisoned("request"))?
-            .insert(request.id.clone(), request.clone());
+        let mut requests = self.requests.write().map_err(|_| poisoned("request"))?;
+        if requests.values().any(|existing| {
+            existing.patient_id == request.patient_id
+                && existing.provider_id == request.provider_id
+                && existing.status == "pending"
+        }) {
+            return Err(RepositoryError::Duplicate(
+                "a pending access request already exists for this provider and patient".into(),
+            ));
+        }
+        requests.insert(request.id.clone(), request.clone());
         Ok(request)
     }
 
