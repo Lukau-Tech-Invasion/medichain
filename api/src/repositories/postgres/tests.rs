@@ -1929,6 +1929,49 @@ async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
     pool.close().await;
 }
 
+/// Approval and denial compete for the same pending row. Whichever transition
+/// wins must make the other a no-op, and only approval may mint a grant.
+#[tokio::test]
+async fn test_pg_approval_and_denial_race_resolves_once() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let patient_id = format!("PAT-DECISION-RACE-{}", Utc::now().timestamp_millis());
+    let now = Utc::now();
+    let svc = pg_patient_access(&pool);
+    let request = svc
+        .create_request(patient_id.clone(), test_provider(), now)
+        .await
+        .expect("create_request failed");
+
+    let (approval, denial) = tokio::join!(
+        svc.approve_request(&request.id, AccessType::Limited, None, now),
+        svc.deny_request(&request.id)
+    );
+    let successful = [approval.is_ok(), denial.is_ok()]
+        .into_iter()
+        .filter(|success| *success)
+        .count();
+    assert_eq!(successful, 1, "only one competing decision may succeed");
+
+    let stored = svc
+        .get_request(&request.id)
+        .await
+        .expect("request lookup failed")
+        .expect("request disappeared");
+    assert!(matches!(stored.status.as_str(), "approved" | "denied"));
+    let grants = svc
+        .list_grants_by_patient(&patient_id, now)
+        .await
+        .expect("list failed");
+    assert!(grants.len() <= 1, "decision race minted multiple grants");
+    if stored.status == "denied" {
+        assert!(grants.is_empty(), "denied request minted a grant");
+    }
+
+    pool.close().await;
+}
+
 /// A denied request stays denied, and never mints a grant.
 #[tokio::test]
 async fn test_pg_denial_survives_restart() {

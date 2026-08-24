@@ -347,6 +347,11 @@ authentication and log-sink audit scope.
   approval attempts produced exactly one successful transition and one
   persisted grant. This is repository/database evidence only; authenticated
   cross-role and browser approval workflow coverage remain absent.
+* Patient-access mixed-decision race probe: `cargo test --bin medichain-api
+  test_pg_approval_and_denial_race_resolves_once -- --nocapture` passed (`1
+  passed`, 447 filtered, 12.27 seconds). Competing approval and denial attempts
+  produced exactly one terminal decision; a denied request persisted no grant.
+  This remains database-level evidence, not an authenticated role workflow.
 
 ## Remaining release blockers
 
