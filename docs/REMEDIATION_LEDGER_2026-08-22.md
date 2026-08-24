@@ -326,6 +326,14 @@ authentication and log-sink audit scope.
   same parallel run. The ignored blockchain E2E test still requires a running
   MediChain development node; browser and deployed-image qualification remain
   separate evidence layers.
+* Privacy runtime follow-up: rebuilt local image
+  `sha256:cd924697f69e22529e96fd79430d5a566dea6c821d35a08603b16b8b879e06ff`
+  was healthy. A shaped invalid staff login carrying the unique synthetic
+  identifier `privacy-runtime-9e2f5a3b-1d26-4b90-a7d3-58b744cff111` returned
+  `401`; post-request container logs did not contain that identifier and showed
+  only `STAFF_LOGIN_UNKNOWN identifier_hash=ae1414ceb69a`. This verifies one
+  operational log path only; it is not complete metric, collector, or browser
+  leakage coverage.
 
 ## Remaining release blockers
 
