@@ -275,6 +275,13 @@ authentication and log-sink audit scope.
   Router v7 future warnings appeared in test-local `MemoryRouter` paths. This
   is component/static coverage, not browser workflow, API, or database
   read-back evidence.
+* Fresh approval and consent transition probes: `cargo test --bin
+  medichain-api test_pg_approve_is_not_replayable -- --nocapture` passed one
+  PostgreSQL-backed test (440 filtered, 6.74 seconds); `test_pg_expiry_is_applied_and_lapsed_grants_are_not_revocable`
+  passed one PostgreSQL-backed test (440 filtered, 7.29 seconds); and
+  `test_consent_active` passed one memory-repository consent state test (440
+  filtered). These tests do not exercise authenticated roles, a real browser,
+  or concurrent approval attempts.
 
 ## Remaining release blockers
 
