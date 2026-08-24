@@ -718,6 +718,14 @@ authentication and log-sink audit scope.
   This validates the lockfile update against the local API and PostgreSQL test
   harness only; it does not close the remaining dependency-policy, blockchain,
   provider, browser, CI, or production-artifact gaps.
+* Post-`h2` API runtime parity (2026-08-24): the clean Docker rebuild produced
+  image manifest
+  `sha256:25928a32b43a8f29fa7b4ce60fd82a9d8b8f2d4dfc31ecaf0a37120db9e10d10`.
+  Recreating only `medichain_api` yielded a healthy container and both
+  `/health` and `/health/ready` returned `200`. The image remains labelled
+  `local-unverified`; this confirms current local runtime parity only, not
+  hosted CI, registry attestation, production credentials, or release
+  provenance.
 
 ## Remaining release blockers
 
