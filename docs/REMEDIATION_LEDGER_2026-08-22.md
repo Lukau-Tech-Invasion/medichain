@@ -16,7 +16,7 @@ PRESENT`, and `UNKNOWN`.
 | Database verification | Migration startup plus targeted idempotency, retention maker-checker, and consent-revocation transition rehearsals; not a full business-write/race or restore verification |
 
 Manual inventory at this checkpoint: 940 tracked source/config files in scope,
-including 272 Rust files, 335 TypeScript/TSX files, and 63 SQL migrations.
+including 272 Rust files, 335 TypeScript/TSX files, and 64 SQL migrations.
 This is inventory coverage, not a statement that every file has been manually
 reviewed. Static follow-up still finds 124 `X-User-Id` references and 142 direct
 `println!`/`eprintln!`/`dbg!` calls in API source; those counts define remaining
@@ -401,6 +401,16 @@ authentication and log-sink audit scope.
   concurrent PostgreSQL submissions created one pending row and returned one
   typed conflict. `cargo check --bin medichain-api` passed. This is database
   evidence, not an authenticated-role or browser consent workflow.
+* Patient-access migration database rehearsal: the current local Compose
+  PostgreSQL database had 10 access-request rows and zero historical duplicate
+  pending patient/provider groups before application. The forward-only
+  `20260824000001_patient_access_pending_unique.sql` migration then completed
+  through `psql` and direct catalog inspection confirmed
+  `uq_patient_access_requests_pending_provider` as a unique partial index on
+  `(patient_id, provider_id)` where `status = 'pending'`. This is a local
+  development-database verification, applied outside the API startup migration
+  tracker; the currently running API image predates this migration and no
+  authenticated HTTP or browser workflow was exercised.
 
 ## Remaining release blockers
 
