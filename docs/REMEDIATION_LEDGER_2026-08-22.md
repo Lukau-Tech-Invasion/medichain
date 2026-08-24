@@ -653,6 +653,18 @@ authentication and log-sink audit scope.
   a functional defect, but both remain visible dependency/build hygiene debt.
   This is local bundle evidence, not deployed-image, browser workflow, or
   production performance proof.
+* Direct-output source classification (2026-08-24): all 142 remaining direct
+  `println!`/`eprintln!`/`dbg!` sites in `api/src` were classified by file: 91
+  are the static startup banner and endpoint inventory in `startup.rs`; 42 are
+  generic startup/degradation diagnostics or aggregate counts in `main.rs`; 7
+  are within the ignored synthetic-only blockchain E2E test; and 2 are test
+  schema-cleanup diagnostics. None directly interpolates a production patient,
+  wallet, user, record, request, clinical field, or secret to stdout/stderr.
+  Errors that can include operational details are emitted through the logging
+  layer, whose record-sink sanitizer tests pass. This narrows the direct-output
+  finding; it does not qualify downstream log collectors, third-party tracing,
+  browser telemetry, or every non-stdout sink, so `PRIV-001` remains
+  `PARTIALLY FIXED`.
 
 ## Remaining release blockers
 
