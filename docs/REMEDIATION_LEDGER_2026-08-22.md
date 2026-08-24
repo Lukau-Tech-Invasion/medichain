@@ -596,6 +596,15 @@ authentication and log-sink audit scope.
   while its proxy was deliberately being restarted; the fresh steady-state tab
   did not reproduce them. This is a P3 public-page repair, not proof of SSE
   resiliency or authenticated browser workflow correctness.
+* HTTPS-exemption boundary repair (2026-08-24): the encryption-policy
+  middleware also used prefix matching for public exception paths. It now
+  accepts only exact route identities, so a future `/api/metrics-private` or
+  `/api/auth/challenge-private` route cannot inherit a public HTTP exception.
+  The focused `encryption_policy` suite passed 5 tests, including the
+  adversarial `/api/metrics-private` HTTP request returning `403`. This is
+  middleware-level enforcement evidence; TLS termination, proxy forwarding,
+  mobile transport, and all deployed ingress paths remain separately
+  unqualified.
 
 ## Remaining release blockers
 
