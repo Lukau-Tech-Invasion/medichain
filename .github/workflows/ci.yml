@@ -407,7 +407,7 @@ jobs:
                   cache-dependency-path: client/package-lock.json
 
             - name: Install dependencies
-              run: npm install
+              run: npm ci
 
             - name: Build doctor portal
               run: npm run build:doctor
@@ -444,7 +444,7 @@ jobs:
                   cache-dependency-path: client/package-lock.json
 
             - name: Install dependencies
-              run: npm install
+              run: npm ci
 
             - name: Build patient app
               run: npm run build:patient
