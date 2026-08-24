@@ -270,6 +270,11 @@ authentication and log-sink audit scope.
   PostgreSQL-backed store, reads through a new store instance, authorizes a
   protected-record session, revokes the device, and directly verifies the
   session row status is `revoked`.
+* Fresh patient frontend static verification: `client/patient-app npm run
+  test:run` passed `26` test files and `82` tests in 25.75 seconds. React
+  Router v7 future warnings appeared in test-local `MemoryRouter` paths. This
+  is component/static coverage, not browser workflow, API, or database
+  read-back evidence.
 
 ## Remaining release blockers
 
