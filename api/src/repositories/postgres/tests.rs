@@ -1918,13 +1918,20 @@ async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
         .into_iter()
         .filter(|result| result.is_ok())
         .count();
-    assert_eq!(successful, 1, "exactly one concurrent approval must succeed");
+    assert_eq!(
+        successful, 1,
+        "exactly one concurrent approval must succeed"
+    );
 
     let grants = svc
         .list_grants_by_patient(&patient_id, now)
         .await
         .expect("list failed");
-    assert_eq!(grants.len(), 1, "concurrent approval minted multiple grants");
+    assert_eq!(
+        grants.len(),
+        1,
+        "concurrent approval minted multiple grants"
+    );
 
     pool.close().await;
 }
@@ -3617,5 +3624,69 @@ async fn test_pg_auth_challenge_expiry_is_enforced() {
             .await
             .expect("expired consume")
     );
+    pool.close().await;
+}
+
+/// A stolen refresh token must not create two live successor sessions when two
+/// API instances receive it at the same time.
+#[tokio::test]
+async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "refresh-race-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let previous_token = "refresh-token-under-test";
+    let previous_jti = uuid::Uuid::new_v4().to_string();
+    crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        previous_token,
+        &previous_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("seed refresh session");
+
+    let first_jti = uuid::Uuid::new_v4().to_string();
+    let second_jti = uuid::Uuid::new_v4().to_string();
+    let (first, second) = tokio::join!(
+        crate::auth_sessions::rotate(
+            &pool,
+            &wallet,
+            previous_token,
+            &previous_jti,
+            "replacement-one",
+            &first_jti,
+            Utc::now() + chrono::Duration::hours(1),
+        ),
+        crate::auth_sessions::rotate(
+            &pool,
+            &wallet,
+            previous_token,
+            &previous_jti,
+            "replacement-two",
+            &second_jti,
+            Utc::now() + chrono::Duration::hours(1),
+        )
+    );
+    assert_eq!(
+        [
+            first.expect("first rotation"),
+            second.expect("second rotation")
+        ]
+        .into_iter()
+        .filter(|success| *success)
+        .count(),
+        1
+    );
+    let (total, active): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE wallet_address = $1",
+    )
+    .bind(&wallet)
+    .fetch_one(&pool)
+    .await
+    .expect("read refresh sessions");
+    assert_eq!((total, active), (2, 1));
     pool.close().await;
 }
