@@ -411,6 +411,13 @@ authentication and log-sink audit scope.
   development-database verification, applied outside the API startup migration
   tracker; the currently running API image predates this migration and no
   authenticated HTTP or browser workflow was exercised.
+* Aggregate API regression after the latest authentication, access-control,
+  metrics, telehealth, and startup-diagnostic changes: `cargo test --bin
+  medichain-api` completed with `452 passed; 0 failed; 1 ignored` in 708.47
+  seconds. The ignored blockchain end-to-end test still requires a running
+  MediChain development node. This is automated source/repository regression
+  evidence; it neither qualifies an external provider nor replaces direct
+  production, browser, multi-replica, or authenticated cross-role validation.
 
 ## Remaining release blockers
 
