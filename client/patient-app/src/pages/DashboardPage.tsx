@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -77,11 +77,11 @@ export function DashboardPage() {
 
       try {
         // Use health ID from authenticated patient
-        const patientId = patient.healthId;
+          const patientId = patient.healthId;
         
         const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
           headers: {
-            'X-User-Id': patient.walletAddress,
+            ...getApiClient().getSessionHeaders(patient.walletAddress),
             'X-Health-Id': patient.healthId,
           },
         });
@@ -109,7 +109,7 @@ export function DashboardPage() {
           // Fetch access logs for recent activity
           const logsResponse = await fetch(apiUrl(`/api/access-logs/${patientId}`), {
             headers: { 
-              'X-User-Id': patient.walletAddress,
+              ...getApiClient().getSessionHeaders(patient.walletAddress),
               'X-Health-Id': patient.healthId,
             },
           });

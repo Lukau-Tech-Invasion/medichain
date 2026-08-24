@@ -204,6 +204,22 @@ export class ApiClient {
   }
 
   /**
+   * Return the normal identity headers for a direct browser request.
+   *
+   * A verified JWT is always preferred. The optional legacy wallet address is
+   * used only when no session token exists, which keeps local demo flows
+   * working while direct pages are migrated away from `X-User-Id`.
+   */
+  getSessionHeaders(legacyUserId?: string): Record<string, string> {
+    if (this.accessToken) {
+      return { Authorization: `Bearer ${this.accessToken}` };
+    }
+
+    const userId = legacyUserId ?? this.userId;
+    return userId ? { 'X-User-Id': userId } : {};
+  }
+
+  /**
    * Refresh the access token using the stored refresh token. Concurrent callers
    * share a single in-flight refresh. Returns true on success.
    */
@@ -404,15 +420,11 @@ export class ApiClient {
           ...extraHeaders,
         };
 
-        // JWT Bearer (Phase 9.4) — preferred by the backend.
-        if (this.accessToken) {
-          headers['Authorization'] = `Bearer ${this.accessToken}`;
-        }
-
         // A Bearer session is the normal identity contract. Do not accompany it
         // with a raw wallet address, which keeps that identifier out of requests
         // and prevents legacy-header dependence from spreading through typed
         // callers. Header-only calls remain for explicit demo compatibility.
+        Object.assign(headers, this.getSessionHeaders());
         if (this.userId && !this.accessToken) {
           headers['X-User-Id'] = this.userId;
 

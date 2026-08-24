@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { 
   Users, 
   AlertTriangle, 
@@ -217,7 +217,7 @@ function DashboardPage() {
         
         const response = await fetch(apiUrl('/api/dashboard/doctor'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
             'Content-Type': 'application/json',
           },
