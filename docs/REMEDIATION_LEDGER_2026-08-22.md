@@ -12,7 +12,7 @@ PRESENT`, and `UNKNOWN`.
 | Deep Scan | 0 files; tooling unavailable |
 | Manual source coverage | Measured separately per finding below |
 | Runtime/API adversarial | Recorded per finding below |
-| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across eight read/navigation routes plus reload persistence. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
+| Browser workflows | Bounded live coverage: public landing, clinician credential-entry/alternate-sign-in access, and an already-authenticated synthetic patient session across eight read/navigation routes plus reload persistence. A further headed-browser attempt is blocked: the declared in-app browser skill is absent and the supported Playwright CLI fallback could not download because npm timed out. No browser mutation, clinician sign-in, staff role, consent change, appointment booking, emergency action, or cross-role workflow has been executed. |
 | Database verification | Migration startup plus targeted idempotency, retention maker-checker, and consent-revocation transition rehearsals; not a full business-write/race or restore verification |
 
 Manual inventory at this checkpoint: 918 tracked source/config files in scope,
@@ -187,6 +187,10 @@ authentication and log-sink audit scope.
 * Complete post-audit-containment suite: `cargo test --bin medichain-api`
   passed `436 passed; 0 failed; 1 ignored` in 281.72 seconds. The ignored
   blockchain E2E test still requires a running MediChain development node.
+* Fresh complete API suite after the mobile-authority verification:
+  `cargo test --bin medichain-api` passed `437 passed; 0 failed; 1 ignored`
+  in 180.72 seconds. The ignored blockchain E2E test still requires a running
+  MediChain development node.
 * Anonymous authentication runtime probe: the healthy running image returned
   bodyless `404` for both known and unknown legacy login/wallet routes. Direct
   challenge requests for both addresses returned the same top-level
