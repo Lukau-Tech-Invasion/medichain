@@ -614,6 +614,14 @@ authentication and log-sink audit scope.
   handling. This is full local automated evidence for the API binary; it does
   not establish browser mutation coverage, real external-provider behavior,
   multi-validator blockchain proof, hosted CI, or a production release image.
+* Full patient-portal regression (2026-08-24): from the client workspace,
+  `npm run test:run --workspace=patient-app` completed with `26` test files and
+  `83` tests passing in 41.29 seconds. This includes the wearable contract,
+  consent management, appointment action/error surfaces, patient login,
+  emergency card, settings persistence, and telehealth components. The suite
+  reports existing React Router v7 future-compatibility warnings. Component
+  tests do not replace browser mutation/read-back, role authorization, device,
+  or external-provider evidence.
 
 ## Remaining release blockers
 
