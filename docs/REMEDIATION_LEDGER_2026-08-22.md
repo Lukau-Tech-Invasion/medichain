@@ -634,6 +634,16 @@ authentication and log-sink audit scope.
   both completed successfully from the client workspace. This checks the
   TypeScript source at this revision; it does not qualify runtime bundles,
   browser behavior, access control, or API compatibility.
+* Current API image refresh (2026-08-24): `docker compose build api` completed
+  from the current source and produced image manifest
+  `sha256:dd3881a37141b4225036a9e874ce4ff95b2d6cb67591c088cd3f6ea88aaa1b8f`.
+  Recreating only `medichain_api` yielded a healthy container; `/health` and
+  `/health/ready` returned `200`. Its OCI revision label is
+  `local-unverified`. The development Compose profile reports signature
+  verification disabled and permits development HTTP, so this runtime cannot
+  validate the latest production-only signature/HTTPS negative branches; the
+  focused adversarial middleware tests remain the applicable evidence. No
+  production artifact provenance is claimed.
 
 ## Remaining release blockers
 
