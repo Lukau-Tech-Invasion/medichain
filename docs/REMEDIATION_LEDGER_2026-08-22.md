@@ -534,6 +534,23 @@ authentication and log-sink audit scope.
   This is source, test, and configuration evidence only: it does not establish
   real role workflows, Prometheus scraping, Grafana login, alerts, or a release
   image provenance chain.
+* Signature-bypass boundary repair (2026-08-24): the wallet-signature
+  middleware previously treated a path beginning with a public route as public.
+  It now permits only an exact match against the registered public paths. The
+  focused `signature_auth` suite passed 6 tests, including an adversarial
+  `/api/metrics-private` route with an asserted legacy identity but no
+  signature; it returned `401` rather than inheriting `/api/metrics`' bypass.
+  This is focused middleware evidence, not a full authenticated browser or
+  endpoint-by-endpoint production proof.
+* Local SBOM generation (2026-08-24): the same `cargo cyclonedx --format json
+  --all` command configured for CI generated valid CycloneDX 1.3 documents:
+  API 676 components (`sha256:4e2283b1904895c24f1245eedca782d456025f866f5a1255a2ca4a87c802938f`)
+  and crypto 244 components
+  (`sha256:5f758fb7ecaed72d5d6a9b6c4240eb4acc4af038609697e357d2df3340107718`).
+  The local generated files were intentionally not committed because the CI
+  workflow publishes them as build artifacts. This validates the generator at
+  this source revision only; no hosted upload, container SBOM, image digest, or
+  attestation has been demonstrated.
 
 ## Remaining release blockers
 

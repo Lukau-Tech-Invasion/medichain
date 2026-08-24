@@ -58,6 +58,14 @@ const BYPASS_ROUTES: &[&str] = &[
     "/api/fhir/r4/metadata",
 ];
 
+/// Only explicitly registered public endpoints may skip wallet-signature
+/// verification. Prefix matching would turn a future route such as
+/// `/api/metrics-private` into an accidental bypass merely because its path
+/// begins with `/api/metrics`.
+fn is_bypass_route(path: &str) -> bool {
+    BYPASS_ROUTES.contains(&path)
+}
+
 /// Signature authentication middleware factory
 pub struct SignatureAuthMiddleware {
     /// Enable or disable signature verification (for gradual rollout)
@@ -135,7 +143,7 @@ where
 
             // Check if route bypasses signature verification
             let path = req.path();
-            if BYPASS_ROUTES.iter().any(|r| path.starts_with(r)) {
+            if is_bypass_route(path) {
                 let res = service.call(req).await?;
                 return Ok(res.map_into_left_body());
             }
@@ -335,7 +343,32 @@ mod tests {
 
     #[test]
     fn test_bypass_routes_include_health() {
-        assert!(BYPASS_ROUTES.contains(&"/api/health"));
+        assert!(is_bypass_route("/api/health"));
+        assert!(!is_bypass_route("/api/health-private"));
+    }
+
+    /// A public-prefix lookalike must remain signature-protected. This closes
+    /// the accidental broad bypass that prefix matching would create.
+    #[actix_web::test]
+    async fn public_prefix_lookalike_requires_signature() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+            "/api/metrics-private",
+            web::get().to(|| async { HttpResponse::Ok().finish() }),
+        ))
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/metrics-private")
+            .insert_header((
+                "X-User-Id",
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            ))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+
+        assert_eq!(response.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 
     /// SECURE-BY-DEFAULT: a mutating request that supplies `X-User-Id` but no
