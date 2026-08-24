@@ -726,6 +726,12 @@ authentication and log-sink audit scope.
   `local-unverified`; this confirms current local runtime parity only, not
   hosted CI, registry attestation, production credentials, or release
   provenance.
+* Remaining Actix `h2` constraint (2026-08-24): `cargo update -p h2@0.3.27
+  --dry-run` reported `Locking 0 packages to latest compatible versions` and
+  did not modify the lockfile. The remaining `RUSTSEC-2026-0258` instance is
+  therefore constrained by the current Actix dependency range, not a missed
+  routine patch update. It requires a compatible Actix/Actix-HTTP upgrade and
+  regression/production review; `SC-002` remains `STILL PRESENT`.
 
 ## Remaining release blockers
 
