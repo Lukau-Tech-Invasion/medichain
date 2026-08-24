@@ -19,7 +19,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, exportDocumentToPdf, useTranslation } from '@medichain/shared';
+import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -138,7 +138,7 @@ function DischargePage() {
     try {
       const response = await fetch(apiUrl('/api/patients'), {
         headers: { 
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -161,7 +161,7 @@ function DischargePage() {
       setLoading(true);
       const response = await fetch(apiUrl('/api/clinical/discharges'), {
         headers: { 
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -240,7 +240,7 @@ function DischargePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(payload),
@@ -330,7 +330,7 @@ function DischargePage() {
       await fetch(apiUrl(`/api/clinical/discharges/${id}/approve`), {
         method: 'POST',
         headers: { 
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
