@@ -66,11 +66,10 @@ pub async fn issue_jwt(
         &body.wallet_address,
         &body.nonce,
     );
-    if let Err(error) = medichain_crypto::signature::verify_wallet_signature(
+    if let Err(error) = medichain_crypto::signature::verify_wallet_message_signature(
         &body.signature,
         &message,
         &body.wallet_address,
-        Utc::now().timestamp(),
     ) {
         data.security
             .observe_failed_auth(&data.ws_manager, &body.wallet_address)
