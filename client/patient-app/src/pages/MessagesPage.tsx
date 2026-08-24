@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
@@ -126,7 +126,7 @@ export function MessagesPage() {
     try {
       const response = await fetch(apiUrl('/api/messages?folder=all'), {
         headers: { 
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });
@@ -158,7 +158,7 @@ export function MessagesPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
         body: JSON.stringify({
@@ -192,7 +192,7 @@ export function MessagesPage() {
   const startConversation = async () => {
     if (!patient) return;
     const response = await fetch(apiUrl('/api/providers'), {
-      headers: { 'X-User-Id': patient.walletAddress, 'X-Health-Id': patient.healthId },
+      headers: { ...getApiClient().getSessionHeaders(patient.walletAddress), 'X-Health-Id': patient.healthId },
     });
     if (!response.ok) {
       setSendError('The provider directory could not be loaded.');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, IS_DEMO, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, IS_DEMO, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   FlaskConical,
@@ -69,7 +69,7 @@ export function LabResultsPage() {
     try {
       const response = await fetch(apiUrl(`/api/lab/patient/${patient.healthId}`), {
         headers: {
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });

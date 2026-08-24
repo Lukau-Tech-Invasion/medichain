@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Syringe,
@@ -88,7 +88,7 @@ export function MedicalHistoryPage() {
     if (!patient) return;
     setLoading(true);
     const headers = {
-      'X-User-Id': patient.walletAddress,
+      ...getApiClient().getSessionHeaders(patient.walletAddress),
       'X-Health-Id': patient.healthId,
     };
     try {

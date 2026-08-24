@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   apiUrl,
+  getApiClient,
   isValidPhoneNumber,
   useTranslation,
   updateDemographics,
@@ -144,7 +145,7 @@ export function MyProfilePage() {
 
       const response = await fetch(apiUrl(`/api/patients/${patient.healthId}`), {
         headers: {
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
           'Content-Type': 'application/json',
         },

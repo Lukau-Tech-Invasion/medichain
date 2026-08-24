@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   apiUrl,
+  getApiClient,
   useTranslation,
   useToastActions,
   formatDate,
@@ -178,7 +179,7 @@ export function MedicalIdPage() {
 
       const response = await fetch(apiUrl(endpoint), {
         headers: {
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });
@@ -188,7 +189,7 @@ export function MedicalIdPage() {
         if (activeView === 'full') {
           const profileResponse = await fetch(apiUrl(`/api/patients/${userId}`), {
             headers: {
-              'X-User-Id': patient.walletAddress,
+              ...getApiClient().getSessionHeaders(patient.walletAddress),
               'X-Health-Id': patient.healthId,
             },
           });
@@ -211,7 +212,7 @@ export function MedicalIdPage() {
         if (activeView !== 'full') {
           const fallback = await fetch(apiUrl(`/api/medical-id/${userId}`), {
             headers: {
-              'X-User-Id': patient.walletAddress,
+              ...getApiClient().getSessionHeaders(patient.walletAddress),
               'X-Health-Id': patient.healthId,
             },
           });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -137,7 +137,7 @@ export function MyRecordsPage() {
 
     const patientId = patient.healthId;
     const headers = {
-      'X-User-Id': patient.walletAddress,
+      ...getApiClient().getSessionHeaders(patient.walletAddress),
       'X-Health-Id': patientId,
     };
     
@@ -408,7 +408,7 @@ export function MyRecordsPage() {
     try {
       const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
         headers: {
-          'X-User-Id': patient?.walletAddress || '',
+          ...getApiClient().getSessionHeaders(patient?.walletAddress),
           'X-Health-Id': patient?.healthId || '',
         },
       });
@@ -456,7 +456,7 @@ export function MyRecordsPage() {
     try {
       const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
         headers: {
-          'X-User-Id': patient?.walletAddress || '',
+          ...getApiClient().getSessionHeaders(patient?.walletAddress),
           'X-Health-Id': patient?.healthId || '',
         },
       });

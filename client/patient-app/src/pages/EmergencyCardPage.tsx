@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import QRCode from 'qrcode';
 import {
   apiUrl,
+  getApiClient,
   useOfflineCache,
   useTranslation,
   useToastActions,
@@ -80,7 +81,7 @@ export function EmergencyCardPage() {
     }
     const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
       headers: {
-        'X-User-Id': patient?.walletAddress || '',
+        ...getApiClient().getSessionHeaders(patient?.walletAddress),
         'X-Health-Id': patientId,
         'Content-Type': 'application/json',
       },

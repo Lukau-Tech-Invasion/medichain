@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiUrl, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -93,7 +93,7 @@ export function TelehealthPage() {
         apiUrl(`/api/telehealth/patient/${patient.healthId}/sessions`),
         {
           headers: {
-            'X-User-Id': patient.walletAddress,
+            ...getApiClient().getSessionHeaders(patient.walletAddress),
             'X-Health-Id': patient.healthId,
           },
         }

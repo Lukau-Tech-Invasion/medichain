@@ -17,7 +17,7 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
-import { apiUrl, getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface AccessGrant {
@@ -121,7 +121,7 @@ export function ConsentManagementPage() {
 
       // Fetch access grants from API
       const grantsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/grants`), {
-        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
+        headers: { ...getApiClient().getSessionHeaders(userId), 'X-Health-Id': patientId },
       });
       if (grantsResponse.ok) {
         const data = await grantsResponse.json();
@@ -132,7 +132,7 @@ export function ConsentManagementPage() {
 
       // Fetch pending access requests from API
       const requestsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/requests`), {
-        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
+        headers: { ...getApiClient().getSessionHeaders(userId), 'X-Health-Id': patientId },
       });
       if (requestsResponse.ok) {
         const data = await requestsResponse.json();
@@ -246,7 +246,7 @@ export function ConsentManagementPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });
@@ -276,7 +276,7 @@ export function ConsentManagementPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });
@@ -300,7 +300,7 @@ export function ConsentManagementPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });

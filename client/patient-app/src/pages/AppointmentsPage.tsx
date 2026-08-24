@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   apiUrl,
+  getApiClient,
   useTranslation,
   setAppointmentStatus,
   createAppointment,
@@ -282,7 +283,7 @@ export function AppointmentsPage() {
       
       const response = await fetch(apiUrl(`/api/appointments/patient/${patientId}`), {
         headers: { 
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });

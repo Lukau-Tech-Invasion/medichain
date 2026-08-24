@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -130,7 +130,7 @@ export function SymptomTrackerPage() {
       // sessions, a different concept, which is why this list was always empty.
       const response = await fetch(apiUrl(`/api/symptoms/${patientId}`), {
         headers: { 
-          'X-User-Id': patient.walletAddress,
+          ...getApiClient().getSessionHeaders(patient.walletAddress),
           'X-Health-Id': patient.healthId,
         },
       });
@@ -176,7 +176,7 @@ export function SymptomTrackerPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': patient.walletAddress,
+            ...getApiClient().getSessionHeaders(patient.walletAddress),
             'X-Health-Id': patient.healthId,
           },
           body: JSON.stringify({
