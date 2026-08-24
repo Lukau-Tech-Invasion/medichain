@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, apiUrl, useTranslation } from '@medichain/shared';
+import { getPatients, createPostOp, apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -108,7 +108,7 @@ const PostOpPage: React.FC = () => {
       const fetchHistory = async () => {
         try {
           const res = await fetch(apiUrl(`/api/surgical/post-op/patient/${selectedPatient}`), {
-            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+          headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
           });
           if (res.ok) {
             const data = await res.json();
