@@ -36,6 +36,10 @@ RESULTS=()
 
 # SS58-shaped synthetic wallets (48 chars, start with 5).
 ADMIN=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+# The seeded judge account is a distinct administrator. Retention approval is
+# maker-checker controlled, so the administrator who requests a token must not
+# decide it; using this account exercises the required separation.
+JUDGE=5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y
 DOCTOR=5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 PARAMEDIC=5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
 PATIENT_ADULT_WALLET=5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw
@@ -166,6 +170,13 @@ if [ "$c" = "403" ]; then
   exit 2
 fi
 check_setup "bootstrap first admin" "$c" "$(body)"
+
+# The memory backend begins without migration-seeded accounts, while PostgreSQL
+# has the judge administrator from the initial schema. Create or re-use that
+# second administrator only in this isolated demo-mode suite so both backends
+# exercise the retention maker-checker boundary with the same actors.
+c=$(code POST /api/auth/demo-login "{\"wallet_address\":\"$JUDGE\",\"role\":\"Admin\",\"name\":\"Synthetic Judge Admin\"}")
+check "demo-only secondary admin is available for maker-checker" 200 "$c" "$(body)"
 
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$DOCTOR\",\"name\":\"Dr Synthetic\",\"username\":\"drsyn\",\"role\":\"Doctor\"}" "$ADMIN")
 check_setup "admin registers doctor" "$c" "$(body)"
@@ -346,9 +357,12 @@ c=$(code POST "/api/admin/retention/approvals/$TOKEN/execute" '' "$ADMIN")
 check "executing an UNAPPROVED token is refused" 400 "$c" "$(body)"
 
 c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":true}' "$ADMIN")
-check "admin approves the token" 200 "$c" "$(body)"
+check "requesting admin CANNOT approve own token" 400 "$c" "$(body)"
 
-c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":false,"reason":"changed mind"}' "$ADMIN")
+c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":true}' "$JUDGE")
+check "separate admin approves the token" 200 "$c" "$(body)"
+
+c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":false,"reason":"changed mind"}' "$JUDGE")
 check "re-deciding a decided approval is refused" 400 "$c" "$(body)"
 
 c=$(code POST "/api/admin/retention/approvals/$TOKEN/execute" '' "$ADMIN")
@@ -388,11 +402,12 @@ c=$(code GET "/api/access/patient/$PAT_ADULT/requests" '' "$WALLET_ADULT")
 check "patient lists own access requests" 200 "$c" "$(body)"
 
 # Patient approves -> a new active grant is minted.
-c=$(code POST "/api/access/requests/$REQ/approve" '' "$WALLET_ADULT")
+ACCESS_GRANT_EXPIRY=$(python -c 'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(days=1)).isoformat().replace("+00:00", "Z"))')
+c=$(code POST "/api/access/requests/$REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
 check "patient approves the request" 200 "$c" "$(body)"
 GRANT=$(jget grant id)
 
-c=$(code POST "/api/access/requests/$REQ/approve" '' "$WALLET_ADULT")
+c=$(code POST "/api/access/requests/$REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
 check "re-approving a decided request is refused" 400 "$c" "$(body)"
 
 c=$(code GET "/api/access/patient/$PAT_ADULT/grants" '' "$WALLET_ADULT")
