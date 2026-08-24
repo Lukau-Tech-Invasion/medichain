@@ -33,15 +33,27 @@ describe('WearablesPage (Patient)', () => {
     });
     // Empty devices/readings means the dashboard correctly shows its empty
     // state; the generated test then asserted metric tiles that cannot exist.
-    (shared.getWearableDevices as any).mockResolvedValue([
-      { device_id: 'd1', device_name: 'Test Band', device_type: 'fitness-tracker', status: 'active' },
-    ]);
+    (shared.getWearableDevices as any).mockResolvedValue({
+      success: true,
+      count: 1,
+      devices: [{
+        device_id: 'd1', patient_id: 'HEALTH123', device_type: 'Smartwatch',
+        manufacturer: 'Test', model: 'Band', serial_number: null,
+        firmware_version: null, connection_status: 'Connected', last_sync: null,
+        paired_at: 0, active: true, data_types: ['HeartRate', 'Steps'],
+        sync_frequency_hours: 1, battery_level: 80,
+      }],
+    });
     // Metric tiles render per reading; an empty array means the dashboard
     // correctly shows nothing, so the metric assertions could never pass.
-    (shared.getWearableReadings as any).mockResolvedValue([
-      { type: 'heart-rate', name: 'Heart Rate', value: 72, unit: 'bpm', trend: 'stable', trendPercent: 0 },
-      { type: 'steps', name: 'Steps', value: 8000, unit: 'steps', trend: 'up', trendPercent: 5 },
-    ]);
+    (shared.getWearableReadings as any).mockResolvedValue({
+      success: true,
+      count: 2,
+      readings: [
+        { reading_id: 'r1', device_id: 'd1', patient_id: 'HEALTH123', data_type: 'HeartRate', value: 72, unit: 'bpm', secondary_value: null, recorded_at: 1, synced_at: 1, context: null, quality: 'High', flagged: false, flag_reason: null },
+        { reading_id: 'r2', device_id: 'd1', patient_id: 'HEALTH123', data_type: 'Steps', value: 8000, unit: 'steps', secondary_value: null, recorded_at: 2, synced_at: 2, context: null, quality: 'High', flagged: false, flag_reason: null },
+      ],
+    });
   });
 
   it('renders wearables page with dashboard tab active', async () => {
@@ -50,6 +62,14 @@ describe('WearablesPage (Patient)', () => {
     await waitFor(() => {
       expect(screen.getByText(/My Wearables/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Steps/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('uses the returned device identifier to load readings', async () => {
+    render(<WearablesPage />);
+
+    await waitFor(() => {
+      expect(shared.getWearableReadings).toHaveBeenCalledWith('d1');
     });
   });
 

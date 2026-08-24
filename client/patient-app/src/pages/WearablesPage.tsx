@@ -21,6 +21,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { getWearableDevices, getWearableReadings, registerWearableDevice, IS_DEMO, useTranslation } from '@medichain/shared';
+import type { WearableDevice, WearableReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -65,6 +66,36 @@ export interface ActivityRing {
   color: string;
 }
 
+const mapDevice = (device: WearableDevice): Device => ({
+  id: device.device_id,
+  name: `${device.manufacturer} ${device.model}`.trim(),
+  type: device.device_type === 'Smartwatch' ? 'apple-watch' : 'google-fit',
+  model: device.model,
+  status: device.connection_status === 'Connected' ? 'connected' : 'disconnected',
+  lastSync: device.last_sync ? new Date(device.last_sync * 1000) : null,
+  batteryLevel: device.battery_level ?? undefined,
+});
+
+const metricTypeFor = (dataType: string): MetricType | undefined => ({
+  HeartRate: 'heart-rate', Steps: 'steps', Calories: 'calories', Sleep: 'sleep',
+  SpO2: 'spo2', HRV: 'hrv', Stress: 'stress',
+} as Record<string, MetricType>)[dataType];
+
+const mapLatestMetrics = (readings: WearableReading[]): HealthMetric[] => {
+  const latest = new Map<MetricType, WearableReading>();
+  readings.forEach((reading) => {
+    const type = metricTypeFor(reading.data_type);
+    if (type && (!latest.has(type) || latest.get(type)!.recorded_at < reading.recorded_at)) {
+      latest.set(type, reading);
+    }
+  });
+  return [...latest.entries()].map(([type, reading]) => ({
+    type, name: type, value: reading.value, unit: reading.unit, trend: 'stable', trendPercent: 0,
+    icon: <Activity className="w-6 h-6" />, color: 'text-content-secondary',
+    history: [{ date: new Date(reading.recorded_at * 1000).toLocaleDateString(), value: reading.value }],
+  }));
+};
+
 const WearablesPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'settings'>('dashboard');
@@ -86,19 +117,21 @@ const WearablesPage: React.FC = () => {
     // Try to load from API first
     if (patient?.healthId) {
       try {
-        const [apiDevices, apiReadings] = await Promise.all([
-          getWearableDevices() as unknown as Promise<Device[]>,
-          getWearableReadings(patient.healthId) as unknown as Promise<HealthMetric[]>
-        ]);
+        const deviceResponse = await getWearableDevices();
+        const apiDevices = deviceResponse.devices;
+        const readingResponses = await Promise.all(
+          apiDevices.map((device) => getWearableReadings(device.device_id))
+        );
+        const apiReadings = readingResponses.flatMap((response) => response.readings);
         
-        if (apiDevices && Array.isArray(apiDevices) && apiDevices.length > 0) {
-          setDevices(apiDevices);
+        if (apiDevices.length > 0) {
+          setDevices(apiDevices.map(mapDevice));
         } else if (IS_DEMO) {
           await loadDemoDevices();
         }
 
-        if (apiReadings && Array.isArray(apiReadings) && apiReadings.length > 0) {
-          setMetrics(apiReadings);
+        if (apiReadings.length > 0) {
+          setMetrics(mapLatestMetrics(apiReadings));
         } else if (IS_DEMO) {
           await loadDemoMetrics();
         }
