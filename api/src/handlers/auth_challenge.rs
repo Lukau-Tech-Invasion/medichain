@@ -97,12 +97,7 @@ pub async fn wallet_login(
         }
     };
 
-    log::info!(
-        "User logged in: wallet={}, name={}, role={}",
-        user.wallet_address,
-        user.name,
-        user.role
-    );
+    log::info!("Deprecated wallet-login handler invoked");
 
     HttpResponse::Ok().json(WalletLoginResponse {
         success: true,
