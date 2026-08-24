@@ -23,6 +23,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS is required}
+      # The API fails closed outside demo mode without this value, but making it
+      # required here prevents a production monitoring deployment that starts
+      # successfully while every Prometheus scrape is rejected with 401.
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN is required}
       NATIONAL_ID_HASH_KEY: ${NATIONAL_ID_HASH_KEY:?NATIONAL_ID_HASH_KEY is required}
       NATIONAL_ID_VERIFICATION_MODE: "live"
       SMS_INBOUND_WEBHOOK_SECRET: ${SMS_INBOUND_WEBHOOK_SECRET:?SMS_INBOUND_WEBHOOK_SECRET is required}

@@ -1,7 +1,10 @@
 # Observability (Phase 8.2)
 
-The API exposes Prometheus metrics at **`GET /api/metrics`** (no auth — firewall
-it to your scraper in production):
+The API exposes Prometheus metrics at **`GET /api/metrics`**. Outside explicit
+demo mode it requires a bearer token, supplied by the `METRICS_TOKEN` production
+secret and mounted into Prometheus as a credentials file. Do not expose this
+endpoint publicly or use a patient, user, or browser identity as the scrape
+credential.
 
 - `http_requests_total{method,path,status}` — request counter.
 - `http_request_duration_seconds{method,path}` — latency histogram (drives the
@@ -41,6 +44,10 @@ Prometheus + Grafana are wired into the production compose under an opt-in
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile monitoring up -d
 ```
+
+`METRICS_TOKEN` is required by the production override. It is passed to the API
+as its bearer-token verifier and mounted in Prometheus at
+`/run/secrets/metrics_token`; it is not written into `prometheus.yml`.
 
 - **Prometheus** loads `prometheus.yml` + `prometheus-alerts.yml` from this folder
   (mounted read-only) and scrapes `api:8080/api/metrics` on the shared network.
