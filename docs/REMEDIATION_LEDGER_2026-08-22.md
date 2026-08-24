@@ -629,6 +629,11 @@ authentication and log-sink audit scope.
   component cases. It is local automated component evidence only; it does not
   prove clinician authentication, real clinical writes, authorization denial,
   cross-role persistence, browser mutation/read-back, or a deployed web image.
+* Portal static validation (2026-08-24): `npm run typecheck
+  --workspace=doctor-portal` and `npm run typecheck --workspace=patient-app`
+  both completed successfully from the client workspace. This checks the
+  TypeScript source at this revision; it does not qualify runtime bundles,
+  browser behavior, access control, or API compatibility.
 
 ## Remaining release blockers
 
