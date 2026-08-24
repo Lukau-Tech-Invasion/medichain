@@ -22,6 +22,7 @@ use std::io::Write;
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
+use crate::middleware::jwt_identity::JwtIdentityMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
@@ -571,6 +572,10 @@ async fn main() -> std::io::Result<()> {
             // Must execute after signature authentication so durable operation
             // claims are never scoped by an unverified legacy identity header.
             .wrap(IdempotencyMiddleware)
+            // Runs after signature verification. It bridges verified Bearer
+            // sessions to handlers that have not yet stopped reading the
+            // legacy header directly; it never trusts client header content.
+            .wrap(JwtIdentityMiddleware)
             .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
