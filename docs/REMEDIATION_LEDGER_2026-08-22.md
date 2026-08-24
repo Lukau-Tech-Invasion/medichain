@@ -307,6 +307,19 @@ authentication and log-sink audit scope.
   fmt --all --check`, three privacy logging tests, and the complete API suite
   passed (`442 passed; 0 failed; 1 ignored`, 186.06 seconds). A rebuilt runtime
   log probe and full metric/browser collector review remain required.
+* Identity-verification production policy: startup validation is now a pure,
+  directly tested policy function. Seven runtime-posture tests prove production
+  rejects missing and `stub` mode while accepting only `live`; a focused
+  national-ID service test proves a missing live credential returns
+  `ServiceUnavailable` rather than a verified result. `cargo fmt --all --check`
+  and `cargo check --bin medichain-api` passed. This is not real/sandbox
+  provider qualification and does not prove deployed production configuration.
+* PostgreSQL test-harness regression: a full 446-test API run exposed four
+  isolated-schema migrations failing with PostgreSQL `53200` shared-memory lock
+  exhaustion. The harness now serializes only migration application while
+  retaining parallel test execution. The former replay failure now passes in an
+  exact rerun (`1 passed`, 445 filtered, 7.12 seconds). The post-change complete
+  suite result is not yet recorded; this remains `TEST-001` partial evidence.
 
 ## Remaining release blockers
 

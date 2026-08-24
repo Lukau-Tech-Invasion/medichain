@@ -10,9 +10,13 @@ use crate::repositories::{
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::env;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    OnceLock,
+};
 
 static NEXT_SCHEMA_ID: AtomicU64 = AtomicU64::new(0);
+static MIGRATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 async fn get_test_pool() -> PgPool {
     create_test_pool().await
@@ -104,13 +108,15 @@ async fn create_test_pool() -> PgPool {
 
     let pool = create_schema_pool(&database_url, &schema).await;
 
-    // SQLx keys its normal migration advisory lock to the database name, not
-    // the active schema. These pools use a freshly-created, unique schema, so
-    // their migrations cannot conflict; retaining the database-wide lock
-    // serializes every parallel test for no safety benefit. Production keeps
-    // `db::run_migrations`, including its lock, unchanged.
-    let mut migrator = sqlx::migrate!("./migrations");
-    migrator.set_locking(false);
+    // Isolated schemas do not conflict semantically, but one migration chain
+    // locks many database objects. Running several chains at once exhausts the
+    // local PostgreSQL server's shared lock memory before any test body runs.
+    // Serialize only migration application; once a schema is ready its test can
+    // run concurrently with every other test. Production keeps its own SQLx
+    // migration lock unchanged.
+    let migration_lock = MIGRATION_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+    let _migration_guard = migration_lock.lock().await;
+    let migrator = sqlx::migrate!("./migrations");
     migrator
         .run(&pool)
         .await

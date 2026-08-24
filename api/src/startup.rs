@@ -193,6 +193,14 @@ pub fn validate_telehealth_configuration(app_env: &str) -> Result<(), String> {
 /// The deterministic ID verifier is restricted to explicit demo/test use. A
 /// production response must never label a non-empty placeholder as verified.
 pub fn validate_identity_verification_configuration(app_env: &str) -> Result<(), String> {
+    let mode = std::env::var("NATIONAL_ID_VERIFICATION_MODE").ok();
+    validate_identity_verification_mode(app_env, mode.as_deref())
+}
+
+fn validate_identity_verification_mode(
+    app_env: &str,
+    verification_mode: Option<&str>,
+) -> Result<(), String> {
     let production = matches!(
         app_env.trim().to_ascii_lowercase().as_str(),
         "prod" | "production"
@@ -200,8 +208,8 @@ pub fn validate_identity_verification_configuration(app_env: &str) -> Result<(),
     if !production {
         return Ok(());
     }
-    match std::env::var("NATIONAL_ID_VERIFICATION_MODE") {
-        Ok(mode) if mode.eq_ignore_ascii_case("live") => Ok(()),
+    match verification_mode {
+        Some(mode) if mode.eq_ignore_ascii_case("live") => Ok(()),
         _ => Err(
             "Refusing production startup: NATIONAL_ID_VERIFICATION_MODE=live is required; \
              the deterministic stub is demo/test only"
@@ -482,7 +490,7 @@ pub fn warn_if_clinic_offset_unset() {
 
 #[cfg(test)]
 mod runtime_posture_tests {
-    use super::validate_runtime_posture;
+    use super::{validate_identity_verification_mode, validate_runtime_posture};
 
     #[test]
     fn production_rejects_demo_mode() {
@@ -504,6 +512,24 @@ mod runtime_posture_tests {
     #[test]
     fn explicit_development_demo_is_allowed() {
         assert!(validate_runtime_posture("development", true, false).is_ok());
+    }
+
+    #[test]
+    fn production_rejects_missing_or_stub_identity_verification() {
+        assert!(validate_identity_verification_mode("production", None).is_err());
+        assert!(validate_identity_verification_mode("production", Some("stub")).is_err());
+    }
+
+    #[test]
+    fn production_accepts_only_live_identity_verification() {
+        assert!(validate_identity_verification_mode("prod", Some("live")).is_ok());
+        assert!(validate_identity_verification_mode("production", Some("LIVE")).is_ok());
+    }
+
+    #[test]
+    fn non_production_allows_identity_verification_test_modes() {
+        assert!(validate_identity_verification_mode("development", None).is_ok());
+        assert!(validate_identity_verification_mode("test", Some("stub")).is_ok());
     }
 }
 
