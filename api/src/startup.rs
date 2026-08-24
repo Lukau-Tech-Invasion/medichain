@@ -453,19 +453,20 @@ pub async fn validate_no_privileged_dev_accounts(
 /// boundary is load-bearing, so it is checked rather than assumed.
 ///
 /// Returns `Err` with an operator-readable message when more than one active
-/// organisation is present. A database without the federation tables — or one
-/// where the query cannot run — is not treated as a violation: the check exists
-/// to catch a misconfiguration, not to block startup on its own failure.
+/// organisation is present. An unverifiable boundary also refuses startup:
+/// production migrations make this table mandatory, and continuing after a
+/// query failure would silently restore the cross-organisation disclosure risk.
 pub async fn validate_single_organisation(pool: &sqlx::PgPool) -> Result<(), String> {
-    let count: Option<i64> = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM organizations WHERE COALESCE(is_active, true) = true",
-    )
-    .fetch_one(pool)
-    .await
-    .ok();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE status = 'active'")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| {
+                "Refusing to start: unable to verify the single-organisation boundary".to_string()
+            })?;
 
     match count {
-        Some(n) if n > 1 => Err(format!(
+        n if n > 1 => Err(format!(
             "Refusing to start: this database holds {n} active organisations, but a MediChain \
              instance serves exactly one (ADR-0006, ADR-0007). Clinician worklists and the \
              /api/platform/list/* registries are deployment-wide, so a second organisation here \

@@ -3268,7 +3268,7 @@ async fn test_pg_startup_refuses_a_multi_organisation_database() {
         let name = name.to_string();
         async move {
             sqlx::query(
-                "INSERT INTO organizations (id, name, is_active) VALUES ($1, $2, true) \
+                "INSERT INTO organizations (id, name, organization_type, status) VALUES ($1, $2, 'hospital', 'active') \
                  ON CONFLICT (id) DO NOTHING",
             )
             .bind(id)
@@ -3279,12 +3279,9 @@ async fn test_pg_startup_refuses_a_multi_organisation_database() {
     };
 
     // One organisation is the supported configuration.
-    if insert("ORG-SOLO", "Solo Hospital").await.is_err() {
-        // The federation tables are not present in this schema; the check is
-        // designed to stay quiet in that case rather than block boot, and the
-        // assertion above already covers it.
-        return;
-    }
+    insert("ORG-SOLO", "Solo Hospital")
+        .await
+        .expect("the federation schema should accept a single active organisation");
     assert!(
         crate::startup::validate_single_organisation(&pool)
             .await
@@ -3301,6 +3298,25 @@ async fn test_pg_startup_refuses_a_multi_organisation_database() {
     assert!(
         message.contains("2 active organisations"),
         "the operator needs to be told how many were found, got: {message}"
+    );
+}
+
+/// Startup must not silently continue if the deployment-wide read boundary
+/// cannot be verified. Treating a failed query as zero organisations would
+/// restore the exact cross-organisation disclosure risk ADR-0007 prohibits.
+#[tokio::test]
+async fn test_pg_startup_refuses_an_unverifiable_organisation_boundary() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://medichain:unreachable@127.0.0.1:1/medichain")
+        .expect("construct an unreachable test pool");
+
+    let error = crate::startup::validate_single_organisation(&pool)
+        .await
+        .expect_err("an unverifiable organisation boundary must refuse startup");
+    assert_eq!(
+        error,
+        "Refusing to start: unable to verify the single-organisation boundary"
     );
 }
 
