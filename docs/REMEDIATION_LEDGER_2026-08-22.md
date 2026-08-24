@@ -478,6 +478,15 @@ authentication and log-sink audit scope.
   `WearablesPage.test.tsx` passed; the complete patient suite passed 26 files
   / 83 tests. This is source and component-test evidence only, not live device,
   authenticated API, persistence, or browser qualification.
+* Rebuilt runtime and health-proxy rehearsal: the API release image rebuilt as
+  `sha256:d63569c…`, was recreated healthy, and SQLx recorded migration
+  `20260824000001`. The web image then rebuilt as `medichain-web:local`
+  with the health proxy routes baked in. Through the local Nginx endpoint,
+  `/health`, `/health/ready`, `/health/db`, and Nginx's independent
+  `/healthz` all returned `200`. The API reference and demo-seed probe now
+  use the actual `/health` liveness route. This is local demo-runtime and
+  database-startup evidence only; it does not qualify production credentials,
+  alert delivery, external dependencies, or browser role workflows.
 
 ## Remaining release blockers
 
