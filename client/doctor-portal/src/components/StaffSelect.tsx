@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiClient } from '@medichain/shared';
 import { Search, User, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
 
 export interface StaffMember {
@@ -71,7 +71,7 @@ export default function StaffSelect({
         
         const response = await fetch(url, {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });

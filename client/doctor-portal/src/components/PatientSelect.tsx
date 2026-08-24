@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiClient } from '@medichain/shared';
 import { Search, User, ChevronDown, Loader2, X } from 'lucide-react';
 
 export interface Patient {
@@ -59,7 +59,7 @@ export default function PatientSelect({
       try {
         const response = await fetch(apiUrl('/api/patients'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });
