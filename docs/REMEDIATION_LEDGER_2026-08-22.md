@@ -521,6 +521,19 @@ authentication and log-sink audit scope.
   dependency result only; the configured CI scan, SBOM generation, container
   scan, and provenance workflow remain unverified until an actual hosted or
   release-artifact run is captured.
+* Authorization and observability refresh (2026-08-24):
+  `check-endpoint-auth.py` again scanned 424 handlers with zero presence-only
+  and zero no-decision handlers; its 39 deployment-wide `list_all` reads remain
+  under the one-organisation deployment assumption. The write gate again
+  accepted 13 reviewed writes and retained the three explicitly documented
+  emergency/NFC role-policy decisions for governance rather than guessing an
+  authorization policy. `cargo test --bin medichain-api privacy_logging --
+  --nocapture` passed 3 tests and the separate `metrics` filter passed 2.
+  Production Compose rejected an omitted Grafana password and rendered when all
+  required secrets/endpoints were supplied as synthetic configuration values.
+  This is source, test, and configuration evidence only: it does not establish
+  real role workflows, Prometheus scraping, Grafana login, alerts, or a release
+  image provenance chain.
 
 ## Remaining release blockers
 
