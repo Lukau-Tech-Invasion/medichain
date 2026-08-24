@@ -570,11 +570,12 @@ async fn main() -> std::io::Result<()> {
             // Rewrites /api/v1/... → /api/... before routing (Phase 9.1).
             .wrap(ApiVersionMiddleware)
             .wrap(rate_limit)
+            // Must execute after signature authentication so durable operation
+            // claims are never scoped by an unverified legacy identity header.
+            .wrap(IdempotencyMiddleware)
             .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
-            // Innermost: captures handler responses for idempotent replay (Phase 9.2).
-            .wrap(IdempotencyMiddleware)
             .app_data(app_state.clone())
             .configure(routes::configure)
     })

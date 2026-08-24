@@ -282,6 +282,14 @@ authentication and log-sink audit scope.
   `test_consent_active` passed one memory-repository consent state test (440
   filtered). These tests do not exercise authenticated roles, a real browser,
   or concurrent approval attempts.
+* Idempotency trust-boundary correction: authenticated `POST`, `PUT`, `PATCH`,
+  and `DELETE` requests without `Idempotency-Key` now receive
+  `IDEMPOTENCY_KEY_REQUIRED`; the middleware is registered inside signature
+  authentication so a durable operation claim is not scoped using an
+  unverified legacy header. `cargo fmt --all --check` passed; its two focused
+  middleware tests passed; `client npm run build:shared` passed; and the full
+  API suite passed `441 passed; 0 failed; 1 ignored` in 165.84 seconds. Runtime
+  deployment and direct HTTP proof of the new rejection remain pending.
 
 ## Remaining release blockers
 

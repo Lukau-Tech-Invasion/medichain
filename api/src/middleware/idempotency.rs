@@ -147,6 +147,14 @@ fn operation_error(code: &str, message: &str) -> HttpResponse {
     ))
 }
 
+fn mutation_requires_key(method: &Method, subject: Option<&str>, key: Option<&str>) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) && subject.is_some()
+        && key.is_none()
+}
+
 pub struct IdempotencyMiddleware;
 
 impl<S, B> Transform<S, ServiceRequest> for IdempotencyMiddleware
@@ -191,6 +199,17 @@ where
             .get("Idempotency-Key")
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
+        let method = req.method().as_str().to_owned();
+        let route = req.path().to_owned();
+        let subject = crate::support::get_current_user_id(req.request());
+        if mutation_requires_key(req.method(), subject.as_deref(), key.as_deref()) {
+            return Box::pin(async move {
+                Ok(req.into_response(operation_error(
+                    "IDEMPOTENCY_KEY_REQUIRED",
+                    "Authenticated mutations require an Idempotency-Key",
+                )))
+            });
+        }
         let participates = matches!(
             *req.method(),
             Method::POST | Method::PUT | Method::PATCH | Method::DELETE
@@ -198,10 +217,6 @@ where
         if !participates {
             return Box::pin(async move { Ok(service.call(req).await?.map_into_boxed_body()) });
         }
-
-        let method = req.method().as_str().to_owned();
-        let route = req.path().to_owned();
-        let subject = crate::support::get_current_user_id(req.request());
         let pool = req
             .app_data::<web::Data<crate::state::AppState>>()
             .and_then(|state| state.db_pool.clone());
@@ -288,5 +303,22 @@ mod tests {
             base,
             digest_request("actor-a", "POST", "/api/notes", "key-1", b"one")
         );
+    }
+
+    #[test]
+    fn authenticated_mutations_require_an_operation_key() {
+        assert!(mutation_requires_key(&Method::POST, Some("actor-a"), None));
+        assert!(mutation_requires_key(
+            &Method::DELETE,
+            Some("actor-a"),
+            None
+        ));
+        assert!(!mutation_requires_key(&Method::GET, Some("actor-a"), None));
+        assert!(!mutation_requires_key(&Method::POST, None, None));
+        assert!(!mutation_requires_key(
+            &Method::POST,
+            Some("actor-a"),
+            Some("operation-a")
+        ));
     }
 }
