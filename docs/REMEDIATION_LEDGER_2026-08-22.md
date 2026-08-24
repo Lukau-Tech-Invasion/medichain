@@ -622,6 +622,13 @@ authentication and log-sink audit scope.
   reports existing React Router v7 future-compatibility warnings. Component
   tests do not replace browser mutation/read-back, role authorization, device,
   or external-provider evidence.
+* Full clinician-portal regression (2026-08-24): from the client workspace,
+  `npm run test:run --workspace=doctor-portal` completed with `83` test files
+  and `304` tests passing in 124.69 seconds. This includes clinician page,
+  role dashboard, credential-keystore, session, settings, and clinical-form
+  component cases. It is local automated component evidence only; it does not
+  prove clinician authentication, real clinical writes, authorization denial,
+  cross-role persistence, browser mutation/read-back, or a deployed web image.
 
 ## Remaining release blockers
 
