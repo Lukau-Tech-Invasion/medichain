@@ -514,13 +514,13 @@ authentication and log-sink audit scope.
   transcript, so this is bounded database read-back evidence rather than a
   claim that every table, decrypted record, or application workflow was
   restored successfully.
-* Dependency-advisory follow-up (2026-08-24): `cargo audit` was not installed
-  locally. Installation of the external `cargo-audit` developer utility was
-  started without changing MediChain dependencies or lockfiles, but it had not
-  completed by the end of this verification slice. Consequently there is no
-  current local advisory result; the configured CI scan, SBOM generation, and
-  provenance workflow remain unverified until an actual hosted or completed
-  local run is captured.
+* Dependency-advisory follow-up (2026-08-24): the external `cargo-audit`
+  developer utility was installed without changing MediChain dependencies or
+  lockfiles. After it refreshed the RustSec advisory database, `cargo audit`
+  exited `0` with no reported advisories. This is a point-in-time local Rust
+  dependency result only; the configured CI scan, SBOM generation, container
+  scan, and provenance workflow remain unverified until an actual hosted or
+  release-artifact run is captured.
 
 ## Remaining release blockers
 
