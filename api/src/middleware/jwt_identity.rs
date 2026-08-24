@@ -161,4 +161,38 @@ mod tests {
         assert!(response.status().is_success());
         assert_eq!(actix_test::read_body(response).await, WALLET.as_bytes());
     }
+
+    #[actix_web::test]
+    async fn bearer_identity_reaches_legacy_handler_after_signature_middleware() {
+        let app = actix_test::init_service(
+            App::new()
+                // This is the production order: signature authentication sees
+                // client input before the JWT bridge creates any legacy header.
+                .wrap(JwtIdentityMiddleware)
+                .wrap(crate::middleware::signature_auth::SignatureAuthMiddleware::enabled())
+                .route(
+                    "/identity",
+                    web::get().to(|req: HttpRequest| async move {
+                        HttpResponse::Ok().body(
+                            req.headers()
+                                .get(&LEGACY_IDENTITY_HEADER)
+                                .and_then(|value| value.to_str().ok())
+                                .unwrap_or_default()
+                                .to_string(),
+                        )
+                    }),
+                ),
+        )
+        .await;
+        let token = crate::security::jwt::issue_access_token(WALLET, "Doctor", false).unwrap();
+        let request = TestRequest::get()
+            .uri("/identity")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+
+        let response = actix_test::call_service(&app, request).await;
+
+        assert!(response.status().is_success());
+        assert_eq!(actix_test::read_body(response).await, WALLET.as_bytes());
+    }
 }
