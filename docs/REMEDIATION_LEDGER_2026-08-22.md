@@ -320,6 +320,12 @@ authentication and log-sink audit scope.
   retaining parallel test execution. The former replay failure now passes in an
   exact rerun (`1 passed`, 445 filtered, 7.12 seconds). The post-change complete
   suite result is not yet recorded; this remains `TEST-001` partial evidence.
+* PostgreSQL test-harness complete regression: after migration serialization,
+  `cargo test --bin medichain-api` passed `445 passed; 0 failed; 1 ignored` in
+  592.79 seconds. The four formerly failing migration setup tests passed in the
+  same parallel run. The ignored blockchain E2E test still requires a running
+  MediChain development node; browser and deployed-image qualification remain
+  separate evidence layers.
 
 ## Remaining release blockers
 
