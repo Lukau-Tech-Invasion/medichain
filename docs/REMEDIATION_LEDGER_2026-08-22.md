@@ -742,6 +742,14 @@ authentication and log-sink audit scope.
   --check` and `cargo clippy --bin medichain-api -- -D warnings` passed. The
   live development database currently has zero active organization rows; this
   is source/database-test evidence pending a current-image runtime recreation.
+* Tenant-boundary runtime parity (2026-08-24): the corrected API source was
+  built as image
+  `sha256:1e1f9175c35b7aa25478e07efc9da85969ce5600de34f637573e0077e1364331`.
+  Recreating only `medichain_api` produced a healthy container; `/health` and
+  `/health/ready` returned `200`. The current development database has zero
+  active organization rows, so this confirms startup compatibility rather than
+  a live multi-organization rejection. The image label is `local-unverified`;
+  no hosted CI, registry attestation, or production deployment claim is made.
 
 ## Remaining release blockers
 
