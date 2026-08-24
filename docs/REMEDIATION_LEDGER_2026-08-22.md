@@ -644,6 +644,15 @@ authentication and log-sink audit scope.
   validate the latest production-only signature/HTTPS negative branches; the
   focused adversarial middleware tests remain the applicable evidence. No
   production artifact provenance is claimed.
+* Full client production build (2026-08-24): `npm run build:all` completed
+  successfully, including shared TypeScript validation and both Vite portal
+  bundles. The build reports two maintenance warnings: the checked-in
+  Browserslist/caniuse-lite data is eight months old, and Rollup removes a
+  misplaced `/*#__PURE__*/` annotation from the third-party
+  `@polkadot/x-global` package. Neither warning failed the build or establishes
+  a functional defect, but both remain visible dependency/build hygiene debt.
+  This is local bundle evidence, not deployed-image, browser workflow, or
+  production performance proof.
 
 ## Remaining release blockers
 
