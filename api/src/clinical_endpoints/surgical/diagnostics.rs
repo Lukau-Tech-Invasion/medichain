@@ -17,7 +17,6 @@ pub async fn create_anesthesia(
     };
 
     let record = req.into_inner();
-    let id = record.record_id.clone();
     let owner_id = record.patient_id.clone();
 
     // Log access
@@ -50,7 +49,7 @@ pub async fn create_anesthesia(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("anesthesia record {id} could not be stored: {e}");
+            log::error!("anesthesia record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Anesthesia record could not be stored".to_string(),
@@ -79,7 +78,7 @@ pub async fn get_anesthesia(
             Ok(record) => HttpResponse::Ok().json(record),
             Err(e) => {
                 // Half an anesthesia record is more dangerous than none.
-                log::error!("anesthesia record {id} stored payload is unreadable: {e}");
+                log::error!("anesthesia record stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored anesthesia record could not be read".to_string(),
@@ -89,7 +88,7 @@ pub async fn get_anesthesia(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("anesthesia record {id} lookup failed: {e}");
+            log::error!("anesthesia-record lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -126,11 +125,10 @@ pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -
         Ok(entities) => {
             let mut items = Vec::with_capacity(entities.len());
             for entity in entities {
-                let id = entity.id.clone();
                 match AnesthesiaRecord::try_from(entity) {
                     Ok(record) => items.push(record),
                     Err(e) => {
-                        log::error!("anesthesia record {id} stored payload is unreadable: {e}");
+                        log::error!("anesthesia record stored payload is unreadable: {e}");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored anesthesia records could not be read"
@@ -176,7 +174,6 @@ pub async fn create_radiology_order(
     // Stamp it from the session so the stored record cannot disagree with the
     // authenticated identity even if the check above is ever relaxed.
     order.ordering_provider = caller.wallet_address.clone();
-    let id = order.order_id.clone();
     let owner_id = order.patient_id.clone();
 
     // Log access
@@ -212,7 +209,7 @@ pub async fn create_radiology_order(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("radiology order {id} could not be stored: {e}");
+            log::error!("radiology order could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Radiology order could not be stored".to_string(),
@@ -241,7 +238,7 @@ pub async fn get_radiology_order(
             Ok(order) => HttpResponse::Ok().json(order),
             Err(e) => {
                 // A partial radiology order is more dangerous than none.
-                log::error!("radiology order {id} stored payload is unreadable: {e}");
+                log::error!("radiology order stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored radiology order could not be read".to_string(),
@@ -251,7 +248,7 @@ pub async fn get_radiology_order(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("radiology order {id} lookup failed: {e}");
+            log::error!("radiology-order lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -270,7 +267,6 @@ pub async fn create_radiology_report(
     };
 
     let report = req.into_inner();
-    let id = report.report_id.clone();
     let owner_id = report.patient_id.clone();
 
     // Log access
@@ -303,7 +299,7 @@ pub async fn create_radiology_report(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("radiology report {id} could not be stored: {e}");
+            log::error!("radiology report could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Radiology report could not be stored".to_string(),
@@ -332,7 +328,7 @@ pub async fn get_radiology_report(
             Ok(report) => HttpResponse::Ok().json(report),
             Err(e) => {
                 // A partial radiology report is more dangerous than none.
-                log::error!("radiology report {id} stored payload is unreadable: {e}");
+                log::error!("radiology report stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored radiology report could not be read".to_string(),
@@ -342,7 +338,7 @@ pub async fn get_radiology_report(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("radiology report {id} lookup failed: {e}");
+            log::error!("radiology-report lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -521,7 +517,7 @@ pub async fn create_pathology(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("pathology specimen {id} could not be stored: {e}");
+            log::error!("pathology specimen could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Pathology specimen could not be stored".to_string(),
@@ -550,7 +546,7 @@ pub async fn get_pathology(
             Ok(report) => HttpResponse::Ok().json(report),
             Err(e) => {
                 // A partial pathology report is more dangerous than none.
-                log::error!("pathology report {id} stored payload is unreadable: {e}");
+                log::error!("pathology report stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored pathology report could not be read".to_string(),
@@ -560,7 +556,7 @@ pub async fn get_pathology(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("pathology report {id} lookup failed: {e}");
+            log::error!("pathology-report lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }

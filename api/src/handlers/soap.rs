@@ -402,7 +402,7 @@ pub async fn add_soap_addendum(
     entity.updated_at = Utc::now();
     let _ = data.repositories.soap_note_records.create(entity).await;
 
-    log::info!("Addendum {} added to SOAP note {}", addendum_id, note_id);
+    log::info!("SOAP-note addendum created");
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

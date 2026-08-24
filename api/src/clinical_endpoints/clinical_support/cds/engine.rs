@@ -202,7 +202,7 @@ pub async fn run_and_persist_cds_alerts(
         }
         let entity: crate::repositories::traits::CdsAlertEntity = alert.clone().into();
         if let Err(e) = data.repositories.cds_alerts.create(entity).await {
-            log::error!("Failed to persist CDS alert {}: {}", alert.alert_id, e);
+            log::error!("Failed to persist CDS alert: {}", e);
         }
     }
 }

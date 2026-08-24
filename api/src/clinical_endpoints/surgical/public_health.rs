@@ -23,7 +23,6 @@ pub async fn create_immunization(
         record.record_id = crate::middleware::error_handling::secure_tokens::generate_access_id()
             .replacen("ACC-", "IMM-", 1);
     }
-    let id = record.record_id.clone();
     // Persisted through the typed repository, so it survives a restart.
     match data
         .repositories
@@ -35,7 +34,7 @@ pub async fn create_immunization(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("immunization record {id} could not be stored: {e}");
+            log::error!("immunization record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Immunization record could not be stored".to_string(),
@@ -66,7 +65,7 @@ pub async fn get_immunization(
         Ok(entity) => HttpResponse::Ok().json(ImmunizationRecord::from(entity)),
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("immunization record {id} lookup failed: {e}");
+            log::error!("immunization-record lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -104,7 +103,7 @@ pub async fn create_family_history(
     {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("family history {id} could not be stored: {e}");
+            log::error!("family-history record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Family history could not be stored".to_string(),
@@ -144,7 +143,7 @@ pub async fn get_family_history(
         Ok(Some(rec)) => match serde_json::from_value::<FamilyMedicalHistory>(rec.data) {
             Ok(history) => HttpResponse::Ok().json(history),
             Err(e) => {
-                log::error!("family history {id} stored payload is unreadable: {e}");
+                log::error!("family-history stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored family history could not be read".to_string(),
@@ -157,7 +156,7 @@ pub async fn get_family_history(
             "entries": [],
         })),
         Err(e) => {
-            log::error!("family history {id} lookup failed: {e}");
+            log::error!("family-history lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -193,7 +192,7 @@ pub async fn create_blood_type_screen(
     {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("blood type screen {id} could not be stored: {e}");
+            log::error!("blood-type screen could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Blood type screen could not be stored".to_string(),
@@ -227,7 +226,7 @@ pub async fn get_blood_type_screen(
             Ok(screen) => HttpResponse::Ok().json(screen),
             Err(e) => {
                 // A partial blood type screen is more dangerous than none.
-                log::error!("blood type screen {id} stored payload is unreadable: {e}");
+                log::error!("blood-type screen stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored blood type screen could not be read".to_string(),
@@ -237,7 +236,7 @@ pub async fn get_blood_type_screen(
         },
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("blood type screen {id} lookup failed: {e}");
+            log::error!("blood-type screen lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -294,7 +293,7 @@ pub async fn create_transfusion(
     {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("transfusion record {id} could not be stored: {e}");
+            log::error!("transfusion record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Transfusion record could not be stored".to_string(),
@@ -328,7 +327,7 @@ pub async fn get_transfusion(
             Ok(record) => HttpResponse::Ok().json(record),
             Err(e) => {
                 // A partial transfusion record is more dangerous than none.
-                log::error!("transfusion record {id} stored payload is unreadable: {e}");
+                log::error!("transfusion record stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored transfusion record could not be read".to_string(),
@@ -338,7 +337,7 @@ pub async fn get_transfusion(
         },
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("transfusion record {id} lookup failed: {e}");
+            log::error!("transfusion-record lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -413,7 +412,7 @@ pub async fn create_e_prescription(
     {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("e-prescription {id} could not be stored: {e}");
+            log::error!("e-prescription could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "E-prescription could not be stored".to_string(),
@@ -447,7 +446,7 @@ pub async fn get_e_prescription(
             Ok(prescription) => HttpResponse::Ok().json(prescription),
             Err(e) => {
                 // A partial e-prescription is more dangerous than none.
-                log::error!("e-prescription {id} stored payload is unreadable: {e}");
+                log::error!("e-prescription stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored e-prescription could not be read".to_string(),
@@ -457,7 +456,7 @@ pub async fn get_e_prescription(
         },
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("e-prescription {id} lookup failed: {e}");
+            log::error!("e-prescription lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -564,7 +563,7 @@ pub async fn create_death_certificate(
     {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
-            log::error!("death certificate {id} could not be stored: {e}");
+            log::error!("death certificate could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Death certificate could not be stored".to_string(),
@@ -597,7 +596,7 @@ pub async fn get_death_certificate(
         Ok(Some(rec)) => match serde_json::from_value::<DeathCertificate>(rec.data) {
             Ok(certificate) => HttpResponse::Ok().json(certificate),
             Err(e) => {
-                log::error!("death certificate {id} stored payload is unreadable: {e}");
+                log::error!("death-certificate stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored death certificate could not be read".to_string(),
@@ -607,7 +606,7 @@ pub async fn get_death_certificate(
         },
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("death certificate {id} lookup failed: {e}");
+            log::error!("death-certificate lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }

@@ -591,7 +591,7 @@ pub async fn suspend_card(
         });
     }
 
-    log::info!("Card {} suspended by Admin {}", card_hash, current_user_id);
+    log::info!("NFC card suspended by an administrator");
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

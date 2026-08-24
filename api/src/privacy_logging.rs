@@ -133,4 +133,18 @@ mod tests {
         assert!(!rendered.contains("PAT-001"));
         assert!(!rendered.contains("5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ"));
     }
+
+    #[test]
+    fn masks_identifiers_embedded_in_operational_error_messages() {
+        let record_id = "123e4567-e89b-12d3-a456-426614174000";
+        let session_id = "123e4567-e89b-12d3-a456-426614174001";
+        let raw = format!(
+            "record {record_id} lookup failed; telehealth session ({session_id}) audit failed"
+        );
+        let redacted = redact_message(&raw);
+
+        assert!(!redacted.contains(record_id));
+        assert!(!redacted.contains(session_id));
+        assert_eq!(redacted.matches("[REDACTED]").count(), 2);
+    }
 }

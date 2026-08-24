@@ -886,7 +886,7 @@ pub async fn transition_appointment(
                 "message": "Appointment cancelled"
             })),
             Err(e) => {
-                log::error!("cancelling {appointment_id} failed: {e}");
+                log::error!("appointment cancellation failed: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "The appointment could not be cancelled".to_string(),
@@ -916,7 +916,7 @@ pub async fn transition_appointment(
             "message": "Appointment updated"
         })),
         Err(e) => {
-            log::error!("transitioning {appointment_id} failed: {e}");
+            log::error!("appointment transition failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "The appointment could not be updated".to_string(),

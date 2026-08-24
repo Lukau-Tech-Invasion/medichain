@@ -298,6 +298,16 @@ authentication and log-sink audit scope.
   not exist and no business mutation was attempted. The local image remains
   `local-unverified`; this is runtime behavior, not release provenance.
 
+* Privacy source-hygiene follow-up: direct interpolation of identifier-shaped
+  variables in `log::*` macros was removed from record lookup, surgical,
+  perioperative, diagnostic, telehealth, appointment, NFC, SOAP, CDS, and
+  security-alert paths. The current focused source gate found `0` remaining
+  direct sensitive-identifier interpolations. The shared output filter now has
+  a regression case for UUIDs embedded in operational error messages. `cargo
+  fmt --all --check`, three privacy logging tests, and the complete API suite
+  passed (`442 passed; 0 failed; 1 ignored`, 186.06 seconds). A rebuilt runtime
+  log probe and full metric/browser collector review remain required.
+
 ## Remaining release blockers
 
 `DATA-001` and `PRIV-001` remain P1 blockers.  SEC-001, SEC-002, APP-001, and

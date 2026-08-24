@@ -17,7 +17,6 @@ pub async fn create_pre_op(
     };
 
     let assessment = req.into_inner();
-    let id = assessment.assessment_id.clone();
     let owner_id = assessment.patient_id.clone();
 
     // Log access via repository
@@ -52,7 +51,7 @@ pub async fn create_pre_op(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("pre-op assessment {id} could not be stored: {e}");
+            log::error!("pre-op assessment could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Pre-operative assessment could not be stored".to_string(),
@@ -81,7 +80,7 @@ pub async fn get_pre_op(
                 // The stored payload could not be read back. Half an assessment
                 // is more dangerous than none, so this is an error, not a
                 // partial response.
-                log::error!("pre-op assessment {id} stored payload is unreadable: {e}");
+                log::error!("pre-op assessment stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored assessment could not be read".to_string(),
@@ -91,7 +90,7 @@ pub async fn get_pre_op(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("pre-op assessment {id} lookup failed: {e}");
+            log::error!("pre-op assessment lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -124,11 +123,10 @@ pub async fn list_patient_pre_op(
             // reads as "this patient has none", which is the wrong answer.
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                let id = entity.id.clone();
                 match PreOperativeAssessment::try_from(entity) {
                     Ok(assessment) => items.push(assessment),
                     Err(e) => {
-                        log::error!("pre-op assessment {id} stored payload is unreadable: {e}");
+                        log::error!("pre-op assessment stored payload is unreadable: {e}");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored assessments could not be read".to_string(),
@@ -159,7 +157,6 @@ pub async fn create_operative_note(
     };
 
     let note = req.into_inner();
-    let id = note.note_id.clone();
     let owner_id = note.patient_id.clone();
 
     // Log access via repository
@@ -187,7 +184,7 @@ pub async fn create_operative_note(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("operative note {id} could not be stored: {e}");
+            log::error!("operative note could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Operative note could not be stored".to_string(),
@@ -216,7 +213,7 @@ pub async fn get_operative_note(
             Ok(note) => HttpResponse::Ok().json(note),
             Err(e) => {
                 // Half an operative note is more dangerous than none.
-                log::error!("operative note {id} stored payload is unreadable: {e}");
+                log::error!("operative-note stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored operative note could not be read".to_string(),
@@ -226,7 +223,7 @@ pub async fn get_operative_note(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("operative note {id} lookup failed: {e}");
+            log::error!("operative-note lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -254,11 +251,10 @@ pub async fn list_patient_operative_notes(
             // omits a note reads as "this patient has none".
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                let id = entity.id.clone();
                 match OperativeNote::try_from(entity) {
                     Ok(note) => items.push(note),
                     Err(e) => {
-                        log::error!("operative note {id} stored payload is unreadable: {e}");
+                        log::error!("operative-note stored payload is unreadable: {e}");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored operative notes could not be read"
@@ -290,7 +286,6 @@ pub async fn create_post_op(
     };
 
     let note = req.into_inner();
-    let id = note.note_id.clone();
     let owner_id = note.patient_id.clone();
 
     // Log access
@@ -318,7 +313,7 @@ pub async fn create_post_op(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(e) => {
-            log::error!("post-op note {id} could not be stored: {e}");
+            log::error!("post-op note could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Post-operative note could not be stored".to_string(),
@@ -346,7 +341,7 @@ pub async fn get_post_op(
         Ok(entity) => match PostOperativeNote::try_from(entity) {
             Ok(note) => HttpResponse::Ok().json(note),
             Err(e) => {
-                log::error!("post-op note {id} stored payload is unreadable: {e}");
+                log::error!("post-op note stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored post-operative note could not be read".to_string(),
@@ -356,7 +351,7 @@ pub async fn get_post_op(
         },
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
-            log::error!("post-op note {id} lookup failed: {e}");
+            log::error!("post-op note lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -382,11 +377,10 @@ pub async fn list_patient_post_op(
         Ok(page) => {
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                let id = entity.id.clone();
                 match PostOperativeNote::try_from(entity) {
                     Ok(note) => items.push(note),
                     Err(e) => {
-                        log::error!("post-op note {id} stored payload is unreadable: {e}");
+                        log::error!("post-op note stored payload is unreadable: {e}");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored post-operative notes could not be read"

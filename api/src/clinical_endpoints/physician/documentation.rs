@@ -620,7 +620,7 @@ pub async fn respond_to_consult(
             "consulting_provider": stored.consulting_provider
         })),
         Err(e) => {
-            log::error!("consult {consult_id} response could not be stored: {e}");
+            log::error!("consult response could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "The consultation response could not be saved".to_string(),

@@ -55,7 +55,7 @@ impl SecurityState {
         .execute(pool)
         .await;
         if let Err(e) = res {
-            log::error!("Failed to persist security alert {}: {}", alert.id, e);
+            log::error!("Failed to persist security alert: {}", e);
         }
     }
 

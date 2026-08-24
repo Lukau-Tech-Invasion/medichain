@@ -443,7 +443,7 @@ async fn download_history_physical(
     let hp = match data.repositories.history_physicals.get_by_id(hp_id).await {
         Ok(hp) => hp,
         Err(e) => {
-            log::error!("history and physical {hp_id} lookup failed: {e}");
+            log::error!("history and physical lookup failed: {e}");
             return not_found("History and physical");
         }
     };
@@ -514,7 +514,7 @@ async fn download_progress_note(
     let note = match data.repositories.progress_notes.get_by_id(note_id).await {
         Ok(note) => note,
         Err(e) => {
-            log::error!("progress note {note_id} lookup failed: {e}");
+            log::error!("progress note lookup failed: {e}");
             return not_found("Progress note");
         }
     };
@@ -553,7 +553,7 @@ async fn download_wound(
     {
         Ok(wound) => wound,
         Err(e) => {
-            log::error!("wound assessment {wound_id} lookup failed: {e}");
+            log::error!("wound assessment lookup failed: {e}");
             return not_found("Wound assessment");
         }
     };
@@ -601,7 +601,7 @@ async fn download_vitals(
     let v = match data.repositories.vital_signs.get_by_id(vitals_id).await {
         Ok(v) => v,
         Err(e) => {
-            log::error!("vital signs {vitals_id} lookup failed: {e}");
+            log::error!("vital-signs lookup failed: {e}");
             return not_found("Vital signs");
         }
     };
@@ -679,7 +679,7 @@ async fn download_soap_note(
         Ok(Some(record)) => record,
         Ok(None) => return not_found("SOAP note"),
         Err(e) => {
-            log::error!("soap note {note_id} lookup failed: {e}");
+            log::error!("SOAP-note lookup failed: {e}");
             return not_found("SOAP note");
         }
     };
@@ -811,7 +811,7 @@ async fn download_prescription(
         Ok(Some(record)) => record,
         Ok(None) => return not_found("Prescription"),
         Err(e) => {
-            log::error!("prescription {prescription_id} lookup failed: {e}");
+            log::error!("prescription lookup failed: {e}");
             return not_found("Prescription");
         }
     };
@@ -880,7 +880,7 @@ async fn download_triage(
     {
         Ok(a) => a,
         Err(e) => {
-            log::error!("triage {assessment_id} lookup failed: {e}");
+            log::error!("triage lookup failed: {e}");
             return not_found("Triage assessment");
         }
     };
@@ -977,7 +977,7 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
             })
         }
         Err(e) => {
-            log::error!("lab result {submission_id} lookup failed: {e}");
+            log::error!("lab-result lookup failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Lookup failed".to_string(),
@@ -989,7 +989,7 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
     let submission: LabResultSubmission = match serde_json::from_value(record.data) {
         Ok(submission) => submission,
         Err(e) => {
-            log::error!("lab result {submission_id} did not parse: {e}");
+            log::error!("lab-result stored payload did not parse: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Lab result could not be read".to_string(),

@@ -428,7 +428,7 @@ pub async fn join_telehealth_session(
             facility_id: None,
         };
         if let Err(e) = data.repositories.access_logs.create(log).await {
-            log::error!("telehealth join audit write failed for {session_id}: {e}");
+            log::error!("telehealth join audit write failed: {e}");
         }
     }
 
@@ -754,7 +754,7 @@ pub async fn telehealth_recording(
         facility_id: None,
     };
     if let Err(e) = data.repositories.access_logs.create(log).await {
-        log::error!("telehealth {action} audit write failed for {session_id}: {e}");
+        log::error!("telehealth {action} audit write failed: {e}");
     }
     data.ws_manager.push_event(crate::websocket::PushEvent {
         event_type: "telehealth".to_string(),
