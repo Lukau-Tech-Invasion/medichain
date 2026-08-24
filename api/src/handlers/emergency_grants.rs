@@ -94,12 +94,14 @@ pub async fn issue_emergency_grant(
                 facility_id,
                 device_id: body.device_id.clone(),
             },
-            body.reason_code.clone(),
-            body.reason_text.clone(),
-            body.scopes.clone(),
-            "emergency_grant_issued".into(),
-            serde_json::json!({"device_id": body.device_id}),
-            Utc::now(),
+            crate::emergency_grants::AuditedEmergencyGrantRequest {
+                reason_code: body.reason_code.clone(),
+                reason_text: body.reason_text.clone(),
+                scopes: body.scopes.clone(),
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"device_id": body.device_id}),
+                now: Utc::now(),
+            },
         )
         .await
     {

@@ -79,6 +79,21 @@ pub struct EmergencyGrantBinding {
     pub device_id: String,
 }
 
+/// Inputs that belong to one audited emergency-grant issuance.
+///
+/// Keeping the reason, scope, audit event, and timestamp together prevents the
+/// caller from accidentally separating the mandatory audit event from the
+/// transition it describes.
+#[derive(Debug, Clone)]
+pub struct AuditedEmergencyGrantRequest {
+    pub reason_code: String,
+    pub reason_text: Option<String>,
+    pub scopes: Vec<EmergencyGrantScope>,
+    pub event_type: String,
+    pub payload: serde_json::Value,
+    pub now: DateTime<Utc>,
+}
+
 pub struct EmergencyGrantStore {
     grants: RwLock<HashMap<String, EmergencyAccessGrant>>,
     pool: Option<sqlx::PgPool>,
@@ -189,13 +204,16 @@ impl EmergencyGrantStore {
     pub async fn issue_with_audit(
         &self,
         binding: EmergencyGrantBinding,
-        reason_code: String,
-        reason_text: Option<String>,
-        scopes: Vec<EmergencyGrantScope>,
-        event_type: String,
-        payload: serde_json::Value,
-        now: DateTime<Utc>,
+        request: AuditedEmergencyGrantRequest,
     ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditOutboxEvent), &'static str> {
+        let AuditedEmergencyGrantRequest {
+            reason_code,
+            reason_text,
+            scopes,
+            event_type,
+            payload,
+            now,
+        } = request;
         let EmergencyGrantBinding {
             patient_id,
             person_id,

@@ -1149,7 +1149,8 @@ async fn test_pg_emergency_grant_survives_restart_and_enforces_bindings() {
 #[tokio::test]
 async fn test_pg_emergency_grant_and_audit_commit_together() {
     use crate::emergency_grants::{
-        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,
+        AuditedEmergencyGrantRequest, EmergencyGrantBinding, EmergencyGrantScope,
+        EmergencyGrantStore,
     };
 
     let pool = get_test_pool().await;
@@ -1166,12 +1167,14 @@ async fn test_pg_emergency_grant_and_audit_commit_together() {
                 facility_id: Some(facility_id),
                 device_id,
             },
-            "life_threatening".into(),
-            None,
-            vec![EmergencyGrantScope::EmergencySummary],
-            "emergency_grant_issued".into(),
-            serde_json::json!({"test": true}),
-            Utc::now(),
+            AuditedEmergencyGrantRequest {
+                reason_code: "life_threatening".into(),
+                reason_text: None,
+                scopes: vec![EmergencyGrantScope::EmergencySummary],
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"test": true}),
+                now: Utc::now(),
+            },
         )
         .await
         .expect("grant and audit must commit");
@@ -1193,7 +1196,8 @@ async fn test_pg_emergency_grant_and_audit_commit_together() {
 #[tokio::test]
 async fn test_pg_emergency_grant_rolls_back_when_audit_insert_fails() {
     use crate::emergency_grants::{
-        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,
+        AuditedEmergencyGrantRequest, EmergencyGrantBinding, EmergencyGrantScope,
+        EmergencyGrantStore,
     };
 
     let pool = get_test_pool().await;
@@ -1215,12 +1219,14 @@ async fn test_pg_emergency_grant_rolls_back_when_audit_insert_fails() {
                 facility_id: Some(facility_id),
                 device_id
             },
-            "life_threatening".into(),
-            None,
-            vec![EmergencyGrantScope::EmergencySummary],
-            "emergency_grant_issued".into(),
-            serde_json::json!({"test": true}),
-            Utc::now(),
+            AuditedEmergencyGrantRequest {
+                reason_code: "life_threatening".into(),
+                reason_text: None,
+                scopes: vec![EmergencyGrantScope::EmergencySummary],
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"test": true}),
+                now: Utc::now(),
+            },
         )
         .await
         .is_err());

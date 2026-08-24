@@ -51,6 +51,23 @@ pub struct PatientMobileDevice {
     pub revocation_reason: Option<String>,
 }
 
+/// SQL projection for `patient_mobile_devices`.
+///
+/// The database driver returns tuples for the lightweight query path. Naming
+/// the projection keeps every query and conversion aligned without obscuring
+/// the fields in repeated nine-element tuple annotations.
+type MobileDeviceRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+);
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtectedMobileRecordSession {
     pub id: String,
@@ -196,7 +213,7 @@ impl MobileRecordStore {
         let Some(pool) = &self.pool else {
             return Ok(self.get_device(device_id));
         };
-        let row: Option<(String,String,String,String,String,String,Option<DateTime<Utc>>,Option<DateTime<Utc>>,Option<String>)> = sqlx::query_as("SELECT id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason FROM patient_mobile_devices WHERE id = $1")
+        let row: Option<MobileDeviceRow> = sqlx::query_as("SELECT id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason FROM patient_mobile_devices WHERE id = $1")
             .bind(device_id).fetch_optional(pool).await.map_err(|_| "Mobile device store is unavailable")?;
         row.map(row_to_device).transpose()
     }
@@ -268,7 +285,7 @@ impl MobileRecordStore {
             .begin()
             .await
             .map_err(|_| "Mobile device store is unavailable")?;
-        let row: Option<(String,String,String,String,String,String,Option<DateTime<Utc>>,Option<DateTime<Utc>>,Option<String>)> = sqlx::query_as("UPDATE patient_mobile_devices SET status = 'revoked', revoked_at = $2, revocation_reason = $3 WHERE id = $1 AND status = 'active' RETURNING id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason")
+        let row: Option<MobileDeviceRow> = sqlx::query_as("UPDATE patient_mobile_devices SET status = 'revoked', revoked_at = $2, revocation_reason = $3 WHERE id = $1 AND status = 'active' RETURNING id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason")
             .bind(device_id).bind(now).bind(&reason).fetch_optional(&mut *transaction).await.map_err(|_| "Mobile device store is unavailable")?;
         let device = row
             .map(row_to_device)
@@ -441,19 +458,7 @@ fn platform_name(platform: MobilePlatform) -> &'static str {
         MobilePlatform::Ios => "ios",
     }
 }
-fn row_to_device(
-    row: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>,
-        Option<String>,
-    ),
-) -> Result<PatientMobileDevice, &'static str> {
+fn row_to_device(row: MobileDeviceRow) -> Result<PatientMobileDevice, &'static str> {
     let (
         id,
         patient_id,

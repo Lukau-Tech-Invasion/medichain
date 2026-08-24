@@ -665,6 +665,17 @@ authentication and log-sink audit scope.
   finding; it does not qualify downstream log collectors, third-party tracing,
   browser telemetry, or every non-stdout sink, so `PRIV-001` remains
   `PARTIALLY FIXED`.
+* API strict-lint repair (2026-08-24): `cargo clippy --bin medichain-api --
+  -D warnings` initially identified one eight-argument emergency-grant issuance
+  method and three repeated complex mobile-device database-row tuple types.
+  Issuance now receives one named `AuditedEmergencyGrantRequest`, which keeps
+  the mandatory audit inputs together, and the shared SQL projection is named
+  `MobileDeviceRow`; no transition, SQL, policy, or serialized response changed.
+  `cargo fmt --all --check`, `cargo clippy --bin medichain-api -- -D warnings`,
+  the six-case `emergency_grant` test filter (including PostgreSQL commit and
+  rollback cases), and the two-case `mobile_records` filter all passed. This is
+  local source and targeted database-test evidence, not a deployment or browser
+  workflow qualification.
 
 ## Remaining release blockers
 

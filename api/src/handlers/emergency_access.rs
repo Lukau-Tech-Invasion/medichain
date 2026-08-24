@@ -152,16 +152,18 @@ pub async fn grant_bound_emergency_access(
                 facility_id,
                 device_id: body.device_id.clone(),
             },
-            body.reason_code.clone(),
-            body.reason_text.clone(),
-            vec![
-                EmergencyGrantScope::EmergencySummary,
-                EmergencyGrantScope::DownloadProhibited,
-                EmergencyGrantScope::OfflineProhibited,
-            ],
-            "emergency_grant_issued".into(),
-            serde_json::json!({"device_id": body.device_id}),
-            Utc::now(),
+            crate::emergency_grants::AuditedEmergencyGrantRequest {
+                reason_code: body.reason_code.clone(),
+                reason_text: body.reason_text.clone(),
+                scopes: vec![
+                    EmergencyGrantScope::EmergencySummary,
+                    EmergencyGrantScope::DownloadProhibited,
+                    EmergencyGrantScope::OfflineProhibited,
+                ],
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"device_id": body.device_id}),
+                now: Utc::now(),
+            },
         )
         .await
     {
