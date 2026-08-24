@@ -191,6 +191,10 @@ authentication and log-sink audit scope.
   `cargo test --bin medichain-api` passed `437 passed; 0 failed; 1 ignored`
   in 180.72 seconds. The ignored blockchain E2E test still requires a running
   MediChain development node.
+* Fresh complete API suite after the nonce-bound JWT verifier and challenge
+  durability additions: `cargo test --bin medichain-api` passed `440 passed;
+  0 failed; 1 ignored` in 124.52 seconds. The ignored blockchain E2E test
+  still requires a running MediChain development node.
 * Current-source anonymous challenge probe: `docker compose build api` built
   image manifest `sha256:926596d4f4e0f1af541ae5c6a93c804ca27e5f8b590e231b4b08e067424b3e99`;
   recreating only `medichain_api` produced a healthy container. Gateway
