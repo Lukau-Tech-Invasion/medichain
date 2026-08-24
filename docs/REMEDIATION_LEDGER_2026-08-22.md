@@ -495,6 +495,13 @@ authentication and log-sink audit scope.
   and `cargo test --bin medichain-api dev_account_tests -- --nocapture`
   passed (`2 passed`, `451 filtered`). This narrows one direct-output path;
   it does not qualify collectors, all error paths, or browser telemetry.
+* Direct-output source classification: the non-test `println!`/`eprintln!`
+  inventory consists of static startup banners, endpoint labels, service status,
+  and aggregate counts; it contains no remaining production patient, wallet,
+  token, or raw error interpolation after the startup-error repair. Remaining
+  dynamic direct output is confined to blockchain and PostgreSQL test code using
+  synthetic signer, commitment, and fixture values. This is a static source
+  result, not evidence about external collectors or telemetry sinks.
 
 ## Remaining release blockers
 
