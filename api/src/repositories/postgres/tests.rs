@@ -18,7 +18,9 @@ use std::sync::{
 static NEXT_SCHEMA_ID: AtomicU64 = AtomicU64::new(0);
 static MIGRATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
-async fn get_test_pool() -> PgPool {
+// Visible to sibling test modules: the session-state middleware tests need a
+// real database, and duplicating pool setup would let the two drift apart.
+pub(crate) async fn get_test_pool() -> PgPool {
     create_test_pool().await
 }
 

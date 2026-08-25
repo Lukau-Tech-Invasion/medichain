@@ -150,3 +150,188 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test as actix_test, web, App, HttpResponse};
+
+    const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    const OTHER: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+
+    async fn protected() -> HttpResponse {
+        HttpResponse::Ok().body("reached the handler")
+    }
+
+    /// Drive a real request through the middleware against a real database, and
+    /// report the status the caller would actually receive.
+    ///
+    /// These are HTTP-level rather than store-level on purpose: the store tests
+    /// prove `auth_login_sessions` behaves, but only a request proves that a
+    /// revoked session is refused *before* a handler runs.
+    async fn status_for(pool: sqlx::PgPool, token: &str) -> u16 {
+        let state = crate::state::AppState::new_with_pool(Some(pool));
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .wrap(SessionStateMiddleware)
+                .route("/protected", web::get().to(protected)),
+        )
+        .await;
+        let request = actix_test::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        actix_test::call_service(&app, request)
+            .await
+            .status()
+            .as_u16()
+    }
+
+    async fn open_session(pool: &sqlx::PgPool, wallet: &str) -> uuid::Uuid {
+        crate::auth_sessions::create(
+            pool,
+            wallet,
+            &format!("http-generation-{}", uuid::Uuid::new_v4()),
+            &uuid::Uuid::new_v4().to_string(),
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .await
+        .expect("open login session")
+    }
+
+    async fn cleanup(pool: &sqlx::PgPool, sid: uuid::Uuid) {
+        sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+            .bind(sid)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+            .bind(sid)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
+    /// The gap this middleware exists to close: after logout the access token is
+    /// still cryptographically valid, and it must stop working anyway.
+    #[tokio::test]
+    async fn revoked_session_is_refused_on_a_real_request() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let sid = open_session(&pool, WALLET).await;
+        let token = crate::security::jwt::issue_access_token(
+            WALLET,
+            "Doctor",
+            false,
+            Some(&sid.to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            status_for(pool.clone(), &token).await,
+            200,
+            "a live session must reach the handler"
+        );
+
+        crate::auth_sessions::revoke_session(&pool, sid, "logout")
+            .await
+            .expect("revoke");
+
+        // Same token, unchanged and unexpired.
+        assert_eq!(
+            status_for(pool.clone(), &token).await,
+            401,
+            "logout must stop an access token that is still within its lifetime"
+        );
+
+        cleanup(&pool, sid).await;
+    }
+
+    /// Signing out everywhere must not depend on the lost device cooperating.
+    #[tokio::test]
+    async fn logout_all_refuses_every_session_for_the_subject() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let phone = open_session(&pool, WALLET).await;
+        let desk = open_session(&pool, WALLET).await;
+        let phone_token = crate::security::jwt::issue_access_token(
+            WALLET,
+            "Doctor",
+            false,
+            Some(&phone.to_string()),
+        )
+        .unwrap();
+        let desk_token = crate::security::jwt::issue_access_token(
+            WALLET,
+            "Doctor",
+            false,
+            Some(&desk.to_string()),
+        )
+        .unwrap();
+
+        crate::auth_sessions::revoke_all_for_wallet(&pool, WALLET, "logout_all")
+            .await
+            .expect("logout all");
+
+        assert_eq!(status_for(pool.clone(), &phone_token).await, 401);
+        assert_eq!(status_for(pool.clone(), &desk_token).await, 401);
+
+        cleanup(&pool, phone).await;
+        cleanup(&pool, desk).await;
+    }
+
+    /// A token must not be able to name a session it does not own. The signature
+    /// is valid and the session is live -- only the binding is wrong, and that
+    /// alone must refuse the request.
+    #[tokio::test]
+    async fn a_token_cannot_borrow_another_subjects_session() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let victim_session = open_session(&pool, WALLET).await;
+
+        let forged = crate::security::jwt::issue_access_token(
+            OTHER,
+            "Doctor",
+            false,
+            Some(&victim_session.to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            status_for(pool.clone(), &forged).await,
+            401,
+            "a session belongs to one subject and cannot be inherited"
+        );
+
+        cleanup(&pool, victim_session).await;
+    }
+
+    /// A session id that never existed is refused rather than treated as absent.
+    #[tokio::test]
+    async fn an_unknown_session_is_refused() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let token = crate::security::jwt::issue_access_token(
+            WALLET,
+            "Doctor",
+            false,
+            Some(&uuid::Uuid::new_v4().to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(status_for(pool, &token).await, 401);
+    }
+
+    /// Tokens issued before ADR-0008 carry no `sid`. They must pass through this
+    /// middleware untouched -- it enforces session state, it does not become a
+    /// second authentication gate for tokens that never claimed one.
+    #[tokio::test]
+    async fn a_token_without_a_session_claim_is_left_alone() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let legacy =
+            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+
+        assert_eq!(
+            status_for(pool, &legacy).await,
+            200,
+            "a pre-ADR-0008 token has no session to check"
+        );
+    }
+}

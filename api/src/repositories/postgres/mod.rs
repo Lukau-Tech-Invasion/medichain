@@ -19,7 +19,7 @@ mod triage;
 mod vital_signs;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 // Phase 2: Clinical Documentation repositories
 mod consultation_note;
