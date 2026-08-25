@@ -447,8 +447,16 @@ deciders own; wiring it without that decision would be inventing policy. The
 `ESCALATED` block in `scripts/check-write-authorization.py` is where those
 handler-by-handler questions are already recorded.
 
-Also outstanding: no HTTP-level test yet asserts that a revoked session returns
-401 on a live request, and none of this is browser-verified.
+Both are now verified. Five tests in `middleware/session_state.rs` drive real
+requests against a real database and assert 401 after logout with the same
+unexpired token. The whole path was then exercised against a running server with
+a real sr25519 login: `sid` present in the issued token, unchanged across a
+refresh rotation, Class B elevation flipping `class_b` false to true, a consumed
+challenge refused on replay, and a request going 200 to 401 across `logout` with
+database read-back confirming the revocation. The doctor portal was driven in a
+browser against that server, and the shipped `ApiClient` observed emitting
+`Authorization` alone under a Bearer session, the legacy header only on the
+tokenless demo path, and no identity at all after logout.
 
 ## Deferred
 

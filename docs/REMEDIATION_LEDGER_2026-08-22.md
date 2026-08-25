@@ -1289,6 +1289,94 @@ authentication and log-sink audit scope.
   a revoked session returns 401 on a live request, and nothing here is
   browser-verified.
 
+* The HTTP-level gap is closed (2026-08-25). Earlier entries recorded, honestly,
+  that no test asserted a revoked session returns 401 on a real request -- the
+  store behaviour was covered but the request path was not, and a middleware
+  never exercised through a request is an assumption rather than a control. Five
+  tests in `middleware/session_state.rs` now drive real requests through the
+  middleware against a real database: 200 for a live session; **401 after logout
+  with the same unexpired token**; 401 after logout-all for every session of the
+  subject; 401 for a token naming another subject's live session; 401 for an
+  unknown session id; and 200 for a pre-ADR-0008 token carrying no `sid`, since
+  this enforces session state rather than becoming a second authentication gate.
+
+  Verified in both directions: with the rejection branch disabled, three of the
+  five fail. They detect the defect rather than describing the code.
+
+  This required making `postgres::tests::get_test_pool` visible to sibling test
+  modules; duplicating pool setup would have let the two copies drift, which is
+  the failure mode this ledger keeps recording in other forms.
+
+* ADR-0008 proven at runtime, against a live server and a real database
+  (2026-08-25). Every earlier entry for this work said plainly that nothing was
+  browser-verified. This closes that for the authentication path.
+
+  Setup: the API built from this branch, run against the Docker PostgreSQL in
+  `MEDICHAIN_STORAGE=postgres` mode, with the doctor portal's Vite dev proxy
+  pointed at it (`VITE_API_PROXY_TARGET`). The running Docker `medichain-api`
+  image predates this work, so testing through it would have verified nothing --
+  a trap this ledger has recorded before.
+
+  Login used a **real sr25519 signature**, not a stub. `api/examples/sign_message.rs`
+  signs with a dev seed so the harness cannot accidentally prove that the server
+  accepts a fake signature, which would prove nothing at all.
+
+  | # | Checked over live HTTP | Result |
+  | --- | --- | --- |
+  | 1 | Wallet challenge -> signature -> `POST /api/auth/jwt` | issued |
+  | 2 | Access token carries `sid` | `a64258c1-...` present, `sub` and `role` correct |
+  | 3 | Authenticated request with a live session | 200 |
+  | 4 | No token at all | 401 |
+  | 5 | `sid` after a refresh rotation | **identical** -- the reason the split exists |
+  | 6 | Class B challenge bound to the live `sid` | `action:session.step_up`, `sid:` match |
+  | 7 | Step-up verified with a real signature | `class_b` false -> **true** |
+  | 8 | Consumed step-up challenge replayed | refused |
+  | 9 | Reserved step-up action via the transaction endpoint | refused |
+  | 10 | Request after `POST /api/auth/logout` | **200 -> 401 on the same unexpired token** |
+  | 11 | Step-up challenge on the revoked session | 401 |
+  | 12 | Database read-back after logout | `revoked_at` set, reason `logout`, elevation had existed |
+
+  Row 10 is the one that matters: the token was not expired and its signature was
+  still valid, and it stopped working because the session behind it was revoked.
+  That is the property a `sid` claim is worthless without.
+
+  Browser: the doctor portal renders against this API through the dev proxy
+  (`/api/auth/assurance` returns the API's own 401 envelope, not the dev server's
+  index.html, so the proxy genuinely reaches it). The **shipped shared
+  `ApiClient`** was driven in-page and its emitted headers observed directly:
+
+  | Session state | Headers emitted |
+  | --- | --- |
+  | Tokenless demo | `X-User-Id` only |
+  | Bearer session | `Authorization` only -- **no `X-User-Id`** |
+  | Caller passes a different wallet | `Authorization` only; the override is ignored |
+  | After logout | `{}` -- no identity at all |
+
+  That is AUTH-003's contract observed in a browser, from the module the product
+  actually ships, rather than inferred from source.
+
+* Two harness defects found while doing it, recorded because both would have
+  produced a false result rather than an error:
+
+  - **A CRLF-corrupted signature.** The first step-up verification was refused.
+    The cause was this harness: Python's text-mode write translated `\n` to
+    `\r\n`, so the message signed was not the message the server built. The
+    server was right to refuse it. Writing the message as bytes fixed it, and the
+    same signature then verified. Had the digest been over a re-serialised object
+    rather than exact bytes, this class of failure would have been intermittent
+    and nearly undiagnosable -- which is the argument for the byte-exact digest,
+    demonstrated accidentally.
+  - **A stale in-memory user cache.** Inserting a user directly into PostgreSQL
+    did not make it loginable: `AppState.users` is populated at startup, so the
+    API must be restarted after a direct write. Consistent with the existing note
+    that this map is an auth cache rather than a data source.
+
+* Integration finding: the new endpoints require an `Idempotency-Key` like every
+  other authenticated mutation, because `mutation_requires_key` exempts nothing.
+  Correct and consistent -- a challenge request does insert a durable row -- but
+  any client integration must send one, and a UI that omits it will see
+  `IDEMPOTENCY_KEY_REQUIRED` rather than a challenge.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
