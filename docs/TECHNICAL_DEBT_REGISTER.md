@@ -17,7 +17,92 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-08-20.
+Last updated: 2026-08-25.
+
+---
+
+## 2026-08-25 — OPEN, TIME-BOUND: two accepted upstream advisories in the Subxt graph
+
+`cargo deny check advisories` is green as of 2026-08-25, and two of the reasons
+it is green are acceptances rather than fixes. An acceptance is not a closure,
+so it is recorded here with the condition that removes it.
+
+Three advisories were open on this workspace. One was **removed**, not accepted:
+`RUSTSEC-2026-0258` (`h2 0.3.27`, unbounded empty HTTP/2 DATA frames) arrived
+through `actix-http`'s `http2` feature, which is on by default. Nginx terminates
+HTTP/2 at the edge and proxies to this service with `proxy_http_version 1.1`, so
+that stack was compiled and never spoken. Disabling the feature deleted the
+dependency and the advisory with it. See the dependency-minimisation entry below.
+
+The remaining two are accepted:
+
+| | `RUSTSEC-2026-0173` | `RUSTSEC-2026-0215` |
+| --- | --- | --- |
+| Crate | `proc-macro-error2 2.0.1` | `smallstr 0.3.1` |
+| Class | INFO / unmaintained | INFO / unmaintained |
+| Patched release | none | none; all versions affected |
+| Path | `subxt 0.50.3` → `subxt-macro` | `subxt 0.50.3` → `frame-decode` → `scale-info-legacy` |
+| Exposure | **build-time only** — a proc-macro crate. It executes on the build host during compilation and is present in no deployed artifact. | Compiled into the binary, but reached only through Subxt's own metadata decoding. |
+| Owner | Subxt upstream | Subxt upstream |
+
+**Why not remediate now.** Both are internal implementation details of `subxt`,
+and `subxt`'s version is coupled to the chain runtime's metadata format — the
+root `Cargo.toml` records that subxt 0.37 cannot encode a call against this
+runtime at all, and that the coupling must be re-checked whenever the SDK moves.
+An isolated `cargo update -p subxt` to clear an *informational* advisory is the
+"green audit, broken blockchain" trade: it swaps a documented build-time
+maintenance notice for an undetected wire-format incompatibility. Forking Subxt
+to replace a transitive crate it owns is worse.
+
+**Removal criterion.** Both exceptions are deleted when MediChain moves to a
+Subxt release that is compatible with the deployed runtime's metadata contract
+and no longer depends on the affected crates. That belongs to the coordinated
+Subxt / runtime / node / finalized-chain-E2E upgrade, treated as one unit, not
+to routine dependency housekeeping.
+
+**Next review.** At the start of that upgrade campaign, or on any new advisory
+against the Subxt graph — whichever is first.
+
+**Note for the reviewer.** `deny.toml`'s `[advisories]` header still describes
+four `rustls-webpki` advisories as reachable and unfixed. They no longer match
+any crate in the graph, and `cargo deny` now reports four `advisory-not-detected`
+warnings for stale `ignore` entries (`RUSTSEC-2022-0061`, `RUSTSEC-2024-0370`,
+`RUSTSEC-2024-0384`, `RUSTSEC-2025-0134`). Those entries and that header text
+are stale and should be reconciled — deliberately left alone here because the
+file states that editing the advisory list is the owner's call.
+
+---
+
+## 2026-08-25 — CLOSED: unused capability was carrying most of the dependency risk
+
+Two dependencies were configured to supply far more capability than MediChain
+consumes, and in both cases the surplus was where the supply-chain findings
+lived. Fixing the configuration removed the findings; no policy exception was
+needed for either.
+
+| Dependency | Capability consumed | Capability enabled | Result of narrowing |
+| --- | --- | --- | --- |
+| `image` (via default features, plus `qrcode`) | encode one 8-bit greyscale QR bitmap as PNG (`support.rs`, `nfc_simulator.rs`) | ~15 formats including AVIF, whose encoder is `rav1e`, a full AV1 implementation | 48 crates removed; the `(MIT OR Apache-2.0) AND NCSA` licence rejection (`libfuzzer-sys`) disappeared with them |
+| `actix-web` (default features) | HTTP/1.1 behind Nginx, plus the `macros` attribute routing used by 424 handlers | `http2`, `cookies`, `compress-brotli`/`gzip`/`zstd`, `unicode` | 12 more crates removed, including `h2 0.3.27` and `RUSTSEC-2026-0258` |
+
+Total: **60 crates removed from `Cargo.lock`, 0 added**, among them decoders for
+AVIF, WebP, EXR, TIFF, GIF, JPEG, QOI and fax — every one a parser for a format
+this service never reads — plus a brotli/zstd compression stack behind a
+`Compress` middleware that is never installed, and a cookie stack for a service
+that never reads a cookie.
+
+The generalisable rule, and the reason this is filed as debt rather than as a
+one-off fix: **no capability without a requirement.** For every substantial
+dependency the question is what exact capability MediChain consumes from it,
+versus what the current feature configuration enables. The gap is measurable
+with `cargo tree -e features` and is where unowned risk accumulates. Apply this
+before adding the blockchain, FHIR, IPFS and observability dependency sets,
+where the same gap is likely to be larger.
+
+Verified: `cargo check --bin medichain-api` passes; `cargo test --bin
+medichain-api qr` passes including `test_qr_image_generation`, the PNG encode
+path itself; `cargo deny check licenses` and `cargo deny check advisories` both
+report `ok`.
 
 ---
 

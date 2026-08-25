@@ -798,6 +798,228 @@ authentication and log-sink audit scope.
   harness and policy evidence only: the revised workflow has not yet been run
   against either local CI topology or GitHub Actions.
 
+* AUTH-003 clinician migration completed (2026-08-25): the remaining 59 direct
+  `X-User-Id` occurrences across 29 clinician portal files were migrated onto
+  `getApiClient().getSessionHeaders(...)`, the one helper that owns the
+  Bearer-vs-legacy decision. `client/doctor-portal npm run typecheck` passed;
+  the fresh complete clinician suite passed 83 files / 304 tests in 96.56s; the
+  clinician production build (`npm run build`) succeeded. Three further defects
+  were found in `client/shared` during the migration and fixed: (a)
+  `exportDocumentToPdf` built its headers by hand and sent the wallet address
+  in `X-User-Id` *alongside* a valid `Authorization: Bearer`, contradicting the
+  contract documented in `client.ts`; (b) `useProviderDirectory` and (c)
+  `useSSE` sent only the legacy header and ignored an available session token.
+  All three now spread the shared helper. `client/shared npm run typecheck`
+  passed and the patient suite passed 26 files / 83 tests. Source coverage is
+  now zero direct production sites outside the shared authority; this is static
+  and component evidence only and is not a browser, runtime, or rebuilt-image
+  proof.
+
+* New ratchet gate `scripts/check-legacy-identity-headers.py` (2026-08-25),
+  registered in `.github/workflows/ci.yml` beside the endpoint-auth and
+  write-authorization gates. It fails the build when any frontend production
+  module outside `client/shared/src/api/client.ts` names the `X-User-Id`
+  literal, and fails equally when its baseline goes stale, in the same shape as
+  `check-state-durability.py`. Current run: `PASS — the legacy identity header
+  is named at 2 site(s) in 1 module(s)`. `python scripts/lint-workflows.py`
+  passed. All four gates pass together (endpoint-auth 424 handlers / 0 tier-0 /
+  0 tier-1; write-authorization 13 accepted with 3 recorded owner decisions;
+  state-durability 0 live references; legacy-identity 2 allowlisted sites).
+
+* SC-002 partial closure — licence metadata (2026-08-25): the repository's
+  authoritative `LICENSE` is a proprietary, all-rights-reserved grant (Lukau
+  Invasion (Pty) Ltd), but shipped package metadata contradicted it in three
+  places: `api/Cargo.toml` declared `license = "MIT"`,
+  `client/shared/package.json` declared `MIT`, and
+  `client/patient-app/package.json` declared `Apache-2.0` — each of which
+  grants in metadata exactly the rights `LICENSE` withholds. `crypto/Cargo.toml`
+  declared nothing, which is the `unlicensed medichain-crypto` failure recorded
+  in the SC-002 row. Both Rust crates now carry `license-file = "../LICENSE"`
+  and `publish = false`; all four npm packages now carry `private: true` and
+  `"license": "SEE LICENSE IN LICENSE"`. `deny.toml` gained
+  `[licenses] private = { ignore = true }`, cargo-deny's mechanism for
+  unpublished workspace crates, so third-party checking is unchanged.
+  `cargo metadata` confirms `license_file=../LICENSE, publish=[]` for both
+  crates and `cargo deny check licenses` no longer reports any `unlicensed`
+  finding. The remaining third-party licence rejections are unchanged and are
+  deliberately left as an owner decision.
+
+* SC-002 partial closure — NCSA rejection removed at its source (2026-08-25):
+  the `(MIT OR Apache-2.0) AND NCSA` rejection was `libfuzzer-sys`, reached via
+  `rav1e` → `ravif` → `image`, i.e. an entire AV1 encoder pulled in by `image`'s
+  default features. `api/src/support.rs` and `api/src/nfc_simulator.rs` are the
+  only consumers and both write one format: an 8-bit greyscale QR bitmap as
+  PNG. `image` and `qrcode` are now declared `default-features = false` with
+  `features = ["png"]` / `["image"]`. This removes 48 crates from `Cargo.lock`
+  and adds none — including `rav1e`, `ravif`, `libfuzzer-sys`, `avif-serialize`,
+  `exr`, `tiff`, `gif`, `image-webp`, `qoi`, `zune-jpeg` and `fax`, every one of
+  them a decoder for a format MediChain never reads. `cargo check --bin
+  medichain-api` passed. `cargo tree -i rav1e --all-features --target all` and
+  the same for `libfuzzer-sys` now report no matching package. This is a
+  supply-chain surface reduction, not only a licence fix, and it is preferable
+  to granting an NCSA policy exception. Runtime coverage of the narrowed
+  codecs: `cargo test --bin medichain-api qr` passed 3 tests including
+  `nfc_simulator::tests::test_qr_image_generation`, which is the PNG encode
+  path itself. `cargo test --bin medichain-api -- --skip repositories::postgres`
+  then passed `402 passed; 0 failed; 1 ignored; 58 filtered out` in 5.02s.
+  **The 58 filtered tests are the `repositories::postgres` set and were NOT
+  run**: the Docker daemon was left unresponsive after C: reached 0 bytes free
+  during this session (`docker ps` hangs; the recorded recovery is a Docker
+  Desktop restart). The dependency change is a codec-feature narrowing and does
+  not touch repository code, but that is an argument, not evidence — the
+  PostgreSQL suite still owes a run before this row is closed.
+
+* Session hazard worth recording against future evidence claims (2026-08-25):
+  a backgrounded `cargo test` reported `completed (exit code 0)` through the
+  task channel while its output actually ended in a `cc-rs`/`gcc.exe` failure
+  building `zstd-sys`, because the build had died on disk exhaustion; reading
+  the output file from Bash then failed with `write error: No space left on
+  device`. `cargo clean` removed 23.5 GB and restored 20.6 GB free, after which
+  the same command produced the genuine results above. **A background exit code
+  is not evidence a Rust build passed on this host** — the output tail must be
+  read, and a tool reporting a write error means checking free space first.
+
+* SC-002 remaining advisories traced to their owning boundary (2026-08-25), so
+  the outstanding work is upstream rather than local: `RUSTSEC-2026-0258` is
+  `h2 0.3.27` ← `actix-http 3.13.1` ← `actix-web 4.14.0`; `RUSTSEC-2026-0173`
+  is `proc-macro-error2 2.0.1` ← `subxt-macro 0.50.3` (a proc-macro crate, so
+  compile-time only — it does not ship in the binary); `RUSTSEC-2026-0215` is
+  `smallstr 0.3.1` ← `scale-info-legacy` ← `frame-decode` ← `subxt 0.50.3`. The
+  subxt line cannot be moved independently: `Cargo.toml` records that its
+  version is coupled to the runtime metadata format. `deny.toml`'s own header
+  states that flipping advisory entries is the owner's call and not something
+  to change inside a remediation pass, so no advisory was ignored or suppressed
+  here.
+
+* AUTH-003 root cause restated (2026-08-25). The finding was recorded as
+  "clinician pages still emit legacy `X-User-Id`", which framed it as an
+  unfinished migration measured by a count. The migration surfaced three
+  defects in `client/shared` -- not in unmigrated pages -- and they share one
+  cause: **request identity construction was not exclusively owned by one
+  trusted client boundary.** `exportDocumentToPdf` re-derived the rule by hand
+  and sent the wallet header *alongside* a valid Bearer token;
+  `useProviderDirectory` and `useSSE` sent only the legacy header and ignored an
+  available session. The count was a symptom. The defect class is a duplicated
+  authentication policy, and it is what the ratchet gate and the contract tests
+  below actually protect.
+
+* AUTH-003 identity-contract consolidation and a real downgrade fix
+  (2026-08-25). `client/shared/src/api/client.ts` re-derived the
+  Bearer-vs-legacy rule inline in `executeRequest` and re-assigned `X-User-Id`
+  under the same condition `getSessionHeaders()` already handles. That
+  duplicate is folded: `getSessionHeaders()` is now the single decision, the
+  signing branch keys off the identity header actually emitted rather than off
+  `this.userId`, and the signed message binds that same emitted value, so the
+  value signed and the value sent cannot diverge.
+
+  **A live downgrade was found while doing it.** `refreshAccessToken()` calls
+  `clearTokens()` when a refresh fails, which cleared both tokens but left
+  `userId` set, so every subsequent request fell back to legacy identity. On
+  the typed client the signature provider is still installed, and
+  `api/src/middleware/signature_auth.rs` accepts a signed wallet header with no
+  session at all -- so an expired *or revoked* session silently became
+  per-request wallet authentication and kept working. Session revocation was
+  therefore unenforceable against any client still holding a signer, which
+  defeats the rotation/revocation property recorded under AUTH-002. Fixed with
+  a latched `sessionEnded`: a client that never held a session keeps the demo
+  path; a session that existed and ended yields no identity, including when a
+  caller passes a wallet address explicitly. `setTokens()` with a real token
+  clears the latch, so a genuine re-login is unaffected.
+
+  Evidence: nine tests in
+  `client/doctor-portal/src/api/identityContract.test.ts` pin the contract --
+  no identity before sign-in; legacy header only on the tokenless demo path;
+  Bearer never accompanied by the wallet header; a caller-supplied wallet
+  cannot override an active session; no downgrade after revocation, after an
+  explicit wallet offer, or after logout; genuine re-login restored; a
+  never-signed-in client still reaches the demo path. **Three of the nine were
+  verified to FAIL against the pre-fix source**, so they detect the real defect
+  rather than describing the new code. Full clinician suite: 84 files / 313
+  tests pass (was 83 / 304; +1 file, +9 tests). Patient suite: 26 files / 83
+  tests. Shared, clinician and patient TypeScript checks pass. The
+  legacy-identity ratchet still reports 2 allowlisted sites in 1 module.
+  One earlier clinician full-suite run failed and the identical re-run passed
+  with no source change between them; the first run's output was not retained,
+  so it is recorded as an undiagnosed flake consistent with the TEST-002
+  contention timeout, not as a clean result.
+
+* AUTH-003 unresolved design gap surfaced by this work (2026-08-25): a Bearer
+  session structurally cannot carry a wallet signature. The signing branch was
+  gated -- and remains gated -- on the legacy identity header being present, so
+  JWT sessions never sign. If privileged step-up requires a wallet signature
+  (the AUTH-005 assurance matrix), the client must sign alongside Bearer and
+  the server must verify that signature against the JWT subject rather than
+  against `X-User-Id`. This is a design decision, not a migration leftover, and
+  is not addressed here.
+
+* SC-002 closed for the main workspace (2026-08-25). `cargo deny check` now
+  reports `advisories ok, bans ok, licenses ok, sources ok`.
+
+  Two of the three advisory findings were **removed at the source, not
+  suppressed**. `RUSTSEC-2026-0258` (`h2 0.3.27`, unbounded empty HTTP/2 DATA
+  frames) arrived through the `http2` feature of `actix-http`, on by default.
+  `nginx/default.prod.conf` terminates HTTP/2 at the edge (`http2 on`) and
+  proxies with `proxy_http_version 1.1`, so the API process never speaks
+  HTTP/2. Verified no `awc`, no actix websockets, no `Compress` middleware, no
+  cookie reads and no non-ASCII route patterns, then set
+  `actix-web = { default-features = false, features = ["macros"] }` -- `macros`
+  is required by 424 attribute-routed handlers. `cargo tree -i h2@0.3.27` now
+  reports no matching package; only the already-patched `h2 0.4.16` remains.
+  The NCSA rejection (`libfuzzer-sys`) was removed by the earlier
+  `image`/`qrcode` narrowing. Combined: **60 crates removed from `Cargo.lock`,
+  0 added.**
+
+  The CDLA-Permissive-2.0 rejection is accepted as a package-scoped exception
+  rather than a global allowance, so that licence does not silently become
+  acceptable for future dependencies. **Both crate names are excepted:**
+  `webpki-roots` and `webpki-root-certs` are separate published crates, each
+  present at 0.26.11 and 1.0.9 via `sqlx-core`; excepting only the first leaves
+  the gate red. Obligation carried by the exception: the distributed product's
+  third-party notices must include the CDLA-Permissive-2.0 text.
+
+  `RUSTSEC-2026-0173` (`proc-macro-error2`, a build-time proc macro that ships
+  in no artifact) and `RUSTSEC-2026-0215` (`smallstr`) are **temporarily
+  accepted upstream risk, not ignored**: both are INFO/unmaintained with no
+  patched release, both are owned by `subxt`, and `subxt`'s version is coupled
+  to the runtime metadata format. Each carries an inline reason and a removal
+  criterion tied to the coordinated Subxt/runtime upgrade; the full record with
+  its review trigger is in `docs/TECHNICAL_DEBT_REGISTER.md`.
+  `cargo check --bin medichain-api` passes with the narrowed features.
+
+* Evidence-state detail for the two rows above, recorded because a single
+  `PARTIALLY FIXED` cannot distinguish "not started" from "everything except a
+  browser run". Proposed as the pattern for the remaining rows.
+
+  | Row | Implementation | Static | Automated | DB | Local runtime | Browser | Adversarial | Hosted CI | Release |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | AUTH-003 | complete | complete | complete | n/a | not run | not run | not run | not run | not run |
+  | SC-002 (main workspace) | complete | complete | complete | n/a | complete | n/a | n/a | not run | not run |
+
+  SC-001 (the separate `blockchain/` workspace lockfile) is untouched by this
+  work and remains `STILL PRESENT`.
+
+* Related open owner decision, not acted on (2026-08-25):
+  `docs/TECHNICAL_DEBT_REGISTER.md` records that `blockchain/Cargo.toml`
+  declares `license = "MIT"` while `medichain-node` links 17 strict GPL-3.0-only
+  crates, all through `frame-benchmarking-cli`. That is the same
+  contradictory-metadata defect corrected in `api` and `crypto` here, in a third
+  place, and the proprietary root `LICENSE` sharpens the register's own options:
+  because a proprietary licence cannot be granted over a work that links
+  GPL-3.0-only code, **Option A (make the dependency optional) is the only route
+  that keeps the node distributable under `LICENSE`**; Option B corrects the
+  label but confines that binary to GPL-3.0-only distribution. Left entirely to
+  the owner.
+
+* Stale supply-chain documentation found while verifying the above
+  (2026-08-25): `deny.toml`'s `[advisories]` header still describes four
+  `rustls-webpki` advisories as reachable and unfixed, and its `ignore` list
+  still carries `RUSTSEC-2022-0061`, `RUSTSEC-2024-0370`, `RUSTSEC-2024-0384`
+  and `RUSTSEC-2025-0134`, none of which now match any crate -- cargo-deny
+  reports four `advisory-not-detected` warnings. With both gates green, CI's
+  `continue-on-error: true` on the advisory and licence steps can now be
+  flipped to enforcing. All three are deliberately left alone: the file states
+  that editing the advisory list is the owner's call.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
@@ -805,3 +1027,125 @@ APP-001, and INT-001 require their missing runtime, browser, database, and
 external-service evidence before they can become `CONFIRMED FIXED`. The Phase
 B/C trust, session, outbox, consent, and durability work has not been closed
 by this ledger.
+
+## Complete outstanding-scope register — reconciled 2026-08-24
+
+This appendix records every deliverable, validation lane, and decision from
+the whole-system reassessment and Deep Scan override prompts that is not
+demonstrated by the evidence above. It is intentionally broader than the
+finding table: a requirement can remain open because it was never assessed,
+because it was assessed only from source, or because it was implemented but
+not independently qualified. It does **not** convert source inspection, a
+unit test, a component test, a Compose render, or a route-render check into
+runtime, browser, external-integration, multi-tenant, or production proof.
+
+### Non-negotiable coverage boundaries
+
+| Coverage lane | Status | Outstanding action |
+| --- | --- | --- |
+| Deep Scan | UNKNOWN | `TOOLING-BLOCKER-001`: Deep Scan was blocked before discovery because its worker could not obtain the managed read-only filesystem permission profile. It reviewed 0 repository files and produced no findings. Do not retry blindly, alter repository permissions, weaken sandboxing, or draw any security conclusion from the failure. Run it later only in a supported managed environment and reconcile it as an independent lane. |
+| Manual source review | PARTIALLY FIXED | The tracked-file inventory is not a handler-by-handler manual review. Complete traceable coverage for every source/configuration file, endpoint, workflow, role, persistence path, integration, and trust boundary; record reviewer, files, evidence, and unknowns. |
+| Direct API adversarial validation | PARTIALLY FIXED | Current focused probes do not cover every protected endpoint, all roles, wrong hospital/patient/resource IDs, expired credentials/consent, missing MFA, replay, duplicate, concurrent, or revoked-access cases. Execute the matrix below against an isolated safe environment. |
+| Runtime/browser validation | PARTIALLY FIXED | Existing browser evidence is limited to public/entry pages and a synthetic patient read/navigation session. It is not control-by-control, mutation, clinician, staff-role, authorization-denial, or cross-role proof. |
+| Database verification | PARTIALLY FIXED | Existing migration, targeted transition/race, and bounded restore evidence does not cover all clinical writes, all transaction boundaries, all rows/tables, decrypted records, API-against-restored database, multi-replica behavior, or RPO/RTO. |
+| Hosted release qualification | UNKNOWN | The revised branch has been pushed, but a current hosted workflow, artifact, SBOM upload, image scan, registry digest/attestation, and deployed release proof have not been captured. |
+
+### Architecture, requirements, and audit deliverables not yet produced
+
+| ID | Outstanding deliverable | Evidence gap / closure criterion | Status |
+| --- | --- | --- | --- |
+| AUDIT-001 | Dated audit plan and explicit scope exclusions | Produce the phase plan, source-of-truth hierarchy, evidence rules, environment boundaries, and approval/validation sequence used for the reassessment. | UNKNOWN |
+| AUDIT-002 | Whole-system inventory | Inventory frontend, API, database, migrations, repositories, blockchain, IPFS, external services, Docker/ingress, background jobs, CI/CD, secrets/configuration, tests, documents, and operational tooling with paths and runtime ownership. | UNKNOWN |
+| AUDIT-003 | Current architecture, intended architecture, and drift map | Reconstruct component/data/control flows and compare them with maintained documentation and stated requirements. Include the API edge, auth, authorization, persistence, IPFS, blockchain, integrations, metrics, CI/CD, and admin paths. | UNKNOWN |
+| AUDIT-004 | Functional/NFR reconstruction | Map implemented and intended requirements to evidence. Explicitly cover safety, privacy, availability, durability, RPO/RTO, performance, scale, accessibility, auditability, and multi-hospital posture. | UNKNOWN |
+| AUDIT-005 | Claims-versus-reality matrix | Reconcile README/CLAUDE/architecture/ADR/plan claims with current source and runtime evidence; flag stale or unsupported claims rather than rewriting historical records. | UNKNOWN |
+| AUDIT-006 | Complete debt/risk/root-cause register | Produce the requested debt classification, dependency map, root-cause grouping, risk register, architecture decisions required, prioritized remediation programme, recommended execution order, and explicit “must not add yet” list. | UNKNOWN |
+| AUDIT-007 | Architecture fitness functions | Define enforceable checks for auth identity provenance, endpoint authorization, tenant boundary, durable writes/outbox, idempotency, migration compatibility, no-PHI logging, release provenance, and security-regression prevention; wire and demonstrate them in CI. | UNKNOWN |
+
+### Manual security reassessment outputs still required
+
+| ID | Outstanding deliverable | Evidence gap / closure criterion | Status |
+| --- | --- | --- | --- |
+| SEC-MAP-001 | Security attack-surface and trust-boundary map | Trace external actor → frontend → reverse proxy → API → authentication → authorization → services → persistence. Add blockchain, IPFS/files, PostgreSQL/cache, background workers, admin/metrics/internal endpoints, emergency access, integrations, CI/CD, and secret stores. Mark every boundary and trust assumption. | UNKNOWN |
+| SEC-INV-001 | Endpoint security inventory | Enumerate every backend endpoint with method, path, purpose, authentication mechanisms, identity source, authorization/permission/role, hospital/resource/consent/MFA scope, sensitivity, mutation/audit expectation, tests, and potential bypass. Do not infer this from middleware names. | UNKNOWN |
+| SEC-AUTH-004 | Authentication graph and weakest-path analysis | Trace every `Authorization`/Bearer/JWT/signature/wallet/session/cookie/header/refresh/MFA/OTP/step-up entry path through actual middleware ordering into protected handlers. Prove whether the weakest accepted path can bypass the strongest path's controls. | PARTIALLY FIXED |
+| SEC-AUTHZ-001 | Role × resource × action × scope matrix | Populate from code and direct validation for patient, doctor, nurse, hospital admin, system admin, pharmacist, lab technician, and emergency personas. Include relationship, assigned-care, ownership, hospital, and deployment scopes; do not guess policy. | UNKNOWN |
+| SEC-IDOR-001 | Object-reference / IDOR review | Trace all routes accepting user, patient, provider, doctor, hospital, tenant, document, record, appointment, request, or approval identifiers. For each, show server-side authorization against the target object and test manipulated IDs. | UNKNOWN |
+| SEC-BULK-001 | Bulk/list/search/analytics/export scoping review | Review every list/all/search/report/export/dashboard/summary/statistics query and its repository SQL. The existing 39 deployment-wide `list_all` reads and single-organisation assumption require explicit acceptance or tenant-safe redesign before multi-organisation use. | PARTIALLY FIXED |
+| SEC-APPROVAL-001 | Complete approval-workflow audit | For each approval, consent, access, retention, break-glass, guardian, credential, and administrative workflow answer all 20 prompt questions: creator, eligibility, exact object/version, reviewer/approver, self-approval, tenant, MFA, state machine, expiry/revoke/change handling, concurrency/idempotency, downstream transactions/audit/failure, direct API/ID manipulation, and exact later browser test. | UNKNOWN |
+| SEC-THREAT-001 | Implementation-grounded threat model and finding register | Document the specified cross-patient, cross-hospital, manipulated-provider, self-approval, MFA bypass, revoked-session/consent, permanent emergency access, modified approval, bulk-read, restart/cache/audit/log/blockchain scenarios with precondition, entry point, boundary, expected control, evidence, impact, and validation. Give each finding the required code/documentation/negative/direct-API/browser/independent-validation fields and state Deep Scan corroboration as unavailable. | UNKNOWN |
+| SEC-VALIDATE-001 | Safe adversarial security validation plan | For every relevant endpoint execute or schedule valid, unauthenticated, expired-auth, wrong-role, wrong-hospital, wrong-patient, modified resource/hospital/provider ID, self-approval, direct API, replay, duplicate, concurrent, revoked permission, expired consent, and missing-MFA cases. Record expected and actual results. | UNKNOWN |
+
+### Trust-model, authorization, consent, and persistence work still open
+
+| ID | Outstanding work | Evidence gap / closure criterion | Status |
+| --- | --- | --- | --- |
+| AUTH-003 | Retire `X-User-Id` as a trusted production identity mechanism | Migrate the remaining clinician direct-call sites and test/demo paths; prove a current production-mode JWT/signature session across all roles. Preserve required wallet-signature step-up. Remove or tightly quarantine demo compatibility only after a documented migration decision. | PARTIALLY FIXED |
+| AUTH-004 | Session lifecycle qualification | Validate short-lived access tokens, rotating hashed refresh sessions, JTI/session revocation, logout, logout-all, reuse detection, multi-device behavior, expiry, revocation propagation, and browser lifecycle. | PARTIALLY FIXED |
+| AUTH-005 | Privileged MFA / step-up policy | Identify every privileged and clinical-risk action, specify step-up policy and assurance level, then test missing/expired/wrong/replayed MFA and direct API bypasses. | UNKNOWN |
+| AUTHZ-001 | Per-resource and relationship authorization | Beyond endpoint gate counts, prove doctor/patient, nurse/assigned patient, pharmacist/lab, admin/hospital, and emergency scopes at query and mutation time, including direct API negative cases. | UNKNOWN |
+| TENANT-001 | Multi-hospital/tenant decision and proof | The one-active-organisation startup guard is not multi-tenant isolation. Decide whether production is single organisation or multi-hospital; for multi-hospital, add and validate tenant propagation, query scoping, cache/job/file/integration isolation, and cross-tenant denial. | PARTIALLY FIXED |
+| CONSENT-001 | Consent lifecycle and downstream enforcement | Prove grant, expiry, revoke, refresh/direct API denial after revoke, downstream document/record visibility, audit trail, concurrent transitions, and browser workflows. Existing targeted DB rehearsal is insufficient. | PARTIALLY FIXED |
+| APP-001 | Full maker-checker lifecycle proof | Validate stale/double/concurrent approvals, resource change after approval, expiry/revocation, downstream effect rollback, direct API and browser self-approval denials for every applicable flow. | PARTIALLY FIXED |
+| DATA-001 | End-to-end durable idempotency | Validate response-loss recovery, stored/replayed response semantics, atomic business-write/completion coupling, API restart, replica switching, high-risk offline queue behavior, and browser mutations. | PARTIALLY FIXED |
+| AUD-001 | Required audit/outbox transactional semantics | Catalogue every critical business transition and prove the mutation and audit event are atomic where required; test rollback, backlog, retry, ordering, tamper resistance, and recovery. The current mobile-state ordering remains a release blocker. | PARTIALLY FIXED |
+| DATA-002 | Database data-integrity and disaster-recovery qualification | Test representative clinical writes/read-backs, transaction isolation/races, API restart, DB restart, backup/restore all relevant data (including encrypted/decrypted access as permitted), API against restored DB, RPO/RTO, retention, and off-site/operational backup policy. | PARTIALLY FIXED |
+| PRIV-001 | Sensitive-data, telemetry, and error-sink qualification | Complete static/dynamic review of structured logs, direct stdout/stderr, metrics, traces, browser telemetry, collectors, proxies, dashboards, error responses, documents, and third-party integrations. Add leakage tests for each sink. | PARTIALLY FIXED |
+
+### Browser workflow qualification — required before release
+
+No role below has a complete control-by-control browser ledger. For every visible
+control: exercise allowed behavior, invalid input, denied access, loading,
+empty, and error state. For every mutation prove: UI create/update → API
+read-back → database read-back where appropriate → UI read-back → reload →
+logout/login → read-back. Capture dated console/network evidence.
+
+| ID | Required live browser coverage | Status |
+| --- | --- | --- |
+| BROW-001 | Doctor: production-like sign-in, dashboard, patient selection, clinical forms/orders/notes/documents/telehealth, invalid/denied states, writes/read-backs, sign-out/relogin, wrong-patient and wrong-hospital URL/API denial. | UNKNOWN |
+| BROW-002 | Nurse: sign-in, assigned-care workflow, handoffs/care plans/IV and clinical updates, role limits, persistence, doctor→nurse→patient dependent flow, and audit evidence. | UNKNOWN |
+| BROW-003 | Patient: real sign-in/out, records/documents, appointments, messages, consent grant/revoke, emergency card, profile/settings, invalid/error/empty/loading states, and persisted read-backs. Existing nine-route session is read-only only. | PARTIALLY FIXED |
+| BROW-004 | Admin: staff/role/tenant/approval/retention/audit/operational controls, privilege boundaries, MFA, self-approval denial, and direct-API parity. | UNKNOWN |
+| BROW-005 | Pharmacist and lab technician: sign-in, permitted result/prescription workflow, prohibited patient/resource access, mutations, persistence, and audit trail. | UNKNOWN |
+| BROW-006 | Emergency persona: break-glass initiation, NFC/credential constraints, expiry, revocation, emergency-only scope, audit, denied non-emergency access, and recovery behavior. | UNKNOWN |
+| BROW-007 | Cross-role / cross-hospital security scenarios | Doctor creates → nurse acts → patient sees only permitted result → audit confirms activity; Patient grants/revokes → doctor refreshes/direct API denied; Hospital A user requests Hospital B URL/resource → denied. | UNKNOWN |
+| BROW-008 | Browser testability infrastructure | Provide isolated synthetic staff fixtures, role-to-patient links, safe login/authentication, deterministic reset/teardown, and runtime/source-image identity. Do not use a route render or component test as a substitute. | UNKNOWN |
+
+### API, external integrations, blockchain, and operational qualification
+
+| ID | Outstanding work | Evidence gap / closure criterion | Status |
+| --- | --- | --- | --- |
+| INT-001 | National identity live/sandbox verification | Exercise supported provider success, failure, timeout, malformed response, credential error, and production startup mode; prove no stub can return production “verified.” | PARTIALLY FIXED |
+| EXT-001 | External integration qualification | Safely test national identity, email, SMS, push, IPFS, telehealth, FHIR, and any service-to-service credentials: success, authentication, timeout/retry, outage, reconciliation, sensitive-data handling, and audit behavior. | UNKNOWN |
+| SEC-002 | Private telehealth provider proof | Run production-like provider-enabled startup and authenticate/join/deny/outage/cleanup tests using private rooms; prove no public fallback. | PARTIALLY FIXED |
+| API-001 | API boundary architecture decisions | Decide, with requirements evidence, whether API gateway, rate-limit/WAF policy, load balancer, background-worker isolation, cache, and service-to-service trust mechanisms are needed now; do not add infrastructure by assumption. | UNKNOWN |
+| BC-001 | Blockchain end-to-end qualification | For business/audit event: create → outbox pending → submit → finalized block → query commitment → recompute source hash → equality. Test unavailable chain, recovery, duplicate/replay, and audit consistency. The finalized-chain test remains ignored. | UNKNOWN |
+| BC-002 | Blockchain deployment/security review | Qualify the external runtime, genesis role bootstrap, signer/key custody, node/RPC exposure, multi-validator operation, pallet authorization, dependency advisories, and no-PHI-on-chain invariant. | UNKNOWN |
+| OPS-001 | pgAdmin operational decision | Either demonstrate a restricted debug-only admin workflow or remove it from the operational baseline with documented rationale; do not treat a `302` as administrator access/security proof. | PARTIALLY FIXED |
+| OPS-002 | Monitoring and alert delivery | Prove authenticated Prometheus scrape in production-like mode, target health, dashboard login, dashboard correctness, alert evaluation/delivery/response path, and absence of PHI/high-cardinality identifiers. | PARTIALLY FIXED |
+| OPS-003 | Secrets/configuration/production exposure review | Inventory all secrets and config precedence, secret injection/rotation, debug/demo flags, TLS/ingress/header forwarding, CORS/CSRF, database permissions, network exposure, and fail-closed startup behavior. | UNKNOWN |
+
+### Reliability, performance, supply-chain, CI/CD, and documentation debt
+
+| ID | Outstanding work | Evidence gap / closure criterion | Status |
+| --- | --- | --- |
+| REL-001 | Reliability and resilience programme | Define SLOs first, then test timeout/retry, API restart, DB restart, duplicate submission, outbox backlog/recovery, provider failure, multiple replicas, cache/job behavior, and chain failure/recovery. | UNKNOWN |
+| PERF-001 | Performance/scalability programme | Define representative workload and SLO targets; measure capacity, DB-pool saturation, p95/p99 latency, error rate, large encrypted upload, queue/backlog, backup/restore timing, and horizontal scale behavior. | UNKNOWN |
+| CI-001 | Current hosted CI and release gate | Run the revised branch in GitHub Actions and retain logs for API, PostgreSQL E2E, frontend build/typecheck/tests, static gates, dependency policies, and synthetic workflow. The known old-commit failures do not validate current source. | PARTIALLY FIXED |
+| CI-002 | Artifact provenance and supply-chain proof | Produce current hosted SBOMs, dependency/container scans, signed/published artifact or attestation, exact source SHA → image digest linkage, registry verification, and release deployment provenance. | UNKNOWN |
+| SC-001 | Remaining dependency advisories | Triage and remediate or formally accept the remaining main-workspace and blockchain RustSec findings with upstream constraints, impact analysis, upgrade plan, regression evidence, and a time-bound owner. | STILL PRESENT |
+| SC-002 | Dependency license-policy failures | Resolve or formally accept NCSA/CDLA policy failures and the missing `medichain-crypto` SPDX declaration with legal/maintainer approval; do not bypass `cargo deny` policy blindly. | STILL PRESENT |
+| DOC-001 | Documentation/ADR reconciliation | Update maintained docs only after evidence: architecture, auth/identity header contract, endpoint/health/readiness, deployment, backup/restore, monitoring, tenant posture, external integrations, browser qualification, and blockchain constraints. Preserve historical audit records and date all superseding evidence. | UNKNOWN |
+| TEST-001 | Test-debt reconciliation | Classify the historical failing/generated frontend tests, restore/replace only tests that exercise real code and current policy, remove stale assumptions through approved changes, and publish a traceable suite/coverage matrix. | UNKNOWN |
+
+### Required release decision
+
+Do not declare healthcare-production readiness, close P1 findings, or label the
+system secure because code appears correct until all applicable implementation,
+automated, direct runtime, database, browser, external-provider, and hosted
+artifact evidence is captured. The minimum gate remains: no open critical/high
+finding; all P1 implementation plus independent evidence; full role browser
+ledger; database restart and backup/restore qualification; authenticated
+metrics and alert delivery; no insecure production/demo fallback; exact
+source-to-release artifact provenance; and an explicit acceptance record for
+any P2 exception. Until then, every row above remains a work item, not a pass.
