@@ -111,10 +111,13 @@ async fn issue_context(
             })
         }
     };
-    let mfa = get_current_claims(req)
-        .map(|claims| claims.mfa)
-        .unwrap_or(false);
-    match jwt::issue_context_access_token(&context, mfa) {
+    let claims = get_current_claims(req);
+    let mfa = claims.as_ref().map(|claims| claims.mfa).unwrap_or(false);
+    // Switching context does not start a new login, so the token keeps the same
+    // `sid`. Losing it here would silently detach the caller from their session's
+    // revocation and step-up state.
+    let login_session_id = claims.and_then(|claims| claims.sid.clone());
+    match jwt::issue_context_access_token(&context, mfa, login_session_id.as_deref()) {
         Ok(access_token) => HttpResponse::Ok().json(ContextSwitchResponse {
             success: true,
             access_token,

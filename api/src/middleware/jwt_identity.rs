@@ -89,7 +89,8 @@ mod tests {
 
     #[test]
     fn injects_only_a_verified_access_token_subject() {
-        let token = crate::security::jwt::issue_access_token(WALLET, "Doctor", false).unwrap();
+        let token =
+            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
         let mut request = TestRequest::default()
             .insert_header(("Authorization", format!("Bearer {token}")))
             .to_srv_request();
@@ -118,7 +119,8 @@ mod tests {
 
     #[test]
     fn never_replaces_a_client_supplied_legacy_identity() {
-        let token = crate::security::jwt::issue_access_token(WALLET, "Doctor", false).unwrap();
+        let token =
+            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
         let mut request = TestRequest::default()
             .insert_header(("Authorization", format!("Bearer {token}")))
             .insert_header((LEGACY_IDENTITY_HEADER.clone(), "client-supplied"))
@@ -150,7 +152,8 @@ mod tests {
             }),
         ))
         .await;
-        let token = crate::security::jwt::issue_access_token(WALLET, "Doctor", false).unwrap();
+        let token =
+            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
         let request = TestRequest::get()
             .uri("/identity")
             .insert_header(("Authorization", format!("Bearer {token}")))
@@ -184,7 +187,8 @@ mod tests {
                 ),
         )
         .await;
-        let token = crate::security::jwt::issue_access_token(WALLET, "Doctor", false).unwrap();
+        let token =
+            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
         let request = TestRequest::get()
             .uri("/identity")
             .insert_header(("Authorization", format!("Bearer {token}")))

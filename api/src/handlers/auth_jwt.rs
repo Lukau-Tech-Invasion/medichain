@@ -196,10 +196,11 @@ async fn issue_token_pair(
     let mfa_enabled = data.security.mfa_enabled(wallet);
     let mfa_satisfied = !mfa_enabled;
 
-    let access = match jwt::issue_access_token(wallet, role, mfa_satisfied) {
-        Ok(t) => t,
-        Err(e) => return jwt_error(e),
-    };
+    // Order matters (ADR-0008). The access token carries the login session's
+    // `sid`, so the session has to be persisted before the token can be minted --
+    // and a token must never be handed out for a session that failed to persist.
+    // The refresh token is minted first only because its digest and JTI are what
+    // the generation row stores.
     let refresh = match jwt::issue_refresh_token(wallet, role) {
         Ok(t) => t,
         Err(e) => return jwt_error(e),
@@ -220,6 +221,8 @@ async fn issue_token_pair(
         None => return jwt_error(jsonwebtoken::errors::ErrorKind::InvalidToken.into()),
     };
     let persisted = match previous_refresh {
+        // A rotation continues the existing login: the successor generation
+        // inherits the same `sid`, which is the whole point of the split.
         Some((token, jti)) => crate::auth_sessions::rotate(
             pool,
             wallet,
@@ -231,40 +234,51 @@ async fn issue_token_pair(
         )
         .await
         .and_then(|rotated| {
-            if rotated {
-                Ok(())
-            } else {
-                Err(sqlx::Error::Protocol(
-                    "refresh session is no longer active".into(),
-                ))
-            }
+            rotated
+                .ok_or_else(|| sqlx::Error::Protocol("refresh session is no longer active".into()))
         }),
         None => {
             crate::auth_sessions::create(pool, wallet, &refresh, &refresh_claims.jti, expires_at)
                 .await
         }
     };
-    if let Err(error) = persisted {
-        log::error!("Refresh-session persistence failed: {error}");
-        let mut status = if previous_refresh.is_some() {
-            HttpResponse::Unauthorized()
-        } else {
-            HttpResponse::ServiceUnavailable()
-        };
-        return status.json(ErrorResponse {
-            success: false,
-            error: if previous_refresh.is_some() {
-                "Invalid or expired refresh token".to_string()
+    let login_session_id = match persisted {
+        Ok(id) => id,
+        Err(error) => {
+            log::error!("Refresh-session persistence failed: {error}");
+            let mut status = if previous_refresh.is_some() {
+                HttpResponse::Unauthorized()
             } else {
-                "Authentication is temporarily unavailable".to_string()
-            },
-            code: if previous_refresh.is_some() {
-                "INVALID_REFRESH_TOKEN".to_string()
-            } else {
-                "AUTH_SESSION_UNAVAILABLE".to_string()
-            },
-        });
-    }
+                HttpResponse::ServiceUnavailable()
+            };
+            return status.json(ErrorResponse {
+                success: false,
+                error: if previous_refresh.is_some() {
+                    "Invalid or expired refresh token".to_string()
+                } else {
+                    "Authentication is temporarily unavailable".to_string()
+                },
+                code: if previous_refresh.is_some() {
+                    "INVALID_REFRESH_TOKEN".to_string()
+                } else {
+                    "AUTH_SESSION_UNAVAILABLE".to_string()
+                },
+            });
+        }
+    };
+
+    // The session exists now, so the access token can name it. If this fails the
+    // caller gets an error and the unused session row simply expires -- that is
+    // operational debris, not an issued credential for an unpersisted session.
+    let access = match jwt::issue_access_token(
+        wallet,
+        role,
+        mfa_satisfied,
+        Some(&login_session_id.to_string()),
+    ) {
+        Ok(t) => t,
+        Err(e) => return jwt_error(e),
+    };
 
     HttpResponse::Ok().json(JwtIssueResponse {
         success: true,
@@ -303,6 +317,93 @@ pub struct MfaEnrollResponse {
 ///
 /// POST /api/auth/mfa/enroll
 /// The enrollment is not active until a code is confirmed via `/mfa/verify`.
+/// End the caller's current login session.
+///
+/// ADR-0008 makes the database authoritative for revocation: an access token
+/// stays cryptographically valid until it expires, so signing out has to revoke
+/// the session rather than merely discard the token client-side. Revoking the
+/// parent revokes every refresh generation beneath it, which is what stops a
+/// still-intact refresh token from reopening the login.
+#[post("/api/auth/logout")]
+pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    let Some(claims) = get_current_claims(&req) else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    };
+    // Tokens issued before ADR-0008 carry no session to revoke. Report that
+    // plainly rather than returning a success the caller cannot rely on.
+    let Some(session_id) = claims.sid.as_deref().and_then(|s| Uuid::parse_str(s).ok()) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "This session cannot be ended; sign in again".to_string(),
+            code: "SESSION_NOT_REVOCABLE".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_sessions::revoke_session(pool, session_id, "logout").await {
+        // `false` means the session was already ended. Logging out twice is not
+        // an error worth surfacing to a user who wanted to be signed out.
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "Session ended",
+        })),
+        Err(error) => {
+            log::error!("Session revocation failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Could not end the session".to_string(),
+                code: "SESSION_REVOCATION_FAILED".to_string(),
+            })
+        }
+    }
+}
+
+/// End every login session for the caller's wallet ("sign out everywhere").
+///
+/// This is the control a user reaches for after losing a device, so it must not
+/// depend on the lost device cooperating: it revokes by subject, not by the
+/// session presenting the request.
+#[post("/api/auth/logout-all")]
+pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    let Some(claims) = get_current_claims(&req) else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_sessions::revoke_all_for_wallet(pool, &claims.sub, "logout_all").await {
+        Ok(ended) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "sessions_ended": ended,
+        })),
+        Err(error) => {
+            log::error!("Bulk session revocation failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Could not end the sessions".to_string(),
+                code: "SESSION_REVOCATION_FAILED".to_string(),
+            })
+        }
+    }
+}
+
 #[post("/api/auth/mfa/enroll")]
 pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
@@ -493,7 +594,12 @@ pub async fn mfa_challenge(
         .map(|u| u.role.to_string())
         .unwrap_or_else(|| "Patient".to_string());
 
-    match jwt::issue_access_token(&wallet, &role, true) {
+    // MFA step-up replaces the access token but not the login. Carrying the
+    // existing `sid` forward is what keeps step-up state, and any challenge bound
+    // to this session, attached to the same login rather than orphaned.
+    let login_session_id = get_current_claims(&req).and_then(|claims| claims.sid.clone());
+
+    match jwt::issue_access_token(&wallet, &role, true, login_session_id.as_deref()) {
         Ok(access) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "access_token": access,

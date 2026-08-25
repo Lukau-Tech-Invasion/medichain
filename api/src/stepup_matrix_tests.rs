@@ -126,6 +126,8 @@ mod tests {
             aud: jwt::JWT_AUDIENCE.to_string(),
             sub: ADMIN.to_string(),
             role: "Admin".to_string(),
+            // This matrix exercises step-up policy, not session revocation.
+            sid: None,
             context: None,
             patient_profile_id: None,
             organization_id: None,

@@ -64,6 +64,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // JWT auth (Phase 9.4)
         .service(issue_jwt) // POST /api/auth/jwt
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
+        .service(logout) // POST /api/auth/logout
+        .service(logout_all) // POST /api/auth/logout-all
         // Phase 1 identity contexts: work and personal health remain separate.
         .service(enter_work_context)
         .service(enter_patient_context)

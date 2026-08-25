@@ -3682,6 +3682,546 @@ async fn test_pg_auth_challenge_expiry_is_enforced() {
     pool.close().await;
 }
 
+/// ADR-0008: the login session outlives the refresh generations beneath it.
+///
+/// This is the property the whole split exists for. Before it, rotation revoked
+/// the row and inserted a new one with a fresh UUID, so nothing survived a
+/// refresh -- a ten-minute step-up elevation would have died at the next token
+/// refresh, and a transaction challenge issued before a rotation would have
+/// failed after it.
+#[tokio::test]
+async fn test_pg_login_session_survives_refresh_rotation() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "sid-survives-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let first_jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "generation-one",
+        &first_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    // Two rotations in a row: the identifier must not drift on either.
+    let second_jti = uuid::Uuid::new_v4().to_string();
+    let after_first = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "generation-one",
+        &first_jti,
+        "generation-two",
+        &second_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("first rotation")
+    .expect("first rotation should win");
+    assert_eq!(after_first, sid, "sid must survive one rotation");
+
+    let third_jti = uuid::Uuid::new_v4().to_string();
+    let after_second = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "generation-two",
+        &second_jti,
+        "generation-three",
+        &third_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("second rotation")
+    .expect("second rotation should win");
+    assert_eq!(after_second, sid, "sid must survive repeated rotation");
+
+    // Three generations exist under one login; exactly one is still active.
+    let (generations, active): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL)
+         FROM auth_sessions WHERE login_session_id = $1",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .expect("count generations");
+    assert_eq!(
+        generations, 3,
+        "each rotation keeps its predecessor as evidence"
+    );
+    assert_eq!(active, 1, "only the newest generation stays active");
+
+    assert!(crate::auth_sessions::is_session_active(&pool, sid)
+        .await
+        .expect("session state"));
+
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
+/// Logging out one session revokes the parent and every generation beneath it,
+/// and a refresh token from that login cannot resurrect it afterwards.
+#[tokio::test]
+async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "sid-logout-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "live-generation",
+        &jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    assert!(crate::auth_sessions::revoke_session(&pool, sid, "logout")
+        .await
+        .expect("revoke"));
+    assert!(
+        !crate::auth_sessions::revoke_session(&pool, sid, "logout")
+            .await
+            .expect("second revoke"),
+        "logout must not be replayable"
+    );
+    assert!(!crate::auth_sessions::is_session_active(&pool, sid)
+        .await
+        .expect("session state"));
+
+    let active: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_sessions
+         WHERE login_session_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .expect("count active generations");
+    assert_eq!(active, 0, "revoking the parent must revoke its generations");
+
+    // The refresh token is still cryptographically intact. It must not work.
+    let replacement_jti = uuid::Uuid::new_v4().to_string();
+    let resurrected = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "live-generation",
+        &jti,
+        "should-not-exist",
+        &replacement_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("rotation call");
+    assert!(
+        resurrected.is_none(),
+        "a revoked login must not be resurrected by an intact refresh token"
+    );
+
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
+/// Logout-all ends every login for one wallet and leaves other wallets alone.
+#[tokio::test]
+async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
+    let pool = get_test_pool().await;
+    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+    let wallet = format!("sid-logout-all-{stamp}");
+    let bystander = format!("sid-bystander-{stamp}");
+
+    let mut sids = Vec::new();
+    for index in 0..3 {
+        let jti = uuid::Uuid::new_v4().to_string();
+        sids.push(
+            crate::auth_sessions::create(
+                &pool,
+                &wallet,
+                &format!("device-{index}"),
+                &jti,
+                Utc::now() + chrono::Duration::hours(1),
+            )
+            .await
+            .expect("open login session"),
+        );
+    }
+    let other_jti = uuid::Uuid::new_v4().to_string();
+    let other_sid = crate::auth_sessions::create(
+        &pool,
+        &bystander,
+        "bystander-generation",
+        &other_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open bystander session");
+
+    let ended = crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all")
+        .await
+        .expect("logout all");
+    assert_eq!(ended, 3, "every active login for the wallet ends");
+
+    for sid in &sids {
+        assert!(!crate::auth_sessions::is_session_active(&pool, *sid)
+            .await
+            .expect("session state"));
+    }
+    assert!(
+        crate::auth_sessions::is_session_active(&pool, other_sid)
+            .await
+            .expect("bystander state"),
+        "another wallet's session must be untouched"
+    );
+
+    for sid in sids.iter().chain(std::iter::once(&other_sid)) {
+        sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+}
+
+/// Two independent logins for the same wallet get different sids, so revoking
+/// one device does not end the other.
+#[tokio::test]
+async fn test_pg_independent_logins_get_distinct_sessions() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "sid-distinct-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let phone_jti = uuid::Uuid::new_v4().to_string();
+    let desk_jti = uuid::Uuid::new_v4().to_string();
+    let phone = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "phone-generation",
+        &phone_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("phone login");
+    let desk = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "desk-generation",
+        &desk_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("desk login");
+    assert_ne!(phone, desk, "a new login is a new session");
+
+    crate::auth_sessions::revoke_session(&pool, phone, "logout")
+        .await
+        .expect("revoke phone");
+    assert!(!crate::auth_sessions::is_session_active(&pool, phone)
+        .await
+        .expect("phone state"));
+    assert!(
+        crate::auth_sessions::is_session_active(&pool, desk)
+            .await
+            .expect("desk state"),
+        "signing out one device must not end the other"
+    );
+
+    for sid in [phone, desk] {
+        sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+}
+
+/// The parent row is genuinely the serialization point between rotation and
+/// logout -- proven by lock contention, not by hoping two futures interleave.
+///
+/// The `tokio::join!` race tests above pass with or without the lock, because
+/// two fast queries rarely interleave at the microsecond window that matters.
+/// They are kept as end-state assertions, but this is the test that fails if the
+/// `FOR UPDATE` is ever removed: it holds the lock rotation takes, then proves
+/// from a second connection that logout cannot proceed past it.
+#[tokio::test]
+async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "lock-proof-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "locked-generation",
+        &jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    // Transaction A takes exactly the lock `rotate()` takes.
+    let mut holder = pool.begin().await.expect("begin holder");
+    let held: (uuid::Uuid,) = sqlx::query_as(
+        "SELECT s.id
+         FROM auth_login_sessions AS s
+         JOIN auth_sessions AS g ON g.login_session_id = s.id
+         WHERE g.wallet_address = $1
+         FOR UPDATE OF s",
+    )
+    .bind(&wallet)
+    .fetch_one(&mut *holder)
+    .await
+    .expect("take parent lock");
+    assert_eq!(held.0, sid);
+
+    // Transaction B is logout. NOWAIT turns "would block" into an immediate,
+    // observable error instead of a hang, so the assertion is deterministic.
+    let mut contender = pool.begin().await.expect("begin contender");
+    let blocked =
+        sqlx::query("SELECT revoked_at FROM auth_login_sessions WHERE id = $1 FOR UPDATE NOWAIT")
+            .bind(sid)
+            .fetch_optional(&mut *contender)
+            .await;
+    assert!(
+        blocked.is_err(),
+        "logout must not be able to revoke a parent that rotation is holding;          without FOR UPDATE this read succeeds and the two interleave"
+    );
+    contender.rollback().await.ok();
+
+    // Once rotation commits, logout proceeds normally.
+    holder.rollback().await.expect("release lock");
+    assert!(crate::auth_sessions::revoke_session(&pool, sid, "logout")
+        .await
+        .expect("revoke after release"));
+
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
+/// ADR-0008 blocking invariant: after a login session is revoked, no transaction
+/// may successfully create another refresh generation beneath it.
+///
+/// The first implementation retired the predecessor and read its parent in one
+/// `UPDATE ... RETURNING`, which removed the double-rotation race but not this
+/// one -- a concurrent logout could revoke the parent between that read and the
+/// successor INSERT, leaving a live generation under a dead login. Both paths now
+/// take the parent row lock first, in the same order, so they serialize.
+#[tokio::test]
+async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "race-logout-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "contested-generation",
+        &jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    let replacement_jti = uuid::Uuid::new_v4().to_string();
+    let (rotated, revoked) = tokio::join!(
+        crate::auth_sessions::rotate(
+            &pool,
+            &wallet,
+            "contested-generation",
+            &jti,
+            "successor",
+            &replacement_jti,
+            Utc::now() + chrono::Duration::hours(1),
+        ),
+        crate::auth_sessions::revoke_session(&pool, sid, "logout"),
+    );
+    let rotated = rotated.expect("rotation call");
+    revoked.expect("revocation call");
+
+    // Whichever order the two land in, the end state must be the same: the
+    // session is closed and nothing usable survives underneath it.
+    assert!(
+        !crate::auth_sessions::is_session_active(&pool, sid)
+            .await
+            .expect("session state"),
+        "logout must win regardless of interleaving"
+    );
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_sessions
+         WHERE login_session_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .expect("count live generations");
+    assert_eq!(
+        live, 0,
+        "no refresh generation may remain active under a revoked login          (rotation returned {rotated:?})"
+    );
+
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
+/// Same invariant against logout-all, which revokes by subject rather than by
+/// the session presenting the request -- the path a user takes after losing a
+/// device, so it must not depend on that device cooperating.
+#[tokio::test]
+async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "race-logout-all-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "contested-generation",
+        &jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    let replacement_jti = uuid::Uuid::new_v4().to_string();
+    let (rotated, revoked) = tokio::join!(
+        crate::auth_sessions::rotate(
+            &pool,
+            &wallet,
+            "contested-generation",
+            &jti,
+            "successor",
+            &replacement_jti,
+            Utc::now() + chrono::Duration::hours(1),
+        ),
+        crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all"),
+    );
+    let rotated = rotated.expect("rotation call");
+    revoked.expect("bulk revocation call");
+
+    assert!(
+        !crate::auth_sessions::is_session_active(&pool, sid)
+            .await
+            .expect("session state"),
+        "logout-all must win regardless of interleaving"
+    );
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_sessions
+         WHERE wallet_address = $1 AND revoked_at IS NULL",
+    )
+    .bind(&wallet)
+    .fetch_one(&pool)
+    .await
+    .expect("count live generations");
+    assert_eq!(
+        live, 0,
+        "no refresh generation may survive logout-all (rotation returned {rotated:?})"
+    );
+
+    sqlx::query("DELETE FROM auth_sessions WHERE wallet_address = $1")
+        .bind(&wallet)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE wallet_address = $1")
+        .bind(&wallet)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
+/// A session id belonging to someone else must not pair with this subject's
+/// token. The session-state middleware checks that binding; this pins the store
+/// behaviour it relies on.
+#[tokio::test]
+async fn test_pg_session_is_bound_to_its_own_subject() {
+    let pool = get_test_pool().await;
+    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+    let alice = format!("sid-alice-{stamp}");
+    let bob = format!("sid-bob-{stamp}");
+
+    let alice_sid = crate::auth_sessions::create(
+        &pool,
+        &alice,
+        "alice-generation",
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("alice login");
+
+    let owner: String =
+        sqlx::query_scalar("SELECT wallet_address FROM auth_login_sessions WHERE id = $1")
+            .bind(alice_sid)
+            .fetch_one(&pool)
+            .await
+            .expect("read session owner");
+    assert_eq!(owner, alice, "a session records exactly one subject");
+    assert_ne!(owner, bob, "Bob cannot present Alice's session as his own");
+
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(alice_sid)
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(alice_sid)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
 /// A stolen refresh token must not create two live successor sessions when two
 /// API instances receive it at the same time.
 #[tokio::test]
@@ -3725,16 +4265,14 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
             Utc::now() + chrono::Duration::hours(1),
         )
     );
-    assert_eq!(
-        [
-            first.expect("first rotation"),
-            second.expect("second rotation")
-        ]
-        .into_iter()
-        .filter(|success| *success)
-        .count(),
-        1
-    );
+    let winners: Vec<uuid::Uuid> = [
+        first.expect("first rotation"),
+        second.expect("second rotation"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    assert_eq!(winners.len(), 1, "exactly one rotation may win");
     let (total, active): (i64, i64) = sqlx::query_as(
         "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE wallet_address = $1",
     )
