@@ -1436,6 +1436,103 @@ authentication and log-sink audit scope.
   same session; that was a deliberate scoping change and is unrelated to this
   defect, which affects every remaining staff account equally.
 
+* CONFIRMED FIXED: clinician quick login, and the authentication-state defect
+  behind it (2026-08-26). Previously recorded here as OPEN with three options;
+  the owner chose the credential path and it is implemented and proven.
+
+  **Root cause, restated accurately.** This was never a missing route. Three
+  faults compounded: `login()` opened with `GET /api/auth/wallet/{address}`, a
+  route deliberately removed because it disclosed name, role, username and
+  linked_patient_id for any address with no authentication; `acquireJwtTokens`
+  returned `void` and swallowed every failure including "no signer supplied";
+  and callers set `isAuthenticated: true` *before* asking for a token. The
+  product of the three was a session the UI believed in, holding no bearer
+  token, whose every request fell back to the caller-controlled `X-User-Id`
+  header. A fourth fault sat behind them: the idempotency middleware refuses any
+  keyed mutation without an authenticated subject, and sign-in is subjectless by
+  definition, so the credential path could not have worked either.
+
+  **Fix.** `acquireJwtTokens` returns whether a verified session was established
+  and no caller enters an authenticated state without it. `login()` proves
+  control of the key, then reads identity from `/api/auth/me` -- authentication
+  proves who you are rather than asking first, which is also one fewer round
+  trip. `restoreSession` fails closed. Quick login runs the ordinary
+  employee-ID/password flow with credentials from a demo-gated resolver, so
+  there is one authentication path with a convenience in front of it rather than
+  a second protocol. Identity-establishing endpoints skip subject-keyed
+  idempotency via an explicit allowlist -- a rule like "skip when no subject is
+  present" would have let any caller opt out by omitting credentials.
+
+  **Containment.** `GET /api/auth/demo-credentials` requires `MEDICHAIN_DEV_MODE`
+  *and* demo mode, both defaulting to off, and offers an explicit fixture
+  allowlist rather than any account holding a keystore. No fixture password ships
+  in the bundle. The endpoint-auth gate gained a forbidden-route guard, because
+  the wallet-lookup handler still exists and one `.service()` line would restore
+  the disclosure -- verified in both directions.
+
+  **Evidence.**
+
+  | Lane | Result |
+  | --- | --- |
+  | Headed browser, quick login | `staff/login` -> `challenge` -> `jwt` -> `me`, all 200, lands on `/dashboard` |
+  | Request headers after sign-in | every app request `Authorization: Bearer`; **zero** `X-User-Id` |
+  | Bare `fetch` with no headers | 401 -- no ambient authentication |
+  | Hard reload | returns to sign-in; no tokenless session reconstructed |
+  | `MEDICHAIN_DEV_MODE` unset | resolver 403, demo-login 403, wallet route 404, section absent |
+  | Forbidden-route guard | fails the gate when re-registered, passes when not |
+  | Clinician / patient suites | 85 files / 321 tests, 26 / 83 |
+  | fmt, clippy --all-targets -D warnings, 5 gates | pass |
+
+  Two `authStore` tests were rewritten rather than repaired. They asserted the
+  pre-fix contract -- that `login` fetched the wallet route and authenticated on
+  any 200 -- and passed throughout by mocking the very fetch that was the defect.
+  They now assert the absence of a session: no signer means no token, and no
+  token must mean no authenticated state.
+
+* PARTIALLY FIXED: session restore after reload. It no longer fails open, which
+  was the security defect, but it cannot restore either: tokens are deliberately
+  not persisted and the signing key lives only in memory, so a reload returns the
+  user to sign-in. Restoring without re-authenticating needs durable session
+  material -- a persisted refresh token (storage exposure) or a cookie-borne
+  session (CSRF surface). That is a security design decision with real
+  trade-offs and is recorded for the owner rather than guessed.
+
+* Authorization campaign, first pass (2026-08-26). Run against a live API and
+  real PostgreSQL with two genuinely distinct role sessions, each obtained
+  through the full credential -> keystore -> signer -> challenge -> JWT flow.
+
+  | Probe | Doctor | Nurse | Verdict |
+  | --- | --- | --- | --- |
+  | Patient list | 200 (12 of 12) | 200 | scoped consistently, unchanged by `limit=500` |
+  | Patient detail | 200 | 200 | clinical read, expected |
+  | Patient prescriptions | 200 | 200 | expected |
+  | Admin dashboard | **403** | **403** | denied |
+  | Staff directory | **403** | **403** | denied |
+  | Security alerts | **403** | **403** | denied |
+  | Retention register | **403** | **403** | denied |
+  | Role revocation | **403** | **403** | denied |
+
+  Object-reference attacks, all fail closed with no disclosure: a fabricated
+  patient id returns 404; a quoted SQL fragment as an id returns 404; a
+  path-traversal id (`..%2F..%2Fusers`) returns 404. Break-glass could not be
+  minted from a patient id alone -- `/api/emergency/access` requires
+  `nfc_tag_id`, binding it to physical card possession rather than knowledge of
+  an identifier.
+
+  Checked rather than assumed: the roster returns 12 of 12 patients, and the API
+  log carries no decrypt warnings, so this is the real record count and not a
+  recurrence of the "silently drops undecryptable patients" defect recorded
+  earlier in this file. The `users` table holds 88 rows with role Patient, which
+  is a different thing from 12 patient records.
+
+  **Not yet covered, and not claimed:** Admin, Pharmacist, Lab and Emergency
+  sessions (no fixtures seeded for those roles); cross-organisation probes
+  (ADR-0007 makes this a single-organisation deployment, so there is no second
+  organisation to cross); consent grant and revocation as an end-to-end
+  workflow; maker-checker self-approval; and restart durability. The fixture
+  seeder provisions Doctor, Nurse and Admin only, so extending this matrix needs
+  Pharmacist and Lab fixtures first.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
