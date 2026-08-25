@@ -1533,6 +1533,44 @@ authentication and log-sink audit scope.
   seeder provisions Doctor, Nurse and Admin only, so extending this matrix needs
   Pharmacist and Lab fixtures first.
 
+* Restart durability and idempotency, exercised end to end (2026-08-26) against
+  a live API and real PostgreSQL, through the product's own endpoints rather
+  than by writing rows directly.
+
+  **Durability.** A patient was registered through `POST /api/register` with a
+  synthetic marker name (`PAT-c3884635`), confirmed visible in the roster, the
+  API process was then killed and restarted, and the record read back through
+  the API afterwards -- same identifier, same name, with its encrypted fields
+  decrypting correctly on the far side of the restart. Roster went 12 -> 13 and
+  stayed 13. This is the write-then-restart-then-read chain rather than a row
+  count.
+
+  **Idempotency.** Three cases, all through `/api/register`:
+
+  | Case | Result |
+  | --- | --- |
+  | Same key, same body, submitted twice | first 201; second refused `IDEMPOTENCY_DUPLICATE` |
+  | Rows actually created | **exactly one** -- verified by reading the roster back |
+  | Same key, different body | refused `IDEMPOTENCY_KEY_REUSED` |
+
+  The third case matters: the key is bound to a request digest, so a client
+  cannot reuse a key to smuggle a different mutation past the guard.
+
+  **A gap worth naming, not a defect.** Exactly-once is satisfied, but the
+  duplicate submission receives an error rather than the original response. A
+  client whose response was lost in transit -- the case the retry exists for --
+  therefore cannot recover its result from the retry; it is told to read the
+  resource instead. That is a defensible contract, and it is safe, but it is not
+  the "replay the stored response" semantics that would let a lost-response
+  client complete without a second lookup. Recorded because the earlier DATA-001
+  entry frames the requirement as response-loss recovery, and this is the part
+  of it that is not implemented.
+
+  **Not tested:** process termination *between* the business commit and the
+  idempotency completion. Doing that safely needs a fault-injection hook that
+  does not exist, and simulating it by killing the process at an arbitrary
+  moment would prove nothing repeatable.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
