@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, createPreOp, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Stethoscope,
@@ -225,7 +225,7 @@ export default function PreOpPage() {
         setRecordsLoading(true);
         try {
           const res = await fetch(apiUrl(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`), {
-            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+            headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
           });
           if (res.ok) {
             const data = await res.json();

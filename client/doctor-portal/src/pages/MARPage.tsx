@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createMar, getPatients, listMar, apiUrl, IS_DEMO, useTranslation } from '@medichain/shared';
+import { apiUrl, createMar, getApiClient, getPatients, IS_DEMO, listMar, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -380,7 +380,7 @@ export default function MARPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
           body: JSON.stringify({

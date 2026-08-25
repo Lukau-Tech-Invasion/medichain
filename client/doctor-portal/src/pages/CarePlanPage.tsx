@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ClipboardList,
@@ -162,7 +162,7 @@ export default function CarePlanPage() {
       try {
         const res = await fetch(apiUrl('/api/nursing/care-plans'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Nurse',
           },
         });

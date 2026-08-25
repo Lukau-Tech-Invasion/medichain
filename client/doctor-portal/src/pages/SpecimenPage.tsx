@@ -13,7 +13,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -76,7 +76,7 @@ const SpecimenPage: React.FC = () => {
   useEffect(() => {
     if (!user?.walletAddress) return;
     fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+      headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
     })
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(body => {
@@ -107,7 +107,7 @@ const SpecimenPage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role || 'Nurse',
         },
         body: JSON.stringify({
@@ -146,7 +146,7 @@ const SpecimenPage: React.FC = () => {
         const response = await fetch(apiUrl('/api/clinical/specimens'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'LabTechnician'
           }
         });

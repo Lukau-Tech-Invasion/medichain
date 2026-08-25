@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, createStroke, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -58,7 +58,7 @@ export default function StrokePage() {
     setHistoryLoading(true);
     try {
       const res = await fetch(apiUrl(`/api/emergency/stroke/patient/${patientId}`), {
-        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+        headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
       });
       if (res.ok) {
         const data = await res.json();

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, exportDocumentToPdf, useTranslation } from '@medichain/shared';
+import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation } from '@medichain/shared';
 import {
   FlaskConical,
   Search,
@@ -64,7 +64,7 @@ function LabResultsPage() {
       const statusParam = filterStatus === 'all' ? '' : `?status=${filterStatus}`;
       const response = await fetch(apiUrl(`/api/lab/submissions${statusParam}`), {
         headers: {
-          'X-User-Id': user?.userId || '',
+          ...getApiClient().getSessionHeaders(user?.userId),
         },
       });
       if (response.ok) {
@@ -91,7 +91,7 @@ function LabResultsPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user?.userId || '',
+          ...getApiClient().getSessionHeaders(user?.userId),
         },
         body: JSON.stringify({ action: 'approve' }),
       });
@@ -124,7 +124,7 @@ function LabResultsPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user?.userId || '',
+          ...getApiClient().getSessionHeaders(user?.userId),
         },
         body: JSON.stringify({ action: 'reject', rejection_reason: rejectionReason }),
       });

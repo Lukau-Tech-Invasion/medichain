@@ -819,11 +819,13 @@ export interface PdfDocumentInput {
  */
 export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> {
   const client = getApiClient();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = client.getAccessToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const uid = client.getUserId();
-  if (uid) headers['X-User-Id'] = uid;
+  // Identity is resolved by the one helper that owns the Bearer-vs-legacy
+  // decision. Building it by hand here used to send the wallet address
+  // alongside a valid Bearer token, putting that identifier on every export.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...client.getSessionHeaders(),
+  };
 
   const resp = await fetch(`${client.getBaseUrl()}/api/pdf/document`, {
     method: 'POST',

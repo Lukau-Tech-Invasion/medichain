@@ -16,7 +16,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation, useProviderDirectory } from '@medichain/shared';
+import { apiUrl, getApiClient, useProviderDirectory, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -169,7 +169,7 @@ const WoundCarePage: React.FC = () => {
   useEffect(() => {
     if (!user?.walletAddress) return;
     fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+      headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
     })
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(body => {
@@ -193,7 +193,7 @@ const WoundCarePage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role || 'Nurse',
         },
         body: JSON.stringify({
@@ -247,7 +247,7 @@ const WoundCarePage: React.FC = () => {
         const response = await fetch(apiUrl('/api/emergency/wound/list'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Nurse'
           }
         });
@@ -277,7 +277,7 @@ const WoundCarePage: React.FC = () => {
       try {
         const response = await fetch(apiUrl(`/api/emergency/wound/${selectedWound.id}`), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Nurse',
           },
         });

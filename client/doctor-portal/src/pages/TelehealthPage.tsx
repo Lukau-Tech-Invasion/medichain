@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiErrorMessage, joinTelehealthSession, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, joinTelehealthSession, useTranslation } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
 import { JitsiMeetComponent } from '@medichain/shared';
 
@@ -84,7 +84,7 @@ export default function TelehealthPage() {
     try {
       const res = await fetch(apiUrl(`/api/telehealth/patient/${pid}/sessions`), {
         headers: {
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -112,7 +112,7 @@ export default function TelehealthPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({
@@ -148,7 +148,7 @@ export default function TelehealthPage() {
       const res = await fetch(apiUrl(`/api/telehealth/sessions/${sessionId}/end`), {
         method: 'POST',
         headers: {
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });

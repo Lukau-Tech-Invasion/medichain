@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -82,7 +82,7 @@ function OrdersPage() {
       setLoading(true);
       const response = await fetch(apiUrl('/api/clinical/orders'), {
         headers: { 
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -122,7 +122,7 @@ function OrdersPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({
@@ -172,7 +172,7 @@ function OrdersPage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({ status: newStatus }),

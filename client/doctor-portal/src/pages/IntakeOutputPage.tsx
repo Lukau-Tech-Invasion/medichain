@@ -14,12 +14,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import {
-  apiUrl,
-  listIntakeOutput,
-  createIntakeOutput,
-  useTranslation,
-} from '@medichain/shared';
+import { apiUrl, createIntakeOutput, getApiClient, listIntakeOutput, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -149,7 +144,7 @@ const IntakeOutputPage: React.FC = () => {
         // and left every card rendering the untranslated `{{mrn}}` placeholder.
         const [rosterResponse, records] = await Promise.all([
           fetch(apiUrl('/api/patients?limit=100'), {
-            headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+            headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
           }).then(r => (r.ok ? r.json() : { data: [] })),
           listIntakeOutput().catch(() => []),
         ]);
@@ -181,7 +176,7 @@ const IntakeOutputPage: React.FC = () => {
         // (patient, date, shift) put the shift where the date belongs.
         const response = await fetch(apiUrl(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });

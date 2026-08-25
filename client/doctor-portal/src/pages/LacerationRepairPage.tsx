@@ -15,7 +15,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -117,7 +117,7 @@ const LacerationRepairPage: React.FC = () => {
         const response = await fetch(apiUrl('/api/patients'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor'
           }
         });
@@ -155,7 +155,7 @@ const LacerationRepairPage: React.FC = () => {
         const response = await fetch(apiUrl('/api/clinical/laceration-repairs'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor'
           }
         });

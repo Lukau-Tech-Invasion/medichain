@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -126,7 +126,7 @@ function PatientSearchPage() {
         setLoading(true);
         const response = await fetch(apiUrl('/api/patients'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });

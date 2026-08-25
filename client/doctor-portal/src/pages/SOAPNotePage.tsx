@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
   User, Activity, Stethoscope, Pill, Calendar
@@ -146,7 +146,7 @@ function SOAPNotePage() {
       try {
         const response = await fetch(apiUrl('/api/patients'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });
@@ -172,7 +172,7 @@ function SOAPNotePage() {
       try {
         const response = await fetch(apiUrl(`/api/clinical/patient/${selectedPatientId}/soap`), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });
@@ -358,7 +358,7 @@ function SOAPNotePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(requestBody),

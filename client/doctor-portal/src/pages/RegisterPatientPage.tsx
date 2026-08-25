@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage, isValidPhoneNumber, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, isValidPhoneNumber, useTranslation } from '@medichain/shared';
 import { 
   UserPlus, 
   CheckCircle, 
@@ -93,7 +93,7 @@ function RegisterPatientPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user?.userId || '',
+          ...getApiClient().getSessionHeaders(user?.userId),
         },
         body: JSON.stringify({
           full_name: formData.fullName,

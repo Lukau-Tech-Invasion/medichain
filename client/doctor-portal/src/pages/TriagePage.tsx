@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -160,7 +160,7 @@ function TriagePage() {
       try {
         const response = await fetch(apiUrl('/api/patients'), {
           headers: { 
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });
@@ -188,7 +188,7 @@ function TriagePage() {
       try {
         const response = await fetch(apiUrl('/api/clinical/triage/queue'), {
           headers: { 
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
         });
@@ -258,7 +258,7 @@ function TriagePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({

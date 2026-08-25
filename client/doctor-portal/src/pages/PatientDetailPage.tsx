@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
   ArrowLeft, 
@@ -62,7 +62,7 @@ function PatientDetailPage() {
       try {
         const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
             'Content-Type': 'application/json',
           },

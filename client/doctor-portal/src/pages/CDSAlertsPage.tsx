@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listCdsAlerts, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, listCdsAlerts, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -298,7 +298,7 @@ const CDSAlertsPage: React.FC = () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           },
           body: JSON.stringify({

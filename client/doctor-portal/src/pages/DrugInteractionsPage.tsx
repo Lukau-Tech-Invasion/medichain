@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -133,7 +133,7 @@ const DrugInteractionsPage: React.FC = () => {
         const response = await fetch(apiUrl('/api/drugs'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
@@ -169,7 +169,7 @@ const DrugInteractionsPage: React.FC = () => {
         const response = await fetch(apiUrl('/api/interactions'), {
           headers: {
             'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
@@ -231,7 +231,7 @@ const DrugInteractionsPage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role || 'Doctor',
         },
         body: JSON.stringify({

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createIvSite, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, createIvSite, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Syringe,
@@ -208,7 +208,7 @@ export default function IVSitePage() {
       try {
         const response = await fetch(apiUrl(`/api/clinical/iv-sites/${selectedPatient.patient_id}`), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Nurse',
           },
         });

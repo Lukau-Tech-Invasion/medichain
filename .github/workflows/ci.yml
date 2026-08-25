@@ -49,6 +49,15 @@ jobs:
             - name: State-changing handlers narrow beyond "any clinical staff"
               run: python scripts/check-write-authorization.py
 
+            # Both gates above look at the server. This one looks at the client:
+            # the legacy `X-User-Id` header is a caller-supplied wallet address,
+            # and the only module allowed to decide whether to send it is the
+            # shared session helper. A page writing that literal itself sends the
+            # identifier even when a Bearer session already carries it, and has
+            # to be found again the day the legacy path is withdrawn.
+            - name: Only the shared session helper emits the legacy identity header
+              run: python scripts/check-legacy-identity-headers.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================

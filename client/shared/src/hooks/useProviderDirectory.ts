@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiUrl } from '../config';
+import { getApiClient } from '../api/client';
 
 interface ProviderRow {
   name: string;
@@ -28,7 +29,10 @@ export function useProviderDirectory(walletAddress: string | undefined) {
     if (!walletAddress) return;
     let cancelled = false;
     fetch(apiUrl('/api/providers'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': walletAddress },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getApiClient().getSessionHeaders(walletAddress),
+      },
     })
       .then(response => (response.ok ? response.json() : { providers: [] }))
       .then((body: { providers?: ProviderRow[] }) => {

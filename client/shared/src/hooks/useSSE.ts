@@ -59,7 +59,7 @@ export function useSSE(): UseSSEReturn {
       debugLog('useSSE', `Connecting to SSE at ${baseUrl}/api/events ...`);
       const response = await fetch(`${baseUrl}/api/events`, {
         headers: {
-          'X-User-Id': userId,
+          ...apiClient.getSessionHeaders(userId),
           'Accept': 'text/event-stream',
         },
         signal: controller.signal,

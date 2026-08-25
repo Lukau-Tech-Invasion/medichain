@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  createAppointment,
-  setAppointmentStatus,
-  apiUrl,
-  useTranslation,
-} from '@medichain/shared';
+import { apiUrl, createAppointment, getApiClient, setAppointmentStatus, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -204,7 +199,7 @@ export default function AppointmentSchedulerPage() {
     setLoadError(null);
     try {
       const res = await fetch(apiUrl(`/api/appointments/provider/${provider.providerId}`), {
-        headers: { 'X-User-Id': provider.walletAddress },
+        headers: { ...getApiClient().getSessionHeaders(provider.walletAddress) },
       });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();

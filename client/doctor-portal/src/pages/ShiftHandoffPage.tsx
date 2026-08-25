@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createShiftHandoff, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, createShiftHandoff, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ArrowRightLeft,
@@ -202,7 +202,7 @@ export default function ShiftHandoffPage() {
           // Fetch recent handoffs (use user ID as the handoff ID reference)
           const res = await fetch(apiUrl(`/api/clinical/shift-handoff/${user.walletAddress}`), {
             headers: {
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
               'X-Provider-Role': user.role || 'Nurse',
             },
           });

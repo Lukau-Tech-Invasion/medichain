@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
@@ -121,7 +121,7 @@ const ImagingPage: React.FC = () => {
       try {
         const res = await fetch(apiUrl('/api/platform/list/radiology-orders'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
@@ -187,7 +187,7 @@ const ImagingPage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({

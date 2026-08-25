@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
 import PatientSelect from '../components/PatientSelect';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -155,7 +155,7 @@ function VitalSignsPage() {
           apiUrl(`/api/clinical/vitals/flowsheet/${selectedPatientId}`),
           {
             headers: { 
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
               'X-Provider-Role': user.role,
             },
           }
@@ -205,7 +205,7 @@ function VitalSignsPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(payload),
@@ -237,7 +237,7 @@ function VitalSignsPage() {
         apiUrl(`/api/clinical/vitals/flowsheet/${selectedPatientId}`),
         { 
           headers: { 
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
           } 
         }

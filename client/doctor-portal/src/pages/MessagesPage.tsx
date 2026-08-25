@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { MessageSquare, Send, Loader2, RefreshCw, User } from 'lucide-react';
 
 interface Message {
@@ -41,7 +41,7 @@ export default function MessagesPage() {
     try {
       const res = await fetch(apiUrl('/api/messages'), {
         headers: {
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -77,7 +77,7 @@ export default function MessagesPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(payload),

@@ -8,7 +8,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient } from '../components/PatientSelect';
 
@@ -68,7 +68,7 @@ const ProgressNotePage: React.FC = () => {
         
         const response = await fetch(apiUrl('/api/platform/list/progress-notes'), {
           headers: {
-            'X-User-Id': user.walletAddress,
+            ...getApiClient().getSessionHeaders(user.walletAddress),
             'X-Provider-Role': user.role,
             'Content-Type': 'application/json',
           },
@@ -78,7 +78,7 @@ const ProgressNotePage: React.FC = () => {
           const data = await response.json();
           const patientsResponse = await fetch(apiUrl('/api/patients'), {
             headers: {
-              'X-User-Id': user.walletAddress,
+              ...getApiClient().getSessionHeaders(user.walletAddress),
               'X-Provider-Role': user.role,
             },
           });
@@ -235,7 +235,7 @@ const ProgressNotePage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(payload),

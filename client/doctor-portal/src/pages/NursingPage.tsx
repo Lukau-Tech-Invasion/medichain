@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
   AlertCircle, CheckCircle, User, Calendar, Loader2,
@@ -133,7 +133,7 @@ function NursingPage() {
     try {
       const response = await fetch(apiUrl('/api/patients'), {
         headers: { 
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
       });
@@ -155,7 +155,7 @@ function NursingPage() {
     setLoading(true);
     try {
       const headers = { 
-        'X-User-Id': user.walletAddress,
+        ...getApiClient().getSessionHeaders(user.walletAddress),
         'X-Provider-Role': user.role,
       };
       
@@ -194,7 +194,7 @@ function NursingPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({
@@ -241,7 +241,7 @@ function NursingPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
+          ...getApiClient().getSessionHeaders(user.walletAddress),
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({

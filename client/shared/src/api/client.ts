@@ -141,6 +141,13 @@ export class ApiClient {
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
   private refreshToken?: string;
+  /**
+   * True once a JWT session existed and then ended (logout, or a refresh that
+   * failed). Latched rather than derived, because "no token right now" cannot
+   * distinguish a demo client that never signed in from a session that was
+   * revoked a moment ago -- and those two must not get the same identity.
+   */
+  private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
@@ -185,13 +192,25 @@ export class ApiClient {
     if (refreshToken !== undefined) {
       this.refreshToken = refreshToken;
     }
+    if (accessToken) {
+      this.sessionEnded = false;
+    }
     debugLog('ApiClient', `JWT tokens ${accessToken ? 'set' : 'cleared'}`);
   }
 
   /**
-   * Clear stored JWT tokens (e.g. on logout).
+   * Clear stored JWT tokens, on logout or on a refresh that failed.
+   *
+   * This also latches `sessionEnded`, which is what stops the client silently
+   * reverting to the legacy identity header afterwards. Without that latch, an
+   * expired or *revoked* session degraded into wallet-header identity on the
+   * next request and kept working -- which would make session revocation
+   * unenforceable for any client still holding a signer.
    */
   clearTokens(): void {
+    if (this.accessToken || this.refreshToken) {
+      this.sessionEnded = true;
+    }
     this.accessToken = undefined;
     this.refreshToken = undefined;
   }
@@ -213,6 +232,13 @@ export class ApiClient {
   getSessionHeaders(legacyUserId?: string): Record<string, string> {
     if (this.accessToken) {
       return { Authorization: `Bearer ${this.accessToken}` };
+    }
+
+    // A session that existed and ended must not silently become a weaker
+    // identity. Only a client that never held one -- the demo path -- may
+    // fall back to the legacy header.
+    if (this.sessionEnded) {
+      return {};
     }
 
     const userId = legacyUserId ?? this.userId;
@@ -420,15 +446,20 @@ export class ApiClient {
           ...extraHeaders,
         };
 
-        // A Bearer session is the normal identity contract. Do not accompany it
-        // with a raw wallet address, which keeps that identifier out of requests
-        // and prevents legacy-header dependence from spreading through typed
-        // callers. Header-only calls remain for explicit demo compatibility.
-        Object.assign(headers, this.getSessionHeaders());
-        if (this.userId && !this.accessToken) {
-          headers['X-User-Id'] = this.userId;
+        // `getSessionHeaders()` is the single owner of the Bearer-vs-legacy
+        // decision. This used to re-derive the same rule inline and re-assign
+        // the header, which is how two copies of one authentication policy
+        // start to drift apart.
+        const identity = this.getSessionHeaders();
+        Object.assign(headers, identity);
 
-          // If a signature provider is available, sign a challenge
+        // Sign only when the legacy identity header is what actually went out.
+        // The signature binds a wallet address, so signing a request that does
+        // not carry that address proves nothing -- and keying off the emitted
+        // header rather than off `this.userId` means the value signed and the
+        // value sent cannot diverge.
+        const legacyIdentity = identity['X-User-Id'];
+        if (legacyIdentity) {
           if (this.signatureProvider) {
             const timestamp = Math.floor(Date.now() / 1000).toString();
             // Bind the signature to this exact method, path, and body
@@ -437,7 +468,7 @@ export class ApiClient {
             // below (`body ? JSON.stringify(body) : undefined`).
             const bodyText = body ? JSON.stringify(body) : '';
             const bodyHash = await sha256Hex(bodyText);
-            const message = `${timestamp}:${this.userId}:${method}:${path}:${bodyHash}`;
+            const message = `${timestamp}:${legacyIdentity}:${method}:${path}:${bodyHash}`;
             try {
               const signature = await this.signatureProvider(message);
               headers['X-Signature'] = signature;
