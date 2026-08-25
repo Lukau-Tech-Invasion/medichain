@@ -5805,6 +5805,28 @@ pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
     async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>>;
     /// Delete a record by id. Idempotent: deleting a missing id is `Ok(())`.
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+
+    /// Replace a record **only if** one of its stored JSON fields still holds
+    /// `expected`. Returns `Ok(None)` when the guard did not hold.
+    ///
+    /// This is the state-machine primitive for these tables. `create` is an
+    /// unconditional upsert, so a handler that reads a record, checks its
+    /// status and then writes it back has a read-modify-write race: two
+    /// concurrent approvals both observe `Pending` and both commit, and the
+    /// second silently overwrites the first. Expressing the guard *inside* the
+    /// write makes the transition atomic — the same shape
+    /// `RetentionExecutionRepository::decide_approval` already uses
+    /// (`WHERE status = 'pending' AND requested_by <> $3`).
+    ///
+    /// `field` is a top-level key of the stored `data` object and is compared
+    /// as text, so it must name a field whose JSON representation is a string.
+    async fn replace_if_field_eq(
+        &self,
+        id: &str,
+        field: &str,
+        expected: &str,
+        record: JsonRecordEntity,
+    ) -> RepositoryResult<Option<JsonRecordEntity>>;
 }
 
 // =============================================================================

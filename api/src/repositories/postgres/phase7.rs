@@ -96,6 +96,32 @@ macro_rules! pg_json_repo {
                     .await?;
                 Ok(())
             }
+
+            async fn replace_if_field_eq(
+                &self,
+                id: &str,
+                field: &str,
+                expected: &str,
+                record: JsonRecordEntity,
+            ) -> RepositoryResult<Option<JsonRecordEntity>> {
+                // One statement, so the guard and the write cannot be
+                // separated by another transaction. `data ->> $4` reads the
+                // *stored* value, not the caller's copy of it — which is what
+                // makes a concurrent second approval find `Approved` and lose.
+                let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
+                    "UPDATE ",
+                    $table,
+                    " SET owner_id = $2, data = $3, updated_at = NOW()                      WHERE id = $1 AND data ->> $4 = $5                      RETURNING *"
+                ))
+                .bind(id)
+                .bind(&record.owner_id)
+                .bind(&record.data)
+                .bind(field)
+                .bind(expected)
+                .fetch_optional(&self.pool)
+                .await?;
+                Ok(result)
+            }
         }
     };
 }

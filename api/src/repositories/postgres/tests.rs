@@ -4905,3 +4905,141 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     assert_eq!((total, active), (2, 1));
     pool.close().await;
 }
+
+// ===========================================================================
+// Lab-review state transition — the maker-checker guard against the real
+// database, not against a HashMap standing in for one.
+// ===========================================================================
+
+fn lab_record(
+    id: &str,
+    status: &str,
+    reviewed_by: Option<&str>,
+) -> crate::repositories::traits::JsonRecordEntity {
+    let now = Utc::now();
+    crate::repositories::traits::JsonRecordEntity {
+        id: id.to_string(),
+        owner_id: "PAT-LAB-GUARD".to_string(),
+        data: serde_json::json!({ "status": status, "reviewed_by": reviewed_by }),
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+/// The interleaving a read-modify-write cannot survive, executed against
+/// PostgreSQL.
+///
+/// Both callers read the submission while it said `Pending` — which is exactly
+/// what two concurrent HTTP requests do — and only then does either write. The
+/// unconditional `create` upsert this replaced accepts both writes, so the
+/// later reviewer's decision silently overwrites the earlier one; here the
+/// second write must find the guard broken and change nothing.
+#[tokio::test]
+async fn lab_review_guard_rejects_a_stale_second_writer() {
+    use crate::repositories::traits::JsonRecordRepository;
+
+    let pool = get_test_pool().await;
+    let repo = crate::repositories::postgres::PgLabResultSubmissionRepository::new(pool.clone());
+    let id = format!("LAB-GUARD-{}", Utc::now().timestamp_millis());
+
+    repo.create(lab_record(&id, "Pending", None))
+        .await
+        .expect("seed pending submission");
+
+    let first = repo
+        .replace_if_field_eq(
+            &id,
+            "status",
+            "Pending",
+            lab_record(&id, "Approved", Some("doctor_b")),
+        )
+        .await
+        .expect("first transition");
+    assert!(first.is_some(), "the first reviewer commits");
+
+    let second = repo
+        .replace_if_field_eq(
+            &id,
+            "status",
+            "Pending",
+            lab_record(&id, "Rejected", Some("doctor_c")),
+        )
+        .await
+        .expect("second transition");
+    assert!(second.is_none(), "the stale second reviewer must lose");
+
+    let stored = repo
+        .get_by_id(&id)
+        .await
+        .expect("read back")
+        .expect("row present");
+    assert_eq!(stored.data["status"], "Approved");
+    assert_eq!(stored.data["reviewed_by"], "doctor_b");
+
+    repo.delete(&id).await.ok();
+    pool.close().await;
+}
+
+/// The same guard under genuine concurrency, on two pooled connections.
+///
+/// Counting winners is meaningful here precisely because the implementation
+/// this replaced would produce *two*: an unconditional upsert has no losing
+/// case. One winner is therefore evidence the guard, not the scheduler, is
+/// doing the work.
+#[tokio::test]
+async fn lab_review_guard_admits_exactly_one_concurrent_reviewer() {
+    use crate::repositories::traits::JsonRecordRepository;
+
+    let pool = get_test_pool().await;
+    let repo = crate::repositories::postgres::PgLabResultSubmissionRepository::new(pool.clone());
+    let id = format!("LAB-RACE-{}", Utc::now().timestamp_millis());
+
+    repo.create(lab_record(&id, "Pending", None))
+        .await
+        .expect("seed pending submission");
+
+    let (a, b) = tokio::join!(
+        repo.replace_if_field_eq(
+            &id,
+            "status",
+            "Pending",
+            lab_record(&id, "Approved", Some("doctor_b"))
+        ),
+        repo.replace_if_field_eq(
+            &id,
+            "status",
+            "Pending",
+            lab_record(&id, "Rejected", Some("doctor_c"))
+        ),
+    );
+
+    let winners = [a.expect("transition a"), b.expect("transition b")]
+        .into_iter()
+        .flatten()
+        .count();
+    assert_eq!(winners, 1, "exactly one reviewer may commit");
+
+    // And the surviving row must be one reviewer's decision in full, not a
+    // blend of the two.
+    let stored = repo
+        .get_by_id(&id)
+        .await
+        .expect("read back")
+        .expect("row present");
+    let status = stored.data["status"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let reviewer = stored.data["reviewed_by"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        (status == "Approved" && reviewer == "doctor_b")
+            || (status == "Rejected" && reviewer == "doctor_c"),
+        "decision must be internally consistent, got {status}/{reviewer}"
+    );
+
+    repo.delete(&id).await.ok();
+    pool.close().await;
+}

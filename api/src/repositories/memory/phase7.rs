@@ -81,6 +81,36 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
         data.remove(id);
         Ok(())
     }
+
+    async fn replace_if_field_eq(
+        &self,
+        id: &str,
+        field: &str,
+        expected: &str,
+        mut record: JsonRecordEntity,
+    ) -> RepositoryResult<Option<JsonRecordEntity>> {
+        // Read the guard and perform the write under one write lock, so this
+        // matches the PostgreSQL statement's atomicity rather than merely its
+        // return type. Taking a read lock first would reintroduce exactly the
+        // read-modify-write race the method exists to remove.
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+
+        let Some(existing) = data.get(id) else {
+            return Ok(None);
+        };
+        if existing.data.get(field).and_then(|v| v.as_str()) != Some(expected) {
+            return Ok(None);
+        }
+
+        record.id = id.to_string();
+        record.created_at = existing.created_at;
+        record.updated_at = Utc::now();
+        data.insert(record.id.clone(), record.clone());
+        Ok(Some(record))
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +141,76 @@ mod tests {
         let got = repo.get_by_id("a").await.unwrap().unwrap();
         assert_eq!(got.data["hello"], "again");
         assert!(repo.get_by_id("missing").await.unwrap().is_none());
+    }
+
+    /// The interleaving that a read-modify-write cannot survive.
+    ///
+    /// Both callers read the record while it says `Pending` -- that is the
+    /// whole point, and it is what two concurrent HTTP requests do. Whichever
+    /// writes second must lose. With the plain `create` upsert both writes
+    /// succeed and the later one silently replaces the earlier decision, so
+    /// this test fails against that implementation.
+    #[tokio::test]
+    async fn second_writer_loses_when_both_read_the_same_state() {
+        let repo = MemoryJsonRecordRepository::new();
+        let mut pending = entity("sub-1", "PAT-1");
+        pending.data = json!({ "status": "Pending", "reviewed_by": null });
+        repo.create(pending.clone()).await.unwrap();
+
+        // Both callers hold a copy taken while the stored status was Pending.
+        let mut approval = pending.clone();
+        approval.data = json!({ "status": "Approved", "reviewed_by": "doctor_b" });
+        let mut rejection = pending.clone();
+        rejection.data = json!({ "status": "Rejected", "reviewed_by": "doctor_c" });
+
+        let first = repo
+            .replace_if_field_eq("sub-1", "status", "Pending", approval)
+            .await
+            .unwrap();
+        assert!(first.is_some(), "the first writer commits");
+
+        let second = repo
+            .replace_if_field_eq("sub-1", "status", "Pending", rejection)
+            .await
+            .unwrap();
+        assert!(second.is_none(), "the second writer must lose");
+
+        let stored = repo.get_by_id("sub-1").await.unwrap().unwrap();
+        assert_eq!(stored.data["status"], "Approved");
+        assert_eq!(stored.data["reviewed_by"], "doctor_b");
+    }
+
+    /// A guard that does not hold must leave the record byte-for-byte alone,
+    /// not merely report failure.
+    #[tokio::test]
+    async fn a_failed_guard_writes_nothing() {
+        let repo = MemoryJsonRecordRepository::new();
+        let mut approved = entity("sub-2", "PAT-1");
+        approved.data = json!({ "status": "Approved" });
+        repo.create(approved).await.unwrap();
+
+        let mut attempt = entity("sub-2", "PAT-1");
+        attempt.data = json!({ "status": "Rejected" });
+        assert!(repo
+            .replace_if_field_eq("sub-2", "status", "Pending", attempt)
+            .await
+            .unwrap()
+            .is_none());
+
+        assert_eq!(
+            repo.get_by_id("sub-2").await.unwrap().unwrap().data["status"],
+            "Approved"
+        );
+
+        // A missing record is a failed guard, not an insert.
+        let mut ghost = entity("sub-absent", "PAT-1");
+        ghost.data = json!({ "status": "Approved" });
+        assert!(repo
+            .replace_if_field_eq("sub-absent", "status", "Pending", ghost)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(repo.get_by_id("sub-absent").await.unwrap().is_none());
     }
 
     #[tokio::test]

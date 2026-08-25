@@ -1443,3 +1443,20 @@ submissions. `incident_report_entity` additionally hardcoded
 now take DTOs matching the actual form bodies.
 
 Remove them once someone confirms nothing intends to use the structured shapes.
+
+## `Pagination::default()` means "return nothing" (2026-08-26)
+
+`Pagination` derives `Default`, which gives `page: 0, per_page: 0`. `limit()`
+returns `per_page.min(MAX_PER_PAGE)` — so 0 — and every paginated repository
+read then applies `.take(0)`. The call returns an empty `items` list with an
+accurate non-zero `total`, which reads exactly like "this patient has no
+records" rather than like a bug.
+
+No production call site uses it: the only occurrence in the tree was a test
+written on 2026-08-26, which failed for precisely this reason and cost time to
+diagnose. It is recorded rather than fixed because the safe change is a
+behavioural one to a shared type, and this register is where those wait.
+
+The options, when someone picks it up: make `Default` return a usable first page
+(`per_page: 50`), or drop the derive so callers must state a page size. Dropping
+it is the stricter choice and, with one call site, the cheaper one.
