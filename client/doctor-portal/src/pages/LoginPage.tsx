@@ -13,7 +13,6 @@ import {
   Syringe,
   FlaskConical,
   Pill,
-  UserRound,
   type LucideIcon,
 } from 'lucide-react';
 import { FEATURES, useTranslation } from '@medichain/shared';
@@ -46,10 +45,10 @@ const DEMO_USERS: DemoUser[] = [
   { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: FlaskConical, color: 'bg-caution-subtle border-caution hover:bg-amber-200' },
   // Pharmacist
   { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: Pill, color: 'bg-surface-sunken border-pink-300 hover:bg-pink-200' },
-  // Patients (linked to demo patient records)
-  { username: 'patient.mokoena', displayName: 'Thabo Mokoena (Patient)', role: 'Patient', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', icon: UserRound, color: 'bg-surface-sunken border-teal-300 hover:bg-teal-200' },
-  { username: 'patient.dlamini', displayName: 'Nomvula Dlamini (Patient)', role: 'Patient', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', icon: UserRound, color: 'bg-surface-sunken border-teal-300 hover:bg-teal-200' },
-  { username: 'patient.nkosi', displayName: 'Sipho Nkosi (Patient)', role: 'Patient', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', icon: UserRound, color: 'bg-surface-sunken border-teal-300 hover:bg-teal-200' },
+  // Patients are deliberately absent. This is the clinician portal; a patient
+  // signs in through the patient app, which is where their own record lives.
+  // Offering patient accounts here invited a staff-facing session for someone
+  // whose only permitted view is read-only access to their own data.
 ];
 
 function LoginPage() {
