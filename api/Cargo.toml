@@ -2,7 +2,13 @@
 name = "medichain-api"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+# The repository LICENSE is a proprietary, all-rights-reserved grant
+# (Lukau Invasion (Pty) Ltd). There is no SPDX identifier for it, so it is
+# named by file rather than by expression -- declaring a permissive SPDX id
+# here would grant, in package metadata, exactly the rights that LICENSE
+# withholds. `publish = false` keeps that metadata off a public registry.
+license-file = "../LICENSE"
+publish = false
 description = "MediChain REST API Server - Emergency medical records access"
 
 [[bin]]

@@ -120,8 +120,43 @@ allow = [
     "BSL-1.0",
 ]
 confidence-threshold = 0.8
-# Per-crate license clarifications go here if a crate ships ambiguous metadata.
-exceptions = []
+# Same ratchet for licence exceptions: if an upgrade removes the crate an
+# exception was written for, the now-pointless exception fails the build.
+unused-license-exception = "deny"
+
+# MediChain's own crates are proprietary (root LICENSE) and carry `publish =
+# false`. They have no SPDX identifier to allow, and adding a permissive one
+# would state in package metadata the opposite of what LICENSE says. This is
+# cargo-deny's mechanism for exactly that case: skip unpublished workspace
+# crates, keep checking every third-party dependency.
+private = { ignore = true }
+
+# ---------------------------------------------------------------------------
+# Per-crate exceptions. Scoped to one named crate on purpose: a licence that is
+# acceptable for one reviewed dependency must not silently become acceptable
+# for every future one, which is what adding it to `allow` above would do.
+# ---------------------------------------------------------------------------
+#
+# `webpki-roots` and `webpki-root-certs` ship the Mozilla/CCADB certificate
+# authority dataset used as the TLS trust store. CDLA-Permissive-2.0 is a *data*
+# licence covering that certificate data, not a software licence on application
+# code, and its principal redistribution condition is making the agreement text
+# available. Reviewed and accepted for TLS trust-root use only.
+#
+# NOTE both crate NAMES are listed. `webpki-root-certs` is a separate published
+# crate from `webpki-roots`, and each is in the graph at two major versions
+# (0.26.11 and 1.0.9) via `sqlx-core`. Excepting only `webpki-roots` leaves the
+# other name rejected and the gate red.
+#
+# Obligation carried by this exception: the distributed product's third-party
+# notices must include the CDLA-Permissive-2.0 text.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
 
 # ---------------------------------------------------------------------------
 # Dependency bans — flag duplicate versions and wildcard requirements.
