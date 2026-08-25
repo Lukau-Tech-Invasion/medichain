@@ -97,11 +97,21 @@ REVIEWED: dict[str, str] = {
 # Keeping them here rather than in REVIEWED is the point: they are printed on
 # every run, they do not fail the build (the risk is known, not new), and moving
 # one into REVIEWED requires writing down an answer.
+#
+# ADR-0008 (2026-08-25) answered the *assurance* dimension of these handlers and
+# deliberately not the *role* dimension, so they stay here. It settled how much
+# proof an action needs -- initial break-glass is Class E, exempt from exact
+# transaction signing because it must work offline on a shared device in seconds;
+# emergency extension and NFC credential issuance are Class C. It did not settle
+# *which roles* may invoke them, which is the question below and still a clinical
+# governance call.
 ESCALATED: dict[str, str] = {
     "emergency_access": (
         "Break-glass bypasses consent to reveal the emergency capsule. Should a "
         "Pharmacist or LabTechnician be able to trigger it, or only the treating "
-        "roles (Doctor/Nurse/Admin)? Paramedics map to Nurse in this system."
+        "roles (Doctor/Nurse/Admin)? Paramedics map to Nurse in this system. "
+        "ADR-0008 classes the initial grant as E (no exact signature); the role "
+        "question is untouched by that."
     ),
     "exchange_nfc_hash_for_token": (
         "Mints the one-time break-glass token. Same question as emergency_access; "
@@ -109,7 +119,9 @@ ESCALATED: dict[str, str] = {
     ),
     "generate_nfc_card": (
         "Issues a patient identity credential. Identity issuance is usually an "
-        "admin/registration authority rather than any clinical role."
+        "admin/registration authority rather than any clinical role. ADR-0008 "
+        "requires Class C exact signing for it; that raises the proof required, "
+        "not the question of who may do it at all."
     ),
 }
 

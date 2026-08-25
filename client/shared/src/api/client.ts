@@ -199,6 +199,37 @@ export class ApiClient {
   }
 
   /**
+   * End this login session on the server, then clear local credentials.
+   *
+   * Discarding tokens client-side is not signing out: an access token stays
+   * cryptographically valid until it expires, and the refresh generation stays
+   * usable, so the session has to be revoked where it lives. The local clear
+   * happens regardless of the outcome -- a user who asked to sign out must not
+   * be left holding credentials because the network was down.
+   */
+  async endSession(options?: { allDevices?: boolean }): Promise<boolean> {
+    const path = options?.allDevices ? '/api/auth/logout-all' : '/api/auth/logout';
+    let revoked = false;
+    if (this.accessToken) {
+      try {
+        const resp = await fetch(`${this.baseUrl}${path}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.getSessionHeaders(),
+          },
+        });
+        revoked = resp.ok;
+      } catch {
+        // Reported through the return value; the local clear below still runs.
+        revoked = false;
+      }
+    }
+    this.clearTokens();
+    return revoked;
+  }
+
+  /**
    * Clear stored JWT tokens, on logout or on a refresh that failed.
    *
    * This also latches `sessionEnded`, which is what stops the client silently

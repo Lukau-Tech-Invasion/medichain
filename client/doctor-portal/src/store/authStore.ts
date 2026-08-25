@@ -540,10 +540,13 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
+        // Revoke the session server-side as well. Local state is cleared
+        // immediately either way, so the UI never waits on the network to sign
+        // someone out, but the session must not survive on the server.
+        void getApiClient().endSession();
         // Clear every credential held by the singleton client. Keeping the
         // signature provider after logout allowed a later request to continue
         // signing as the clinician whose UI session had ended.
-        getApiClient().clearTokens();
         getApiClient().setSignatureProvider(null);
         syncApiClientUserId();
         set({

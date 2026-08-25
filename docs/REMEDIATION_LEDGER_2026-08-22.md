@@ -1020,6 +1020,181 @@ authentication and log-sink audit scope.
   flipped to enforcing. All three are deliberately left alone: the file states
   that editing the advisory list is the owner's call.
 
+* PostgreSQL baseline closed (2026-08-25). The 58 `repositories::postgres` tests
+  had been unrun all session because the Docker daemon was wedged, and every
+  earlier claim in this ledger was explicit that they were missing. Diagnosed
+  rather than assumed: Docker Desktop was running with no `backend.error.json`,
+  so this was not the recorded stale-socket startup failure -- the daemon had
+  been wedged by C: reaching 0 bytes free. Killing the backend processes,
+  `wsl --shutdown`, and relaunching brought all five containers back healthy.
+  The suite was then run against the **committed** revision with the ADR-0008
+  work stashed, so the session-migration tests are not substituted for the
+  baseline they were supposed to follow:
+
+      test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 403 filtered out; finished in 965.05s
+
+* ADR-0008 accepted and its session substrate implemented (2026-08-25).
+  Two blocking questions from the implementation review were decided by the
+  owner: the login session is split from the refresh generations rather than
+  rotated in place, and initial break-glass is exempt from exact transaction
+  signing.
+
+  **Session split.** `auth_sessions::rotate()` previously revoked its row and
+  inserted a successor with a fresh UUID, so no identifier survived a refresh and
+  a `sid` claim would have been worthless -- a ten-minute Class B elevation would
+  have died at the next token refresh. Migration `20260825000001` adds a parent
+  `auth_login_sessions` table and a `login_session_id` foreign key on
+  `auth_sessions`, backfilled so every historical generation becomes its own
+  single-generation login (the old model recorded nothing about which rows
+  belonged together, and inventing a grouping would fabricate session history;
+  revoked generations produce revoked parents). The generation model itself is
+  kept deliberately: revoking the predecessor and inserting a successor is what
+  proves AUTH-002's concurrent-rotation property, and rotating in place would
+  have discarded that evidence to make an identifier convenient.
+
+  Rotation now retires the predecessor and reads its parent in a single
+  `UPDATE ... RETURNING`, so one statement performs both the concurrency win and
+  the lookup of which login to continue -- there is no second query to race. It
+  joins `auth_login_sessions.revoked_at IS NULL`, so a logged-out session cannot
+  be resurrected by a refresh token that is still cryptographically intact.
+
+  **Issuance order.** `issue_access_token` now takes the session id, and
+  `issue_token_pair` persists the session *before* minting the access token: a
+  token is never returned for a session that failed to persist. If minting fails
+  afterwards the unused session row simply expires, which is operational debris
+  rather than an issued credential. MFA step-up and identity-context switching
+  both carry the existing `sid` forward, since neither starts a new login;
+  dropping it there would have silently detached the caller from their session's
+  revocation and step-up state.
+
+  **Logout did not exist.** Decision 1 requires logout and logout-all to revoke
+  sessions, and the API had no logout endpoint at all -- both portals only
+  discarded tokens client-side, which never ended the server session. Added
+  `POST /api/auth/logout` and `POST /api/auth/logout-all`, plus
+  `ApiClient.endSession()`, which revokes server-side and clears local
+  credentials regardless of the outcome so a user who asked to sign out is never
+  left holding credentials because the network was down.
+
+* ADR-0008 corrections carried into the decision text (2026-08-25), each from a
+  measured fact rather than a preference:
+
+  - **Class E** added for emergency access. Initial break-glass is exempt from
+    Class C and is not a fallback from it: "try Class C, else skip it" makes the
+    control a switch an attacker wants to flip. Expiry stays at the implemented
+    `EMERGENCY_GRANT_TTL_MINUTES = 15`; published break-glass guidance clusters
+    at 15-60 minutes with automatic expiry, whole-day grants being for scheduled
+    administrative access rather than field use, so the existing value was
+    already at the protective end of that band and was justified rather than
+    changed. Extension is Class C; ending one's own emergency session is Class A,
+    because relinquishing privilege must never be impeded.
+  - **Body digest** is taken over the exact transmitted bytes, not a
+    re-serialisation. The existing path hashes `JSON.stringify(body)`, whose
+    output depends on property insertion order, so reordering a struct literal
+    silently changes the digest.
+  - **Concurrency tokens** are per resource class. No Class C target table
+    carries a version column, and adding one everywhere would be a migration
+    across dozens of tables for a decorative field. State-machine resources bind
+    to their terminal-status field with a conditional `UPDATE ... WHERE status =
+    'pending'` requiring exactly one affected row; ordinary rows bind to
+    PostgreSQL `xmin`, explicitly as an ephemeral database-local token for one
+    120-second challenge and never as a durable business version.
+  - **Challenges bind to `sub` + `sid`**, never to one access token's `jti`. This
+    diverges from DPoP knowingly: an authorization the user has already approved
+    must not become invalid because a token generation rotated while the wallet
+    prompt was open.
+  - **Authenticator assurance is recorded.** The Polkadot extension prompts a
+    human; a password-unlocked `staff_credentials.encrypted_keystore` can sign
+    silently. Both produce valid signatures and only one evidences intent, so
+    every Class B/C authorization records authenticator type, key id, interaction
+    class and assurance class.
+  - **Failed authorizations produce security events** distinct from business
+    audit, carrying no raw token, signature, body or patient detail, and
+    themselves rate-limited so invalid signatures cannot exhaust storage.
+  - **Class C gets its own rate budget**, not the anonymous login budget.
+
+  ADR-0008 is recorded as *amending* ADR-0003 rather than superseding it: the
+  base authentication and session architecture there is unchanged.
+
+* The rotate/logout race, and a test that could not detect it (2026-08-25).
+  Review raised a second race the single-statement rotation did not close: a
+  concurrent logout could revoke the parent between the moment rotation read its
+  state and the moment it inserted the successor, leaving a live refresh
+  generation under a dead login. The invariant is that after a login session is
+  revoked, no transaction may create another generation beneath it.
+
+  Fixed by making the parent row the serialization point. `rotate()` now takes
+  `SELECT ... FOR UPDATE OF s` on `auth_login_sessions` before touching any
+  generation; `revoke_session()` locks the same row first; and
+  `revoke_all_for_wallet()` locks every parent for the wallet in `ORDER BY id`
+  before revoking, so two concurrent logout-alls cannot deadlock. Every path
+  locks parent then generation, never the reverse.
+
+  **The first two race tests did not prove the fix.** Written with
+  `tokio::join!`, they passed three times in a row against the deliberately
+  unfixed code, because two fast queries almost never interleave at the
+  microsecond window that matters. They are kept as end-state assertions but
+  they are not the evidence. The evidence is
+  `test_pg_parent_session_lock_blocks_concurrent_revocation`, which holds the
+  lock rotation takes and then proves from a second connection, with
+  `FOR UPDATE NOWAIT`, that logout cannot proceed past it -- turning "would
+  block" into an immediate observable error. That test **fails** with the
+  `FOR UPDATE` removed and passes with it, verified in both directions.
+
+* Session revocation is now enforced on every authenticated request
+  (2026-08-25). Adding a `sid` claim changes nothing on its own: an access token
+  stays cryptographically valid until it expires, so logging out would revoke the
+  refresh generation while the access token kept working for the rest of its
+  lifetime -- and "sign out everywhere" after a lost device would not actually
+  sign anything out. `SessionStateMiddleware` resolves the claimed `sid` against
+  `auth_login_sessions` on every Bearer request and rejects it when the session
+  is revoked, unknown, or bound to a different subject than the token names. It
+  is wrapped outside `JwtIdentityMiddleware` so a revoked session never reaches
+  the point where its subject would be injected downstream, and it fails closed
+  when session state cannot be read. This is a database lookup per authenticated
+  request, accepted deliberately: the semantics are not worth weakening to save
+  it, and it can be optimised later if measurement justifies it. Tokens issued
+  before ADR-0008 carry no `sid` and are unaffected, as are in-memory
+  deployments, which have no session store to consult.
+
+* Full before/after evidence for the session substrate (2026-08-25), run in this
+  order so the baseline could not be contaminated by the change it precedes:
+
+  | Stage | Result |
+  | --- | --- |
+  | Pre-change PostgreSQL baseline (work stashed) | `58 passed; 0 failed` in 965.05s |
+  | Focused session tests | `19 passed; 0 failed` |
+  | Parent-lock regression, fix removed | **FAILED** (the intended detection) |
+  | Parent-lock regression, fix restored | passed |
+  | Post-change PostgreSQL regression | `66 passed; 0 failed` in 1007.27s (58 + 8 new) |
+  | Full API suite, nothing filtered | `468 passed; 0 failed; 1 ignored` in 680.20s |
+  | Clinician / patient suites | 84 files / 313 tests, 26 files / 83 tests |
+  | Typechecks, production builds | all pass |
+  | `cargo fmt --check`, `clippy --all-targets -D warnings` | clean |
+  | 5 repo gates + workflow lint | pass |
+
+  One clinician run failed on `NoteTemplatesPage` under suite contention and
+  passed in isolation twice and on a full re-run. That file is untouched by this
+  work, so it is recorded as a TEST-002-class flake rather than as a clean first
+  result.
+
+* Evidence-state detail for this slice:
+
+  | Row | Implementation | Static | Automated | DB | Local runtime | Browser | Adversarial | Hosted CI | Release |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | ADR-0008 session substrate | complete | complete | complete | complete | not run | not run | not run | not run | not run |
+  | ADR-0008 revocation enforcement | complete | complete | partial | partial | not run | not run | not run | not run | not run |
+  | ADR-0008 Class B/C challenge | not started | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+
+  `SessionStateMiddleware` is marked *partial* on automated and DB evidence
+  honestly: the store behaviour it depends on is covered by the session tests,
+  but the middleware itself has no HTTP-level test asserting that a revoked
+  session yields 401 on a real request. That belongs to the runtime/browser pass
+  and is not claimed here.
+
+  Class B step-up and Class C transaction authorization are deliberately not
+  implemented here. The ordering was explicit: build the stable session first,
+  prove it, and only then build the challenge state that depends on it.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,

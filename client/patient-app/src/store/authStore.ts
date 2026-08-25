@@ -244,8 +244,9 @@ export const usePatientAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
-        // Clear API client userId + JWT tokens
-        getApiClient().clearTokens();
+        // Revoke the session server-side too; `endSession` clears the local
+        // tokens whether or not the request reaches the API.
+        void getApiClient().endSession();
         syncApiClientUserId();
         set({
           patient: null,
