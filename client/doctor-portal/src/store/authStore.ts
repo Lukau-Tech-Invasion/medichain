@@ -116,16 +116,28 @@ function generateDemoAddress(): string {
 /**
  * Acquire JWT access + refresh tokens after a successful wallet login (Phase 9.4).
  *
- * Demo identities cannot mint JWTs because they do not control a wallet key.
- * A real wallet signs the login challenge before any bearer token is requested.
+ * Returns whether a verified session was established. **The caller must not
+ * enter an authenticated state unless this returns true.**
+ *
+ * It used to return `void` and swallow every failure, including the case where
+ * no signer was supplied at all. Callers then set `isAuthenticated: true`
+ * regardless, producing a session with no bearer token that fell back to the
+ * caller-controlled `X-User-Id` header -- a fail-open path that looked like a
+ * successful login. Identity must come from a verified server result, so the
+ * absence of a token is now an authentication failure rather than a quiet
+ * downgrade.
+ *
+ * `POST /api/auth/jwt` verifies a real sr25519 signature over a single-use
+ * server challenge in every mode, demo included, so an identity that controls
+ * no key cannot obtain a session by any route.
  */
 async function acquireJwtTokens(
   walletAddress: string,
   sign?: (message: string) => Promise<string>
-): Promise<void> {
+): Promise<boolean> {
   if (!sign) {
-    debugLog('authStore', 'JWT not requested: this identity has no wallet signer');
-    return;
+    debugLog('authStore', 'JWT unavailable: this identity has no wallet signer');
+    return false;
   }
   try {
     const challenge = await requestWalletChallenge(walletAddress);
@@ -136,7 +148,11 @@ async function acquireJwtTokens(
       nonce: challenge.challenge.nonce,
       signature,
     });
-    if (resp?.access_token) {
+    if (!resp?.access_token) {
+      debugLog('authStore', 'JWT endpoint returned no access token');
+      return false;
+    }
+    {
       getApiClient().setTokens(resp.access_token, resp.refresh_token);
       // Phase 1: professional screens run with a work-context token. If the
       // backend is still completing legacy identity migration, retain the
@@ -149,9 +165,25 @@ async function acquireJwtTokens(
       }
       debugLog('authStore', `JWT acquired (mfa_required=${resp.mfa_required})`);
     }
+    return true;
   } catch (e) {
     debugLog('authStore', 'Signed JWT acquisition failed:', e);
+    return false;
   }
+}
+
+/**
+ * Abandon a half-built sign-in.
+ *
+ * Anything that established credentials on the shared client before the session
+ * turned out to be invalid has to be undone, or the next request would carry
+ * them. Kept next to `acquireJwtTokens` so the two are read together.
+ */
+function abandonSignIn(): void {
+  getApiClient().setSignatureProvider(null);
+  getApiClient().clearTokens();
+  clearStoredAuth();
+  syncApiClientUserId();
 }
 
 /**
@@ -301,6 +333,24 @@ export const useAuthStore = create<AuthState>()(
           };
           setProviderAuth({ address: user.walletAddress, role: user.role, name: user.username });
           syncApiClientUserId();
+
+          // The session must exist before the UI believes in it. Setting
+          // authenticated first and fetching a token afterwards left a window --
+          // and, when the token never arrived, a permanent state -- in which the
+          // app was "signed in" with no bearer token and every request fell back
+          // to the legacy identity header.
+          const established = await acquireJwtTokens(user.walletAddress, (m) => signer.sign(m));
+          if (!established) {
+            abandonSignIn();
+            set({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: 'Could not establish a secure session. Please try again.',
+            });
+            return false;
+          }
+
           set({
             user,
             isAuthenticated: true,
@@ -308,8 +358,6 @@ export const useAuthStore = create<AuthState>()(
             error: null,
             identityHydrated: false,
           });
-
-          await acquireJwtTokens(user.walletAddress, (m) => signer.sign(m));
           void hydrateIdentity(set, get);
           initPush();
           debugLog('authStore', 'Signed in with credentials');
@@ -362,102 +410,115 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
       },
+      /**
+       * Sign in with a wallet the caller can already sign for.
+       *
+       * The signer must be attached to the shared client before this is called
+       * (the extension flow does that); `login` proves control of the key rather
+       * than looking the wallet up first.
+       *
+       * It previously began with `GET /api/auth/wallet/{address}` to fetch the
+       * account's name and role before authenticating. That route was removed on
+       * purpose -- it returned name, role, username and linked_patient_id for any
+       * address with no authentication, which is identity enumeration and a
+       * wallet-to-patient link. Two callers were never migrated, so every wallet
+       * sign-in 404ed and reported "Wallet not registered" for accounts that were
+       * registered. Identity now comes from the verified session instead, which
+       * is both correct and one fewer round trip: authentication proves who you
+       * are, it does not ask first.
+       */
       login: async (walletAddress: string) => {
-        // Validate wallet address format
-        if (!isValidWalletAddress(walletAddress)) {
-          set({ error: 'Invalid wallet address format. Must be 48 characters starting with "5".' });
+        if (!walletAddress) {
+          set({ error: 'A wallet address is required', isLoading: false });
           return false;
         }
 
         set({ isLoading: true, error: null });
 
-        try {
-          // Query the API/blockchain for wallet account info
-          const response = await fetch(apiUrl(`/api/auth/wallet/${walletAddress}`), {
-            headers: { 'Accept': 'application/json' },
-          });
-          
-          if (response.ok) {
-            const accountData = await response.json();
-            
-            // Ensure it's a provider account (not patient)
-            if (accountData.role === 'Patient') {
-              throw new Error('Please use the Patient App for patient accounts');
-            }
-            
-            const user: User = {
-              walletAddress: accountData.address,
-              userId: accountData.address,
-              username: accountData.name || `Provider-${walletAddress.substring(0, 8)}`,
-              role: accountData.role as Role,
-              createdAt: accountData.createdAt || new Date().toISOString(),
-            };
-            
-            // Store auth data for API calls
-            setProviderAuth({
-              address: user.walletAddress,
-              role: user.role,
-              name: user.username,
-            });
-            
-            // Sync API client with new userId
-            syncApiClientUserId();
-
-            set({
-              user,
-              isAuthenticated: true,
-              isLoading: false,
-              error: null,
-              identityHydrated: false,
-            });
-
-            // Acquire JWT tokens (demo path / unsigned; loginWithExtension upgrades with a signature).
-            await acquireJwtTokens(user.walletAddress);
-            void hydrateIdentity(set, get);
-            initPush();
-
-            debugLog('authStore', 'Logged in with wallet:', walletAddress);
-            return true;
-          }
-          
-          throw new Error('Wallet not registered or authentication failed');
-        } catch (error) {
-          let message = 'Login failed';
-          let isConnectionError = false;
-
-          if (error instanceof Error) {
-            // Check for network/connection errors
-            if (error.message === 'Failed to fetch' || 
-                error.name === 'TypeError' ||
-                error.message.includes('NetworkError') ||
-                error.message.includes('network')) {
-              message = 'Unable to connect to server. Please check if the API server is running.';
-              isConnectionError = true;
-            } else if (error.message.includes('timeout') || error.name === 'AbortError') {
-              message = 'Connection timed out. Please check your network.';
-              isConnectionError = true;
-            } else {
-              message = error.message;
-            }
-          }
-          
+        const signer = getApiClient().getSignatureProvider();
+        if (!signer) {
+          // No key, no session. `POST /api/auth/jwt` verifies a real signature
+          // over a single-use challenge in every mode, so there is no path here
+          // that ends in a usable session.
           set({
             user: null,
             isAuthenticated: false,
             isLoading: false,
-            error: message,
-            isConnected: !isConnectionError,
+            error: 'This account cannot sign in here. Use your employee ID and password.',
           });
-          
+          return false;
+        }
+
+        try {
+          const established = await acquireJwtTokens(walletAddress, signer);
+          if (!established) {
+            abandonSignIn();
+            set({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: 'Wallet authentication failed. Check the account is registered and active.',
+            });
+            return false;
+          }
+
+          // Identity from the authenticated principal, not from a pre-login
+          // lookup of an address the caller supplied.
+          const me = await getCurrentUser();
+          if (me.role === 'Patient') {
+            abandonSignIn();
+            set({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: 'Please use the Patient App for patient accounts',
+            });
+            return false;
+          }
+
+          const user: User = {
+            walletAddress: me.wallet_address,
+            userId: me.wallet_address,
+            username: me.name || `Provider-${walletAddress.substring(0, 8)}`,
+            role: me.role as Role,
+            createdAt: new Date().toISOString(),
+            department: me.department,
+            specialty: me.specialty,
+            licenseNumber: me.license_number,
+            email: me.email,
+            permissions: me.permissions,
+          };
+
+          setProviderAuth({
+            address: user.walletAddress,
+            role: user.role,
+            name: user.username,
+          });
+          syncApiClientUserId();
+          set({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+            identityHydrated: true,
+          });
+          initPush();
+          debugLog('authStore', 'Signed in with wallet:', walletAddress);
+          return true;
+        } catch (error) {
+          abandonSignIn();
+          let message = 'Login failed';
+          if (error instanceof Error) {
+            message =
+              error.message === 'Failed to fetch'
+                ? 'Cannot reach the server. Check your connection and try again.'
+                : error.message;
+          }
+          set({ user: null, isAuthenticated: false, isLoading: false, error: message });
           return false;
         }
       },
 
-      /**
-       * Login with a demo wallet for development/testing
-       * Creates a temporary wallet address with the specified role
-       * and registers it with the backend API
-       */
       loginWithDemoWallet: async (role: Role, name?: string) => {
         if (!IS_DEVELOPMENT) {
           set({ error: 'Demo wallets are only available in development mode' });
@@ -584,11 +645,35 @@ export const useAuthStore = create<AuthState>()(
        * Validates the session against the API and re-registers if needed
        * @returns true if session was restored successfully, false otherwise
        */
+      /**
+       * Re-establish a session after a page reload.
+       *
+       * **Fails closed.** Nothing that can authenticate survives a reload: the
+       * access and refresh tokens are deliberately not persisted, and the key
+       * that could sign a fresh challenge lives only in memory. So there is no
+       * material here to rebuild a verified session from, and the honest outcome
+       * is to send the user back to sign-in.
+       *
+       * What it used to do was worse than failing. It called the removed
+       * `GET /api/auth/wallet/{address}` route, and on the strength of that
+       * response set `isAuthenticated: true` -- then called `acquireJwtTokens`
+       * with no signer, which could never succeed. The result was a session the
+       * UI treated as valid, holding no bearer token, whose every request fell
+       * back to the caller-controlled `X-User-Id` header. A reload silently
+       * downgraded a signed-in clinician to the weakest identity the API accepts.
+       *
+       * Restoring without re-authenticating needs durable session material the
+       * browser can present -- a persisted refresh token, or a cookie-borne
+       * session. Both are security design decisions with their own trade-offs
+       * (storage exposure versus CSRF surface) and neither is implemented, so
+       * this returns false rather than inventing one. Recorded for the owner in
+       * the remediation ledger.
+       */
       restoreSession: async (): Promise<boolean> => {
         const storedAuth = getProviderAuth();
-        
+
         if (!storedAuth) {
-          return false; // No stored auth
+          return false;
         }
 
         // Each portal can be open in its own tab. The shared WALLET key tracks
@@ -596,96 +681,26 @@ export const useAuthStore = create<AuthState>()(
         // explicitly to its provider session before any early return.
         getApiClient().setUserId(storedAuth.address);
 
-        if (get().isAuthenticated) {
-          return true; // Already authenticated
+        if (get().isAuthenticated && getApiClient().getAccessToken()) {
+          // A live session in this tab, with a token behind it.
+          return true;
         }
-        
-        debugLog('authStore', 'Restoring session from storage...');
-        
-        // Try to validate the session with the API by checking if user exists
-        try {
-          const response = await fetch(apiUrl(`/api/auth/wallet/${storedAuth.address}`), {
-            headers: { 'Accept': 'application/json' },
-          });
 
-          if (response.ok) {
-            // Logout may have happened while the validation request was in
-            // flight. Never let that stale response resurrect the session.
-            if (getProviderAuth()?.address !== storedAuth.address) return false;
-            // User exists in API, restore session
-            set({
-              user: {
-                walletAddress: storedAuth.address,
-                userId: storedAuth.address,
-                username: storedAuth.name,
-                role: storedAuth.role as Role,
-                createdAt: new Date().toISOString(),
-              },
-              isAuthenticated: true,
-              identityHydrated: false,
-            });
-            // Re-acquire JWTs (tokens are not persisted to storage).
-            await acquireJwtTokens(storedAuth.address);
-            void hydrateIdentity(set, get);
-            initPush();
-            debugLog('authStore', 'Session validated and restored');
-            return true;
-          }
-        } catch {
-          debugLog('authStore', 'API not reachable during session restore');
-        }
-        
-        // User doesn't exist in API (server restarted) - try to re-register as demo user
-        debugLog('authStore', 'Session invalid, attempting re-registration...');
-        try {
-          const response = await fetch(apiUrl('/api/auth/demo-login'), {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-              wallet_address: storedAuth.address,
-              role: storedAuth.role,
-              name: storedAuth.name,
-            }),
-          });
-          
-          if (response.ok) {
-            const demoUser = await response.json();
-            if (getProviderAuth()?.address !== storedAuth.address) return false;
-            set({
-              user: {
-                walletAddress: demoUser.wallet_address || storedAuth.address,
-                userId: demoUser.wallet_address || storedAuth.address,
-                username: demoUser.name || storedAuth.name,
-                role: (demoUser.role || storedAuth.role) as Role,
-                createdAt: new Date().toISOString(),
-              },
-              isAuthenticated: true,
-              identityHydrated: false,
-            });
-            // Re-acquire JWTs (tokens are not persisted to storage).
-            await acquireJwtTokens(demoUser.wallet_address || storedAuth.address);
-            void hydrateIdentity(set, get);
-            initPush();
-            debugLog('authStore', 'Session re-registered successfully');
-            return true;
-          }
-        } catch {
-          debugLog('authStore', 'Failed to re-register session');
-        }
-        
-        // Could not restore or re-register, clear the session
-        debugLog('authStore', 'Clearing invalid session');
-        clearStoredAuth();
+        debugLog(
+          'authStore',
+          'No session material survives a reload; returning to sign-in'
+        );
+        abandonSignIn();
         set({
           user: null,
           isAuthenticated: false,
+          isLoading: false,
           error: null,
+          identityHydrated: false,
         });
         return false;
       },
+
     }),
     {
       name: 'medichain-provider-auth',

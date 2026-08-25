@@ -179,6 +179,19 @@ export class ApiClient {
   }
 
   /**
+   * The signer currently attached, if any.
+   *
+   * Sign-in needs to know whether this client can prove control of a key before
+   * it claims a session: an identity with no signer cannot obtain a JWT, because
+   * the server verifies a real signature over a single-use challenge in every
+   * mode. Reading it back from here keeps one copy of that state rather than a
+   * second one in the store that could disagree.
+   */
+  getSignatureProvider(): ((message: string) => Promise<string>) | null {
+    return this.signatureProvider;
+  }
+
+  /**
    * Set JWT access + refresh tokens (Phase 9.4).
    *
    * Once set, requests carry `Authorization: Bearer <access>` and a 401 triggers

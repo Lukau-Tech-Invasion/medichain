@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
 import {
@@ -15,41 +15,51 @@ import {
   Pill,
   type LucideIcon,
 } from 'lucide-react';
-import { FEATURES, useTranslation } from '@medichain/shared';
+import { FEATURES, apiUrl, useTranslation } from '@medichain/shared';
 
 /**
- * Demo users with actual wallet addresses from the database
- * These are pre-registered accounts for testing and hackathon demos
+ * Demo sign-in shortcut.
+ *
+ * These are not a second way to authenticate. Each entry is a *seeded fixture
+ * account*, and clicking one runs the ordinary employee-ID/password flow with
+ * credentials the server hands back at runtime.
+ *
+ * The list used to be hardcoded here, with wallet addresses, and clicking an
+ * entry called a wallet-lookup route that had been removed on purpose. Every
+ * click reported "Wallet not registered" for accounts that were registered, and
+ * even when that route existed the shortcut produced a session with no bearer
+ * token behind it. There is no honest one-click session: `POST /api/auth/jwt`
+ * verifies a real signature over a single-use challenge in every mode, so an
+ * identity with no key cannot hold a session.
+ *
+ * Resolving the list from `GET /api/auth/demo-credentials` also settles
+ * production containment without relying on the frontend to hide anything. That
+ * endpoint answers only under `MEDICHAIN_DEV_MODE` *and* demo mode; anywhere
+ * else it 403s, the list is empty, and the whole section is not rendered. No
+ * fixture password ships in the bundle.
  */
-interface DemoUser {
-  username: string;
-  displayName: string;
+interface DemoCredential {
+  login_id: string;
+  password: string;
+  name: string;
   role: Role;
-  walletAddress: string;
-  icon: LucideIcon;
-  color: string;
 }
 
-const DEMO_USERS: DemoUser[] = [
-  // Administrators
-  { username: 'admin', displayName: 'System Admin', role: 'Admin', walletAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', icon: ShieldCheck, color: 'bg-surface-sunken border-purple-300 hover:bg-purple-200' },
-  { username: 'judge', displayName: 'Hackathon Judge', role: 'Admin', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y', icon: Scale, color: 'bg-surface-sunken border-purple-300 hover:bg-purple-200' },
-  // Doctors
-  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
-  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
-  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
-  // Nurses
-  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: Syringe, color: 'bg-ok-subtle border-ok hover:bg-green-200' },
-  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: Syringe, color: 'bg-ok-subtle border-ok hover:bg-green-200' },
-  // Lab Technician
-  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: FlaskConical, color: 'bg-caution-subtle border-caution hover:bg-amber-200' },
-  // Pharmacist
-  { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: Pill, color: 'bg-surface-sunken border-pink-300 hover:bg-pink-200' },
-  // Patients are deliberately absent. This is the clinician portal; a patient
-  // signs in through the patient app, which is where their own record lives.
-  // Offering patient accounts here invited a staff-facing session for someone
-  // whose only permitted view is read-only access to their own data.
-];
+const ROLE_ICONS: Record<string, LucideIcon> = {
+  Admin: ShieldCheck,
+  Doctor: Stethoscope,
+  Nurse: Syringe,
+  LabTechnician: FlaskConical,
+  Pharmacist: Pill,
+};
+
+const ROLE_STYLES: Record<string, string> = {
+  Admin: 'bg-surface-sunken border-purple-300 hover:bg-purple-200',
+  Doctor: 'bg-notice-subtle border-notice hover:bg-blue-200',
+  Nurse: 'bg-ok-subtle border-ok hover:bg-green-200',
+  LabTechnician: 'bg-caution-subtle border-caution hover:bg-amber-200',
+  Pharmacist: 'bg-surface-sunken border-pink-300 hover:bg-pink-200',
+};
 
 function LoginPage() {
   const { t } = useTranslation();
@@ -94,9 +104,42 @@ function LoginPage() {
   /**
    * Quick login with a demo user's wallet address
    */
-  const handleDemoUserLogin = async (user: DemoUser) => {
+  const [demoAccounts, setDemoAccounts] = useState<DemoCredential[]>([]);
+
+  useEffect(() => {
+    // A 403 is the expected answer outside a demo deployment, and leaves the
+    // section unrendered. Failures are silent for the same reason: the shortcut
+    // is a convenience, and its absence is not an error worth showing.
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(apiUrl('/api/auth/demo-credentials'), {
+          headers: { Accept: 'application/json' },
+        });
+        if (!resp.ok) return;
+        const body = await resp.json();
+        if (!cancelled && Array.isArray(body?.credentials)) {
+          setDemoAccounts(body.credentials);
+        }
+      } catch {
+        // No demo accounts available; the section stays hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Run the real credential sign-in with a seeded fixture's credentials.
+   *
+   * Deliberately `loginWithCredentials` and not a shortcut of its own: the
+   * keystore is unlocked, a signer derived, the challenge signed and a genuine
+   * session issued, exactly as when a clinician types the same values.
+   */
+  const handleDemoUserLogin = async (account: DemoCredential) => {
     clearError();
-    const success = await login(user.walletAddress);
+    const success = await loginWithCredentials(account.login_id, account.password);
     if (success) {
       navigate('/dashboard');
     }
@@ -220,18 +263,18 @@ function LoginPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
-              {DEMO_USERS.map((user) => {
-                const Icon = user.icon;
+              {demoAccounts.map((account) => {
+                const Icon = ROLE_ICONS[account.role] ?? Stethoscope;
                 return (
                   <button
-                    key={user.username}
-                    onClick={() => handleDemoUserLogin(user)}
+                    key={account.login_id}
+                    onClick={() => handleDemoUserLogin(account)}
                     disabled={isLoading}
-                    className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${user.color}`}
+                    className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${ROLE_STYLES[account.role] ?? ROLE_STYLES.Doctor}`}
                   >
                     <Icon className="mx-auto mb-1 text-content-secondary" size={22} aria-hidden="true" />
-                    <span className="block text-xs font-semibold text-content-secondary truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
-                    <span className="block text-xs text-content-muted text-center">{t(`docRoles.${user.role}`)}</span>
+                    <span className="block text-xs font-semibold text-content-secondary truncate text-center">{account.name.split(' ').slice(-1)[0]}</span>
+                    <span className="block text-xs text-content-muted text-center">{t(`docRoles.${account.role}`)}</span>
                   </button>
                 );
               })}

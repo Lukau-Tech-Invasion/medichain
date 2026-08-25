@@ -34,6 +34,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_patient_by_id)
         .service(demo_info)
         .service(demo_login)
+        // Demo-only: hands the sign-in shortcut the seeded fixture
+        // credentials so it can drive the real credential flow. 403s
+        // outside dev+demo mode, so production has no shortcut to reach.
+        .service(demo_credentials)
         // RBAC endpoints
         .service(assign_role)
         .service(revoke_role)

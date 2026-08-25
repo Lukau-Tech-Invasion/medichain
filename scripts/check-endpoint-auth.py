@@ -206,6 +206,41 @@ def classify(scope: str) -> int:
     return T_NONE
 
 
+# Routes that must never become reachable again.
+#
+# `GET /api/auth/wallet/{address}` returned name, role, username and
+# linked_patient_id for ANY wallet address with no authentication -- identity
+# enumeration plus a wallet-to-patient-record link. It was unregistered on
+# purpose, but its handler still exists, so re-adding one `.service(...)` line
+# would quietly restore the disclosure. Two clients kept calling it for months
+# after it was pulled, which is exactly how such a line gets added "to fix a
+# 404". Authentication should prove identity, not enumerate identities first.
+FORBIDDEN_ROUTES = {
+    '/api/auth/wallet/{address}':
+        'unauthenticated wallet-to-identity lookup; discloses name, role, '
+        'username and linked_patient_id for any address',
+}
+
+
+def check_forbidden_routes(root):
+    """Report any forbidden route that has been registered again."""
+    routes_file = root / 'routes.rs'
+    if not routes_file.exists():
+        return []
+    registered = routes_file.read_text(encoding='utf-8', errors='replace')
+    violations = []
+    for path in sorted(root.rglob('*.rs')):
+        text = path.read_text(encoding='utf-8', errors='replace')
+        for m in ROUTE_ATTR.finditer(text):
+            route = m.group(2)
+            if route not in FORBIDDEN_ROUTES:
+                continue
+            fm = FN_SIG.search(text, m.end())
+            if fm and '.service(' + fm.group(1) + ')' in registered:
+                violations.append(route + ' -> ' + fm.group(1) + ': ' + FORBIDDEN_ROUTES[route])
+    return violations
+
+
 def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent / 'api' / 'src'
     unclassified, weak, bulk = [], [], []
@@ -237,6 +272,13 @@ def main() -> int:
                 weak.append(entry)
             if any(k in scope for k in BULK_MARKERS) and tier < T_RESOURCE:
                 bulk.append(entry)
+
+    forbidden = check_forbidden_routes(root)
+    if forbidden:
+        print('\nFAIL - a route that must stay unreachable has been registered:\n')
+        for entry in forbidden:
+            print(f'  {entry}')
+        return 1
 
     print(f'endpoint-auth gate: {total} handlers scanned, '
           f'{len(PUBLIC_ROUTES)} allowlisted public, {len(DELEGATED_AUTH)} delegated')
