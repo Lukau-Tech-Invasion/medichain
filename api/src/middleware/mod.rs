@@ -16,6 +16,7 @@ pub mod jwt_identity;
 pub mod metrics;
 pub mod rate_limit;
 pub mod security_headers;
+pub mod session_state;
 pub mod signature_auth;
 pub mod versioning;
 

@@ -26,6 +26,7 @@ use crate::middleware::jwt_identity::JwtIdentityMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
+use crate::middleware::session_state::SessionStateMiddleware;
 use crate::middleware::signature_auth::SignatureAuthMiddleware;
 use crate::middleware::versioning::ApiVersionMiddleware;
 
@@ -576,6 +577,7 @@ async fn main() -> std::io::Result<()> {
             // sessions to handlers that have not yet stopped reading the
             // legacy header directly; it never trusts client header content.
             .wrap(JwtIdentityMiddleware)
+            .wrap(SessionStateMiddleware)
             .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
