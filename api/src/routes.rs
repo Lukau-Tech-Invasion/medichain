@@ -66,6 +66,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
         .service(logout) // POST /api/auth/logout
         .service(logout_all) // POST /api/auth/logout-all
+        // ADR-0008 assurance classes. Class B elevates the session; Class C
+        // authorizes one exact mutation. Both run through one challenge
+        // mechanism so their replay and single-use guarantees cannot diverge.
+        .service(step_up_challenge) // POST /api/auth/step-up/challenge
+        .service(step_up_verify) // POST /api/auth/step-up/verify
+        .service(transaction_challenge) // POST /api/auth/transaction/challenge
+        .service(session_assurance) // GET  /api/auth/assurance
         // Phase 1 identity contexts: work and personal health remain separate.
         .service(enter_work_context)
         .service(enter_patient_context)

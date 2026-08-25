@@ -3965,6 +3965,626 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ADR-0008 Class B / Class C: exact transaction authorization
+//
+// These drive the real protocol with real sr25519 signatures, because the whole
+// point of the mechanism is what it refuses. Each negative case below is a way
+// an attacker or a stale client could try to reuse a signature, and each must
+// fail closed.
+// ---------------------------------------------------------------------------
+
+use crate::transaction_authorization as txn;
+
+/// A real dev keypair and the SS58 address that owns it.
+fn txn_keypair() -> (sp_core::sr25519::Pair, String) {
+    use sp_core::crypto::Ss58Codec;
+    use sp_core::Pair as _;
+    let pair = sp_core::sr25519::Pair::from_string("//Alice", None).expect("dev key");
+    let wallet = pair.public().to_ss58check();
+    (pair, wallet)
+}
+
+fn txn_sign(pair: &sp_core::sr25519::Pair, message: &str) -> String {
+    use sp_core::Pair as _;
+    hex::encode(pair.sign(message.as_bytes()).0.as_slice())
+}
+
+fn txn_intent() -> txn::TransactionIntent {
+    txn::TransactionIntent {
+        action: "patient_access.approve".to_string(),
+        method: "POST".to_string(),
+        path: "/api/access/requests/req-1/approve".to_string(),
+        body_digest: txn::body_digest(b"{}"),
+        resource_id: Some("req-1".to_string()),
+        expected_state: Some("pending".to_string()),
+        idempotency_key: Some("idem-1".to_string()),
+    }
+}
+
+/// Open a login session owned by the dev keypair.
+async fn txn_session(pool: &sqlx::PgPool, wallet: &str) -> uuid::Uuid {
+    crate::auth_sessions::create(
+        pool,
+        wallet,
+        &format!("txn-generation-{}", uuid::Uuid::new_v4()),
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session")
+}
+
+async fn txn_cleanup(pool: &sqlx::PgPool, sid: uuid::Uuid) {
+    sqlx::query("DELETE FROM auth_transaction_challenges WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
+        .bind(sid)
+        .execute(pool)
+        .await
+        .ok();
+}
+
+/// The happy path, and the single-use guarantee that follows it: a correct
+/// signature authorizes exactly once, and the same proof replayed is refused.
+#[tokio::test]
+async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
+    let pool = get_test_pool().await;
+    let (pair, wallet) = txn_keypair();
+    let sid = txn_session(&pool, &wallet).await;
+    let intent = txn_intent();
+
+    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+        .await
+        .expect("issue challenge");
+    let signature = txn_sign(&pair, &challenge.message);
+    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
+
+    txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await
+    .expect("first authorization must succeed");
+
+    // The identical proof, presented again.
+    let replay = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert_eq!(
+        replay.unwrap_err(),
+        txn::AuthorizationFailure::AlreadyConsumed,
+        "a consumed challenge must not authorize a second mutation"
+    );
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// Every way of presenting a different request than the one that was authorized.
+/// A valid signature for one mutation must not carry over to another.
+#[tokio::test]
+async fn test_pg_transaction_authorization_refuses_a_changed_request() {
+    let pool = get_test_pool().await;
+    let (pair, wallet) = txn_keypair();
+    let intent = txn_intent();
+
+    // Each case gets its own session and challenge, so a refusal in one cannot
+    // be an artefact of a challenge another case consumed.
+    /// One way of presenting a different request than the one authorized:
+    /// a label, the mutation, and the refusal it must produce.
+    type TamperCase = (
+        &'static str,
+        Box<dyn Fn(&mut txn::TransactionIntent)>,
+        txn::AuthorizationFailure,
+    );
+
+    let cases: Vec<TamperCase> = vec![
+        (
+            "path",
+            Box::new(|i: &mut txn::TransactionIntent| {
+                i.path = "/api/access/requests/req-2/approve".to_string()
+            }),
+            txn::AuthorizationFailure::IntentMismatch,
+        ),
+        (
+            "body",
+            Box::new(|i: &mut txn::TransactionIntent| {
+                i.body_digest = txn::body_digest(b"{\"escalate\":true}")
+            }),
+            txn::AuthorizationFailure::IntentMismatch,
+        ),
+        (
+            "method",
+            Box::new(|i: &mut txn::TransactionIntent| i.method = "DELETE".to_string()),
+            txn::AuthorizationFailure::IntentMismatch,
+        ),
+        (
+            "action",
+            Box::new(|i: &mut txn::TransactionIntent| i.action = "patient_access.deny".to_string()),
+            txn::AuthorizationFailure::IntentMismatch,
+        ),
+        (
+            "resource",
+            Box::new(|i: &mut txn::TransactionIntent| i.resource_id = Some("req-2".to_string())),
+            txn::AuthorizationFailure::IntentMismatch,
+        ),
+        (
+            // The TOCTOU case: approval of version N must not authorize N+1.
+            "resource state",
+            Box::new(|i: &mut txn::TransactionIntent| {
+                i.expected_state = Some("approved".to_string())
+            }),
+            txn::AuthorizationFailure::StateChanged,
+        ),
+    ];
+
+    for (label, mutate, expected) in cases {
+        let sid = txn_session(&pool, &wallet).await;
+        let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+            .await
+            .expect("issue challenge");
+        let signature = txn_sign(&pair, &challenge.message);
+        let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
+
+        let mut tampered = intent.clone();
+        mutate(&mut tampered);
+
+        let outcome = txn::authorize_transaction(
+            &pool,
+            challenge_id,
+            &wallet,
+            sid,
+            &tampered,
+            &challenge.nonce,
+            &signature,
+            txn::AuthenticatorType::PolkadotExtension,
+            true,
+        )
+        .await;
+        assert_eq!(
+            outcome.unwrap_err(),
+            expected,
+            "changing the {label} must invalidate the authorization"
+        );
+
+        txn_cleanup(&pool, sid).await;
+    }
+}
+
+/// A signature is only good for the session it was issued under, and only while
+/// that session lives.
+#[tokio::test]
+async fn test_pg_transaction_authorization_is_bound_to_its_session() {
+    let pool = get_test_pool().await;
+    let (pair, wallet) = txn_keypair();
+    let intent = txn_intent();
+
+    // Presented against a different session belonging to the same subject.
+    let sid = txn_session(&pool, &wallet).await;
+    let other_sid = txn_session(&pool, &wallet).await;
+    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+        .await
+        .expect("issue challenge");
+    let signature = txn_sign(&pair, &challenge.message);
+    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
+
+    let wrong_session = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        other_sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert_eq!(
+        wrong_session.unwrap_err(),
+        txn::AuthorizationFailure::WrongSession,
+        "an authorization must not transfer between sessions"
+    );
+
+    // And after that session is revoked, even the correct one is refused.
+    crate::auth_sessions::revoke_session(&pool, sid, "logout")
+        .await
+        .expect("revoke");
+    let after_logout = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert_eq!(
+        after_logout.unwrap_err(),
+        txn::AuthorizationFailure::WrongSession,
+        "a revoked session must not complete an authorization it started"
+    );
+
+    txn_cleanup(&pool, sid).await;
+    txn_cleanup(&pool, other_sid).await;
+}
+
+/// A wrong nonce, a wrong signature, and a signature from a different key are
+/// all refused. The last is the case the architecture exists to prevent: the
+/// signature is checked against the wallet resolved from the stored subject,
+/// never against an address the request supplies.
+#[tokio::test]
+async fn test_pg_transaction_authorization_refuses_bad_proofs() {
+    let pool = get_test_pool().await;
+    let (pair, wallet) = txn_keypair();
+    let intent = txn_intent();
+
+    let sid = txn_session(&pool, &wallet).await;
+    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+        .await
+        .expect("issue challenge");
+    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
+    let signature = txn_sign(&pair, &challenge.message);
+
+    let wrong_nonce = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        "not-the-nonce",
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert_eq!(
+        wrong_nonce.unwrap_err(),
+        txn::AuthorizationFailure::BadSignature
+    );
+
+    // Signed by a different key entirely.
+    use sp_core::Pair as _;
+    let attacker = sp_core::sr25519::Pair::from_string("//Bob", None).expect("dev key");
+    let forged = txn_sign(&attacker, &challenge.message);
+    let wrong_key = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &forged,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert_eq!(
+        wrong_key.unwrap_err(),
+        txn::AuthorizationFailure::BadSignature,
+        "only the subject's own key may authorize"
+    );
+
+    // None of those failures may have spent the challenge.
+    let still_valid = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::PolkadotExtension,
+        true,
+    )
+    .await;
+    assert!(
+        still_valid.is_ok(),
+        "a rejected attempt must not burn a legitimate authorization"
+    );
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// An action whose purpose is explicit human confirmation refuses an
+/// authenticator that can sign without prompting. The signature is
+/// cryptographically valid either way; what differs is what it evidences.
+#[tokio::test]
+async fn test_pg_interactive_intent_is_required_where_declared() {
+    let pool = get_test_pool().await;
+    let (pair, wallet) = txn_keypair();
+    let intent = txn_intent();
+
+    let sid = txn_session(&pool, &wallet).await;
+    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+        .await
+        .expect("issue challenge");
+    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
+    let signature = txn_sign(&pair, &challenge.message);
+
+    let silent = txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::EncryptedKeystore,
+        true,
+    )
+    .await;
+    assert_eq!(
+        silent.unwrap_err(),
+        txn::AuthorizationFailure::NonInteractiveAuthenticator,
+        "key possession must not satisfy a requirement for human intent"
+    );
+
+    // The same authenticator is acceptable where the action does not demand it.
+    txn::authorize_transaction(
+        &pool,
+        challenge_id,
+        &wallet,
+        sid,
+        &intent,
+        &challenge.nonce,
+        &signature,
+        txn::AuthenticatorType::EncryptedKeystore,
+        false,
+    )
+    .await
+    .expect("possession suffices where intent is not required");
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// The issuance budget is per session and bounded in both directions: at most a
+/// few live challenges, and a capped rate. An authenticated client must not be
+/// able to mint unbounded authorization objects.
+#[tokio::test]
+async fn test_pg_challenge_budget_is_bounded_per_session() {
+    let pool = get_test_pool().await;
+    let (_, wallet) = txn_keypair();
+    let intent = txn_intent();
+    let sid = txn_session(&pool, &wallet).await;
+
+    for index in 0..txn::MAX_LIVE_CHALLENGES_PER_SESSION {
+        txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
+            .await
+            .unwrap_or_else(|_| panic!("challenge {index} within the live cap"));
+    }
+
+    let over = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent).await;
+    assert!(
+        matches!(over, Err(txn::ChallengeError::TooManyLive)),
+        "unconsumed challenges must be capped"
+    );
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// A revoked session cannot mint new authority, even before anything is signed.
+#[tokio::test]
+async fn test_pg_revoked_session_cannot_issue_challenges() {
+    let pool = get_test_pool().await;
+    let (_, wallet) = txn_keypair();
+    let sid = txn_session(&pool, &wallet).await;
+    crate::auth_sessions::revoke_session(&pool, sid, "logout")
+        .await
+        .expect("revoke");
+
+    let issued = txn::issue_transaction_challenge(&pool, &wallet, sid, &txn_intent()).await;
+    assert!(
+        matches!(issued, Err(txn::ChallengeError::SessionNotActive)),
+        "a session that has ended must not mint authorization"
+    );
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// Class B elevation lives on the login session, so it survives a refresh-token
+/// rotation and does not survive logout.
+#[tokio::test]
+async fn test_pg_step_up_survives_rotation_and_dies_with_the_session() {
+    let pool = get_test_pool().await;
+    let (_, wallet) = txn_keypair();
+
+    let jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "step-up-generation",
+        &jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+
+    assert!(
+        !txn::has_active_step_up(&pool, sid)
+            .await
+            .expect("assurance"),
+        "a fresh session is not elevated"
+    );
+
+    assert!(
+        txn::record_step_up(&pool, sid, txn::AuthenticatorType::PolkadotExtension)
+            .await
+            .expect("record step-up")
+    );
+    assert!(txn::has_active_step_up(&pool, sid)
+        .await
+        .expect("assurance"));
+
+    // This is why elevation lives on the parent: rotating underneath it must not
+    // extend or drop it.
+    let next_jti = uuid::Uuid::new_v4().to_string();
+    let rotated = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "step-up-generation",
+        &jti,
+        "step-up-generation-2",
+        &next_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("rotate")
+    .expect("rotation wins");
+    assert_eq!(rotated, sid);
+    assert!(
+        txn::has_active_step_up(&pool, sid)
+            .await
+            .expect("assurance"),
+        "elevation must survive a token rotation"
+    );
+
+    // Credential revocation drops elevation without ending the login.
+    txn::clear_step_up(&pool, sid).await.expect("clear");
+    assert!(
+        !txn::has_active_step_up(&pool, sid)
+            .await
+            .expect("assurance"),
+        "clearing elevation must take effect immediately"
+    );
+
+    // And a revoked session is never elevated, whatever the column says.
+    txn::record_step_up(&pool, sid, txn::AuthenticatorType::PolkadotExtension)
+        .await
+        .expect("re-elevate");
+    crate::auth_sessions::revoke_session(&pool, sid, "logout")
+        .await
+        .expect("revoke");
+    assert!(
+        !txn::has_active_step_up(&pool, sid)
+            .await
+            .expect("assurance"),
+        "step-up state must not survive logout"
+    );
+
+    txn_cleanup(&pool, sid).await;
+}
+
+/// Rejected proofs are recorded, because they are the half of this protocol that
+/// otherwise leaves no trace -- and the record carries no secret material.
+#[tokio::test]
+async fn test_pg_rejected_authorizations_are_recorded_without_secrets() {
+    let pool = get_test_pool().await;
+    let (_, wallet) = txn_keypair();
+    let sid = txn_session(&pool, &wallet).await;
+
+    txn::record_security_event(
+        &pool,
+        txn::SecurityEvent::SignatureSubjectMismatch,
+        Some(&wallet),
+        Some(sid),
+        None,
+        Some("patient_access.approve"),
+    )
+    .await;
+
+    let (event_type, action): (String, Option<String>) = sqlx::query_as(
+        "SELECT event_type, action FROM auth_security_events
+         WHERE login_session_id = $1
+         ORDER BY occurred_at DESC LIMIT 1",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .expect("read security event");
+    assert_eq!(event_type, "SIGNATURE_SUBJECT_MISMATCH");
+    assert_eq!(action.as_deref(), Some("patient_access.approve"));
+
+    // The table has no column that could carry a token, signature or body, so a
+    // leak of it discloses no secret material.
+    let sensitive: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_name = 'auth_security_events'
+           AND column_name IN ('signature', 'token', 'body', 'nonce', 'patient_id')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("inspect columns");
+    assert_eq!(
+        sensitive, 0,
+        "security events must not store secret material"
+    );
+
+    sqlx::query("DELETE FROM auth_security_events WHERE login_session_id = $1")
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .ok();
+    txn_cleanup(&pool, sid).await;
+}
+
+/// Repeated identical failures are deduplicated, so an attacker cannot turn
+/// invalid signatures into unbounded log volume.
+#[tokio::test]
+async fn test_pg_security_event_logging_is_itself_bounded() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "flood-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+
+    for _ in 0..25 {
+        txn::record_security_event(
+            &pool,
+            txn::SecurityEvent::ChallengeReplay,
+            Some(&wallet),
+            None,
+            None,
+            Some("patient_access.approve"),
+        )
+        .await;
+    }
+
+    let written: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM auth_security_events WHERE wallet_address = $1")
+            .bind(&wallet)
+            .fetch_one(&pool)
+            .await
+            .expect("count events");
+    assert!(
+        written < 25,
+        "logging must not become the resource-exhaustion vector it exists to detect (wrote {written})"
+    );
+
+    sqlx::query("DELETE FROM auth_security_events WHERE wallet_address = $1")
+        .bind(&wallet)
+        .execute(&pool)
+        .await
+        .ok();
+}
+
 /// The parent row is genuinely the serialization point between rotation and
 /// logout -- proven by lock contention, not by hoping two futures interleave.
 ///

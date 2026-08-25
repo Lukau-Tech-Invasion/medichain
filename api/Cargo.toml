@@ -59,6 +59,10 @@ subxt-signer = { workspace = true }
 
 # Cryptography for NFC simulation
 sha3 = "0.10"
+# SHA-256 for the Class C body digest. ADR-0008 specifies SHA-256 over the
+# transmitted bytes; sha3 above is SHA3-256, a different function. Already in
+# the graph via medichain-crypto, so this adds no crates.
+sha2 = "0.10"
 hex = "0.4"
 
 # JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)

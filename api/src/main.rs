@@ -62,6 +62,7 @@ mod retention;
 mod security;
 mod telehealth;
 mod telehealth_retention;
+mod transaction_authorization;
 mod websocket;
 
 // API layer modules (split out of the original 10K-line main.rs — Phase 10.2).
