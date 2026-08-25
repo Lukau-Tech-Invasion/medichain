@@ -25,6 +25,8 @@ point.
 | [0004](0004-commitment-not-plaintext-on-chain.md) | On-chain commitments, never plaintext health data | Accepted — supersedes 0004-draft |
 | [0005](0005-retention-restriction-before-deletion.md) | Restriction before deletion for retention | Accepted |
 | [0006](0006-federated-deployment.md) | Federated per-hospital deployment | Accepted |
+| [0007](0007-single-organisation-per-instance.md) | One organisation per instance, and what that means for bulk reads | Accepted |
+| [0008](0008-wallet-step-up-and-transaction-authorization.md) | Wallet step-up and exact transaction authorization | Proposed |
 
 ## Template
 
