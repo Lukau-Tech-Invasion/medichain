@@ -155,6 +155,21 @@ fn operation_error(code: &str, message: &str) -> HttpResponse {
     ))
 }
 
+/// Endpoints whose whole purpose is to establish a subject, and which therefore
+/// cannot present one on the way in.
+///
+/// Deliberately an explicit list. Skipping subject-keyed idempotency wherever a
+/// subject happens to be absent would let any caller opt out by omitting their
+/// credentials, which is the opposite of what this middleware is for.
+const ESTABLISHES_IDENTITY: &[&str] = &[
+    "/api/auth/challenge",
+    "/api/auth/jwt",
+    "/api/auth/jwt/refresh",
+    "/api/auth/staff/login",
+    "/api/auth/register",
+    "/api/auth/demo-login",
+];
+
 fn mutation_requires_key(method: &Method, subject: Option<&str>, key: Option<&str>) -> bool {
     matches!(
         *method,
@@ -218,10 +233,22 @@ where
                 )))
             });
         }
+        // Idempotency records are keyed per subject, so a request that has no
+        // subject cannot participate. For an authenticated mutation that is a
+        // hard error -- the identity went missing and the replay guarantee
+        // cannot be honoured. For the handful of endpoints that establish
+        // identity in the first place it is simply the normal case: sign-in has
+        // no subject until it succeeds, so demanding one made every credential
+        // login fail with IDEMPOTENCY_AUTH_REQUIRED the moment the client
+        // attached a key. Those endpoints carry their own replay protection --
+        // single-use challenges consumed in the same transaction that issues the
+        // token -- which is stronger than a client-supplied key would be.
+        let establishes_identity = ESTABLISHES_IDENTITY.contains(&route.as_str());
         let participates = matches!(
             *req.method(),
             Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-        ) && key.is_some();
+        ) && key.is_some()
+            && !(subject.is_none() && establishes_identity);
         if !participates {
             return Box::pin(async move { Ok(service.call(req).await?.map_into_boxed_body()) });
         }

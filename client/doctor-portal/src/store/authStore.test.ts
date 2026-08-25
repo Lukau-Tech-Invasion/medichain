@@ -40,37 +40,44 @@ describe('authStore', () => {
     expect(state.error).toBeNull();
   });
 
-  it('should login successfully with valid wallet', async () => {
-    const mockUser = {
-      address: '5GvT8...mock',
-      name: 'Dr. Test',
-      role: 'Doctor',
-      createdAt: new Date().toISOString(),
-    };
+  // These two used to assert the pre-fix contract: `login` fetched
+  // `GET /api/auth/wallet/{address}` and, on any 200, entered an authenticated
+  // state. Both parts were wrong. That route was removed on purpose because it
+  // disclosed name, role, username and linked_patient_id for any address with no
+  // authentication, and entering an authenticated state on the strength of a
+  // lookup produced a session with no bearer token behind it. The tests passed
+  // throughout, because they mocked the very fetch that was the defect -- which
+  // is why the contract they now assert is the absence of a session, not the
+  // presence of one.
 
+  it('refuses to sign in a wallet it cannot prove control of', async () => {
+    // No signature provider attached: there is no key, so no challenge can be
+    // signed and no session can exist. A lookup would have "succeeded" here.
     (shared.isValidWalletAddress as any).mockReturnValue(true);
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      json: async () => mockUser,
-    });
 
     const success = await useAuthStore.getState().login('5GvT8...mock');
 
-    expect(success).toBe(true);
+    expect(success).toBe(false);
     const state = useAuthStore.getState();
-    expect(state.isAuthenticated).toBe(true);
-    expect(state.user?.walletAddress).toBe(mockUser.address);
-    expect(state.user?.role).toBe('Doctor');
-    expect(shared.setProviderAuth).toHaveBeenCalled();
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.user).toBeNull();
+    expect(state.error).toBeTruthy();
   });
 
-  it('should fail login with invalid wallet format', async () => {
-    (shared.isValidWalletAddress as any).mockReturnValue(false);
+  it('never enters an authenticated state without a session', async () => {
+    (shared.isValidWalletAddress as any).mockReturnValue(true);
+    // Even if something answered on the network, no signer means no token, and
+    // no token must mean no authenticated state.
+    (global.fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ address: '5GvT8...mock', name: 'Dr. Test', role: 'Doctor' }),
+    });
 
-    const success = await useAuthStore.getState().login('invalid');
+    await useAuthStore.getState().login('5GvT8...mock');
 
-    expect(success).toBe(false);
-    expect(useAuthStore.getState().error).toContain('Invalid wallet address format');
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(false);
+    expect(shared.setProviderAuth).not.toHaveBeenCalled();
   });
 
   it('should logout and clear state', () => {

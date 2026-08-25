@@ -248,7 +248,11 @@ function LoginPage() {
         </form>
 
         {/* Demo Users - Click to login instantly */}
-        {FEATURES.DEMO_WALLET_GENERATION && (
+        {/* Rendered only when the server actually offered fixture accounts.
+            Outside a demo deployment the resolver 403s, the list is empty,
+            and the whole section disappears -- containment that does not
+            depend on the frontend choosing to hide anything. */}
+        {FEATURES.DEMO_WALLET_GENERATION && demoAccounts.length > 0 && (
           <div className="px-6 pb-6">
             <div className="relative mb-4">
               <div className="absolute inset-0 flex items-center">
