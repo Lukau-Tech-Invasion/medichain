@@ -118,6 +118,21 @@ requires `nfc_tag_id`, binding it to physical card possession.
 Zero occurrences of patient names, patient IDs or the fixture password in API
 logs or `/metrics`, tested with markers written moments earlier.
 
+### Test suites (re-run on this source, not carried over)
+
+| Suite | Result |
+| --- | --- |
+| API, nothing filtered | **491 passed, 0 failed, 1 ignored** (995.62s) |
+| Clinician portal | 85 files / 321 tests |
+| Patient app | 26 files / 83 tests |
+| Typechecks | shared, clinician, patient — all pass |
+| `cargo fmt --check`, `clippy --all-targets -D warnings` | clean |
+| Repo gates | endpoint-auth, write-auth, state-durability, legacy-identity, workflow lint — all pass |
+
+The API suite grew 486 → 491 across this pass; every Postgres test ran (nothing
+filtered out), which is what makes the durability and authorization evidence
+above meaningful rather than partial.
+
 ### Supply chain
 
 `cargo deny check` → `advisories ok, bans ok, licenses ok, sources ok`.
