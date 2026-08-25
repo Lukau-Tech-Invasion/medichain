@@ -11,7 +11,18 @@ path = "src/main.rs"
 
 [dependencies]
 # Web framework
-actix-web = "4.9"
+# HTTP/1.1 only, on purpose. Nginx terminates TLS and HTTP/2 at the edge
+# (`nginx/default.prod.conf`: `http2 on`) and proxies to this service with
+# `proxy_http_version 1.1`, so actix's `http2` default feature compiled an
+# HTTP/2 stack this process never speaks -- and with it `h2 0.3.27`, which
+# actix-http still pins and which carries RUSTSEC-2026-0258 (unbounded empty
+# DATA frames). Removing the capability removes the advisory; an unused
+# protocol implementation is attack surface, not a safety net.
+#
+# `macros` is required: 424 handlers use the `#[get]`/`#[post]` attributes.
+# `cookies`, `compress-*` and `unicode` are dropped because nothing here reads
+# a cookie, installs `Compress`, or routes a non-ASCII path.
+actix-web = { version = "4.9", default-features = false, features = ["macros"] }
 actix-cors = "0.7"
 actix-rt = "2.10"
 
@@ -61,8 +72,14 @@ console-subscriber = { version = "0.4", optional = true }
 printpdf = "0.7"
 
 # QR Code generation
-qrcode = "0.14"
-image = "0.25"
+# QR rendering only. `qrcode`'s default features pull `image` with *its*
+# defaults, which is every codec the crate supports -- including AVIF, whose
+# encoder is `rav1e`, a full AV1 implementation that also drags in the
+# NCSA-licensed `libfuzzer-sys` and fails `cargo deny check licenses`.
+# MediChain writes exactly one format: an 8-bit greyscale QR bitmap as PNG
+# (`support.rs`, `nfc_simulator.rs`). Ask for that and nothing else.
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 
 # IPFS client
