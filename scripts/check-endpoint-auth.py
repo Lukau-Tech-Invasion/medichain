@@ -149,7 +149,14 @@ PRESENCE_MARKERS = ['X-User-Id', 'get_current_user_id', 'require_x_user_id_heade
                     'require_auth(']
 # Resolves the caller against the user store — proves they are registered.
 KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser',
-                 'require_registered_caller']
+                 'require_registered_caller',
+                 # Verified-JWT extractors (ADR-0008). `get_current_claims`
+                 # checks the token signature and expiry and returns None
+                 # otherwise, so branching on it resolves a real caller -- more
+                 # than `X-User-Id`, which is only a header and sits in
+                 # PRESENCE_MARKERS for exactly that reason.
+                 # `authenticated_session` additionally requires a live `sid`.
+                 'get_current_claims', 'authenticated_session']
 # Checks what the caller is allowed to do at all.
 ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
                 'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',

@@ -1195,6 +1195,100 @@ authentication and log-sink audit scope.
   implemented here. The ordering was explicit: build the stable session first,
   prove it, and only then build the challenge state that depends on it.
 
+* ADR-0008 Class B and Class C implemented (2026-08-25), on top of the session
+  substrate rather than beside it.
+
+  **One mechanism, two uses.** A Class B step-up is a challenge whose action is
+  `session.step_up` and which binds nothing but the session; a Class C
+  authorization binds the exact mutation as well. Keeping one code path means the
+  replay, expiry, session-binding and single-use guarantees cannot drift apart
+  between them, which is the failure mode a parallel implementation invites. The
+  reserved step-up action is refused by the transaction endpoint, so a step-up
+  signature can never be presented as authorization for a real mutation.
+
+  **What the signed message covers**, and therefore what a signature cannot be
+  moved to: protocol version, audience, subject, session, challenge id, action,
+  method, path, body digest, resource id, expected resource state, idempotency
+  key, nonce, expiry. A unit test asserts that changing *each* of these produces
+  a different message, so the binding is proven field by field rather than
+  assumed from reading the format string.
+
+  **The body digest covers transmitted bytes.** `body_digest` hashes the byte
+  slice, never a re-serialisation, and the empty body has a stated digest
+  (verified against the known SHA-256 of the empty string) rather than an
+  implicit one. A test pins that two orderings of the same logical JSON hash
+  differently -- the case a canonicalising implementation would have silently
+  merged.
+
+  **Verification order, with consumption last.** Existence, expiry, prior
+  consumption, session binding, subject binding, session liveness *at the moment
+  of use*, intent match, expected-state match, nonce, authenticator class, and
+  only then the signature; the challenge is consumed on a conditional UPDATE that
+  requires it still be unconsumed. A rejected attempt therefore cannot burn a
+  legitimate user's authorization, and two concurrent valid submissions still
+  yield exactly one authorization. A test asserts both halves.
+
+  **Assurance is not uniform and the code says so.** `AuthenticatorType`
+  distinguishes the prompting extension from a password-unlocked keystore that
+  can sign silently, `authorize_transaction` takes `require_interactive` from the
+  action rather than the caller, and the consuming UPDATE records which
+  authenticator was used. A test shows the same valid signature is accepted where
+  possession suffices and refused where the action demands human intent.
+
+  **Refusals are recorded and indistinguishable.** Every `AuthorizationFailure`
+  maps to a security event written to `auth_security_events`, a table with no
+  column capable of holding a token, signature, body or patient identifier -- a
+  test asserts that by querying `information_schema`. Event writing is
+  deduplicated within a short window, and a test floods 25 identical failures and
+  asserts fewer are written, so the logging cannot become the resource-exhaustion
+  vector it exists to detect. The client message is uniform across every failure,
+  asserted by collecting them into a set of size one: a caller probing the
+  protocol learns that authorization failed, not which check caught it.
+
+  **Budgets are per session, not per wallet or per IP.** At most 3 unconsumed
+  challenges and 10 issued per 5 minutes, enforced under a PostgreSQL advisory
+  lock so replicas share one budget, and separate from the anonymous login
+  challenge budget, which defends a different resource. Exceeding either is
+  itself a recorded security event.
+
+  Endpoints: `POST /api/auth/step-up/challenge`, `POST /api/auth/step-up/verify`,
+  `POST /api/auth/transaction/challenge`, `GET /api/auth/assurance`. The last
+  exists so a client can discover it needs to elevate before starting a
+  privileged workflow instead of learning it from a rejected mutation.
+
+  Evidence: 8 unit tests on the signed-message contract and 10 PostgreSQL tests
+  driving the real protocol with real sr25519 signatures, including a forged
+  signature from a different dev key, six ways of presenting a changed request,
+  cross-session presentation, use after logout, replay of a consumed challenge,
+  and elevation surviving a refresh rotation while dying with the session.
+
+* Endpoint-auth gate extended, and a near-miss worth recording (2026-08-25). The
+  six new endpoints authenticate through `get_current_claims`, a verified-JWT
+  extractor the marker list predated, so the gate correctly reported them as
+  tier 0 -- no auth decision. The first fix added the marker to `AUTH_MARKERS`,
+  which `classify()` never reads: it would have looked like a fix and changed
+  nothing, and the gate kept failing, which is the only reason it was caught.
+  The markers now sit in `KNOWN_MARKERS` (tier 2, "registered identity
+  resolved") with the reasoning that a verified signature and expiry check
+  resolves a real caller, strictly more than reading `X-User-Id`, which stays in
+  `PRESENCE_MARKERS` precisely because it is only a header. Gate returns to
+  tier 0 = 0.
+
+* Evidence-state detail after Class B/C:
+
+  | Row | Implementation | Static | Automated | DB | Local runtime | Browser | Adversarial | Hosted CI | Release |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | ADR-0008 Class B step-up | complete | complete | complete | complete | not run | not run | not run | not run | not run |
+  | ADR-0008 Class C transaction auth | complete | complete | complete | complete | not run | not run | not run | not run | not run |
+
+  Explicitly outstanding, and not claimed anywhere: no Class C requirement is
+  yet *attached* to a real clinical mutation. The mechanism is built, proven and
+  reachable, but the assurance matrix that says which specific handlers demand
+  Class B or Class C is policy the deciders own, and wiring it without that
+  decision would be inventing clinical governance. No HTTP-level test yet asserts
+  a revoked session returns 401 on a live request, and nothing here is
+  browser-verified.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,

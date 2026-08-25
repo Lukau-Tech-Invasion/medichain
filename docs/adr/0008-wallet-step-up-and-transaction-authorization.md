@@ -415,6 +415,41 @@ one authorized mutation; exact signing does not authorize a materially changed
 transaction; ordinary Class A operations do not unnecessarily require signing;
 browser tests demonstrate both successful signing and denial behavior.
 
+## Implementation status (2026-08-25)
+
+Built and proven at the store and protocol level. `api/src/transaction_authorization.rs`
+holds the mechanism, `api/src/handlers/transaction_auth.rs` the endpoints, and
+`api/migrations/20260825000002_transaction_authorization.sql` the two tables.
+
+Class B and Class C share one challenge path. A step-up is a challenge whose
+action is `session.step_up` binding only the session; a transaction
+authorization binds the mutation too. One code path means their replay, expiry,
+session-binding and single-use guarantees cannot drift apart -- and the
+transaction endpoint refuses the reserved step-up action, so a step-up signature
+can never be presented as authorization for a real mutation.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/auth/step-up/challenge` | Begin a Class B elevation |
+| `POST /api/auth/step-up/verify` | Complete it; elevates the session for 10 minutes |
+| `POST /api/auth/transaction/challenge` | Begin a Class C authorization for one exact mutation |
+| `GET /api/auth/assurance` | Report the session's current assurance, so a client can elevate before a privileged workflow instead of discovering it from a rejected mutation |
+
+Verification runs in the order Decision 5 sets out and **consumes the challenge
+last**, on a conditional update that requires it still be unconsumed. A rejected
+attempt therefore cannot burn a legitimate authorization, and two concurrent
+valid submissions still yield exactly one.
+
+**Not yet done, and deliberately so:** no Class C requirement is attached to a
+real clinical mutation. The mechanism is complete and reachable, but the matrix
+naming which handlers demand Class B or Class C is clinical governance the
+deciders own; wiring it without that decision would be inventing policy. The
+`ESCALATED` block in `scripts/check-write-authorization.py` is where those
+handler-by-handler questions are already recorded.
+
+Also outstanding: no HTTP-level test yet asserts that a revoked session returns
+401 on a live request, and none of this is browser-verified.
+
 ## Deferred
 
 This ADR does not convert all Bearer access tokens into DPoP or otherwise

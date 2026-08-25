@@ -3771,6 +3771,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sha3",
  "sp-core 34.0.0",
  "sqlx",
