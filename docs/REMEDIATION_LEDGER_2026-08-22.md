@@ -1377,6 +1377,65 @@ authentication and log-sink audit scope.
   any client integration must send one, and a UI that omits it will see
   `IDEMPOTENCY_KEY_REQUIRED` rather than a challenge.
 
+* OPEN, NEEDS AN OWNER DECISION: the clinician portal's quick login is broken,
+  and the deeper reason is that it cannot work under ADR-0008 (found 2026-08-25
+  by driving the real UI in a browser -- no static check would have caught it).
+
+  **The immediate break.** Clicking any quick-login account shows "Wallet not
+  registered or authentication failed". The wallet *is* registered: the row is in
+  `users`, `status = 'active'`, `is_active = t`. The request fails because
+  `authStore.ts` calls `GET /api/auth/wallet/{address}`, and that route is not in
+  `routes.rs`. The handler still exists in `auth_challenge.rs` carrying its own
+  explanation:
+
+      #[allow(dead_code)] // Deliberately retained during client migration; route is unregistered.
+
+  Someone unregistered it expecting the client to migrate off it; two call sites
+  never did (`authStore.ts:376` sign-in, `:607` session restore). The 404 body is
+  zero bytes -- Actix's unrouted 404, not the handler's JSON error -- which is how
+  it was told apart from a genuine "not registered".
+
+  **Do not simply re-register it.** The handler returns `name`, `role`,
+  `username` and `linked_patient_id` for *any* wallet address, unauthenticated.
+  That is user enumeration plus a wallet-to-patient-record link, and it is almost
+  certainly why the route was pulled. Restoring it would trade a broken demo
+  button for a PHI-adjacent disclosure endpoint.
+
+  **The deeper problem, which fixing the route would hide.** `acquireJwtTokens`
+  returns immediately when no signer is supplied. Four call sites pass none --
+  `authStore.ts:415` (quick login), `:521`, `:628` (session restore) and `:669`
+  (demo re-registration) -- so even with the lookup working, those paths establish
+  a session with **no JWT at all**, falling back to the legacy `X-User-Id` header.
+  Only credential sign-in (`:312`, keystore signer) and extension sign-in
+  (`:349`) produce a real token.
+
+  That is not a bug in the wiring; it is what ADR-0008 implies. A demo account
+  with no keypair cannot produce a signed challenge, so it cannot hold a verified
+  session, and the header-only session it would get is exactly what production
+  refuses. Quick login as designed is incompatible with the authentication model
+  the rest of this branch just built.
+
+  **The options, and why this is not an implementer's call:**
+
+  1. Remove quick login from the clinician portal. Honest, and consistent with
+     ADR-0008 -- but it deletes the demo affordance the hackathon build leans on.
+  2. Point quick login at the credential path (employee ID plus password), which
+     already has a signer through `staff_credentials.encrypted_keystore`. Keeps a
+     one-click demo *and* produces a real signed session. Needs demo credentials
+     seeded.
+  3. Re-register the lookup endpoint behind authentication and narrow its
+     response. Fixes the 404 without fixing the missing-JWT problem, so it should
+     not be done alone.
+
+  Option 2 is the recommendation: it is the only one that leaves the demo working
+  and the session model intact. It is recorded rather than implemented because
+  removing or re-routing a sign-in path is a product decision, and the portal's
+  sign-in surface is being actively curated by the owner.
+
+  Not to be confused with the patient accounts removed from this screen in the
+  same session; that was a deliberate scoping change and is unrelated to this
+  defect, which affects every remaining staff account equally.
+
 ## Remaining release blockers
 
 `DATA-001`, `PRIV-001`, `SC-001`, and `SC-002` remain P1 blockers. SEC-001, SEC-002,
