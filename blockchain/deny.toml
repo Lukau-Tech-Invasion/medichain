@@ -60,7 +60,38 @@ feature-depth = 1
 # rather than on ones it introduces.
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    # ---- migrated from the root deny.toml on 2026-08-25 --------------------
+    # These three were reviewed for reachability against THIS graph and then
+    # recorded in the root file by mistake: none of the three crates appears in
+    # the root workspace's lockfile at all, so the root gate never evaluated
+    # them. Moving them keeps the analysis attached to the graph it describes.
+    #
+    # Deprecated by its author; arrives through the Substrate/FRAME
+    # WASM-execution stack.
+    "RUSTSEC-2022-0061", # parity-wasm
+    # proc-macro-only: runs at compile time, ships in no artifact.
+    "RUSTSEC-2024-0370", # proc-macro-error
+    # Cross-platform monotonic-time shim. Unmaintained notice only, no known
+    # vulnerability, and no successor changes its transitive pull-in
+    # (parking_lot / Substrate stack).
+    "RUSTSEC-2024-0384", # instant
+
+    # ---- present in BOTH workspaces; the root file already carries these ----
+    # proc-macro-only crate: no runtime attack surface.
+    "RUSTSEC-2024-0436", # paste
+    # Pulled in generically by sp-core's multi-curve support. MediChain signs
+    # exclusively with sr25519 (Schnorrkel); no code path here constructs or
+    # verifies a secp256k1 key or signature.
+    "RUSTSEC-2025-0161", # libsecp256k1
+]
+
+# NOT set here, deliberately: `unused-ignored-advisory = "deny"`.
+# The root workspace can afford that ratchet because its gate is green. This
+# graph is not — `cargo deny --manifest-path blockchain/Cargo.toml check
+# advisories` still reports vulnerabilities beyond the list above, tracked as
+# SC-001. Turning on a second failure mode before the primary one is fixed only
+# makes the red build harder to read. Enable it when SC-001 closes.
 
 [licenses]
 version = 2

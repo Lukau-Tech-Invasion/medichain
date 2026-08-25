@@ -242,18 +242,19 @@ jobs:
                   command: check
                   command-arguments: bans sources
 
-            # Advisories: curated (Horizon HZ-011) — every RUSTSEC ID in the
-            # dependency tree has been individually reviewed for reachability;
-            # see deny.toml's [advisories] section for the reasoning per ID.
-            # Still report-only: 5 reachable advisories (sqlx, 4x
-            # rustls-webpki) remain genuinely open with no safe fix available,
-            # so flipping to blocking now would fail every future PR on
-            # pre-existing issues rather than ones it introduces. Flip
-            # `continue-on-error` to `false` once those are resolved or
-            # explicitly risk-accepted.
-            - name: cargo-deny (advisories, report-only pending sqlx/webpki fixes)
+            # Advisories: ENFORCED as of 2026-08-25. Every RUSTSEC ID in the root
+            # tree is either absent, fixed, or an explicit reasoned acceptance
+            # with a removal criterion; deny.toml also fails on a stale
+            # acceptance, so that list can only describe the present.
+            #
+            # Understand the failure mode before relaxing this. The advisory
+            # database is fetched at run time, so a NEW advisory published
+            # against any dependency turns this red on a PR that changed
+            # nothing. That is the gate working, not a flake. The fix is the
+            # upgrade, or a reasoned entry with a removal criterion. It is not
+            # continue-on-error.
+            - name: cargo-deny (advisories, enforced)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
               with:
                   command: check
                   command-arguments: advisories
@@ -280,12 +281,25 @@ jobs:
                   command: check
                   command-arguments: sources
 
-            # Licences and advisories start report-only for the blockchain tree.
+            # Licences and advisories stay report-only for the blockchain tree,
+            # and this is deliberately NOT symmetric with the root gate above.
+            #
+            # The root workspace is green, so enforcing it costs nothing. This
+            # graph is not: as of 2026-08-25, `cargo deny --manifest-path
+            # blockchain/Cargo.toml check advisories` reports 5 vulnerabilities
+            # and 2 unmaintained crates in the Substrate/Polkadot dependency
+            # set, tracked as SC-001. Enforcing a gate that cannot pass makes
+            # every unrelated PR red and trains reviewers to ignore it, which is
+            # the exact failure the root gate was just rescued from.
+            #
+            # Flip this to enforced when SC-001 closes, and enable
+            # unused-ignored-advisory in blockchain/deny.toml at the same time.
+            #
             # The licence allow-list was derived offline from 1074 of the 1171
             # locked packages (the rest were not in the local registry cache),
-            # so it is a discovery gate until a full CI run confirms it is
-            # complete. `bans` is warn-level by config, not a failure.
-            - name: cargo-deny blockchain (licences + advisories, report-only)
+            # so it is also still a discovery gate until a full CI run confirms
+            # it is complete. `bans` is warn-level by config, not a failure.
+            - name: cargo-deny blockchain (licences + advisories, report-only, SC-001 open)
               uses: EmbarkStudios/cargo-deny-action@v2
               continue-on-error: true
               with:
@@ -293,14 +307,19 @@ jobs:
                   command: check
                   command-arguments: licenses advisories bans
 
-            # Licenses: NOT part of the HZ-011 advisories review — separate,
-            # still-unaddressed issues (deprecated SPDX identifiers on the
-            # subxt crates, an unmatched Unicode-DFS-2016 allowance). Kept
-            # report-only and split from advisories so resolving one doesn't
-            # block on the other.
-            - name: cargo-deny (licenses, report-only)
+            # Licenses: ENFORCED as of 2026-08-25. Kept as its own step so a new
+            # licence problem and a new advisory fail separately and read
+            # separately.
+            #
+            # MediChain's own crates are proprietary and unpublished, so they
+            # carry license-file rather than an SPDX id and are skipped via
+            # private.ignore. Third-party policy is unchanged and permissive-
+            # only, with one reviewed package-scoped exception (the Mozilla CA
+            # dataset under CDLA-Permissive-2.0). deny.toml fails on an
+            # exception that no longer matches a crate, so an upgrade dropping
+            # that dependency also forces the exception out.
+            - name: cargo-deny (licenses, enforced)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
               with:
                   command: check
                   command-arguments: licenses

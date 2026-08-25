@@ -26,43 +26,30 @@ feature-depth = 1
 # that is the owner's call, not something to change silently inside a
 # remediation pass.
 #
-# Status 2026-07-29: was 5 reachable open advisories, now 4.
-#   * RUSTSEC-2024-0363 (sqlx) is RESOLVED — sqlx upgraded 0.7.4 -> 0.8.6.
-#     The upgrade was expected to carry "real API-surface risk across
-#     repositories/postgres/"; in the event it needed zero source changes and
-#     all 302 binary tests passed unchanged.
-#   * The 4 rustls-webpki advisories remain. Re-checked on 2026-07-29 by
-#     running `cargo update` against all three versions in the tree
-#     (0.101.7 / 0.102.8 / 0.103.13): no newer semver-compatible release
-#     exists, so there is still nothing to upgrade to. The older two lines are
-#     transitive pull-ins behind older `rustls` majors, not direct deps.
+# Status 2026-08-25: this gate is GREEN and is now enforced in CI.
+#
+# The narrative that used to live here (sqlx, and four rustls-webpki advisories
+# described as reachable and unfixed) is gone because those advisories no longer
+# match any crate in this graph. Keeping a prose changelog of resolved findings
+# here is what let it drift; `unused-ignored-advisory` below now makes a stale
+# entry a build failure instead of a comment nobody rechecks.
+#
+# Scope note: this file governs the ROOT workspace only. `blockchain/` is a
+# separate cargo workspace with its own lockfile and its own `blockchain/deny.toml`.
+# An advisory ignored here says nothing about that graph, and vice versa —
+# three entries that used to sit in this list were only ever true of the
+# blockchain graph and have been moved there.
 [advisories]
 version = 2
 ignore = [
-    # Deprecated by author; pulled in transitively via the substrate/frame
-    # WASM-execution stack. MediChain's Substrate node (`node/`) is a stub —
-    # no pallet WASM is actually compiled or executed by this codebase today.
-    "RUSTSEC-2022-0061", # parity-wasm
-
-    # proc-macro-only crates: no runtime attack surface, nothing to reach.
-    "RUSTSEC-2024-0370", # proc-macro-error
+    # proc-macro-only crate: no runtime attack surface, nothing to reach.
     "RUSTSEC-2024-0436", # paste
-
-    # `instant` (cross-platform monotonic time shim): unmaintained notice only,
-    # no known vulnerability; no fixed successor changes its transitive pull-in
-    # (parking_lot / substrate stack).
-    "RUSTSEC-2024-0384",
 
     # protobuf's uncontrolled-recursion advisory is a *decoding* (parse) issue.
     # The only consumer in this tree is `prometheus`, which uses protobuf to
     # *serialize* MediChain's own metrics for the `/api/metrics` scrape
     # endpoint — MediChain never decodes attacker-supplied protobuf bytes.
     "RUSTSEC-2024-0437",
-
-    # rustls-pemfile parses PEM files only at startup/config load, from
-    # operator-controlled certificate/key files — not attacker-reachable at
-    # request time.
-    "RUSTSEC-2025-0134",
 
     # libsecp256k1 is pulled in generically by sp-core's multi-curve support.
     # MediChain's signing exclusively uses sr25519 (Schnorrkel) — no code path
@@ -78,6 +65,18 @@ ignore = [
     # ttf-parser (unmaintained, no CVE): only parses bundled, trusted font
     # files for PDF/QR rendering — never a user-uploaded font.
     "RUSTSEC-2026-0192",
+
+    # --- TEMPORARILY ACCEPTED UPSTREAM RISK, not "ignored" ------------------
+    # Both are RustSec INFO/unmaintained notices with no patched version, both
+    # arrive through `subxt`, and `subxt`'s version is coupled to the chain
+    # runtime's metadata format (see the note in the root Cargo.toml). Moving
+    # either one independently means moving subxt independently, which is the
+    # "green audit, broken blockchain" failure mode. They leave with the
+    # coordinated Subxt/runtime upgrade and not before.
+    # Full record, including review trigger and removal criterion:
+    #   docs/TECHNICAL_DEBT_REGISTER.md -- "two accepted upstream advisories".
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2, unmaintained, no patched release. Reaches the graph only via subxt-macro, a proc-macro crate: it executes on the build host during compilation and ships in no deployed artifact. Build-time supply-chain debt, not runtime attack surface. Removal criterion: a subxt release compatible with the runtime metadata contract that no longer depends on it." },
+    { id = "RUSTSEC-2026-0215", reason = "smallstr, unmaintained, all versions affected, no patched release and no drop-in replacement offered. Reaches the graph via subxt -> frame-decode -> scale-info-legacy, an internal implementation detail of a dependency MediChain does not control. Removal criterion: same coordinated subxt/runtime upgrade." },
 
     # --- Reviewed but NOT ignored — reachable, no safe fix landed yet ---
     # These remain intentionally absent from this list. Once CI is switched to
