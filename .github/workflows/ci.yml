@@ -68,6 +68,16 @@ jobs:
             - name: No new repository write discards its own failure
               run: python scripts/check-discarded-writes.py
 
+            # `access_logs.action` has a CHECK constraint. A handler writing a
+            # value outside it fails on PostgreSQL and nowhere else, because the
+            # in-memory repository enforces no constraints — which is how
+            # `lab_review_approve` went years without ever being a valid audit
+            # action while every test passed. This derives the written
+            # vocabulary from the Rust source rather than from a copy of the
+            # constraint, so an omission common to both is still caught.
+            - name: Every audit action the handlers write is permitted by the schema
+              run: python scripts/check-audit-action-vocabulary.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
