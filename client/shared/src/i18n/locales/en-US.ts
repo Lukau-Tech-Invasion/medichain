@@ -1619,7 +1619,18 @@ const en_US: TranslationRecord = {
     noPending: 'No pending specimens',
     rejectedSpecimens: 'Rejected Specimens',
     patientLabel: 'Patient: {{name}}',
+    // `notifyRecollect` was the literal string '[Notify] [Request Recollect]'
+    // rendered as one button with no handler — two controls' worth of promise
+    // in a placeholder nobody replaced. Notify is now a real control backed by
+    // POST /api/clinical/specimen-rejection/{id}/notify. Recollect is not:
+    // see `recollectBlocked`.
     notifyRecollect: '[Notify] [Request Recollect]',
+    notifyProvider: 'Notify ordering provider',
+    notifying: 'Notifying...',
+    notified: 'Ordering provider notified',
+    notifyFailed: 'Could not notify the ordering provider',
+    alreadyNotified: 'The ordering provider has already been notified',
+    noOrderingProvider: 'This specimen has no ordering provider on record',
     noRejections: 'No rejections today',
   },
 

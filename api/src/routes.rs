@@ -295,6 +295,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_critical_value)
         .service(clinical_endpoints::create_specimen_rejection)
         .service(clinical_endpoints::get_specimen_rejection)
+        .service(clinical_endpoints::notify_rejection_ordering_provider)
         // Physician documentation endpoints (Phase 8)
         .service(clinical_endpoints::create_order)
         .service(clinical_endpoints::get_order)

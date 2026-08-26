@@ -676,6 +676,28 @@ impl MemorySpecimenRejectionRepository {
 
 #[async_trait]
 impl SpecimenRejectionRepository for MemorySpecimenRejectionRepository {
+    async fn mark_provider_notified(
+        &self,
+        id: &str,
+        notified_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRejectionEntity>> {
+        // Read the guard and write under one lock, so this matches the
+        // PostgreSQL statement's atomicity rather than merely its signature.
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let Some(existing) = data.get_mut(id) else {
+            return Ok(None);
+        };
+        if existing.notified_ordering_provider {
+            return Ok(None);
+        }
+        existing.notified_ordering_provider = true;
+        existing.notification_sent_at = Some(notified_at);
+        Ok(Some(existing.clone()))
+    }
+
     async fn create(
         &self,
         rejection: SpecimenRejectionEntity,

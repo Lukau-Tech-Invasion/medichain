@@ -14,7 +14,11 @@ import {
   Activity,
   BarChart3,
 } from 'lucide-react';
-import { getLabDashboard, useTranslation } from '@medichain/shared';
+import {
+  getLabDashboard,
+  notifyRejectionOrderingProvider,
+  useTranslation,
+} from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -48,6 +52,9 @@ export default function LabTechDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<LabDashboardData | null>(null);
+  /** Which rejection is mid-request, so its button can be disabled. */
+  const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  const [notifyResult, setNotifyResult] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -97,6 +104,36 @@ export default function LabTechDashboardPage() {
     priority: q.priority || 'Routine',
     time_in_lab: q.time_in_lab || t('docLabDashboard.pending'),
   })) || [];
+
+  /**
+   * Tell the ordering provider their specimen was rejected.
+   *
+   * Re-reads the dashboard afterwards rather than flipping local state: the
+   * server decides whether the provider had already been told, and a second
+   * clinician may have pressed Notify in the meantime.
+   */
+  const handleNotify = async (rejectionId: string) => {
+    setNotifyingId(rejectionId);
+    setNotifyResult((p) => ({ ...p, [rejectionId]: '' }));
+    try {
+      await notifyRejectionOrderingProvider(rejectionId);
+      setNotifyResult((p) => ({ ...p, [rejectionId]: t('docLabDashboard.notified') }));
+      const fresh = await getLabDashboard();
+      setData(fresh as LabDashboardData);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // The two refusals worth naming rather than showing raw: one means
+      // somebody already did it, the other that there is nobody to tell.
+      const friendly = /ALREADY_NOTIFIED/.test(message)
+        ? t('docLabDashboard.alreadyNotified')
+        : /NO_ORDERING_PROVIDER/.test(message)
+          ? t('docLabDashboard.noOrderingProvider')
+          : `${t('docLabDashboard.notifyFailed')} — ${message}`;
+      setNotifyResult((p) => ({ ...p, [rejectionId]: friendly }));
+    } finally {
+      setNotifyingId(null);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
@@ -299,9 +336,38 @@ export default function LabTechDashboardPage() {
                     {rej.accession_number || t('docLabDashboard.unknown')} - {rej.rejection_reason || t('docLabDashboard.unknownReason')}
                   </p>
                   <p className="text-xs text-critical-subtle-fg mt-1">{t('docLabDashboard.patientLabel', { name: rej.patient_name || t('docLabDashboard.unknown') })}</p>
-                  <button className="mt-2 text-xs text-critical-subtle-fg hover:text-critical-subtle-fg font-medium">
-                    {t('docLabDashboard.notifyRecollect')}
-                  </button>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handleNotify(rej.id)}
+                      disabled={notifyingId === rej.id || rej.notified_ordering_provider}
+                      className="text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {rej.notified_ordering_provider
+                        ? t('docLabDashboard.notified')
+                        : notifyingId === rej.id
+                          ? t('docLabDashboard.notifying')
+                          : t('docLabDashboard.notifyProvider')}
+                    </button>
+                    {/*
+                      "Request Recollect" is deliberately absent rather than
+                      disabled-and-unexplained. `recollection_required` and
+                      `recollection_scheduled` exist on the entity and
+                      `get_pending_recollections()` reads them, but nothing in
+                      the repository defines what scheduling a recollection
+                      means: when it is due, who performs it, whether the
+                      patient is contacted, or what the safety consequence of
+                      delay is. Those are clinical governance decisions, and
+                      guessing them in a UI is how a nurse ends up acting on an
+                      invented instruction. Tracked as SCR-009 in
+                      docs/REMEDIATION_LEDGER_2026-08-22.md.
+                    */}
+                  </div>
+                  {notifyResult[rej.id] && (
+                    <p role="status" className="mt-1 text-xs text-critical-subtle-fg">
+                      {notifyResult[rej.id]}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

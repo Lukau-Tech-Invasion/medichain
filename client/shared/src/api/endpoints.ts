@@ -992,6 +992,29 @@ export async function reviewLabResult(
 }
 
 /**
+ * Tell the ordering provider that their specimen was rejected.
+ *
+ * Refused with 409 ALREADY_NOTIFIED if they have already been told — a
+ * provider receiving the same rejection twice has to work out whether it is
+ * one specimen or two — and 422 NO_ORDERING_PROVIDER when the specimen has no
+ * order on record, which is the one case where there is genuinely nobody to
+ * tell.
+ */
+export async function notifyRejectionOrderingProvider(
+  rejectionId: string
+): Promise<{
+  success: boolean;
+  rejection_id: string;
+  ordering_provider_id: string;
+  notified_at: string | null;
+}> {
+  return getApiClient().post(
+    `/api/clinical/specimen-rejection/${rejectionId}/notify`,
+    {}
+  );
+}
+
+/**
  * Get lab submissions for a specific patient
  * Healthcare providers see all, patients only see approved
  */

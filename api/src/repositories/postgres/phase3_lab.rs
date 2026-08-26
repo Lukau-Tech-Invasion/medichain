@@ -950,6 +950,30 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
         Ok(rejections)
     }
 
+    async fn mark_provider_notified(
+        &self,
+        id: &str,
+        notified_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRejectionEntity>> {
+        // One statement, so the "have they been told already" test and the
+        // write cannot be separated by another request.
+        let row = sqlx::query_as::<_, SpecimenRejectionEntity>(
+            r#"
+            UPDATE specimen_rejections
+               SET notified_ordering_provider = true,
+                   notification_sent_at = $2
+             WHERE id = $1
+               AND notified_ordering_provider = false
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(notified_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
         let items = sqlx::query_as::<_, SpecimenRejectionEntity>(
             r#"

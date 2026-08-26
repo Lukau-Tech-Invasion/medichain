@@ -2373,6 +2373,19 @@ pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
+
+    /// Record that the ordering provider has been told about this rejection.
+    ///
+    /// Returns `Ok(None)` when they had already been told. The guard lives
+    /// inside the write, so two clinicians pressing Notify at the same moment
+    /// send one notification between them rather than two — the same shape as
+    /// `RetentionExecutionRepository::decide_approval` and the lab-review
+    /// transition.
+    async fn mark_provider_notified(
+        &self,
+        id: &str,
+        notified_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRejectionEntity>>;
 }
 
 /// Lab trend repository trait
