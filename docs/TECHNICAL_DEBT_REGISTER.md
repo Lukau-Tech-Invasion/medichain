@@ -1460,3 +1460,38 @@ behavioural one to a shared type, and this register is where those wait.
 The options, when someone picks it up: make `Default` return a usable first page
 (`per_page: 50`), or drop the derive so callers must state a page size. Dropping
 it is the stricter choice and, with one call site, the cheaper one.
+
+## `connectWallet()` hardcodes demo mode and has no callers (2026-08-26)
+
+`client/shared/src/wallet/service.ts` contains:
+
+```ts
+export async function connectWallet(address?: SubstrateAddress) {
+  // Check if we are in demo mode
+  const IS_DEMO = true; // Should come from config
+  if (!IS_DEMO) {
+    const accounts = await connectRealWallet();
+    ...
+```
+
+`IS_DEMO` is a local constant set to `true`, so the real-extension branch is
+unreachable and the function always falls through to the simulator lookup
+(`getAccount(address)` against locally stored accounts), storing the result as
+the current wallet with no extension involvement and no signature.
+
+**It is not a live authentication bypass.** The function has zero callers: every
+apparent hit across both portals is an i18n string (`auth.connectWallet`) or a
+`title` attribute, not this import. Sign-in goes through `signMessage()` in the
+same file, which does perform the correct ordering — `web3Enable('MediChain')`,
+extension check, `web3Accounts()`, `web3FromSource(account.meta.source)`,
+`signRaw` — and the server issues no JWT without a verified sr25519 challenge.
+
+It is recorded rather than deleted because this register is where removals wait
+until the app is finished, and because deleting code needs the owner's
+confirmation. Two things make it worth doing early when someone picks it up:
+
+* a hardcoded `IS_DEMO = true` sitting in the same module as the real signing
+  path is exactly the shape that gets copied into something live;
+* `scripts/check-uncontrolled-defaults.py` does not currently flag it, so the
+  gate that exists for this defect class has a blind spot worth closing at the
+  same time.
