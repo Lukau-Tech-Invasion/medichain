@@ -84,10 +84,37 @@ check() {
   fi
 }
 
+# idem_args METHOD — the Idempotency-Key header, for mutating methods only.
+#
+# `api/src/middleware/idempotency.rs` refuses any keyed-subject mutation that
+# arrives without one (409 IDEMPOTENCY_KEY_REQUIRED). This harness predates
+# that middleware, so every POST/PUT/PATCH/DELETE it made was being refused —
+# which is what failed hosted CI, and it is the third caller class broken by
+# the same change, after the fixture seeder and thirty raw-fetch call sites in
+# the portals. A middleware that adds a required header has to migrate its
+# callers, and this one was landed without doing so.
+#
+# A fresh key per call is right here: each assertion is a distinct intent, and
+# reusing one across two different requests would be answered
+# IDEMPOTENCY_KEY_REUSED, since the key is bound to a request digest.
+idem_args() {
+  case "$1" in
+    POST|PUT|PATCH|DELETE)
+      printf '%s\n%s\n' '-H' "Idempotency-Key: $(python -c 'import uuid;print(uuid.uuid4())')"
+      ;;
+  esac
+}
+
 # code METHOD PATH [BODY] [USER]
 code() {
   local m="$1" p="$2" b="${3:-}" u="${4:-}"
   local args=(-s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "$BASE$p")
+  # Only when there is an identity. The middleware refuses a *keyed* mutation
+  # that carries no subject (409 IDEMPOTENCY_AUTH_REQUIRED) before
+  # authorization runs, so sending a key on a deliberately anonymous request
+  # replaces the 401 those assertions are about with a 409 from a different
+  # layer. An anonymous caller has no operation to make idempotent.
+  [ -n "$u" ] && while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
   [ -n "$u" ] && args+=(-H "X-User-Id: $u")
   [ -n "$b" ] && args+=(-H 'Content-Type: application/json' -d "$b")
   curl "${args[@]}"
@@ -99,8 +126,10 @@ body() { cat /tmp/mc_body 2>/dev/null; }
 # is refused: the token is a credential and belongs in the Authorization
 # header, not in a URL that lands in every proxy and access log.
 code_bearer() {
-  local m="$1" p="$2" tok="$3"
-  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p"
+  local m="$1" p="$2" tok="$3" args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" "$BASE$p"
 }
 
 # code_bearer_timed METHOD PATH TOKEN — same as code_bearer, but also records
@@ -115,8 +144,10 @@ code_bearer() {
 # sample read back as 0, which is how a latency check can silently measure
 # nothing at all while looking like it ran. `last_ms` reads what survived.
 code_bearer_timed() {
-  local m="$1" p="$2" tok="$3" out
-  out=$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code} %{time_total}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p")
+  local m="$1" p="$2" tok="$3" out args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  out=$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code} %{time_total}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" "$BASE$p")
   printf '%s' "${out#* }" | awk '{printf "%.0f", $1 * 1000}' > /tmp/mc_ms
   printf '%s' "${out%% *}"
 }
@@ -126,8 +157,10 @@ last_ms() { cat /tmp/mc_ms 2>/dev/null || echo 0; }
 # patient's own handset, so its capability token is presented together with the
 # device that was issued it.
 code_device() {
-  local m="$1" p="$2" tok="$3" dev="$4"
-  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m"     -H "Authorization: Bearer $tok" -H "X-Device-Id: $dev" "$BASE$p"
+  local m="$1" p="$2" tok="$3" dev="$4" args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" -H "X-Device-Id: $dev" "$BASE$p"
 }
 # jget KEY [KEY...] — walk nested JSON keys. Passed as argv, never interpolated
 # into the Python source, so quoting cannot break it.
@@ -417,7 +450,11 @@ check "patient lists own grants" 200 "$c" "$(body)"
 c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"Second opinion"}' "$PARAMEDIC")
 check "second provider requests access" 201 "$c" "$(body)"
 REQ2=$(jget request id)
-c=$(code POST "/api/access/requests/$REQ2/approve" '' "$DOCTOR")
+# The same body the patient sent at line 439 — only the caller changes. An
+# empty body would be refused at extraction (400 Content type error) before
+# authorization ran, so the assertion would pass on a technicality while
+# proving nothing about who may approve.
+c=$(code POST "/api/access/requests/$REQ2/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$DOCTOR")
 check "a provider CANNOT approve a request for a patient" 403 "$c" "$(body)"
 
 # Patient revokes the active grant; revocation is idempotent.
@@ -885,13 +922,49 @@ T4=$(printf '%02d:%02d' "$PM_HOUR" $(( PM_MIN + 30 )))
 # The patient this harness created for itself, not a PostgreSQL demo seed:
 # PAT-001-DEMO does not exist on the in-memory backend.
 APPT_PATIENT="$PAT_ADULT"
-BOOK=$(python -c '
+
+# book_appointment PROVIDER TIME TYPE REASON ACTOR
+#
+# Books an appointment, advancing to the next day's slot when the calendar
+# already holds one that overlaps.
+#
+# The harness leaves its appointments behind, so against a persistent
+# deployment the seeded doctor's calendar fills up: 74 rows were already banked
+# against roughly a thousand candidate slots when this was written -- a ~7%
+# chance per run of failing on a slot clash that says nothing about the
+# behaviour under test, and the odds worsen with every run. Widening the random
+# slot space only lowers the probability; it does not stop it growing.
+# Advancing past an occupied slot is what a scheduling UI does, and it keeps
+# these assertions about attribution and authorization, which is what the
+# sections are named for. Slot conflict has its own dedicated assertion
+# elsewhere and is not what these four bookings exist to prove.
+#
+# Only 409 SLOT_UNAVAILABLE is retried. Any other status -- 403 on a provider
+# mismatch, 400 on an unknown provider -- is returned on the first attempt, so
+# an authorization regression still fails here instead of being retried into a
+# pass. Bounded at 12 attempts.
+book_appointment() {
+  local prov="$1" t="$2" kind="$3" reason="$4" actor="$5"
+  local attempt day c=""
+  for attempt in $(seq 0 11); do
+    day=$(date -u -d "+$(( APPT_DAY_OFFSET + attempt )) days" +%Y-%m-%d 2>/dev/null \
+          || date -u -v+$(( APPT_DAY_OFFSET + attempt ))d +%Y-%m-%d)
+    c=$(code POST /api/appointments "$(python -c '
 import json, sys
 print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Synthetic lifecycle run"}))' "$DOCTOR" "$APPT_DATE" "$T1" "$APPT_PATIENT")
+                  "appointment_type": sys.argv[5], "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": sys.argv[6]}))' \
+      "$prov" "$day" "$t" "$APPT_PATIENT" "$kind" "$reason")" "$actor")
+    if [ "$c" = "409" ] && grep -q SLOT_UNAVAILABLE /tmp/mc_body; then
+      continue
+    fi
+    printf '%s' "$c"
+    return
+  done
+  printf '%s' "$c"
+}
 check "a doctor books an appointment for themselves" 201 \
-  "$(code POST /api/appointments "$BOOK" "$DOCTOR")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T1" consultation "Synthetic lifecycle run" "$DOCTOR")" "$(body)"
 APT_ID=$(jget appointment_id)
 
 # The whole point of WF-030: this used to 500 on PostgreSQL, so the row never
@@ -929,12 +1002,7 @@ check "  status reads back as Completed" "Completed" "$(jget status)"
 
 # WF-006: the portal's Cancel button sends no body at all, and the handler
 # used to require one, so every cancellation 400'd before reaching the code.
-CANCEL_BOOK=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "follow-up", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Cancellation path"}))' "$DOCTOR" "$APPT_DATE" "$T2" "$APPT_PATIENT")
-code POST /api/appointments "$CANCEL_BOOK" "$DOCTOR" >/dev/null
+book_appointment "$DOCTOR" "$T2" follow-up "Cancellation path" "$DOCTOR" >/dev/null
 CANCEL_ID=$(jget appointment_id)
 check "cancel works with no request body (the dead button)" 200 \
   "$(code POST "/api/appointments/$CANCEL_ID/cancel" '' "$DOCTOR")" "$(body)"
@@ -942,13 +1010,8 @@ check "cancel works with no request body (the dead button)" 200 \
 # ---------------------------------------------------------------------------
 say "21. Booking telehealth creates a real, gated session (WF-014)"
 
-TH_BOOK=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "telehealth", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Synthetic telehealth run"}))' "$DOCTOR" "$APPT_DATE" "$T3" "$APPT_PATIENT")
 check "a telehealth appointment is booked" 201 \
-  "$(code POST /api/appointments "$TH_BOOK" "$DOCTOR")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T3" telehealth "Synthetic telehealth run" "$DOCTOR")" "$(body)"
 TH_APT=$(jget appointment_id)
 TH_SESSION=$(jget telehealth_session_id)
 check "  a session is provisioned and returned with the booking" "true" \
@@ -987,13 +1050,8 @@ check "  refused as a provider mismatch, not a generic 403" "PROVIDER_MISMATCH" 
 
 # An administrator legitimately schedules for a colleague, and the record must
 # still name who actually did it.
-ADMIN_BOOKS=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Delegated scheduling"}))' "$DOCTOR" "$APPT_DATE" "$T4" "$APPT_PATIENT")
 check "an admin may schedule on a colleague's behalf" 201 \
-  "$(code POST /api/appointments "$ADMIN_BOOKS" "$ADMIN")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T4" consultation "Delegated scheduling" "$ADMIN")" "$(body)"
 DELEGATED=$(jget appointment_id)
 check "  the appointment is attributed to the colleague" 200 \
   "$(code GET "/api/appointments/$DELEGATED" '' "$DOCTOR")"
