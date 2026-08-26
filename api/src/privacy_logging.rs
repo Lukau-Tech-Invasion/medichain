@@ -181,7 +181,11 @@ where
     S: tracing::Subscriber,
     W: for<'a> tracing_subscriber::fmt::MakeWriter<'a> + 'static,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         use std::io::Write as _;
 
         let mut visitor = MessageVisitor::default();
@@ -191,7 +195,10 @@ where
         // is rendering; the redaction below is not optional for any build.
         let safe = redact_message(&visitor.rendered);
         let meta = event.metadata();
-        let target = visitor.log_target.as_deref().unwrap_or_else(|| meta.target());
+        let target = visitor
+            .log_target
+            .as_deref()
+            .unwrap_or_else(|| meta.target());
 
         let line = if self.json {
             format!(
@@ -203,8 +210,13 @@ where
                     .unwrap_or_else(|_| "\"log message unavailable\"".to_string())
             )
         } else {
-            format!("{} {}: {}
-", meta.level(), target, safe)
+            format!(
+                "{} {}: {}
+",
+                meta.level(),
+                target,
+                safe
+            )
         };
 
         let mut writer = self.make_writer.make_writer();
@@ -212,7 +224,20 @@ where
     }
 }
 
-/// Formats a sanitised record for the shared logger backend.
+/// Formats a sanitised `log::Record` for a logger backend.
+///
+/// SUPERSEDED. `init_logging` no longer installs an `env_logger` format
+/// closure, so nothing in production calls this: `RedactingLayer` performs the
+/// same redaction for `log::` and `tracing::` events alike, one layer further
+/// out. Its remaining consumer is the test below, which pins the contract that
+/// a rendered record passes through `redact_message`.
+///
+/// Kept rather than deleted, and `cfg(test)` rather than `allow(dead_code)`:
+/// silencing the lint on a privacy module is exactly how the disabled
+/// `tokio-console` redaction stayed invisible, so the compiler is told the
+/// truth -- this is test-only now. Removal is queued in
+/// `docs/TECHNICAL_DEBT_REGISTER.md` for the owner to confirm.
+#[cfg(test)]
 pub fn format_record(record: &log::Record<'_>) -> String {
     let mut rendered = String::new();
     let _ = write!(&mut rendered, "{}", record.args());
@@ -283,7 +308,11 @@ mod tests {
             // Carried as structured fields, which `tracing` call sites also do.
             tracing::info!(token = BEARER, refresh_token = REFRESH, "session issued");
             tracing::info!(national_id = NATIONAL, phone = PHONE, "identity verified");
-            tracing::info!(wallet_address = WALLET, patient_id = PATIENT, "chart opened");
+            tracing::info!(
+                wallet_address = WALLET,
+                patient_id = PATIENT,
+                "chart opened"
+            );
         });
 
         let captured = buffer.lock().expect("capture lock").clone();
@@ -292,7 +321,15 @@ mod tests {
 
     fn assert_nothing_sensitive_survives(output: &str, label: &str) {
         for secret in [
-            WALLET, BEARER, REFRESH, PATIENT, SPECIMEN, RECORD_UUID, EMAIL, NATIONAL, PHONE,
+            WALLET,
+            BEARER,
+            REFRESH,
+            PATIENT,
+            SPECIMEN,
+            RECORD_UUID,
+            EMAIL,
+            NATIONAL,
+            PHONE,
         ] {
             assert!(
                 !output.contains(secret),
@@ -322,9 +359,12 @@ mod tests {
         let output = capture_pipeline_output(true);
         assert_nothing_sensitive_survives(&output, "json");
         for line in output.lines().filter(|line| !line.is_empty()) {
-            serde_json::from_str::<serde_json::Value>(line)
-                .unwrap_or_else(|e| panic!("LOG_FORMAT=json emitted invalid JSON: {e}
-{line}"));
+            serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+                panic!(
+                    "LOG_FORMAT=json emitted invalid JSON: {e}
+{line}"
+                )
+            });
         }
     }
 
@@ -348,10 +388,20 @@ mod tests {
             tracing::info!("chart opened for {} by {}", PATIENT, WALLET);
         });
 
-        let output = String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
-        assert!(!output.contains(WALLET), "wallet survived a stacked pipeline: {output}");
-        assert!(!output.contains(PATIENT), "patient id survived a stacked pipeline: {output}");
-        assert!(output.contains("[REDACTED]"), "nothing was redacted at all: {output}");
+        let output =
+            String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
+        assert!(
+            !output.contains(WALLET),
+            "wallet survived a stacked pipeline: {output}"
+        );
+        assert!(
+            !output.contains(PATIENT),
+            "patient id survived a stacked pipeline: {output}"
+        );
+        assert!(
+            output.contains("[REDACTED]"),
+            "nothing was redacted at all: {output}"
+        );
     }
 
     /// `log::` call sites -- most of this codebase -- reach the same layer.
@@ -369,8 +419,12 @@ mod tests {
             tracing::info!("legacy path for {}", WALLET);
         });
 
-        let output = String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
-        assert!(!output.contains(WALLET), "wallet survived the log bridge: {output}");
+        let output =
+            String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
+        assert!(
+            !output.contains(WALLET),
+            "wallet survived the log bridge: {output}"
+        );
     }
 
     use super::*;

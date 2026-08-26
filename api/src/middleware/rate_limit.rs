@@ -24,10 +24,9 @@ use actix_web::{
     Error, HttpResponse,
 };
 use futures::future::{ok, LocalBoxFuture, Ready};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Rate limit configuration
