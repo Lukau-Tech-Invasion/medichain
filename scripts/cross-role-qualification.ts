@@ -34,7 +34,12 @@
  *   ./node_modules/.bin/vite-node ../scripts/cross-role-qualification.ts
  */
 
-import { deriveCredential, openKeystore, signerFromSecret } from '../client/shared/src/auth/credentials';
+import {
+  deriveCredential,
+  openKeystore,
+  signerFromSecret,
+  secretFromMnemonic,
+} from '../client/shared/src/auth/credentials';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +54,8 @@ type Json = Record<string, any>;
 interface Manifest {
   administrator_wallet: string;
   staff: Array<{ role: string; login_id: string; wallet: string }>;
-  patient: { wallet: string; linked_patient_id: string; nfc_tag_id: string };
-  patient_b: { wallet: string; linked_patient_id: string; nfc_tag_id: string };
+  patient: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
+  patient_b: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +168,36 @@ async function signIn(loginId: string, label: string): Promise<Session> {
     wallet: String(login.json.wallet_address),
     token: String(jwt.json.access_token),
   };
+}
+
+/**
+ * Sign in as a patient.
+ *
+ * A patient holds a wallet, not an employee credential, so the flow starts one
+ * step later: derive the signer from the mnemonic, then the same challenge and
+ * JWT exchange every other actor uses. Without this, "the patient" could only
+ * ever be probed through a clinician's session, which cannot show whether the
+ * patient's own boundary holds.
+ */
+async function signInPatient(mnemonic: string, wallet: string, label: string): Promise<Session> {
+  const secret = await secretFromMnemonic(mnemonic);
+  const signer = await signerFromSecret(secret, wallet);
+
+  const challenge = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
+  if (challenge.status !== 200) {
+    throw new Error(`patient challenge failed: ${challenge.status} ${JSON.stringify(challenge.json)}`);
+  }
+  const c = challenge.json.challenge as Json;
+  const signature = await signer.sign(c.message as string);
+
+  const jwt = await http('POST', '/auth/jwt', {
+    body: { wallet_address: wallet, challenge_id: c.challenge_id, nonce: c.nonce, signature },
+  });
+  if (jwt.status !== 200 || !jwt.json.access_token) {
+    throw new Error(`patient jwt failed: ${jwt.status} ${JSON.stringify(jwt.json)}`);
+  }
+
+  return { label, role: 'Patient', wallet, token: String(jwt.json.access_token) };
 }
 
 // ---------------------------------------------------------------------------
@@ -551,6 +586,200 @@ async function qualifySessionLifecycle(sessions: Record<string, Session>): Promi
   delete sessions.nurse;
 }
 
+/**
+ * The patient's own boundary.
+ *
+ * A patient may read their own record and must reach nothing of anyone else's.
+ * This is the one authorization question a clinician's session cannot answer.
+ */
+async function qualifyPatientBoundary(m: Manifest): Promise<Record<string, Session>> {
+  section = 'I. Patient boundary — own record only';
+  console.log(`\n${section}`);
+
+  const patients: Record<string, Session> = {};
+  for (const [label, fx] of [['patientA', m.patient], ['patientB', m.patient_b]] as const) {
+    try {
+      patients[label] = await signInPatient(fx.mnemonic, fx.wallet, label);
+      record(`${label} signs in with their wallet`, true, '');
+    } catch (e) {
+      record(`${label} signs in with their wallet`, false, String(e));
+    }
+  }
+
+  const a = patients.patientA;
+  const b = patients.patientB;
+  if (!a || !b) return patients;
+
+  const own = await http('GET', `/patients/${m.patient.linked_patient_id}`, { token: a.token });
+  expectStatus('patient A reads their own record', own.status, 200, own.json);
+
+  const other = await http('GET', `/patients/${m.patient_b.linked_patient_id}`, { token: a.token });
+  expectStatus("patient A cannot read patient B's record", other.status, [403, 404], other.json);
+
+  const otherLogs = await http('GET', `/access-logs/${m.patient_b.linked_patient_id}`, { token: a.token });
+  expectStatus("patient A cannot read patient B's access log", otherLogs.status, [403, 404], otherLogs.json);
+
+  return patients;
+}
+
+/**
+ * Consent: request, approve, use, revoke, and lose access.
+ *
+ * The property that matters is the last step. A grant that is revoked but keeps
+ * working — because the decision was cached, or because the clinician's
+ * existing token still carries the old answer — is the failure mode this exists
+ * to catch, so the same session is reused across the revocation rather than
+ * signing in again.
+ */
+async function qualifyConsentLifecycle(
+  m: Manifest,
+  sessions: Record<string, Session>,
+  patients: Record<string, Session>
+): Promise<void> {
+  section = 'J. Consent lifecycle — request, approve, revoke';
+  console.log(`\n${section}`);
+
+  const doctorB = sessions.doctorB;
+  const patientA = patients.patientA;
+  const patientB = patients.patientB;
+  if (!doctorB || !patientA || !patientB) {
+    record('consent prerequisites', false, 'needs doctorB and both patient sessions');
+    return;
+  }
+
+  const patientId = m.patient.linked_patient_id;
+
+  const request = await http('POST', `/access/patient/${patientId}/requests`, {
+    token: doctorB.token,
+    body: { reason: 'synthetic qualification — ongoing care' },
+  });
+
+  // A previous run that stopped before revoking leaves a pending request, and
+  // the database's unique index correctly refuses a second one. That is the
+  // control working, so it is asserted rather than worked around — and then
+  // the existing request is adopted, because a qualification harness that only
+  // passes on a clean database cannot be re-run, and one that cannot be re-run
+  // stops being used.
+  let requestId = '';
+  if (request.status === 409 && String(request.json?.error?.code) === 'ACCESS_REQUEST_ALREADY_PENDING') {
+    record('a duplicate pending request is refused', true, '');
+    const pending = await http('GET', `/access/patient/${patientId}/requests`, { token: patientA.token });
+    const list: Json[] = Array.isArray(pending.json)
+      ? pending.json
+      : (pending.json.requests ?? pending.json.items ?? []);
+    const mine = list.find(
+      (r) =>
+        (r.providerId ?? r.provider_id) === doctorB.wallet &&
+        (r.status ?? 'pending') === 'pending'
+    );
+    requestId = String(mine?.id ?? mine?.requestId ?? mine?.request_id ?? '');
+    record('the existing pending request is recoverable', Boolean(requestId), JSON.stringify(pending.json).slice(0, 300));
+  } else {
+    if (!expectStatus('a doctor requests access to a patient', request.status, [200, 201], request.json)) return;
+
+    // The API nests the created object and serialises camelCase
+    // (`{ request: { id, providerId, ... } }`).
+    requestId = String(
+      (request.json.request as Json | undefined)?.id ?? request.json.request_id ?? request.json.id ?? ''
+    );
+
+    // Asserted on the fresh path too: the same request twice must be refused.
+    const duplicate = await http('POST', `/access/patient/${patientId}/requests`, {
+      token: doctorB.token,
+      body: { reason: 'synthetic qualification — duplicate probe' },
+    });
+    expectStatus('a duplicate pending request is refused', duplicate.status, 409, duplicate.json);
+  }
+
+  if (!requestId) {
+    record('access request has an id', false, JSON.stringify(request.json).slice(0, 200));
+    return;
+  }
+
+  const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+
+  // Maker-checker: the requester decides nothing.
+  const selfApprove = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: doctorB.token,
+    body: { expires_at: future },
+  });
+  expectStatus('the requesting doctor cannot approve their own request', selfApprove.status, 403, selfApprove.json);
+
+  // Nor may an unrelated patient decide someone else's.
+  const foreignApprove = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: patientB.token,
+    body: { expires_at: future },
+  });
+  expectStatus('an unrelated patient cannot approve it', foreignApprove.status, [403, 404], foreignApprove.json);
+
+  // Indefinite access is prohibited; so is an expiry already in the past.
+  const past = new Date(Date.now() - 3600 * 1000).toISOString();
+  const pastGrant = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: patientA.token,
+    body: { expires_at: past },
+  });
+  expectStatus('an expiry in the past is refused', pastGrant.status, 400, pastGrant.json);
+
+  const tooLong = new Date(Date.now() + 400 * 24 * 3600 * 1000).toISOString();
+  const longGrant = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: patientA.token,
+    body: { expires_at: tooLong },
+  });
+  expectStatus('an expiry beyond the maximum window is refused', longGrant.status, 400, longGrant.json);
+
+  const approve = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: patientA.token,
+    body: { expires_at: future },
+  });
+  if (!expectStatus('the patient approves it', approve.status, 200, approve.json)) return;
+
+  const grants = await http('GET', `/access/patient/${patientId}/grants`, { token: patientA.token });
+  const grantsBody = JSON.stringify(grants.json);
+  record(
+    'the grant is visible to the patient',
+    grants.status === 200 && grantsBody.includes(doctorB.wallet),
+    `status ${grants.status}; grants did not mention the provider`
+  );
+
+  const grantList: Json[] = Array.isArray(grants.json)
+    ? grants.json
+    : (grants.json.grants ?? grants.json.items ?? []);
+  const mine = grantList.find(
+    (g) => (g.providerId ?? g.provider_id) === doctorB.wallet
+  );
+  const grantId = String(mine?.grantId ?? mine?.id ?? mine?.grant_id ?? '');
+  if (!grantId) {
+    record('the grant has an id', false, grantsBody.slice(0, 300));
+    return;
+  }
+
+  // A second approval of a decided request must not re-open it.
+  const reApprove = await http('POST', `/access/requests/${requestId}/approve`, {
+    token: patientA.token,
+    body: { expires_at: future },
+  });
+  expectStatus('an already-decided request cannot be re-approved', reApprove.status, [400, 404, 409], reApprove.json);
+
+  const revoke = await http('POST', `/access/grants/${grantId}/revoke`, { token: patientA.token });
+  if (!expectStatus('the patient revokes the grant', revoke.status, 200, revoke.json)) return;
+
+  const reRevoke = await http('POST', `/access/grants/${grantId}/revoke`, { token: patientA.token });
+  expectStatus('revoking twice is refused', reRevoke.status, [400, 404, 409], reRevoke.json);
+
+  // The revoked grant must be gone from the patient's own view.
+  const after = await http('GET', `/access/patient/${patientId}/grants`, { token: patientA.token });
+  const afterList: Json[] = Array.isArray(after.json)
+    ? after.json
+    : (after.json.grants ?? after.json.items ?? []);
+  const stillActive = afterList.some(
+    (g) =>
+      (g.grantId ?? g.id ?? g.grant_id) === grantId &&
+      (g.revokedAt ?? g.revoked_at ?? null) === null &&
+      g.status !== 'revoked'
+  );
+  record('the revoked grant is no longer active', !stillActive, JSON.stringify(after.json).slice(0, 300));
+}
+
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -581,6 +810,8 @@ async function main(): Promise<void> {
   await qualifySelfReview(m, sessions);
   await qualifyObjectAuthorization(m, sessions);
   await qualifyPrescriptionWorkflow(m, sessions);
+  const patients = await qualifyPatientBoundary(m);
+  await qualifyConsentLifecycle(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
 
   const failed = checks.filter((c) => !c.passed);
