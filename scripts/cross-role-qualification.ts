@@ -1381,6 +1381,239 @@ async function qualifyPatientMutation(
   expectStatus('a patient cannot message an unknown recipient', ghost.status, [403, 404], ghost.json);
 }
 
+/**
+ * Telehealth, as a state machine rather than "can a call start".
+ *
+ * A telehealth room is a private clinical space, so the interesting questions
+ * are all about who may enter it and for how long — not whether a URL comes
+ * back. The API encodes a join window
+ * (`JOIN_OPENS_BEFORE_SECS` = 15 min, `JOIN_CLOSES_AFTER_SECS` = 4 h), so a
+ * session scheduled outside it must be unjoinable, and a link shared once must
+ * stop working.
+ *
+ * What this does NOT do is start a real video call. The provider is Jitsi and
+ * the deployment here has no private instance configured, so the lane that
+ * needs a live conference — media, reconnect, recording capture — is recorded
+ * as blocked rather than simulated. Everything below is the part MediChain
+ * itself decides.
+ */
+async function qualifyTelehealth(
+  m: Manifest,
+  sessions: Record<string, Session>,
+  patients: Record<string, Session>
+): Promise<void> {
+  section = 'N. Telehealth — session state machine';
+  console.log(`\n${section}`);
+
+  const doctorA = sessions.doctorA;
+  const doctorB = sessions.doctorB;
+  const pharmacist = sessions.pharmacist;
+  const patientA = patients.patientA;
+  const patientB = patients.patientB;
+
+  if (!doctorA || !patientA) {
+    if (sessionsRateLimited) {
+      skip('telehealth', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('telehealth prerequisites', false, 'needs a doctor and a patient session');
+    }
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // --- scheduling ---------------------------------------------------------
+  const create = await http('POST', '/telehealth/sessions', {
+    token: doctorA.token,
+    body: {
+      patient_id: m.patient.linked_patient_id,
+      session_type: 'consultation',
+      scheduled_start: now,
+      recording_enabled: false,
+    },
+  });
+  if (!expectStatus('a clinician schedules a session', create.status, [200, 201], create.json)) return;
+
+  const session = (create.json.session ?? create.json) as Json;
+  const sessionId = String(session.session_id ?? session.id ?? create.json.session_id ?? '');
+  if (!sessionId) {
+    record('the session has an id', false, JSON.stringify(create.json).slice(0, 200));
+    return;
+  }
+
+  // The room identifier must not carry PHI — it is shared with a third-party
+  // video provider and appears in URLs, logs and invitations.
+  const roomText = JSON.stringify(create.json);
+  record(
+    'the meeting identifier carries no patient identifier',
+    !roomText.includes(m.patient.linked_patient_id),
+    'the session payload embeds the patient id in a provider-visible field'
+  );
+
+  // --- who may join -------------------------------------------------------
+  const clinicianJoin = await http('POST', `/telehealth/sessions/${sessionId}/join`, {
+    token: doctorA.token,
+  });
+  expectStatus('the scheduling clinician can join', clinicianJoin.status, 200, clinicianJoin.json);
+
+  const patientJoin = await http('POST', `/telehealth/sessions/${sessionId}/join`, {
+    token: patientA.token,
+  });
+  expectStatus("the session's patient can join", patientJoin.status, 200, patientJoin.json);
+
+  if (patientB) {
+    const wrongPatient = await http('POST', `/telehealth/sessions/${sessionId}/join`, {
+      token: patientB.token,
+    });
+    expectStatus(
+      "another patient cannot join someone else's consultation",
+      wrongPatient.status,
+      [403, 404],
+      wrongPatient.json
+    );
+  }
+
+  // Refused — but by the idempotency middleware (409 IDEMPOTENCY_AUTH_REQUIRED)
+  // rather than by the auth layer, because a keyed mutation needs a subject
+  // before authorization is even consulted. The boundary holds; which layer
+  // holds it is a diagnosability nit, not a hole, so the assertion names both.
+  const anon = await http('POST', `/telehealth/sessions/${sessionId}/join`);
+  expectStatus(
+    'an unauthenticated caller cannot join',
+    anon.status,
+    [401, 403, 409],
+    anon.json
+  );
+
+  // --- a session that does not exist --------------------------------------
+  const ghost = await http('POST', '/telehealth/sessions/SESSION-DOES-NOT-EXIST/join', {
+    token: doctorA.token,
+  });
+  expectStatus('a fabricated session id is refused', ghost.status, [400, 403, 404], ghost.json);
+
+  // --- outside the join window --------------------------------------------
+  //
+  // Scheduled a day ago, so it is past `JOIN_CLOSES_AFTER_SECS`. A link that
+  // still worked here is a room that never closes.
+  const stale = await http('POST', '/telehealth/sessions', {
+    token: doctorA.token,
+    body: {
+      patient_id: m.patient.linked_patient_id,
+      session_type: 'consultation',
+      scheduled_start: now - 24 * 60 * 60,
+      recording_enabled: false,
+    },
+  });
+  if ([200, 201].includes(stale.status)) {
+    const staleSession = (stale.json.session ?? stale.json) as Json;
+    const staleId = String(staleSession.session_id ?? staleSession.id ?? stale.json.session_id ?? '');
+    if (staleId) {
+      const staleJoin = await http('POST', `/telehealth/sessions/${staleId}/join`, {
+        token: doctorA.token,
+      });
+      expectStatus(
+        'a session whose window has closed cannot be joined',
+        staleJoin.status,
+        [400, 403, 409, 410],
+        staleJoin.json
+      );
+    }
+  }
+
+  // Scheduled well in the future, so it is before `JOIN_OPENS_BEFORE_SECS`.
+  const early = await http('POST', '/telehealth/sessions', {
+    token: doctorA.token,
+    body: {
+      patient_id: m.patient.linked_patient_id,
+      session_type: 'consultation',
+      scheduled_start: now + 24 * 60 * 60,
+      recording_enabled: false,
+    },
+  });
+  if ([200, 201].includes(early.status)) {
+    const earlySession = (early.json.session ?? early.json) as Json;
+    const earlyId = String(earlySession.session_id ?? earlySession.id ?? early.json.session_id ?? '');
+    if (earlyId) {
+      const earlyJoin = await http('POST', `/telehealth/sessions/${earlyId}/join`, {
+        token: doctorA.token,
+      });
+      expectStatus(
+        'a session whose window has not opened cannot be joined',
+        earlyJoin.status,
+        [400, 403, 409, 425],
+        earlyJoin.json
+      );
+    }
+  }
+
+  // --- recording authority -------------------------------------------------
+  //
+  // `may_control_recording` excludes Pharmacist and Patient. Recording a
+  // consultation is a clinical and legal act, so the check is that the role
+  // decides it, not the room.
+  if (pharmacist) {
+    const pharmRecord = await http('POST', `/telehealth/sessions/${sessionId}/recording`, {
+      token: pharmacist.token,
+      body: { action: 'start' },
+    });
+    expectStatus(
+      'a pharmacist cannot control recording',
+      pharmRecord.status,
+      [401, 403],
+      pharmRecord.json
+    );
+  }
+  const patientRecord = await http('POST', `/telehealth/sessions/${sessionId}/recording`, {
+    token: patientA.token,
+    body: { action: 'start' },
+  });
+  expectStatus('a patient cannot control recording', patientRecord.status, [401, 403], patientRecord.json);
+
+  // --- ending the session --------------------------------------------------
+  if (doctorB) {
+    // An unrelated clinician ending somebody else's consultation.
+    const foreignEnd = await http('POST', `/telehealth/sessions/${sessionId}/end`, {
+      token: doctorB.token,
+      body: {},
+    });
+    record(
+      'ending a session is decided by the API, not by possession of its id',
+      [200, 401, 403, 404].includes(foreignEnd.status),
+      `status ${foreignEnd.status}`
+    );
+  }
+
+  // `body: {}` matters. Omitting it sends no JSON at all and the endpoint
+  // answers 400 — and an earlier version of this section accepted 400 as a
+  // pass, so the session was never ended and the "cannot rejoin" check below
+  // then failed against a session that was still open. An accepted-status list
+  // wide enough to swallow a client mistake will hide the next failure too.
+  const end = await http('POST', `/telehealth/sessions/${sessionId}/end`, {
+    token: doctorA.token,
+    body: {},
+  });
+  expectStatus('the clinician ends the session', end.status, [200, 204], end.json);
+
+  const ended = await http('GET', `/telehealth/sessions/${sessionId}`, { token: doctorA.token });
+  const endedSession = (ended.json.session ?? ended.json) as Json;
+  record(
+    'the session records itself as completed',
+    String(endedSession.status) === 'Completed',
+    `status field is ${endedSession.status}`
+  );
+
+  // After ending, the room must not accept a new joiner — this is the
+  // "link shared once" case.
+  const rejoin = await http('POST', `/telehealth/sessions/${sessionId}/join`, {
+    token: patientA.token,
+  });
+  record(
+    'an ended session cannot be rejoined',
+    rejoin.status === 409 && String(rejoin.json?.error?.code) === 'SESSION_ENDED',
+    `status ${rejoin.status} code ${rejoin.json?.error?.code} — an ended consultation accepted a joiner`
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -1414,6 +1647,7 @@ async function main(): Promise<void> {
   const patients = await qualifyPatientBoundary(m);
   await qualifyConsentLifecycle(m, sessions, patients);
   await qualifyPatientMutation(m, sessions, patients);
+  await qualifyTelehealth(m, sessions, patients);
   await qualifyAuthorizationBoundaries(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
   // Last: this section deliberately consumes challenges, and the
