@@ -88,6 +88,15 @@ jobs:
             - name: No sign-in path can hand out an unproven identity
               run: python scripts/check-quick-login-identities.py
 
+            # The nursing dashboard rendered four hardcoded tasks — a dressing
+            # change in 'Room 403', an IV assessment in 'ICU-2' — that existed
+            # nowhere in the backend. A task list is a work instruction, and no
+            # placeholder audit finds this: 'Room 403' matches no keyword and
+            # looks exactly like real data. IS_DEMO-gated fallbacks are fine
+            # (IS_DEMO defaults to false); ungated literals always render.
+            - name: No production screen renders data nobody supplied
+              run: python scripts/check-fabricated-ui-data.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
