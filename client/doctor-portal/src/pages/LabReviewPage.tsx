@@ -186,10 +186,17 @@ function LabReviewPage() {
           {t('lab.review.loading')}
         </div>
       ) : submissions.length === 0 ? (
-        <div className="text-center py-16 text-slate-400">
-          <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-emerald-500" aria-hidden="true" />
-          <p>{t('lab.review.empty')}</p>
-        </div>
+        // Only when the queue is genuinely empty. An unreachable server also
+        // yields zero rows, and "Nothing is waiting for review" is a
+        // reassurance — telling a clinician there is nothing to sign off when
+        // the truth is that nobody knows is worse than saying nothing. The
+        // error above stands alone in that case.
+        loadError ? null : (
+          <div className="text-center py-16 text-slate-400">
+            <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-emerald-500" aria-hidden="true" />
+            <p>{t('lab.review.empty')}</p>
+          </div>
+        )
       ) : (
         <ul className="space-y-4">
           {submissions.map((s) => {
