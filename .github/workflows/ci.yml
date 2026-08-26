@@ -291,31 +291,50 @@ jobs:
                   command: check
                   command-arguments: sources
 
-            # Licences and advisories stay report-only for the blockchain tree,
-            # and this is deliberately NOT symmetric with the root gate above.
+            # Advisories: ENFORCED for the blockchain tree as of 2026-08-26.
             #
-            # The root workspace is green, so enforcing it costs nothing. This
-            # graph is not: as of 2026-08-25, `cargo deny --manifest-path
-            # blockchain/Cargo.toml check advisories` reports 5 vulnerabilities
-            # and 2 unmaintained crates in the Substrate/Polkadot dependency
-            # set, tracked as SC-001. Enforcing a gate that cannot pass makes
-            # every unrelated PR red and trains reviewers to ignore it, which is
-            # the exact failure the root gate was just rescued from.
+            # This was report-only while the graph reported 5 vulnerabilities
+            # and 2 unmaintained crates. It no longer does. One left by a
+            # precise lockfile bump (h2 0.4.15 -> 0.4.19, RUSTSEC-2026-0258);
+            # the remaining five are reasoned acceptances in
+            # blockchain/deny.toml, each quoting the upstream constraint that
+            # blocks it and naming the single condition that removes it.
             #
-            # Flip this to enforced when SC-001 closes, and enable
-            # unused-ignored-advisory in blockchain/deny.toml at the same time.
+            # Enforcing it is now the cheaper option, not the stricter one: a
+            # report-only gate on a graph nobody can currently fix trains
+            # reviewers to scroll past it, and the root gate had to be rescued
+            # from exactly that. blockchain/deny.toml also now sets
+            # unused-ignored-advisory = "deny", so an acceptance whose crate
+            # leaves the tree fails the build instead of becoming a stale
+            # comment.
             #
-            # The licence allow-list was derived offline from 1074 of the 1171
-            # locked packages (the rest were not in the local registry cache),
-            # so it is also still a discovery gate until a full CI run confirms
-            # it is complete. `bans` is warn-level by config, not a failure.
-            - name: cargo-deny blockchain (licences + advisories, report-only, SC-001 open)
+            # Expect this to go red one day on a PR that changed nothing: the
+            # advisory database is fetched at run time. That is the gate
+            # working. The fix is an upgrade or a reasoned entry, never
+            # continue-on-error.
+            - name: cargo-deny blockchain (advisories, enforced)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  manifest-path: blockchain/Cargo.toml
+                  command: check
+                  command-arguments: advisories
+
+            # Licences stay report-only, and only licences.
+            #
+            # The allow-list was derived offline from 1074 of the 1171 locked
+            # packages — the remaining 97 were not in the local registry cache —
+            # so it is still a discovery gate rather than a complete one.
+            # Enforcing an incomplete allow-list would fail on crates nobody has
+            # reviewed yet, which says nothing about whether their licences are
+            # acceptable. Flip it once a full CI run confirms the list covers
+            # all 1171. `bans` is warn-level by config, not a failure.
+            - name: cargo-deny blockchain (licences, report-only — allow-list incomplete)
               uses: EmbarkStudios/cargo-deny-action@v2
               continue-on-error: true
               with:
                   manifest-path: blockchain/Cargo.toml
                   command: check
-                  command-arguments: licenses advisories bans
+                  command-arguments: licenses bans
 
             # Licenses: ENFORCED as of 2026-08-25. Kept as its own step so a new
             # licence problem and a new advisory fail separately and read

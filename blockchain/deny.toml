@@ -54,10 +54,28 @@ feature-depth = 1
 # ---------------------------------------------------------------------------
 # Security advisories (RustSec)
 # ---------------------------------------------------------------------------
-# Report-only, matching the root workspace's posture. The Substrate tree
-# carries upstream advisories this project does not control and cannot patch;
-# making this blocking today would fail every future PR on pre-existing issues
-# rather than on ones it introduces.
+# The Substrate tree carries upstream advisories this project does not control.
+# Each entry below was checked on 2026-08-26 by asking cargo two specific
+# questions rather than by assertion:
+#
+#   1. Can it move?   `cargo update --precise` reports the exact upstream
+#      constraint that blocks it, quoted per entry.
+#   2. What links it? `cargo tree -p medichain-runtime -i <crate>` says
+#      whether the crate is in the on-chain runtime's graph or only the node
+#      binary's.
+#
+# Question 2 matters because the two artifacts have different exposure. The
+# WASM runtime is what goes on chain. `medichain-node` is a client binary and,
+# per CLAUDE.md, is NOT part of the production Compose profile: production
+# points `SUBSTRATE_WS_URL` at an externally operated node. A node-only
+# advisory is therefore about an artifact this repository does not currently
+# deploy — which narrows it, and does not make it disappear, because the
+# repository does build and document that node (docs/BLOCKCHAIN_NODE.md).
+#
+# One advisory was genuinely FIXED in this pass rather than accepted:
+# RUSTSEC-2026-0258 (h2 unbounded empty DATA frames) left the graph via a
+# precise lockfile bump, h2 0.4.15 -> 0.4.19. It is absent from this list
+# because it is absent from the tree.
 [advisories]
 version = 2
 ignore = [
@@ -84,14 +102,27 @@ ignore = [
     # exclusively with sr25519 (Schnorrkel); no code path here constructs or
     # verifies a secp256k1 key or signature.
     "RUSTSEC-2025-0161", # libsecp256k1
+
+    # ---- reviewed 2026-08-26: blocked by a quoted upstream constraint -------
+    #
+    # These are accepted, not silenced. Each carries the exact reason it cannot
+    # move and the single condition that removes it. If any becomes movable and
+    # is still listed here, the entry is wrong and should fail review.
+    { id = "RUSTSEC-2025-0055", reason = "tracing-subscriber, ANSI escape sequences in logged user input can poison an operator's terminal. Patched in 0.3.20. CANNOT MOVE: sc-tracing v47.0.0 requires `tracing-subscriber = \"=0.3.19\"` — an exact pin, not a caret range, so no lockfile bump reaches the fix (`cargo update --precise 0.3.20` reports `candidate versions found which didn't match: 0.3.20`). Present in the runtime's graph via sp-tracing as well as the node's. Impact is log-display spoofing to an operator reading raw terminal output, not code execution or data disclosure. Removal criterion: an sc-tracing release that relaxes the exact pin — i.e. a coordinated Polkadot SDK upgrade, which is the only thing that can move it." },
+    { id = "RUSTSEC-2026-0119", reason = "hickory-proto, O(n^2) name compression during message encoding — CPU exhaustion. Patched in 0.26.1. CANNOT MOVE: litep2p v0.14.3 -> hickory-resolver v0.25.2 requires `hickory-proto = \"^0.25\"`, so 0.26.1 is a semver-major step the dependent must take first. NODE-ONLY: `cargo tree -p medichain-runtime -i hickory-proto` finds no match, so it is absent from the on-chain runtime and reachable only through the node's peer-discovery DNS path. Removal criterion: a litep2p/sc-network release on hickory 0.26." },
+    { id = "RUSTSEC-2026-0118", reason = "hickory-proto, NSEC3 closest-encloser proof validation can enter an unbounded loop on cross-zone responses. RustSec reports no safe upgrade: every published version is affected. Requires DNSSEC validation of a hostile response. NODE-ONLY, same graph position and same evidence as RUSTSEC-2026-0119. Removal criterion: an upstream hickory release that fixes it, then the same litep2p step." },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2, unmaintained, no patched release. Build-time only: it executes on the build host during compilation and ships in no artifact, on chain or otherwise. NODE-ONLY — absent from medichain-runtime's graph. The root workspace accepts this same advisory on the same reasoning; see the note there. Removal criterion: the dependents stop using it." },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash, unmaintained notice with no CVE and no known vulnerability. RustSec reports no safe upgrade. NODE-ONLY — absent from medichain-runtime's graph. This is supply-chain maintenance debt rather than an exploitable weakness; it is listed so that its status is a decision on record and not an omission. Removal criterion: the dependents move to a maintained hasher." },
 ]
 
-# NOT set here, deliberately: `unused-ignored-advisory = "deny"`.
-# The root workspace can afford that ratchet because its gate is green. This
-# graph is not — `cargo deny --manifest-path blockchain/Cargo.toml check
-# advisories` still reports vulnerabilities beyond the list above, tracked as
-# SC-001. Turning on a second failure mode before the primary one is fixed only
-# makes the red build harder to read. Enable it when SC-001 closes.
+# Now set, because the list above is now complete: every advisory this graph
+# reports is either fixed or carries a reviewed entry, so `cargo deny
+# --manifest-path blockchain/Cargo.toml check advisories` is green. That makes
+# the ratchet affordable and, more to the point, necessary: an accepted
+# advisory whose crate later leaves the tree becomes a comment nobody rechecks,
+# which is precisely how the root file drifted before this rule was added
+# there. A stale entry is now a build failure.
+unused-ignored-advisory = "deny"
 
 [licenses]
 version = 2
