@@ -18,6 +18,9 @@
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
+// Only the `env_logger` path uses `writeln!`. Under `tokio-console` the
+// subscriber owns formatting, and an unconditional import is dead there.
+#[cfg(not(feature = "tokio-console"))]
 use std::io::Write;
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
@@ -57,6 +60,12 @@ mod organization_keys;
 mod pagination;
 mod patient_access;
 mod pdf;
+// Gated to the builds that actually install it. Under `tokio-console`,
+// `init_logging` hands formatting to `console_subscriber` and this module is
+// never called — see the warning `init_logging` emits there. Stating that in
+// `cfg` rather than silencing dead_code keeps the compiler honest about which
+// builds redact and which do not.
+#[cfg(not(feature = "tokio-console"))]
 mod privacy_logging;
 mod retention;
 mod security;
@@ -104,6 +113,19 @@ pub(crate) use types::*;
 /// paths above, since only one global `tracing` subscriber can be active.
 #[cfg(feature = "tokio-console")]
 fn init_logging() {
+    // `console_subscriber` installs its own global `tracing` subscriber and owns
+    // record formatting, so the `privacy_logging` filter the other two paths
+    // apply is NOT in effect here. Log output from this build can therefore
+    // carry wallet addresses, tokens and other values the operator paths redact.
+    //
+    // That is a real reduction in a control, so it says so out loud rather than
+    // disappearing quietly behind a feature flag. This feature additionally
+    // requires `RUSTFLAGS="--cfg tokio_unstable"`, so it cannot be switched on
+    // by accident — but a developer reaching for it to debug an async stall in a
+    // production-like environment needs to know what it costs.
+    eprintln!(
+        "WARNING: built with --features tokio-console. Log-sink redaction          (privacy_logging) is NOT active in this build; do not point it at an          environment holding real patient data."
+    );
     console_subscriber::init();
 }
 
