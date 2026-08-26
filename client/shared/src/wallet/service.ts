@@ -336,10 +336,33 @@ export async function connectRealWallet(): Promise<WalletAccount[]> {
  * Sign a message using the connected wallet
  */
 export async function signMessage(address: SubstrateAddress, message: string): Promise<string> {
-  const { web3Accounts, web3FromSource } = await import('@polkadot/extension-dapp');
+  const { web3Accounts, web3Enable, web3FromSource } = await import('@polkadot/extension-dapp');
   const { stringToHex } = await import('@polkadot/util');
+
+  // `web3Enable` is a REQUIRED handshake, once per page load, before any other
+  // extension call. Without it `web3Accounts()` throws
+  //   "web3Accounts: web3Enable(originName) needs to be called before web3Accounts"
+  // and this function only called `web3Accounts`.
+  //
+  // That made patient sign-in impossible even WITH an extension installed,
+  // because nothing on the sign-in path calls `connectRealWallet()` first —
+  // `login(address)` goes straight here. Both the wallet-address form and every
+  // quick-login button failed, and the patient was shown that library string as
+  // the explanation.
+  //
+  // It is safe to call repeatedly: the extension remembers the authorisation,
+  // so a session that has already connected is not prompted again.
+  const extensions = await web3Enable('MediChain');
+  if (extensions.length === 0) {
+    throw new Error('No Polkadot extension found. Please install Polkadot.js or Talisman.');
+  }
+
   const account = (await web3Accounts()).find(a => a.address === address);
-  if (!account) throw new Error('Account not found in extension');
+  if (!account) {
+    throw new Error(
+      'That wallet is not in your extension. Open it, check the account is imported and visible to this site, then try again.'
+    );
+  }
 
   const injector = await web3FromSource(account.meta.source);
   const signRaw = injector.signer.signRaw;
