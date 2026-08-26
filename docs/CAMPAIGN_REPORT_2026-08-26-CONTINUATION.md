@@ -314,7 +314,9 @@ another, and no total below folds blocked or untested work into a denominator.
 | Wallet rejection paths | 9/9 — replay, wrong signer, forged id, tampered nonce, rate limit |
 | Reliability | 10/10 — 8 concurrent retries create exactly one row; 240 requests at 40-way concurrency, zero errors; write succeeds under load; **SIGKILL restart survived, 5s recovery, encryption keyring intact** |
 | Performance | 240 samples over six real operations, 0 errors |
-| Suites | API **513 passed / 0 failed / 1 ignored**, doctor **86 files / 331**, patient **26 / 83**, **8 repo gates**, 3 typechecks, cargo-deny both workspaces |
+| Idempotency on both backends | Memory backend went **47/153 → 211 pass / 0 fail**: the durable guard had no store when there was no pool, so every authenticated mutation on the documented dev/demo default returned 503. Fixed with an in-process store of identical semantics, selected on the repository backend so a PostgreSQL outage still fails closed. Postgres unchanged at 217/0. |
+| Log-sink redaction under a build feature | `--all-features` enables `tokio-console`, whose `init_logging` hands formatting to `console_subscriber` and bypasses `privacy_logging` entirely — nine dead-code errors were the symptom, a disabled PHI control was the cause. CI ran this lint `continue-on-error`, so it had never failed. Now cfg-stated rather than silenced, with a startup warning naming what is off. |
+| Suites | API **520 passed / 0 failed / 1 ignored**, doctor **86 files / 331**, patient **26 / 83**, synthetic e2e **217/0 on PostgreSQL and 211/0 in memory**, **8 repo gates**, 3 typechecks, cargo-deny both workspaces |
 
 ### BLOCKED — prerequisite outside this repository
 
