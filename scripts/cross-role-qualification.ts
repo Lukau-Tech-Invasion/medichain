@@ -39,6 +39,7 @@ import {
   openKeystore,
   signerFromSecret,
   secretFromMnemonic,
+  generateWalletIdentity,
 } from '../client/shared/src/auth/credentials';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -72,6 +73,8 @@ interface Check {
 }
 
 const checks: Check[] = [];
+/** Set when any sign-in was refused by the challenge limiter this run. */
+let sessionsRateLimited = false;
 let section = 'unknown';
 
 function record(name: string, passed: boolean, detail: string): void {
@@ -164,6 +167,22 @@ async function http(
   return { status: res.status, json };
 }
 
+/**
+ * Thrown when the per-wallet challenge limiter refuses a sign-in.
+ *
+ * Distinguished from every other sign-in failure on purpose. The limiter is a
+ * control doing its job — five challenges per wallet per minute — and running
+ * this harness twice inside a minute legitimately runs into it. A section that
+ * could not obtain a session for that reason is SKIPPED; one that could not
+ * obtain a session for any other reason has FAILED.
+ */
+class ChallengeRateLimited extends Error {
+  constructor(loginId: string) {
+    super(`challenge rate limited for ${loginId}`);
+    this.name = 'ChallengeRateLimited';
+  }
+}
+
 /** The whole sign-in, exactly as the portal performs it. */
 async function signIn(loginId: string, label: string): Promise<Session> {
   const { authProof, keystoreKey } = await deriveCredential(PASSWORD, loginId);
@@ -181,6 +200,9 @@ async function signIn(loginId: string, label: string): Promise<Session> {
   const challenge = await http('POST', '/auth/challenge', {
     body: { wallet_address: login.json.wallet_address },
   });
+  if (challenge.status === 429) {
+    throw new ChallengeRateLimited(loginId);
+  }
   if (challenge.status !== 200) {
     throw new Error(`challenge failed for ${loginId}: ${challenge.status}`);
   }
@@ -272,7 +294,12 @@ async function qualifySessions(m: Manifest): Promise<Record<string, Session>> {
       sessions[label] = s;
       record(`${label} (${s.role}) signs in and receives a bearer token`, true, '');
     } catch (e) {
-      record(`${label} signs in`, false, String(e));
+      if (e instanceof ChallengeRateLimited) {
+        sessionsRateLimited = true;
+        skip(`${label} signs in`, 'per-wallet challenge limiter — re-run after a minute');
+      } else {
+        record(`${label} signs in`, false, String(e));
+      }
     }
   }
   return sessions;
@@ -349,7 +376,13 @@ async function qualifyLabWorkflow(m: Manifest, sessions: Record<string, Session>
 
   const { labtech, doctorA, doctorB } = sessions;
   if (!labtech || !doctorA || !doctorB) {
-    record('lab workflow prerequisites', false, 'needs labtech + two doctors');
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('lab workflow', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('lab workflow prerequisites', false, 'needs labtech + two doctors');
+    }
     return;
   }
 
@@ -434,7 +467,13 @@ async function qualifySelfReview(m: Manifest, sessions: Record<string, Session>)
 
   const { doctorA, doctorB } = sessions;
   if (!doctorA || !doctorB) {
-    record('self-review prerequisites', false, 'needs two doctors');
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('self-review', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('self-review prerequisites', false, 'needs two doctors');
+    }
     return;
   }
 
@@ -626,7 +665,13 @@ async function qualifySessionLifecycle(sessions: Record<string, Session>): Promi
 
   const s = sessions.nurse;
   if (!s) {
-    record('session lifecycle prerequisites', false, 'needs a nurse session');
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('session lifecycle', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('session lifecycle prerequisites', false, 'needs a nurse session');
+    }
     return;
   }
 
@@ -700,7 +745,13 @@ async function qualifyConsentLifecycle(
   const patientA = patients.patientA;
   const patientB = patients.patientB;
   if (!doctorB || !patientA || !patientB) {
-    record('consent prerequisites', false, 'needs doctorB and both patient sessions');
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('consent lifecycle', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('consent prerequisites', false, 'needs doctorB and both patient sessions');
+    }
     return;
   }
 
@@ -973,10 +1024,13 @@ async function qualifyWalletRejectionPaths(m: Manifest): Promise<void> {
   );
 
   // --- the limiter --------------------------------------------------------
-  // A wallet nothing else uses, so proving the limiter does not cost a fixture
-  // its budget and leave the next run rate limited — which is exactly what
-  // happened the first time this section ran.
-  const throwaway = '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL';
+  // A wallet GENERATED here, so it is provably nobody's.
+  //
+  // This was a hardcoded address chosen as a "throwaway" without checking it —
+  // and it turned out to be a real registered nurse, `nurse.dlamini`. The probe
+  // had been consuming a live user's challenge budget every run. An address
+  // that looks unused is not the same as one that is.
+  const throwaway = (await generateWalletIdentity()).address;
   let limited = false;
   for (let i = 0; i < 12 && !limited; i += 1) {
     const r = await http('POST', '/auth/challenge', { body: { wallet_address: throwaway } });
@@ -1014,7 +1068,13 @@ async function qualifyAuthorizationBoundaries(
   const patientB = patients.patientB;
 
   if (!doctorA || !pharmacist || !labtech || !admin) {
-    record('boundary prerequisites', false, 'needs doctor, pharmacist, labtech and admin sessions');
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('authorization boundaries', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('boundary prerequisites', false, 'needs doctor, pharmacist, labtech and admin sessions');
+    }
     return;
   }
 
@@ -1102,7 +1162,11 @@ async function qualifyAuthorizationBoundaries(
     try {
       disposable = await signIn(nurseFixture.login_id, 'revocation-probe');
     } catch (e) {
-      record('a disposable session for the revocation probe', false, String(e));
+      if (e instanceof ChallengeRateLimited) {
+        skip('revocation probe', 'challenge limiter — re-run after a minute');
+      } else {
+        record('a disposable session for the revocation probe', false, String(e));
+      }
     }
 
     if (disposable) {
@@ -1177,6 +1241,146 @@ async function qualifyAuthorizationBoundaries(
   );
 }
 
+/**
+ * Patient persona mutation, and the boundary that makes it safe.
+ *
+ * A patient's writes are narrow by design: they may raise a symptom and they
+ * may message a clinician. Both cross a trust boundary in the direction the
+ * others do not — patient to staff — so the delivery half is proved by having
+ * the recipient read it back, not by trusting the 201.
+ *
+ * Deliberately API-level, not browser. Patient sign-in in a browser needs a
+ * wallet extension this environment cannot host (AUTH-007), so the session here
+ * is built the same way a portal would build it — mnemonic, signer, single-use
+ * challenge, signature, JWT — and the gap that remains is the *browser*, not
+ * the authentication.
+ */
+async function qualifyPatientMutation(
+  m: Manifest,
+  sessions: Record<string, Session>,
+  patients: Record<string, Session>
+): Promise<void> {
+  section = 'M. Patient persona mutation — symptom and message';
+  console.log(`\n${section}`);
+
+  const patientA = patients.patientA;
+  const patientB = patients.patientB;
+  const doctorA = sessions.doctorA;
+  if (!patientA || !doctorA) {
+    // A section cannot run without its sessions. When those were refused by
+    // the challenge limiter rather than by a defect, this is a SKIP.
+    if (sessionsRateLimited) {
+      skip('patient mutation', 'sessions unavailable — challenge limiter, re-run after a minute');
+    } else {
+      record('patient mutation prerequisites', false, 'needs a patient session and a doctor session');
+    }
+    return;
+  }
+
+  // --- a patient raises a symptom ----------------------------------------
+  const marker = `qualification-${Date.now()}`;
+  const symptom = await http('POST', '/symptoms/log', {
+    token: patientA.token,
+    body: {
+      patient_id: m.patient.linked_patient_id,
+      symptom: 'headache',
+      severity: 4,
+      notes: marker,
+    },
+  });
+  // The route may not exist under this name; a 404 is a finding, not a pass.
+  record(
+    'a patient can log a symptom',
+    [200, 201].includes(symptom.status),
+    `status ${symptom.status} ${JSON.stringify(symptom.json).slice(0, 160)}`
+  );
+
+  // --- a patient messages a clinician ------------------------------------
+  const send = await http('POST', '/messages/send', {
+    token: patientA.token,
+    body: {
+      recipient_id: doctorA.wallet,
+      subject: 'Qualification message',
+      content: `patient-to-clinician ${marker}`,
+      priority: 'normal',
+    },
+  });
+  if (expectStatus('a patient can message a clinician', send.status, [200, 201], send.json)) {
+    // The delivery half: the clinician must actually see it.
+    const inbox = await http('GET', '/messages', { token: doctorA.token });
+    record(
+      'the clinician receives the message',
+      JSON.stringify(inbox.json).includes(marker),
+      `doctor inbox did not contain ${marker}`
+    );
+
+    // And the patient has their own record of it. `folder` defaults to
+    // "inbox", which correctly does NOT hold what you sent: `send_message`
+    // writes an `:in` copy for the recipient and an `:out` copy for the
+    // sender, and `sent` is the folder that reads the latter. An earlier
+    // version of this check queried the default and reported the correct
+    // absence as a defect.
+    const own = await http('GET', '/messages?folder=sent', { token: patientA.token });
+    record(
+      'the patient has their own copy in the sent folder',
+      JSON.stringify(own.json).includes(marker),
+      "patient's sent folder did not contain the message they sent"
+    );
+
+    // The inbox must NOT contain it — the two folders are the point.
+    const inboxOfSender = await http('GET', '/messages?folder=inbox', { token: patientA.token });
+    record(
+      "the sender's inbox does not contain their own outgoing message",
+      !JSON.stringify(inboxOfSender.json).includes(marker),
+      'a sent message appeared in the sender inbox'
+    );
+  }
+
+  // --- the boundary -------------------------------------------------------
+  if (patientB) {
+    const toPatient = await http('POST', '/messages/send', {
+      token: patientA.token,
+      body: {
+        recipient_id: patientB.wallet,
+        subject: 'Should not arrive',
+        content: 'patient-to-patient probe',
+        priority: 'normal',
+      },
+    });
+    record(
+      'a patient cannot message another patient',
+      toPatient.status === 403 && String(toPatient.json?.error?.code) === 'INVALID_RECIPIENT',
+      `status ${toPatient.status} code ${toPatient.json?.error?.code}`
+    );
+
+    // Nothing must have been delivered by the refused attempt.
+    const bInbox = await http('GET', '/messages', { token: patientB.token });
+    record(
+      'the refused message was not delivered anyway',
+      !JSON.stringify(bInbox.json).includes('patient-to-patient probe'),
+      "patient B's inbox contains a message the API refused to send"
+    );
+  }
+
+  // A patient must not be able to message a recipient that does not exist,
+  // which is the same guard reached from the other side.
+  // Generated, for the same reason: the address originally used here was a
+  // real nurse, so the "unknown recipient" probe was actually testing a
+  // permitted patient-to-nurse message and reporting the correct 201 as a
+  // failure.
+  const nobody = (await generateWalletIdentity()).address;
+  const ghost = await http('POST', '/messages/send', {
+    token: patientA.token,
+    body: {
+      recipient_id: nobody,
+      subject: 'Ghost',
+      content: 'nobody',
+      priority: 'normal',
+    },
+  });
+  expectStatus('a patient cannot message an unknown recipient', ghost.status, [403, 404], ghost.json);
+}
+
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -1209,6 +1413,7 @@ async function main(): Promise<void> {
   await qualifyPrescriptionWorkflow(m, sessions);
   const patients = await qualifyPatientBoundary(m);
   await qualifyConsentLifecycle(m, sessions, patients);
+  await qualifyPatientMutation(m, sessions, patients);
   await qualifyAuthorizationBoundaries(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
   // Last: this section deliberately consumes challenges, and the
