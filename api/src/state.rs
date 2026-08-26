@@ -19,6 +19,10 @@ use std::sync::RwLock;
 pub struct AppState {
     /// PostgreSQL connection pool (optional - for persistent demo users)
     pub db_pool: Option<sqlx::PgPool>,
+    /// In-process idempotency claims, used only on the memory backend.
+    /// See `middleware::idempotency::MemoryOperationStore` for why this exists
+    /// and why it is not a bypass of the durable guard.
+    pub idempotency_memory: crate::middleware::idempotency::MemoryOperationStore,
     /// Repository container for database abstraction layer
     /// Provides access to PatientRepository, AllergyRepository, etc.
     /// Uses memory backend by default, PostgreSQL when MEDICHAIN_STORAGE=postgres
@@ -235,6 +239,7 @@ impl AppState {
 
         Self {
             db_pool,
+            idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             nfc_tags: RwLock::new(HashMap::new()),
             access_logs: RwLock::new(Vec::new()),
@@ -390,6 +395,7 @@ impl AppState {
 
         Self {
             db_pool,
+            idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             nfc_tags: RwLock::new(HashMap::new()),
             access_logs: RwLock::new(Vec::new()),
