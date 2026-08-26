@@ -804,8 +804,24 @@ pub async fn pharmacist_dashboard(
         .iter()
         .filter(|v| status_of(v) == "Transmitted")
         .count();
-    let in_progress = list.iter().filter(|v| status_of(v) == "Filling").count();
-    let completed_today = list.iter().filter(|v| status_of(v) == "Filled").count();
+    // `PrescriptionStatus` has no `Filling` and no `Filled`. Its variants are
+    // Draft, Pending, Signed, Transmitted, Received, InProgress, Dispensed,
+    // PartialFill, Cancelled, Expired, Error — so both of these tiles were
+    // filtering on strings the domain never produces and were structurally
+    // always zero, exactly like the doctor's "Pending Lab Reviews" tile was.
+    //
+    // Both still read zero today, and that is now the truth rather than a
+    // coincidence: nothing can reach a dispensing state because no endpoint
+    // performs the transition (see SCR-012). They will start reporting the
+    // moment one exists.
+    let in_progress = list
+        .iter()
+        .filter(|v| matches!(status_of(v).as_str(), "Received" | "InProgress"))
+        .count();
+    let completed_today = list
+        .iter()
+        .filter(|v| matches!(status_of(v).as_str(), "Dispensed" | "PartialFill"))
+        .count();
 
     let mut drug_interactions = Vec::new();
     let mut allergy_alerts = Vec::new();
@@ -990,6 +1006,115 @@ mod lab_rejection_tests {
         assert!(rejections[0].is_object(), "a null here takes the page down");
         assert_eq!(rejections[0]["patient_name"], "Thandiwe Rejection-Test");
         assert_eq!(rejections[0]["accession_number"], "SPC-REJ-1");
+    }
+}
+
+#[cfg(test)]
+mod pharmacy_tile_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn pharmacist() -> crate::User {
+        crate::User {
+            wallet_address: "tile_pharm".to_string(),
+            username: None,
+            name: "Tile Pharm".to_string(),
+            role: crate::Role::Pharmacist,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// The pharmacy tiles must count statuses `PrescriptionStatus` can actually
+    /// produce.
+    ///
+    /// `in_progress` filtered on `"Filling"` and `completed_today` on
+    /// `"Filled"`. Neither is a variant — the enum has Draft, Pending, Signed,
+    /// Transmitted, Received, InProgress, Dispensed, PartialFill, Cancelled,
+    /// Expired, Error — so both tiles were structurally always zero and no test
+    /// data could have moved them, exactly like the doctor's "Pending Lab
+    /// Reviews" tile before it was fixed.
+    #[actix_web::test]
+    async fn the_pharmacy_tiles_count_statuses_the_domain_produces() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("tile_pharm".to_string(), pharmacist());
+
+        let now = chrono::Utc::now();
+        // One of each state the tiles are supposed to notice, plus a
+        // Transmitted one for the pending queue.
+        for (id, status) in [
+            ("RX-T1", "Transmitted"),
+            ("RX-R1", "Received"),
+            ("RX-I1", "InProgress"),
+            ("RX-D1", "Dispensed"),
+            ("RX-P1", "PartialFill"),
+        ] {
+            state
+                .repositories
+                .e_prescriptions_v2
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: id.to_string(),
+                    owner_id: "PAT-TILE".to_string(),
+                    data: serde_json::json!({
+                        "prescription_id": id,
+                        "patient_id": "PAT-TILE",
+                        "prescriber_name": "Dr Tile",
+                        "medication": { "name": "Amoxicillin", "strength": "500mg", "directions": "tds" },
+                        "status": status,
+                        "is_controlled": false,
+                    }),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("seed prescription");
+        }
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(pharmacist_dashboard),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/pharmacist")
+                .insert_header(("x-user-id", "tile_pharm"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let rx = &body["prescriptions"];
+
+        assert_eq!(
+            rx["pending_fill"], 1,
+            "one Transmitted prescription; got {body}"
+        );
+        assert_eq!(
+            rx["in_progress"], 2,
+            "Received + InProgress are the states between transmission and dispensing; got {body}"
+        );
+        assert_eq!(
+            rx["completed_today"], 2,
+            "Dispensed + PartialFill are the terminal dispensing states; got {body}"
+        );
     }
 }
 
