@@ -71,6 +71,30 @@ check_setup() {
   fi
 }
 
+# check_any <name> "<code> <code> ...>" <actual> [detail]
+#
+# For the few endpoints where more than one status is a correct answer to the
+# same request. Keep the accepted set as narrow as the behaviour genuinely is:
+# a list wide enough to swallow a client mistake will hide the failure that
+# mistake causes, which is exactly how a telehealth assertion here once passed
+# while the session it was meant to end stayed open.
+check_any() {
+  local name="$1" want="$2" got="$3" detail="${4:-}" code
+  for code in $want; do
+    if [ "$code" = "$got" ]; then
+      PASS=$((PASS+1)); RESULTS+=("PASS | $name | got $got")
+      printf '  [32mPASS[0m %-62s %s
+' "$name" "$got"
+      return
+    fi
+  done
+  FAIL=$((FAIL+1)); RESULTS+=("FAIL | $name | want ${want// //} got $got | $detail")
+  printf '  [31mFAIL[0m %-62s want %s got %s
+' "$name" "${want// //}" "$got"
+  [ -n "$detail" ] && printf '       %s
+' "$(echo "$detail" | head -c 400)"
+}
+
 # check <name> <expected> <actual> [detail]
 check() {
   local name="$1" want="$2" got="$3" detail="${4:-}"
@@ -209,7 +233,11 @@ check_setup "bootstrap first admin" "$c" "$(body)"
 # second administrator only in this isolated demo-mode suite so both backends
 # exercise the retention maker-checker boundary with the same actors.
 c=$(code POST /api/auth/demo-login "{\"wallet_address\":\"$JUDGE\",\"role\":\"Admin\",\"name\":\"Synthetic Judge Admin\"}")
-check "demo-only secondary admin is available for maker-checker" 200 "$c" "$(body)"
+# 200 when the account is already there, 201 when demo-login creates it.
+# PostgreSQL carries the judge administrator from the initial schema; the
+# memory backend does not, so it is created on the spot. Both mean the
+# second administrator this section needs is available.
+check_any "demo-only secondary admin is available for maker-checker" "200 201" "$c" "$(body)"
 
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$DOCTOR\",\"name\":\"Dr Synthetic\",\"username\":\"drsyn\",\"role\":\"Doctor\"}" "$ADMIN")
 check_setup "admin registers doctor" "$c" "$(body)"
