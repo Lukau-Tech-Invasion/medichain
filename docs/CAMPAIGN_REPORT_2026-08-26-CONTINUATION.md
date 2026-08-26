@@ -244,7 +244,7 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 
 | Suite | Result |
 | --- | --- |
-| API, nothing filtered | **507 passed, 0 failed, 1 ignored** (was 491) |
+| API, nothing filtered | **513 passed, 0 failed, 1 ignored** (was 491 at the start of the campaign) |
 | Pallets | 60 (26 / 22 / 12) on the new lockfile |
 | Doctor portal | **86 files / 331 tests** (was 85 / 321) |
 | Patient app | 26 files / 83 tests |
@@ -294,36 +294,58 @@ unlisted value fails it.
   the old binary in place, so a fix looked ineffective for several minutes.
   Comparing the binary's mtime against the source's is what settled it.
 
-## E. What is still open
+## E. Outcome register
 
-**Blocked on this environment, not on the code**
+Four outcomes, kept apart. A blocker in one lane does not lower confidence in
+another, and no total below folds blocked or untested work into a denominator.
 
-* A successful patient sign-in in a browser needs a wallet extension this
-  isolated browser does not have. The path is fixed and now fails for the right
-  reason with the right message; the success path is undemonstrated.
-* Browser *mutations* for Nurse, Pharmacist, Lab and Admin. All four were
-  driven on screen and read correctly; only the Doctor performed a write
-  through the UI, so the mutation half of the gate is met for one role.
+### PASS — exercised and correct
 
-**Owner decisions**
+| Lane | Evidence |
+| --- | --- |
+| Cross-role qualification | **113/113**, clean limiter window, re-runnable |
+| Authorization boundaries, direct API | 18/18 — identity substitution, cross-patient, cross-role, revoked session, forged token, server-side self-approval, org-header spoofing |
+| Doctor browser mutation | lab approval → PostgreSQL → chart → audit |
+| Nurse browser mutation | vitals → PostgreSQL → **Doctor reads back** → audit → Pharmacist 403 |
+| Lab Technician browser mutation | notify → PostgreSQL → 409 on repeat → audit |
+| Admin mutation | suspend → **401 on full auth attempt** → Doctor reactivation 403 → restored |
+| Patient mutation | symptom + message → clinician reads back → patient→patient refused |
+| Telehealth state machine | 15/15 — both window edges, wrong-patient refused, recording authority, ended session refuses rejoin |
+| Wallet rejection paths | 9/9 — replay, wrong signer, forged id, tampered nonce, rate limit |
+| Reliability | 10/10 — 8 concurrent retries create exactly one row; 240 requests at 40-way concurrency, zero errors; write succeeds under load; **SIGKILL restart survived, 5s recovery, encryption keyring intact** |
+| Performance | 240 samples over six real operations, 0 errors |
+| Suites | API **513 passed / 0 failed / 1 ignored**, doctor **86 files / 331**, patient **26 / 83**, **8 repo gates**, 3 typechecks, cargo-deny both workspaces |
 
-* The five hardcoded quick-login patients in the patient app target invented
-  addresses, cannot work even with an extension, and are labelled "Click any
-  patient to instantly login with their wallet". The clinician portal already
-  answered this (`2e389f7`, `91b171f`) by removing patient accounts from its
-  sign-in and rebuilding quick login on the real credential path behind a
-  demo-gated resolver. Left in place under `CLAUDE.md` rule 7.
-* 55 discarded repository writes remain. Each is a write whose failure the
-  caller cannot see; the ratchet stops the number growing.
+### BLOCKED — prerequisite outside this repository
+
+| Lane | Prerequisite |
+| --- | --- |
+| Blockchain node build (BC-003) | A host with MSVC, or wasm-builder linker flags permitting undefined imports. `LIBCLANG_PATH` cleared the *first* blocker; the WASM link is the real one. Full reproduction record in the ledger. |
+| Backup / DR (DATA-002) | A responsive Docker daemon, or native `pg_dump`/`psql` on PATH. A trivial `docker exec` exceeds 240s here. |
+| Patient wallet **success** path (AUTH-007) | The polkadot-js extension, in neither the Chrome profile nor the repo. Rejection paths are covered; the success path is unverified — not failed, not passed. |
+| Pharmacist mutation (SCR-013) | A clinical decision on what dispensing means. No endpoint exists to qualify. |
+| Request Recollect (SCR-009b) | Four clinical questions, named in the ledger. |
+| PostgreSQL restart, worker crash / outbox backlog | Container and process control this environment does not provide. |
+
+### NOT TESTED — executable, not yet run
+
+| Lane |
+| --- |
+| Finalized-chain E2E (BC-001) — depends on BC-003 |
+| Live telehealth conference: media, reconnect, recording capture — no private Jitsi instance configured |
+| National-ID sandbox — credentials do not exist here |
+| Hosted CI, SBOM, image digest and provenance |
+| Accessibility beyond the contrast gate and the Lab Review page's own tests |
+
+### Owner decisions carried forward
+
 * `blockchain/Cargo.toml` declares MIT while `medichain-node` links 17 strict
-  GPL-3.0-only crates, and the blockchain licence allow-list covers 1074 of
-  1171 packages.
-
-**Not started in this pass**
-
-Telehealth provider qualification, national-ID sandbox, blockchain end-to-end,
-observability chain, backup and restore, performance and SLOs, hosted CI
-provenance and SBOM.
+  GPL-3.0-only crates; the blockchain licence allow-list covers 1074 of 1171
+  packages.
+* 55 discarded repository writes remain, ratcheted so the number cannot grow.
+* `GET /dashboard/doctor` is p50 213ms against 42ms for a single patient read —
+  the first page every clinician loads, aggregating seven repositories in one
+  request. Not a defect today; worth knowing before a real ward's data volume.
 
 ## F. Release decision
 
