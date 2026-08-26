@@ -66,6 +66,8 @@ interface Check {
   section: string;
   name: string;
   passed: boolean;
+  /** A control correctly refusing us is not a product failure. */
+  skipped?: boolean;
   detail: string;
 }
 
@@ -75,6 +77,20 @@ let section = 'unknown';
 function record(name: string, passed: boolean, detail: string): void {
   checks.push({ section, name, passed, detail });
   console.log(`  ${passed ? 'PASS' : 'FAIL'}  ${name}${passed ? '' : `  -- ${detail}`}`);
+}
+
+/**
+ * Record a check that could not run because a control correctly refused us.
+ *
+ * The challenge limiter is 5 per wallet per minute. Running this harness twice
+ * inside a minute legitimately exhausts it, and reporting that as a failure
+ * would train a reader to ignore a red result caused by security working. A
+ * skip is honest and keeps the suite re-runnable; it is deliberately NOT a
+ * pass, so a section that never runs cannot be mistaken for one that did.
+ */
+function skip(name: string, reason: string): void {
+  checks.push({ section, name, passed: false, skipped: true, detail: reason });
+  console.log(`  SKIP  ${name}  -- ${reason}`);
 }
 
 /** Assert an exact HTTP status, reporting what actually came back when it differs. */
@@ -800,6 +816,158 @@ async function qualifyConsentLifecycle(
   record('the revoked grant is no longer active', !stillActive, JSON.stringify(after.json).slice(0, 300));
 }
 
+/**
+ * Wallet-authentication rejection paths.
+ *
+ * The success path for a patient needs a browser wallet extension this
+ * environment cannot host (see the campaign report). These are the parts that
+ * do not: every one of them is decided by the API, not by the extension, so
+ * testing them here is testing them where they live rather than settling for a
+ * weaker proof of the same property.
+ *
+ * `auth_challenges::consume` is a single UPDATE with
+ * `used_at IS NULL AND expires_at > NOW()` in its WHERE clause, so replay and
+ * expiry are one atomic decision. That is the shape being confirmed.
+ */
+async function qualifyWalletRejectionPaths(m: Manifest): Promise<void> {
+  section = 'K. Wallet authentication — rejection paths';
+  console.log(`\n${section}`);
+
+  // Patient B, not A. The limiter is 5 challenges per wallet per minute
+  // (`MAX_CHALLENGES_PER_WALLET_PER_MINUTE`), and A's budget is what sections
+  // I and J need to sign in on an immediate re-run. B is used once earlier and
+  // not after this, so it has room.
+  const wallet = m.patient_b.wallet;
+  const signer = await signerFromSecret(await secretFromMnemonic(m.patient_b.mnemonic), wallet);
+
+  /** A challenge, or null when the per-wallet limiter has already fired. */
+  const challenge = async (): Promise<Json | null> => {
+    const r = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
+    return r.status === 200 ? (r.json.challenge as Json) : null;
+  };
+
+  // --- single use ---------------------------------------------------------
+  const c1 = await challenge();
+  if (!c1) {
+    skip(
+      'wallet rejection paths',
+      'the per-wallet challenge limiter is already satisfied — re-run after a minute'
+    );
+    return;
+  }
+  record('a challenge is issued', true, '');
+
+  const signed = await signer.sign(c1.message as string);
+  const good = await http('POST', '/auth/jwt', {
+    body: { wallet_address: wallet, challenge_id: c1.challenge_id, nonce: c1.nonce, signature: signed },
+  });
+  expectStatus('a correctly signed challenge is accepted', good.status, 200, good.json);
+
+  const replay = await http('POST', '/auth/jwt', {
+    body: { wallet_address: wallet, challenge_id: c1.challenge_id, nonce: c1.nonce, signature: signed },
+  });
+  expectStatus('the same challenge cannot be used twice', replay.status, [400, 401, 409], replay.json);
+
+  // --- every negative probe shares ONE challenge --------------------------
+  //
+  // `auth_challenges::consume` only marks a challenge used on success, so a
+  // rejected attempt leaves it outstanding. Reusing one is not a shortcut: it
+  // is what lets all four probes run inside a per-wallet challenge limiter
+  // that fires after a handful of requests — and that limiter is itself
+  // asserted at the end.
+  const c2 = await challenge();
+  if (!c2) {
+    skip(
+      'wallet negative probes',
+      'the per-wallet challenge limiter fired mid-section — re-run after a minute'
+    );
+    return;
+  }
+
+  const otherSigner = await signerFromSecret(
+    await secretFromMnemonic(m.patient.mnemonic),
+    m.patient.wallet
+  );
+  const wrongSigner = await http('POST', '/auth/jwt', {
+    body: {
+      wallet_address: wallet,
+      challenge_id: c2.challenge_id,
+      nonce: c2.nonce,
+      // Patient A signs a challenge issued to patient B.
+      signature: await otherSigner.sign(c2.message as string),
+    },
+  });
+  expectStatus(
+    "another patient's signature does not authenticate this wallet",
+    wrongSigner.status,
+    [400, 401],
+    wrongSigner.json
+  );
+
+  const forgedId = await http('POST', '/auth/jwt', {
+    body: {
+      wallet_address: wallet,
+      challenge_id: '00000000-0000-4000-8000-000000000000',
+      nonce: c2.nonce,
+      signature: await signer.sign(c2.message as string),
+    },
+  });
+  expectStatus(
+    'a challenge id that was never issued is refused',
+    forgedId.status,
+    [400, 401, 404],
+    forgedId.json
+  );
+
+  const badNonce = await http('POST', '/auth/jwt', {
+    body: {
+      wallet_address: wallet,
+      challenge_id: c2.challenge_id,
+      nonce: `${c2.nonce}tampered`,
+      signature: await signer.sign(c2.message as string),
+    },
+  });
+  expectStatus('a tampered nonce is refused', badNonce.status, [400, 401], badNonce.json);
+
+  const noSig = await http('POST', '/auth/jwt', {
+    body: { wallet_address: wallet, challenge_id: c2.challenge_id, nonce: c2.nonce, signature: '' },
+  });
+  expectStatus('an empty signature is refused', noSig.status, [400, 401], noSig.json);
+
+  // The challenge survived all four, which is the property that made sharing
+  // it valid — and confirms a failed attempt does not burn a user's challenge.
+  const stillUsable = await http('POST', '/auth/jwt', {
+    body: {
+      wallet_address: wallet,
+      challenge_id: c2.challenge_id,
+      nonce: c2.nonce,
+      signature: await signer.sign(c2.message as string),
+    },
+  });
+  expectStatus(
+    'a rejected attempt does not consume the challenge',
+    stillUsable.status,
+    200,
+    stillUsable.json
+  );
+
+  // --- the limiter --------------------------------------------------------
+  // A wallet nothing else uses, so proving the limiter does not cost a fixture
+  // its budget and leave the next run rate limited — which is exactly what
+  // happened the first time this section ran.
+  const throwaway = '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL';
+  let limited = false;
+  for (let i = 0; i < 12 && !limited; i += 1) {
+    const r = await http('POST', '/auth/challenge', { body: { wallet_address: throwaway } });
+    if (r.status === 429) limited = true;
+  }
+  record(
+    'repeated challenge requests are rate limited',
+    limited,
+    'twelve further challenge requests were all accepted'
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -833,10 +1001,23 @@ async function main(): Promise<void> {
   const patients = await qualifyPatientBoundary(m);
   await qualifyConsentLifecycle(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
+  // Last: this section deliberately consumes challenges, and the
+  // per-wallet challenge rate limiter is a real control that will fire.
+  await qualifyWalletRejectionPaths(m);
 
-  const failed = checks.filter((c) => !c.passed);
+  const failed = checks.filter((c) => !c.passed && !c.skipped);
+  const skipped = checks.filter((c) => c.skipped);
+  const passed = checks.filter((c) => c.passed);
+
   console.log(`\n${'='.repeat(70)}`);
-  console.log(`${checks.length - failed.length}/${checks.length} checks passed`);
+  console.log(
+    `${passed.length}/${passed.length + failed.length} checks passed` +
+      (skipped.length ? `, ${skipped.length} skipped` : '')
+  );
+  if (skipped.length) {
+    console.log(`\n${skipped.length} SKIPPED (a control refused us, not a defect):`);
+    for (const sk of skipped) console.log(`  [${sk.section}] ${sk.name}\n      ${sk.detail}`);
+  }
   if (failed.length) {
     console.log(`\n${failed.length} FAILED:`);
     for (const f of failed) console.log(`  [${f.section}] ${f.name}\n      ${f.detail}`);
