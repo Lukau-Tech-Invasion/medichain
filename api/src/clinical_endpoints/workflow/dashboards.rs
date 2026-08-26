@@ -446,12 +446,66 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         .list_all()
         .await
         .unwrap_or_default();
-    let rejections = data
+    // A rejected specimen the technician cannot identify is unusable: the whole
+    // point of the panel is to recollect, and you cannot recollect from a
+    // patient you cannot name. The stored record carries `patient_id` and
+    // `specimen_id`; the screen reads `patient_name` and `accession_number`,
+    // neither of which exists on it, so every row rendered
+    // "Unknown - Haemolysed sample / Patient: Unknown".
+    //
+    // Resolved here rather than in the client, for the same reason as the
+    // pharmacy queue: the name is encrypted at rest and only the API holds the
+    // keyring.
+    let rejection_records = data
         .repositories
         .specimen_rejections
         .list_all()
         .await
         .unwrap_or_default();
+
+    let mut rejection_names: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for r in &rejection_records {
+        if r.patient_id.is_empty() || rejection_names.contains_key(&r.patient_id) {
+            continue;
+        }
+        if let Ok(entity) = data.repositories.patients.get_by_id(&r.patient_id).await {
+            if let Some(profile) =
+                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
+            {
+                rejection_names.insert(r.patient_id.clone(), profile.full_name);
+            }
+        }
+    }
+
+    // Enrich the SERIALISED ENTITY, not `entity.data`.
+    //
+    // `SpecimenRejectionEntity` is a typed row, and its `data` field is
+    // `#[sqlx(skip)]` — always JSON null for anything read from PostgreSQL. A
+    // first attempt at this mapped each record to `r.data`, which put a null in
+    // the array the panel maps over and took the whole Laboratory Dashboard
+    // down with "Cannot read properties of null (reading 'accession_number')".
+    // Worth keeping: two repositories in this file are named alike and one is
+    // a JSON-document store while this one is not.
+    let rejections: Vec<serde_json::Value> = rejection_records
+        .iter()
+        .map(|r| {
+            let mut v = serde_json::to_value(r).unwrap_or(serde_json::Value::Null);
+            if let Some(obj) = v.as_object_mut() {
+                if let Some(name) = rejection_names.get(&r.patient_id) {
+                    obj.insert(
+                        "patient_name".to_string(),
+                        serde_json::Value::String(name.clone()),
+                    );
+                }
+                // The panel labels each row by accession number; this record's
+                // identifier for the same specimen is `specimen_id`.
+                obj.entry("accession_number".to_string())
+                    .or_insert_with(|| serde_json::Value::String(r.specimen_id.clone()));
+            }
+            v
+        })
+        .collect();
 
     // A critical result nobody has acknowledged is the one thing on this screen
     // that must never be silently empty.
@@ -796,6 +850,147 @@ pub async fn pharmacist_dashboard(
         "drug_interactions": drug_interactions,
         "allergy_alerts": allergy_alerts,
     }))
+}
+
+#[cfg(test)]
+mod lab_rejection_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn lab_tech() -> crate::User {
+        crate::User {
+            wallet_address: "lab_wallet".to_string(),
+            username: None,
+            name: "Lab Test".to_string(),
+            role: crate::Role::LabTechnician,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// A rejected specimen the technician cannot identify is unusable: the
+    /// panel exists so somebody can recollect, and you cannot recollect from a
+    /// patient you cannot name.
+    ///
+    /// The stored record carries `patient_id` and `specimen_id`; the screen
+    /// reads `patient_name` and `accession_number`, neither of which exists on
+    /// `SpecimenRejectionEntity`. Every row rendered
+    /// "Unknown - Haemolysed sample / Patient: Unknown".
+    #[actix_web::test]
+    async fn a_rejected_specimen_identifies_its_patient_and_specimen() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("lab_wallet".to_string(), lab_tech());
+
+        let patient_id = "PAT-REJ-1";
+        let now = chrono::Utc::now();
+
+        let profile = crate::PatientProfile {
+            patient_id: patient_id.to_string(),
+            full_name: "Thandiwe Rejection-Test".to_string(),
+            date_of_birth: "1990-01-01".to_string(),
+            time_of_birth: None,
+            national_id: "NID-REJ-1".to_string(),
+            gender: None,
+            phone: "+27000000300".to_string(),
+            emergency_info: crate::EmergencyInfo {
+                patient_id: patient_id.to_string(),
+                blood_type: crate::BloodType::OPositive,
+                allergies: Vec::new(),
+                current_medications: Vec::new(),
+                chronic_conditions: Vec::new(),
+                emergency_contacts: Vec::new(),
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                languages: vec!["en".to_string()],
+                last_updated: now,
+            },
+            address: None,
+            insurance: None,
+            primary_doctor: None,
+            community_health_worker: None,
+            preferences: crate::PatientPreferences::default(),
+            advanced_directives: Vec::new(),
+            family_notifications: None,
+            created_at: now,
+            last_updated: now,
+        };
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+
+        state
+            .repositories
+            .specimen_rejections
+            .create(crate::repositories::traits::SpecimenRejectionEntity {
+                id: "REJ-1".to_string(),
+                specimen_id: "SPC-REJ-1".to_string(),
+                patient_id: patient_id.to_string(),
+                rejection_reason: "Haemolysed sample".to_string(),
+                rejection_category: "collection_error".to_string(),
+                detailed_notes: None,
+                rejected_by: "lab_wallet".to_string(),
+                rejected_at: now,
+                recollection_required: false,
+                recollection_scheduled: None,
+                notified_ordering_provider: false,
+                notification_sent_at: None,
+                created_at: now,
+                data: serde_json::Value::Null,
+            })
+            .await
+            .expect("seed rejection");
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(lab_dashboard),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/lab")
+                .insert_header(("x-user-id", "lab_wallet"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let rejections = body["rejections"].as_array().expect("rejections array");
+        assert_eq!(rejections.len(), 1, "got {body}");
+
+        // Every element must be an object. An earlier version of this
+        // enrichment emitted `entity.data` — which is `#[sqlx(skip)]` and so
+        // always null — and the panel died on
+        // "Cannot read properties of null".
+        assert!(rejections[0].is_object(), "a null here takes the page down");
+        assert_eq!(rejections[0]["patient_name"], "Thandiwe Rejection-Test");
+        assert_eq!(rejections[0]["accession_number"], "SPC-REJ-1");
+    }
 }
 
 #[cfg(test)]
