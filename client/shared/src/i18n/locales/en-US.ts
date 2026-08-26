@@ -1443,6 +1443,12 @@ const en_US: TranslationRecord = {
     qaUpdateCarePlan: 'Update Care Plan',
     taskVitals: 'Vitals x{{count}}',
     taskMultiplePatients: 'Multiple patients',
+    // Replaces the fabricated schedule rows. `taskVitals`,
+    // `taskDressingChange`, `taskBloodSugar` and `taskIvAssessment` are
+    // kept so nothing else referencing them breaks, but the nurse
+    // dashboard no longer renders invented tasks.
+    taskVitalsFor: 'Vitals need attention',
+    tasksNone: 'Nothing outstanding for your patients right now.',
     taskDressingChange: 'Dressing change',
     taskBloodSugar: 'Blood sugar x{{count}}',
     taskIvAssessment: 'IV site assessment',

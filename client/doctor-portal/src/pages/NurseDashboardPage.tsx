@@ -107,12 +107,29 @@ export default function NurseDashboardPage() {
     severity: 'high' as const,
   })) || [];
 
-  const tasksData = [
-    { time: '08:00', task: t('docNurseDashboard.taskVitals', { count: data?.tasks?.vitals_due || 0 }), patient: t('docNurseDashboard.taskMultiplePatients') },
-    { time: '08:30', task: t('docNurseDashboard.taskDressingChange'), patient: 'Room 403' },
-    { time: '09:00', task: t('docNurseDashboard.taskBloodSugar', { count: data?.tasks?.vitals_due || 0 }), patient: t('docNurseDashboard.taskMultiplePatients') },
-    { time: '09:00', task: t('docNurseDashboard.taskIvAssessment'), patient: 'ICU-2' },
-  ];
+  // Derived from what the API actually reports, which is
+  // `vitals_needing_attention` — patients whose recorded observations are
+  // outside range. Everything else on this panel used to be invented:
+  //
+  //   08:30  Dressing change    Room 403
+  //   09:00  IV site assessment ICU-2
+  //
+  // Those times, those locations and those two tasks exist nowhere in the
+  // backend; `/api/dashboard/nurse` returns only `tasks.vitals_due` and a
+  // hardcoded `ivs_to_check: 0`. The remaining two rows interpolated the real
+  // `vitals_due` count into fixed 08:00 and 09:00 slots, so a nurse saw
+  // "Vitals x0" and "Blood sugar x0" listed as scheduled work.
+  //
+  // A task list is a work instruction. Four fabricated rows — one naming a
+  // specific room — are worse than an empty panel: a nurse either acts on
+  // them or stops believing the panel, and both outcomes are caused by the
+  // screen rather than by the ward.
+  const tasksData = (data?.vitals_needing_attention ?? []).map((v: any) => ({
+    id: v.flowsheet_id ?? v.patient_id ?? v.patient_name,
+    task: t('docNurseDashboard.taskVitalsFor'),
+    patient: v.patient_name ?? v.patient_id ?? '',
+    detail: v.abnormal_values?.join(', ') ?? '',
+  }));
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
@@ -218,13 +235,24 @@ export default function NurseDashboardPage() {
             <ClipboardList size={16} aria-hidden="true" /> {t('docNurseDashboard.tasksDue')}
           </h3>
           <div className="space-y-2">
-            {tasksData.map((task, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken">
-                <span className="text-sm font-medium text-content-muted w-12">{task.time}</span>
-                <span className="flex-1 text-sm text-content">{task.task}</span>
-                <span className="text-sm text-content-muted">{task.patient}</span>
-              </div>
-            ))}
+            {tasksData.length === 0 ? (
+              <p className="text-sm text-content-muted p-2">
+                {t('docNurseDashboard.tasksNone')}
+              </p>
+            ) : (
+              tasksData.map((task: { id: string; task: string; patient: string; detail: string }) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken"
+                >
+                  <span className="flex-1 text-sm text-content">{task.task}</span>
+                  <span className="text-sm text-content-muted">{task.patient}</span>
+                  {task.detail && (
+                    <span className="text-sm text-content-muted">{task.detail}</span>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
