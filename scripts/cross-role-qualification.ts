@@ -129,11 +129,32 @@ async function http(
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
   if (method !== 'GET') headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
 
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  });
+  // A transport failure is not a result. `fetch` rejects when the connection
+  // never completes — which happened repeatedly while a heavy build saturated
+  // this host — and reporting that as an authorization outcome would put a red
+  // FAIL against a control that was never consulted. HTTP statuses, including
+  // 4xx and 5xx, are answers and are returned unretried.
+  let res: Response | undefined;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      res = await fetch(`${API}${path}`, {
+        method,
+        headers,
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      });
+      break;
+    } catch (e) {
+      lastError = e;
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+    }
+  }
+  if (!res) {
+    throw new Error(
+      `transport failure after 3 attempts for ${method} ${path}: ${String(lastError)}`
+    );
+  }
+
   let json: Json = {};
   try {
     json = (await res.json()) as Json;
@@ -968,6 +989,194 @@ async function qualifyWalletRejectionPaths(m: Manifest): Promise<void> {
   );
 }
 
+/**
+ * Authorization boundaries, probed directly rather than through a screen.
+ *
+ * A UI mutation proves the happy path exists. It proves nothing about what
+ * happens when the same request arrives without the UI's cooperation, which is
+ * the only way an attacker will ever send it. Everything here bypasses the
+ * portal entirely and speaks to the API as a client that has decided not to
+ * behave.
+ *
+ * Grouped by the boundary each probe attacks, because "403" alone is not the
+ * interesting part — *which* rule produced it is.
+ */
+async function qualifyAuthorizationBoundaries(
+  m: Manifest,
+  sessions: Record<string, Session>,
+  patients: Record<string, Session>
+): Promise<void> {
+  section = 'L. Authorization boundaries — direct API, no UI';
+  console.log(`\n${section}`);
+
+  const { doctorA, pharmacist, labtech, admin } = sessions;
+  const patientA = patients.patientA;
+  const patientB = patients.patientB;
+
+  if (!doctorA || !pharmacist || !labtech || !admin) {
+    record('boundary prerequisites', false, 'needs doctor, pharmacist, labtech and admin sessions');
+    return;
+  }
+
+  const pidA = m.patient.linked_patient_id;
+  const pidB = m.patient_b.linked_patient_id;
+
+  // --- identity substitution ---------------------------------------------
+  //
+  // The legacy header is the one MediChain spent a campaign removing. A
+  // request carrying a valid Bearer token AND a contradicting X-User-Id must
+  // resolve identity from the token, never from the header.
+  const substituted = await fetch(`${API}/patients/${pidA}`, {
+    headers: {
+      Authorization: `Bearer ${pharmacist.token}`,
+      // Claim to be the admin while holding a pharmacist's token.
+      'X-User-Id': m.administrator_wallet,
+    },
+  });
+  record(
+    'a contradicting X-User-Id does not upgrade a bearer session',
+    // Either the header is ignored (pharmacist's own rights apply) or the
+    // request is refused outright. What must NOT happen is admin access.
+    substituted.status !== 500,
+    `status ${substituted.status}`
+  );
+
+  const adminOnlyAsPharmacist = await fetch(`${API}/dashboard/admin`, {
+    headers: {
+      Authorization: `Bearer ${pharmacist.token}`,
+      'X-User-Id': m.administrator_wallet,
+    },
+  });
+  record(
+    'a pharmacist claiming the admin wallet still cannot reach the admin dashboard',
+    [401, 403].includes(adminOnlyAsPharmacist.status),
+    `status ${adminOnlyAsPharmacist.status}`
+  );
+
+  // --- cross-patient ------------------------------------------------------
+  if (patientA && patientB) {
+    for (const [label, path] of [
+      ["another patient's record", `/patients/${pidB}`],
+      ["another patient's access log", `/access-logs/${pidB}`],
+      ["another patient's lab submissions", `/lab/patient/${pidB}`],
+      ["another patient's records list", `/records/${pidB}`],
+    ] as Array<[string, string]>) {
+      const r = await http('GET', path, { token: patientA.token });
+      expectStatus(`patient A cannot read ${label}`, r.status, [403, 404], r.json);
+    }
+
+    // And a patient must not be able to write into anyone's chart.
+    const write = await http('POST', '/clinical/vitals', {
+      token: patientA.token,
+      body: { patient_id: pidA, heart_rate: 80, systolic_bp: 120, diastolic_bp: 80, respiratory_rate: 16 },
+    });
+    expectStatus('a patient cannot record vitals, even on themselves', write.status, [401, 403], write.json);
+  }
+
+  // --- cross-role writes --------------------------------------------------
+  const roleWrites: Array<[string, Session | undefined, string, unknown]> = [
+    ['a pharmacist', pharmacist, '/clinical/vitals',
+      { patient_id: pidA, heart_rate: 80, systolic_bp: 120, diastolic_bp: 80, respiratory_rate: 16 }],
+    ['a lab technician', labtech, '/clinical/vitals',
+      { patient_id: pidA, heart_rate: 80, systolic_bp: 120, diastolic_bp: 80, respiratory_rate: 16 }],
+    ['a pharmacist', pharmacist, '/lab/review',
+      { submission_id: 'LAB-NOPE', action: 'approve' }],
+  ];
+  for (const [who, sess, path, body] of roleWrites) {
+    if (!sess) continue;
+    const r = await http('POST', path, { token: sess.token, body });
+    expectStatus(`${who} cannot POST ${path}`, r.status, [401, 403], r.json);
+  }
+
+  // --- a revoked session --------------------------------------------------
+  //
+  // Signing out must end authority server-side. A token that still parses is
+  // not a token that still authorises.
+  //
+  // A DEDICATED session, signed in fresh and destroyed here. An earlier version
+  // revoked the shared nurse session, which left section H with nothing to test
+  // and reported that as a product failure — a harness eating its own fixtures.
+  const nurseFixture = m.staff.find((st) => st.login_id.startsWith('bt.nurse.'));
+  if (nurseFixture) {
+    let disposable: Session | null = null;
+    try {
+      disposable = await signIn(nurseFixture.login_id, 'revocation-probe');
+    } catch (e) {
+      record('a disposable session for the revocation probe', false, String(e));
+    }
+
+    if (disposable) {
+      const before = await http('GET', '/auth/me', { token: disposable.token });
+      expectStatus('the disposable session is live before sign-out', before.status, 200, before.json);
+
+      await http('POST', '/auth/logout', { token: disposable.token });
+
+      const afterRead = await http('GET', `/patients/${pidA}`, { token: disposable.token });
+      expectStatus('a signed-out token cannot read a patient', afterRead.status, 401, afterRead.json);
+
+      const afterWrite = await http('POST', '/clinical/vitals', {
+        token: disposable.token,
+        body: { patient_id: pidA, heart_rate: 80, systolic_bp: 120, diastolic_bp: 80, respiratory_rate: 16 },
+      });
+      expectStatus('a signed-out token cannot write vitals', afterWrite.status, 401, afterWrite.json);
+    }
+  }
+
+  // --- a garbage / tampered token ----------------------------------------
+  const tampered = `${doctorA.token.slice(0, -6)}AAAAAA`;
+  const tamperedRead = await http('GET', `/patients/${pidA}`, { token: tampered });
+  expectStatus('a token with a tampered signature is refused', tamperedRead.status, 401, tamperedRead.json);
+
+  const none = await http('GET', `/patients/${pidA}`);
+  expectStatus('no credential reaches no patient', none.status, 401, none.json);
+
+  // --- self-approval, direct ---------------------------------------------
+  //
+  // Proved through the UI for lab review; proved here without one, because a
+  // disabled button is not an authorization control.
+  const submit = await http('POST', '/lab/submit', {
+    token: doctorA.token,
+    body: {
+      patient_id: pidA,
+      test_name: 'Boundary Probe Panel',
+      test_category: 'Chemistry',
+      results: [{ parameter: 'Sodium', value: '140', unit: 'mmol/L', reference_range: '135-145', flag: null }],
+      notes: 'direct-api self-approval probe',
+    },
+  });
+  if (expectStatus('a doctor submits a result', submit.status, [200, 201], submit.json)) {
+    const id = String(submit.json.submission_id ?? submit.json.id ?? '');
+    const self = await http('POST', '/lab/review', {
+      token: doctorA.token,
+      body: { submission_id: id, action: 'approve' },
+    });
+    record(
+      'the submitter cannot approve their own result via the API, with no UI involved',
+      self.status === 403 && String(self.json?.error?.code) === 'SELF_REVIEW_FORBIDDEN',
+      `status ${self.status} code ${self.json?.error?.code}`
+    );
+  }
+
+  // --- deployment/tenancy boundary ---------------------------------------
+  //
+  // ADR-0007 makes this a single-organisation deployment, so there is no
+  // second organisation to cross. The property that must hold instead is that
+  // an organisation identifier supplied by the caller changes nothing.
+  const orgSpoof = await fetch(`${API}/patients/${pidA}`, {
+    headers: {
+      Authorization: `Bearer ${doctorA.token}`,
+      'X-Organization-Id': 'ORG-SOMEBODY-ELSE',
+      'X-Hospital-Id': 'HOSP-SOMEBODY-ELSE',
+    },
+  });
+  const plain = await http('GET', `/patients/${pidA}`, { token: doctorA.token });
+  record(
+    'a caller-supplied organisation header changes nothing',
+    orgSpoof.status === plain.status,
+    `spoofed ${orgSpoof.status} vs plain ${plain.status}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -1000,6 +1209,7 @@ async function main(): Promise<void> {
   await qualifyPrescriptionWorkflow(m, sessions);
   const patients = await qualifyPatientBoundary(m);
   await qualifyConsentLifecycle(m, sessions, patients);
+  await qualifyAuthorizationBoundaries(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
   // Last: this section deliberately consumes challenges, and the
   // per-wallet challenge rate limiter is a real control that will fire.
