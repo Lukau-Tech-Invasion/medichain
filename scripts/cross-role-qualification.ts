@@ -365,6 +365,26 @@ async function qualifyLabWorkflow(m: Manifest, sessions: Record<string, Session>
     records.status === 200 && body.includes(`lab-${submissionId}`),
     `status ${records.status}; body did not mention lab-${submissionId}`
   );
+
+  // And the sign-off must be attributable afterwards. This check is the reason
+  // UI-003 was found: the audit row was being written correctly and the
+  // access-log endpoint returned an empty page for every caller, because its
+  // pagination arguments were swapped. Reading the audit back through the
+  // endpoint a patient would actually use is what made that visible; asserting
+  // only that the write returned 200 would not have.
+  const logs = await http('GET', `/access-logs/${patientId}?limit=100`, { token: doctorA.token });
+  const logBody = JSON.stringify(logs.json);
+  const entries = (logs.json.access_logs ?? []) as Json[];
+  record(
+    'the access log is readable and not an empty page',
+    logs.status === 200 && entries.length > 0,
+    `status ${logs.status}; ${entries.length} entries but total_accesses=${logs.json.total_accesses}`
+  );
+  record(
+    'the approval is recorded in the audit trail',
+    logBody.includes('lab_review_approve'),
+    `no lab_review_approve among ${entries.length} entries`
+  );
 }
 
 /**
