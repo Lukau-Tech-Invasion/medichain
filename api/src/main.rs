@@ -18,10 +18,6 @@
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
-// Only the `env_logger` path uses `writeln!`. Under `tokio-console` the
-// subscriber owns formatting, and an unconditional import is dead there.
-#[cfg(not(feature = "tokio-console"))]
-use std::io::Write;
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
@@ -60,12 +56,6 @@ mod organization_keys;
 mod pagination;
 mod patient_access;
 mod pdf;
-// Gated to the builds that actually install it. Under `tokio-console`,
-// `init_logging` hands formatting to `console_subscriber` and this module is
-// never called — see the warning `init_logging` emits there. Stating that in
-// `cfg` rather than silencing dead_code keeps the compiler honest about which
-// builds redact and which do not.
-#[cfg(not(feature = "tokio-console"))]
 mod privacy_logging;
 mod retention;
 mod security;
@@ -102,63 +92,49 @@ pub(crate) use types::*;
 
 /// Initialize logging (Phase 8.2).
 ///
-/// `LOG_FORMAT=json` installs a JSON subscriber; otherwise logs are rendered
-/// for operators. Existing `log::` records are filtered through
-/// `privacy_logging` before either output reaches disk or a collector.
+/// One pipeline, composed from layers, for every build.
 ///
-/// Built with `--features tokio-console` (and `RUSTFLAGS="--cfg tokio_unstable"`,
-/// required for tokio's task-tracking instrumentation), this installs the
-/// `tokio-console` subscriber instead so async task state can be inspected live
-/// with the `tokio-console` CLI (Phase 12.1) — mutually exclusive with the two
-/// paths above, since only one global `tracing` subscriber can be active.
-#[cfg(feature = "tokio-console")]
+/// This used to be two mutually exclusive functions: an `env_logger` builder
+/// whose format closure applied `privacy_logging`, and — under
+/// `--features tokio-console` — a bare `console_subscriber::init()`. Only one
+/// global subscriber can exist, so the console build replaced the redacting one
+/// outright and logged the wallet addresses, bearer tokens and patient
+/// identifiers every other build redacts. The control vanished precisely when
+/// someone was debugging a live system closely enough to want a task console.
+///
+/// `console_subscriber` also offers `ConsoleLayer`, so the two compose instead
+/// of competing: the registry holds the redacting layer always, and adds the
+/// console layer when the feature is on. Console telemetry is preserved and
+/// redaction is a property of the pipeline rather than of one configuration.
+///
+/// The existing `log::` call sites — which is most of the codebase — reach the
+/// same pipeline because `tracing-subscriber`'s `init()` installs the
+/// `tracing-log` bridge itself. Do NOT also call `LogTracer::init()` here: both
+/// set the global `log` logger, and the second one panics the process at
+/// startup with `SetLoggerError`. That is not theoretical — it was written that
+/// way first, and every build died before binding a port.
+///
+/// `LOG_FORMAT=json` selects structured output. The console feature still
+/// requires `RUSTFLAGS="--cfg tokio_unstable"`.
 fn init_logging() {
-    // `console_subscriber` installs its own global `tracing` subscriber and owns
-    // record formatting, so the `privacy_logging` filter the other two paths
-    // apply is NOT in effect here. Log output from this build can therefore
-    // carry wallet addresses, tokens and other values the operator paths redact.
-    //
-    // That is a real reduction in a control, so it says so out loud rather than
-    // disappearing quietly behind a feature flag. This feature additionally
-    // requires `RUSTFLAGS="--cfg tokio_unstable"`, so it cannot be switched on
-    // by accident — but a developer reaching for it to debug an async stall in a
-    // production-like environment needs to know what it costs.
-    eprintln!(
-        "WARNING: built with --features tokio-console. Log-sink redaction          (privacy_logging) is NOT active in this build; do not point it at an          environment holding real patient data."
-    );
-    console_subscriber::init();
-}
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
 
-#[cfg(not(feature = "tokio-console"))]
-fn init_logging() {
     let json = std::env::var("LOG_FORMAT")
-        .map(|v| v == "json")
+        .map(|value| value == "json")
         .unwrap_or(false);
-    let env = env_logger::Env::default().default_filter_or("info");
-    let mut builder = env_logger::Builder::from_env(env);
-    if json {
-        builder.format(|buffer, record| {
-            writeln!(
-                buffer,
-                "{{\"level\":\"{}\",\"target\":\"{}\",\"message\":{}}}",
-                record.level(),
-                record.target(),
-                serde_json::to_string(&crate::privacy_logging::format_record(record))
-                    .unwrap_or_else(|_| "\"log message unavailable\"".to_string())
-            )
-        });
-    } else {
-        builder.format(|buffer, record| {
-            writeln!(
-                buffer,
-                "{} {}: {}",
-                record.level(),
-                record.target(),
-                crate::privacy_logging::format_record(record)
-            )
-        });
-    }
-    builder.init();
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(privacy_logging::RedactingLayer::new(std::io::stderr, json));
+
+    #[cfg(feature = "tokio-console")]
+    let registry = registry.with(console_subscriber::ConsoleLayer::builder().spawn());
+
+    registry.init();
 }
 
 #[actix_web::main]
