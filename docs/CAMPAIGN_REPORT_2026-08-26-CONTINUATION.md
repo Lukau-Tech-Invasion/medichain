@@ -244,7 +244,7 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 
 | Suite | Result |
 | --- | --- |
-| API, nothing filtered | **508 passed, 0 failed, 1 ignored** (was 491) |
+| API, nothing filtered | **507 passed, 0 failed, 1 ignored** (was 491) |
 | Pallets | 60 (26 / 22 / 12) on the new lockfile |
 | Doctor portal | **86 files / 331 tests** (was 85 / 321) |
 | Patient app | 26 files / 83 tests |
