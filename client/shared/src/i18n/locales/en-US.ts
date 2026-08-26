@@ -410,6 +410,31 @@ const en_US: TranslationRecord = {
     referenceRange: 'Reference Range',
   },
 
+  // Lab review (clinician sign-off on submitted results)
+  lab: {
+    review: {
+      title: 'Lab Review',
+      subtitle: 'Results submitted by the laboratory and awaiting clinical sign-off',
+      loading: 'Loading pending lab results...',
+      empty: 'Nothing is waiting for review.',
+      loadFailed: 'Pending lab results could not be loaded',
+      submittedAt: 'Submitted {{when}}',
+      tableCaption: 'Results for {{test}}',
+      parameter: 'Parameter',
+      value: 'Value',
+      range: 'Reference range',
+      flaggedCount: '{{count}} of these carry a flagged value.',
+      approve: 'Approve',
+      reject: 'Reject',
+      reasonLabel: 'Reason for rejecting {{test}}',
+      reasonPlaceholder: 'Reason (required to reject)',
+      reasonRequired: 'A rejection needs a reason.',
+      selfReview: 'You submitted this result, so you cannot sign it off. It needs a second clinician.',
+      approved: '{{test}} approved and added to the patient record.',
+      rejected: '{{test}} rejected.',
+    },
+  },
+
   // Lab trends
   labTrends: {
     loading: 'Loading lab trends...',

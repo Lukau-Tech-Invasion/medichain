@@ -212,14 +212,33 @@ pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) 
         .take(10)
         .collect();
 
-    let pending_labs: Vec<_> = data
+    // `lab_result_submissions`, NOT `lab_submissions`. The two names are one
+    // letter apart and name different domain objects:
+    //
+    //   lab_submissions        a lab ORDER raised at specimen collection
+    //                          (`POST /api/clinical/specimen`), whose statuses
+    //                          are "collected" and friends.
+    //   lab_result_submissions a RESULT awaiting clinical sign-off
+    //                          (`POST /api/lab/submit`), whose statuses are
+    //                          Pending / Approved / Rejected.
+    //
+    // This tile read the orders store and filtered it for `status == "pending"`
+    // — a value that domain never produces — so `pending_lab_approvals` was
+    // structurally always empty. A doctor's dashboard showed "Pending Lab
+    // Reviews: 0" while eight results sat waiting for a signature, and the
+    // only screen that could have contradicted it did not exist either.
+    //
+    // Same source and same predicate as `GET /api/lab/pending`, so the tile and
+    // the review screen cannot disagree.
+    let pending_labs: Vec<crate::LabResultSubmission> = data
         .repositories
-        .lab_submissions
-        .get_pending_by_priority()
+        .lab_result_submissions
+        .list_all()
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|s| s.status == "pending")
+        .filter_map(|r| serde_json::from_value::<crate::LabResultSubmission>(r.data).ok())
+        .filter(|s| s.status == crate::LabResultStatus::Pending)
         .collect();
 
     let critical_values = data
@@ -747,4 +766,126 @@ pub async fn pharmacist_dashboard(
         "drug_interactions": drug_interactions,
         "allergy_alerts": allergy_alerts,
     }))
+}
+
+#[cfg(test)]
+mod pending_lab_tile_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn doctor() -> crate::User {
+        crate::User {
+            wallet_address: "dash_doctor".to_string(),
+            username: None,
+            name: "Dr Dashboard".to_string(),
+            role: crate::Role::Doctor,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    fn submission(id: &str, status: crate::LabResultStatus) -> crate::LabResultSubmission {
+        crate::LabResultSubmission {
+            id: id.to_string(),
+            patient_id: "PAT-DASH".to_string(),
+            patient_name: "Dash Patient".to_string(),
+            test_name: "Full Blood Count".to_string(),
+            test_category: "Hematology".to_string(),
+            results: Vec::new(),
+            notes: None,
+            submitted_by: "lab_tech".to_string(),
+            submitted_at: chrono::Utc::now(),
+            status,
+            reviewed_by: None,
+            reviewed_at: None,
+            rejection_reason: None,
+            content_hash: None,
+            metadata_hash: None,
+        }
+    }
+
+    /// The doctor dashboard's "Pending Lab Reviews" tile must count the results
+    /// waiting for a signature.
+    ///
+    /// It used to read `lab_submissions` — the lab *order* store written at
+    /// specimen collection, whose statuses are "collected" and friends — and
+    /// filter it for `status == "pending"`. That value never occurs there, so
+    /// the tile was structurally always zero: it showed 0 while results sat
+    /// waiting, and no amount of test data could have made it show anything
+    /// else.
+    #[actix_web::test]
+    async fn the_tile_counts_results_awaiting_signature() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("dash_doctor".to_string(), doctor());
+
+        let now = chrono::Utc::now();
+        for (id, status) in [
+            ("LAB-P1", crate::LabResultStatus::Pending),
+            ("LAB-P2", crate::LabResultStatus::Pending),
+            ("LAB-A1", crate::LabResultStatus::Approved),
+            ("LAB-R1", crate::LabResultStatus::Rejected),
+        ] {
+            let s = submission(id, status);
+            state
+                .repositories
+                .lab_result_submissions
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: s.id.clone(),
+                    owner_id: s.patient_id.clone(),
+                    data: serde_json::to_value(&s).unwrap(),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .unwrap();
+        }
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(doctor_dashboard),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/doctor")
+                .insert_header(("x-user-id", "dash_doctor"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let pending = body["pending_lab_approvals"]
+            .as_array()
+            .expect("pending_lab_approvals should be an array");
+
+        assert_eq!(
+            pending.len(),
+            2,
+            "only the two Pending results count; got {body}"
+        );
+        assert_eq!(body["alerts"]["pending_labs_count"], 2);
+
+        let ids: Vec<&str> = pending.iter().filter_map(|s| s["id"].as_str()).collect();
+        assert!(
+            ids.contains(&"LAB-P1") && ids.contains(&"LAB-P2"),
+            "got {ids:?}"
+        );
+    }
 }

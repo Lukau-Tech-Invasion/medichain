@@ -474,7 +474,12 @@ function DashboardPage() {
             {dashboard.pending_lab_approvals.slice(0, 5).map((lab) => (
               <Link
                 key={lab.id}
-                to={`/lab-results?id=${lab.id}`}
+                // `/lab-review`, not `/lab-results`. This tile exists to say
+                // "these need your signature", and it linked to the read-only
+                // results view, where signing one off is not possible. The
+                // review queue had no screen at all until 2026-08-26, so the
+                // link had nowhere better to go; now it does.
+                to="/lab-review"
                 className="flex items-center justify-between p-4 hover:bg-caution-subtle transition-colors"
               >
                 <div>
@@ -488,7 +493,7 @@ function DashboardPage() {
             ))}
           </div>
           <div className="p-3 bg-caution-subtle rounded-b-xl">
-            <Link to="/lab-results" className="text-caution-subtle-fg text-sm font-medium flex items-center gap-1 justify-center">
+            <Link to="/lab-review" className="text-caution-subtle-fg text-sm font-medium flex items-center gap-1 justify-center">
               {t('docDashboard.viewAllPendingLabs')} <ArrowRight size={14} />
             </Link>
           </div>

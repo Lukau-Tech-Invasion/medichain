@@ -332,6 +332,10 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: FlaskConical,
     items: [
       { id: 'lab-results', to: '/lab-results', label: 'Lab Results', icon: FlaskConical },
+      // Distinct from "Lab Results", which is a read view. This is the queue of
+      // results waiting for a clinician's signature — the workflow had a
+      // dashboard tile and an API but no screen, so the queue was unreachable.
+      { id: 'lab-review', to: '/lab-review', label: 'Lab Review', icon: FileCheck, priority: 'high' },
       { id: 'critical', to: '/critical-value', label: 'Critical Values', icon: AlertTriangle, priority: 'high' },
       { id: 'imaging', to: '/imaging', label: 'Imaging', icon: Image },
       { id: 'radiology', to: '/radiology', label: 'Radiology', icon: Image },

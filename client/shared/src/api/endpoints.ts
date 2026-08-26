@@ -951,8 +951,15 @@ export async function submitLabResults(
 
 /**
  * Get pending lab result submissions for review (Doctor, Nurse, Admin)
+ *
+ * Returns a bare array, NOT the `{ submissions, total }` envelope the server
+ * sends. `ApiClient.get` unwraps any object whose `submissions` key holds an
+ * array (see `client.ts`), so a caller reading `data.submissions` gets
+ * `undefined` and renders an empty queue. The old signature said
+ * `PendingLabResultsResponse` and TypeScript could not catch the difference,
+ * because the unwrap is a runtime cast.
  */
-export async function getPendingLabResults(): Promise<PendingLabResultsResponse> {
+export async function getPendingLabResults(): Promise<LabResultSubmission[]> {
   return getApiClient().get('/api/lab/pending');
 }
 

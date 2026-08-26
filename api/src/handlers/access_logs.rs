@@ -42,9 +42,20 @@ pub async fn get_all_access_logs(
     }
 
     // Fetch via repository (backend-agnostic)
+    // `Pagination::new(page, per_page)`. This used to pass `limit` as the page
+    // and an OFFSET as the page size, which made both access-log views return
+    // nothing at all under their own defaults: page=1, limit=20 became
+    // `Pagination::new(20, 0)`, and `limit()` of 0 means `.take(0)`.
+    //
+    // The response was the giveaway and nobody read it — `total_items: 54`
+    // beside `access_logs: []`. A patient opening their own access log, which
+    // is the POPIA transparency control, was told 54 people had touched their
+    // record and shown an empty list.
+    //
+    // `page` is 1-indexed in the query string and 0-indexed in `Pagination`.
     let pagination_req = crate::repositories::traits::Pagination::new(
+        query.page.saturating_sub(1) as u32,
         query.limit as u32,
-        ((query.page.saturating_sub(1)) * query.limit) as u32,
     );
     let result = match data.repositories.access_logs.list(pagination_req).await {
         Ok(r) => r,
@@ -121,9 +132,20 @@ pub async fn get_access_logs(
     }
 
     // Fetch via repository scoped to this patient
+    // `Pagination::new(page, per_page)`. This used to pass `limit` as the page
+    // and an OFFSET as the page size, which made both access-log views return
+    // nothing at all under their own defaults: page=1, limit=20 became
+    // `Pagination::new(20, 0)`, and `limit()` of 0 means `.take(0)`.
+    //
+    // The response was the giveaway and nobody read it — `total_items: 54`
+    // beside `access_logs: []`. A patient opening their own access log, which
+    // is the POPIA transparency control, was told 54 people had touched their
+    // record and shown an empty list.
+    //
+    // `page` is 1-indexed in the query string and 0-indexed in `Pagination`.
     let pagination_req = crate::repositories::traits::Pagination::new(
+        query.page.saturating_sub(1) as u32,
         query.limit as u32,
-        ((query.page.saturating_sub(1)) * query.limit) as u32,
     );
     let result = match data
         .repositories
@@ -155,4 +177,138 @@ pub async fn get_access_logs(
             "total_items": result.total,
         },
     }))
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn patient_user(wallet: &str, patient_id: &str) -> crate::User {
+        crate::User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Log Patient".to_string(),
+            role: Role::Patient,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: Some(patient_id.to_string()),
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    async fn state_with_logs(patient_id: &str, count: usize) -> crate::AppState {
+        let state = crate::AppState::new();
+        state.users.write().unwrap().insert(
+            "log_patient".to_string(),
+            patient_user("log_patient", patient_id),
+        );
+
+        for i in 0..count {
+            state
+                .repositories
+                .access_logs
+                .create(
+                    crate::AccessLogEntry {
+                        access_id: format!("ACC-{i}"),
+                        patient_id: patient_id.to_string(),
+                        accessor_id: "doctor_x".to_string(),
+                        accessor_role: "Doctor".to_string(),
+                        access_type: "view".to_string(),
+                        location: None,
+                        timestamp: chrono::Utc::now(),
+                        emergency: false,
+                    }
+                    .into(),
+                )
+                .await
+                .expect("seed access log");
+        }
+        state
+    }
+
+    /// A patient opening their own access log must actually see it.
+    ///
+    /// The handler passed `Pagination::new(limit, offset)` to a constructor
+    /// whose parameters are `(page, per_page)`. Under the endpoint's own
+    /// defaults — page=1, limit=20 — that became `Pagination::new(20, 0)`, and
+    /// a page size of 0 means `.take(0)`. The endpoint answered
+    /// `total_items: 54` beside `access_logs: []` and had, as far as the
+    /// response shows, never returned a row.
+    ///
+    /// This is the POPIA transparency control: it is how a patient finds out
+    /// who has read their record.
+    #[actix_web::test]
+    async fn a_patient_sees_their_access_log_with_default_parameters() {
+        let state = state_with_logs("PAT-LOGS", 5).await;
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(get_access_logs),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/access-logs/PAT-LOGS")
+                .insert_header(("x-user-id", "log_patient"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let logs = body["access_logs"]
+            .as_array()
+            .expect("access_logs should be an array");
+
+        assert_eq!(
+            logs.len(),
+            5,
+            "all five entries fit on the first page; got {body}"
+        );
+        assert_eq!(body["total_accesses"], 5);
+
+        // The reported page size must be the one that was actually applied. A
+        // response claiming 54 items on pages of 1 while returning none is what
+        // hid this for so long.
+        assert_eq!(body["pagination"]["per_page"], 20);
+        assert_eq!(body["pagination"]["page"], 0);
+    }
+
+    /// An explicit page still works, and page 2 is not page 20.
+    #[actix_web::test]
+    async fn explicit_paging_returns_the_requested_slice() {
+        let state = state_with_logs("PAT-LOGS2", 7).await;
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(get_access_logs),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/access-logs/PAT-LOGS2?page=2&limit=5")
+                .insert_header(("x-user-id", "log_patient"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let logs = body["access_logs"].as_array().unwrap();
+        assert_eq!(logs.len(), 2, "7 items, 5 per page, second page holds 2");
+        assert_eq!(body["total_accesses"], 7);
+    }
 }
