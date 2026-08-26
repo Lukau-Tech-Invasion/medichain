@@ -682,6 +682,30 @@ pub async fn pharmacist_dashboard(
             .unwrap_or("")
             .to_string()
     };
+    // `EPrescription` has no `patient_name` field — it carries `patient_id` and
+    // nothing else about the patient — so reading one out of the stored
+    // document always produced "". The queue fell back to showing a raw
+    // identifier, and a pharmacist verifying an order against an allergy list
+    // was reading `PAT-6381aba1` where a name belongs.
+    //
+    // Resolved once per distinct patient rather than once per prescription: a
+    // patient with eight prescriptions in the queue is one lookup, and the
+    // name is encrypted at rest so each lookup costs a decrypt.
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for r in &records {
+        let pid = text(&r.data, "patient_id");
+        if pid.is_empty() || names.contains_key(&pid) {
+            continue;
+        }
+        if let Ok(entity) = data.repositories.patients.get_by_id(&pid).await {
+            if let Some(profile) =
+                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
+            {
+                names.insert(pid, profile.full_name);
+            }
+        }
+    }
+
     let list: Vec<serde_json::Value> = records
         .iter()
         .map(|r| {
@@ -690,10 +714,16 @@ pub async fn pharmacist_dashboard(
                 .get("medication")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
+            let patient_id = text(v, "patient_id");
             serde_json::json!({
                 "prescription_id": text(v, "prescription_id"),
-                "patient_id": text(v, "patient_id"),
-                "patient_name": text(v, "patient_name"),
+                "patient_id": patient_id,
+                // Falls back to the stored value only so an older document that
+                // did carry a name is not discarded.
+                "patient_name": names
+                    .get(&text(v, "patient_id"))
+                    .cloned()
+                    .unwrap_or_else(|| text(v, "patient_name")),
                 "prescriber_name": text(v, "prescriber_name"),
                 "medication_name": text(&med, "name"),
                 "dosage": text(&med, "strength"),
@@ -766,6 +796,146 @@ pub async fn pharmacist_dashboard(
         "drug_interactions": drug_interactions,
         "allergy_alerts": allergy_alerts,
     }))
+}
+
+#[cfg(test)]
+mod pharmacy_queue_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn pharmacist() -> crate::User {
+        crate::User {
+            wallet_address: "pharm_wallet".to_string(),
+            username: None,
+            name: "Pharm Test".to_string(),
+            role: crate::Role::Pharmacist,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// A pharmacist verifying an order against an allergy list needs to know
+    /// whose order it is.
+    ///
+    /// The queue mapped `patient_name` out of the stored prescription
+    /// document, and `EPrescription` has no such field — it carries
+    /// `patient_id` and nothing else about the patient. Every row therefore
+    /// carried an empty name and the table fell back to a raw identifier.
+    #[actix_web::test]
+    async fn the_queue_names_the_patient_rather_than_showing_an_id() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("pharm_wallet".to_string(), pharmacist());
+
+        let patient_id = "PAT-PHARM-1";
+        let now = chrono::Utc::now();
+
+        // A real patient, stored the way the product stores one: encrypted.
+        let profile = crate::PatientProfile {
+            patient_id: patient_id.to_string(),
+            full_name: "Thandiwe Pharmacy-Test".to_string(),
+            date_of_birth: "1988-04-12".to_string(),
+            time_of_birth: None,
+            national_id: "NID-PHARM-1".to_string(),
+            gender: None,
+            phone: "+27000000100".to_string(),
+            emergency_info: crate::EmergencyInfo {
+                patient_id: patient_id.to_string(),
+                blood_type: crate::BloodType::OPositive,
+                // Allergies are irrelevant to this assertion; an empty
+                // list keeps the fixture to the fields under test.
+                allergies: Vec::new(),
+                current_medications: Vec::new(),
+                chronic_conditions: Vec::new(),
+                emergency_contacts: Vec::new(),
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                languages: vec!["en".to_string()],
+                last_updated: now,
+            },
+            address: None,
+            insurance: None,
+            primary_doctor: None,
+            community_health_worker: None,
+            preferences: crate::PatientPreferences::default(),
+            advanced_directives: Vec::new(),
+            family_notifications: None,
+            created_at: now,
+            last_updated: now,
+        };
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+
+        // Two prescriptions for that one patient, so the per-patient
+        // resolution is exercised rather than a one-row coincidence.
+        for rx in ["RX-P1", "RX-P2"] {
+            state
+                .repositories
+                .e_prescriptions_v2
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: rx.to_string(),
+                    owner_id: patient_id.to_string(),
+                    data: serde_json::json!({
+                        "prescription_id": rx,
+                        "patient_id": patient_id,
+                        "prescriber_name": "Dr Test",
+                        "medication": { "name": "Amoxicillin", "strength": "500mg", "directions": "tds" },
+                        "status": "Transmitted",
+                        "is_controlled": false,
+                    }),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("seed prescription");
+        }
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(pharmacist_dashboard),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/pharmacist")
+                .insert_header(("x-user-id", "pharm_wallet"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let text = body.to_string();
+        assert!(
+            text.contains("Thandiwe Pharmacy-Test"),
+            "the queue must carry the patient's name, got {text}"
+        );
+    }
 }
 
 #[cfg(test)]
