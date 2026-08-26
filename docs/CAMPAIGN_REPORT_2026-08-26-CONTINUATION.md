@@ -320,7 +320,7 @@ another, and no total below folds blocked or untested work into a denominator.
 
 | Lane | Prerequisite |
 | --- | --- |
-| Blockchain node build (BC-003) | A host with MSVC, or wasm-builder linker flags permitting undefined imports. `LIBCLANG_PATH` cleared the *first* blocker; the WASM link is the real one. Full reproduction record in the ledger. |
+| Blockchain node build (BC-003) — **on this host only** | A host with MSVC, or wasm-builder linker flags permitting undefined imports. `LIBCLANG_PATH` cleared the *first* blocker; the WASM link is the real one. Full reproduction record in the ledger. **Hosted CI already builds it:** run 32954159864 produced `medichain-node 0.1.0-a6b375aa9dd` on ubuntu-22.04 and exported an 848,735-byte dev chain spec, so the runtime WASM and the Alice-Admin genesis bootstrap both construct. The code is not the blocker; this Windows host is. |
 | Backup / DR (DATA-002) | A responsive Docker daemon, or native `pg_dump`/`psql` on PATH. A trivial `docker exec` exceeds 240s here. |
 | Patient wallet **success** path (AUTH-007) | The polkadot-js extension, in neither the Chrome profile nor the repo. Rejection paths are covered; the success path is unverified — not failed, not passed. |
 | Pharmacist mutation (SCR-013) | A clinical decision on what dispensing means. No endpoint exists to qualify. |
@@ -331,7 +331,7 @@ another, and no total below folds blocked or untested work into a denominator.
 
 | Lane |
 | --- |
-| Finalized-chain E2E (BC-001) — depends on BC-003 |
+| Finalized-chain E2E (BC-001) — **now reachable**: CI produces a Linux node binary and this machine has WSL Ubuntu-22.04 (glibc 2.35, the floor that workflow is pinned to hit). Blocked only on owner authorization to download and run that binary. |
 | Live telehealth conference: media, reconnect, recording capture — no private Jitsi instance configured |
 | National-ID sandbox — credentials do not exist here |
 | Hosted CI, SBOM, image digest and provenance |
