@@ -14,8 +14,23 @@
 /**
  * Environment mode detection
  */
-export const IS_DEVELOPMENT = import.meta.env?.DEV ?? true;
-export const IS_PRODUCTION = import.meta.env?.PROD ?? false;
+/**
+ * Development mode.
+ *
+ * Defaults to **false**, not true. This gates `DEMO_WALLET_GENERATION`,
+ * `NFC_SIMULATION` and the demo-wallet branch of both auth stores — controls
+ * that mint an identity — so the question it answers is "may this build hand
+ * out a session without a real credential". A gate on that question has to
+ * fail closed.
+ *
+ * It previously read `?? true`, so any context where `import.meta.env` is
+ * absent — a non-Vite bundler, SSR, a test harness, an embedded webview —
+ * silently became a development build with the demo-identity paths switched
+ * on. Vite defines `DEV` explicitly in a real dev server, so nothing about
+ * ordinary development changes.
+ */
+export const IS_DEVELOPMENT = import.meta.env?.DEV ?? false;
+export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
 
 /**
  * Demo mode. When enabled, pages may fall back to bundled sample/demo data for

@@ -78,6 +78,16 @@ jobs:
             - name: Every audit action the handlers write is permitted by the schema
               run: python scripts/check-audit-action-vocabulary.py
 
+            # MediChain authenticates by proving control of a key. A "quick
+            # login" list short-circuits that by naming an identity and asking
+            # the app to become it — a bypass whether or not it currently
+            # works, and the patient app shipped five of them. This also
+            # asserts IS_DEVELOPMENT defaults to FALSE: it gates the
+            # demo-identity paths, so any context without `import.meta.env`
+            # would otherwise silently be a development build.
+            - name: No sign-in path can hand out an unproven identity
+              run: python scripts/check-quick-login-identities.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================

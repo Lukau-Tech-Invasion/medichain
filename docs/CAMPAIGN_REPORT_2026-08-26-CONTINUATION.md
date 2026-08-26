@@ -84,12 +84,12 @@ skipping it — which is what surfaced the prescription helper's
 These three were invisible to 61 passing API checks and would have stayed
 invisible however many more were added. They took opening the browser.
 
-**UI-001 — the lab approval workflow had no user interface.**
+**SCR-001 — the lab approval workflow had no user interface.**
 `getPendingLabResults` and `reviewLabResult` had been exported from the shared
 client the whole time, called by nothing. A lab technician could file a result
 and no clinician could see or sign off on it anywhere in the product.
 
-**UI-002 — the "Pending Lab Reviews" tile was structurally always zero.** It
+**SCR-002 — the "Pending Lab Reviews" tile was structurally always zero.** It
 read `lab_submissions` — the lab *order* store written at specimen collection,
 whose statuses are `collected` and friends — and filtered for `"pending"`,
 which that domain never produces. The results awaiting signature live in
@@ -99,7 +99,7 @@ These two are mutually concealing. The number agrees with the absence of a
 screen, and the absence of a screen means nobody ever checks the number. Either
 alone might have been noticed in use; together they are silent.
 
-**UI-003 — both access-log views returned nothing.**
+**SCR-003 — both access-log views returned nothing.**
 `Pagination::new(page, per_page)` was called with the page size first and an
 offset second, so the endpoint's own defaults (page=1, limit=20) became
 `Pagination::new(20, 0)`, and a page size of 0 means `.take(0)`. The response
@@ -108,11 +108,11 @@ the POPIA transparency control — how a patient learns who has read their
 record. Found while checking that a lab approval had been audited: the audit row
 existed and the endpoint reported none.
 
-**UI-004** — `getPendingLabResults()` declared the server's `{submissions,
+**SCR-004** — `getPendingLabResults()` declared the server's `{submissions,
 total}` envelope as its return type while `ApiClient.get` unwraps that to a
 bare array. TypeScript cannot catch it; the unwrap is a runtime cast.
 
-**UI-006 — a nurse's task list was invented.** The "Tasks Due" panel was four
+**SCR-006 — a nurse's task list was invented.** The "Tasks Due" panel was four
 hardcoded rows: a dressing change in `'Room 403'`, an IV site assessment in
 `'ICU-2'`, and two rows interpolating the real `vitals_due` count into fixed
 08:00 and 09:00 slots. Those times, those locations and those two tasks exist
@@ -124,7 +124,7 @@ nurse either acts on a fabricated row or stops trusting the panel, and the
 screen causes both. No placeholder audit would find it — "Room 403" matches no
 keyword.
 
-**UI-007 / UI-008 — two screens could not name the patient.** The pharmacist's
+**SCR-007 / SCR-008 — two screens could not name the patient.** The pharmacist's
 verification queue mapped `patient_name` out of the prescription document, and
 `EPrescription` has no such field, so the column showed `PAT-6381aba1` where a
 name belongs — to the person checking the order against an allergy list. The
@@ -134,14 +134,14 @@ and neither of the others, so every rejection read "Unknown - Haemolysed sample
 / Patient: Unknown". Both now resolve the name once per distinct patient — it
 is encrypted at rest, so each lookup costs a decrypt.
 
-**UI-009 — the Notify / Request Recollect buttons are dead**, with no handler
+**SCR-009 — the Notify / Request Recollect buttons are dead**, with no handler
 and no endpoint to call. `SpecimenRejectionEntity` carries
 `notified_ordering_provider`, `notification_sent_at`, `recollection_required`
 and `recollection_scheduled`, so the model anticipates the workflow and nothing
 sets them. Not built: who is notified, by what channel, and how a recollection
 is scheduled are clinical governance decisions.
 
-**UI-005 — patient wallet sign-in could not succeed for anyone.**
+**SCR-005 — patient wallet sign-in could not succeed for anyone.**
 `signMessage()` called `web3Accounts()` without the required once-per-page
 `web3Enable()` handshake, so polkadot-js threw its internal error and the
 patient was shown that string as the explanation. `connectRealWallet()` does
@@ -220,7 +220,7 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 | Role | What was seen |
 | --- | --- |
 | **Doctor** | Dashboard with 19 real patients, real critical values and orders; the Lab Review queue; **a real mutation** (below) |
-| **Nurse** | Nursing Dashboard, 15 assigned patients, "Tasks Due" now truthful after UI-006 |
+| **Nurse** | Nursing Dashboard, 15 assigned patients, "Tasks Due" now truthful after SCR-006 |
 | **Pharmacist** | Pharmacy Dashboard, 17 real allergy alerts, and the prescriptions the harness created through the Doctor sitting in the verification queue — the Doctor-to-Pharmacist path end to end |
 | **Lab Technician** | Laboratory Dashboard, two pending specimens with patient names, a genuine unacknowledged critical potassium, the rejected specimen now identified |
 | **Admin** | 121 users with a real role breakdown, and **the access log showing this pass's own audit events** — `prescription_signed`, `prescription_transmitted`, `lab_review_approve` with the correct actors. Independent confirmation of AUD-002 and APP-003 from a different screen and a different role. |
@@ -232,12 +232,12 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 | --- | --- |
 | Sign-in through the real credential path | lands on `/dashboard` as "Dr Browser Test" |
 | Dashboard data | API Connected, 19 patients, real critical values and orders |
-| Pending Lab Reviews tile | **8** after UI-002 (was 0 with 8 waiting) |
+| Pending Lab Reviews tile | **8** after SCR-002 (was 0 with 8 waiting) |
 | Lab Review screen | renders the queue; self-submitted rows show the reason and a disabled control |
 | **Mutation**: approve from the browser | "approved and added to the patient record", row leaves the queue |
 | Read-back: submission | `status = Approved`, `reviewed_by` = the doctor's wallet |
 | Read-back: chart | contains `lab-LAB-26a73e6c` |
-| Read-back: audit | `lab_review_approve` present via `/api/access-logs/{id}` after UI-003 |
+| Read-back: audit | `lab_review_approve` present via `/api/access-logs/{id}` after SCR-003 |
 | Reload | returns to sign-in — the documented session-restore limit, confirmed independently |
 
 ### Suites
@@ -283,7 +283,7 @@ unlisted value fails it.
 * **A page that reassured on failure.** My own Lab Review screen showed
   "Nothing is waiting for review" underneath a load error. A test written for
   it caught that.
-* **I took the Laboratory Dashboard down.** The first attempt at UI-008 mapped
+* **I took the Laboratory Dashboard down.** The first attempt at SCR-008 mapped
   each rejection to `entity.data`, which is reasonable for the JSON-document
   repository in the same file and wrong for this one: the field is
   `#[sqlx(skip)]` and always null for a PostgreSQL row. The panel received an

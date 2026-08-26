@@ -1,58 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, IS_DEVELOPMENT, FEATURES, useTranslation, LanguageSwitcher } from '@medichain/shared';
-import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap, UserCircle, UserRound, type LucideIcon } from 'lucide-react';
+import { apiUrl, IS_DEVELOPMENT, useTranslation, LanguageSwitcher } from '@medichain/shared';
+import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * Demo patient accounts with actual wallet addresses from the database
  * These are pre-registered accounts for testing and hackathon demos
  */
-interface DemoPatient {
-  name: string;
-  displayName: string;
-  walletAddress: string;
-  icon: LucideIcon;
-  condition: string;
-}
-
-const DEMO_PATIENTS: DemoPatient[] = [
-  { 
-    name: 'Thabo Mokoena', 
-    displayName: 'Thabo (Cardiac)', 
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', 
-    icon: UserRound,
-    condition: 'Cardiac'
-  },
-  { 
-    name: 'Nomvula Dlamini', 
-    displayName: 'Nomvula (Diabetic)', 
-    walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', 
-    icon: UserRound,
-    condition: 'Diabetic'
-  },
-  { 
-    name: 'Sipho Nkosi', 
-    displayName: 'Sipho (Asthma)', 
-    walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', 
-    icon: UserRound,
-    condition: 'Asthma'
-  },
-  { 
-    name: 'Lerato Khumalo', 
-    displayName: 'Lerato (Allergies)', 
-    walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjZ', 
-    icon: UserRound,
-    condition: 'Allergies'
-  },
-  { 
-    name: 'Bongani Zulu', 
-    displayName: 'Bongani (Elderly)', 
-    walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFZ', 
-    icon: UserRound,
-    condition: 'Cardiac/DNR'
-  },
-];
+/*
+ * The five hardcoded "Quick Login - Demo Patients" identities were removed
+ * on 2026-08-26.
+ *
+ * They could not work and never had. Each called `login(walletAddress)` with
+ * no signer, against an invented SS58 address present in no wallet extension
+ * and in no database, so the flow died at `signMessage`. The label under them
+ * read "Click any patient to instantly login with their wallet", which
+ * promised the opposite of what happened.
+ *
+ * The clinician portal reached the same conclusion earlier and answered it
+ * properly (2e389f7, 91b171f): patient accounts left that sign-in and quick
+ * login was rebuilt on the real credential path behind a demo-gated resolver.
+ * A patient authenticates by proving control of a key, and there is no
+ * shortcut past that which is not a bypass.
+ *
+ * Deterministic test identities remain available through "Create Demo Wallet"
+ * below, which generates a real keypair and runs the genuine
+ * challenge/signature flow. It is gated on IS_DEVELOPMENT, which now fails
+ * closed, and scripts/check-quick-login-identities.py fails the build if a
+ * hardcoded identity list reappears on a sign-in path.
+ */
 
 /**
  * Patient Login Page
@@ -111,15 +88,6 @@ export function LoginPage() {
   /**
    * Quick login with a demo patient's wallet address
    */
-  const handleDemoPatientLogin = async (patient: DemoPatient) => {
-    clearError();
-    setLocalError('');
-    const success = await login(patient.walletAddress);
-    if (success) {
-      navigate('/dashboard');
-    }
-  };
-
   const handleDemoLogin = async () => {
     clearError();
     setLocalError('');
@@ -215,44 +183,8 @@ export function LoginPage() {
               </button>
             </form>
 
-            {/* Demo Patients - Quick Login Section */}
-            {FEATURES.DEMO_WALLET_GENERATION && (
-              <>
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border" />
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-4 bg-surface text-content-muted flex items-center gap-1">
-                      <UserCircle className="w-4 h-4" />
-                      {t('auth.quickLoginDemo')}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {DEMO_PATIENTS.map((patient) => {
-                    const Icon = patient.icon;
-                    return (
-                      <button
-                        key={patient.walletAddress}
-                        onClick={() => handleDemoPatientLogin(patient)}
-                        disabled={isLoading}
-                        className="p-3 border border-teal-200 rounded-xl bg-surface-sunken hover:bg-surface-sunken transition-all text-center disabled:opacity-50"
-                      >
-                        <Icon className="mx-auto mb-1 text-content-secondary" size={24} aria-hidden="true" />
-                        <span className="block text-xs font-semibold text-content-secondary truncate">{patient.name.split(' ')[0]}</span>
-                        <span className="block text-xs text-content-secondary">{patient.condition}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <p className="mt-3 text-xs text-center text-content-muted">
-                  {t('auth.quickLoginHint')}
-                </p>
-              </>
-            )}
+            {/* Quick-login demo patients removed 2026-08-26 — see the block comment
+                at the top of this file. */}
 
             {/* Divider */}
             <div className="relative my-6">

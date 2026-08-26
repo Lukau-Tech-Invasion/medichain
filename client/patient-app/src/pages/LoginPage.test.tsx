@@ -99,26 +99,28 @@ describe('LoginPage (Patient)', () => {
     });
   });
 
-  it('allows login with demo accounts', async () => {
-    mockLogin.mockResolvedValue(true);
-    
+  /**
+   * Inverted on 2026-08-26. This asserted that clicking a hardcoded "Thabo"
+   * button logged a patient in and navigated to the dashboard — and it passed
+   * only because `login` was mocked to resolve true. The real control could
+   * never work: it called `login(walletAddress)` with no signer against an
+   * invented address, so it died at `signMessage` every time.
+   *
+   * A test that mocks away the thing that is broken will report a broken
+   * feature as working for as long as it exists. The identities are gone; this
+   * now guards their absence.
+   */
+  it('offers no hardcoded patient identity on the sign-in page', () => {
     render(
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <LoginPage />
       </BrowserRouter>
     );
 
-    // Find a demo account button (Thabo)
-    const demoButton = screen.getByText(/Thabo/i).closest('button');
-    expect(demoButton).toBeInTheDocument();
-    
-    if (demoButton) {
-      fireEvent.click(demoButton);
+    for (const name of ['Thabo', 'Nomvula', 'Sipho', 'Lerato', 'Bongani']) {
+      expect(screen.queryByText(new RegExp(name, 'i'))).toBeNull();
     }
-
-    await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalled();
-      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
-    });
+    // And no invitation to use one.
+    expect(screen.queryByText(/instantly login/i)).toBeNull();
   });
 });
