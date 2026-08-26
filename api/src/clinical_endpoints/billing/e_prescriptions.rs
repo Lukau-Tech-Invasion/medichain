@@ -133,7 +133,14 @@ pub async fn create_esignature_prescription(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.e_prescriptions_v2.create(entity).await;
+        if let Err(e) = data.repositories.e_prescriptions_v2.create(entity).await {
+            log::error!("E-prescription persistence failed for {prescription_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "E-prescription could not be saved".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     // Fire-and-forget FCM push notification to the patient.
@@ -153,6 +160,89 @@ pub async fn create_esignature_prescription(
         "status": "draft",
         "message": "E-prescription created. Signature required before transmission."
     }))
+}
+
+/// The exact string `PrescriptionStatus` serialises to.
+///
+/// The transition guards compare against the *stored* JSON, so they must use
+/// the serde representation. Deriving it means a future `rename_all` moves the
+/// guards with it instead of silently disabling every transition.
+fn status_token(status: &crate::clinical::PrescriptionStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn prescription_record(
+    prescription: &crate::clinical::EPrescription,
+    id: &str,
+) -> crate::repositories::traits::JsonRecordEntity {
+    let now = chrono::Utc::now();
+    crate::repositories::traits::JsonRecordEntity {
+        id: id.to_string(),
+        owner_id: prescription.patient_id.clone(),
+        data: serde_json::to_value(prescription).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+/// Record a prescription lifecycle transition in the durable access log.
+///
+/// Signing and transmitting a prescription are the two points at which a
+/// clinician takes personal responsibility for a controlled instruction, and
+/// neither was audited at all. A failure here is returned to the caller rather
+/// than logged, for the same reason the transition itself is: an unattributable
+/// signature is not a signature.
+async fn audit_prescription_event(
+    data: &web::Data<crate::AppState>,
+    prescription: &crate::clinical::EPrescription,
+    actor: &str,
+    actor_role: &str,
+    event: &str,
+) -> Result<(), crate::repositories::traits::RepositoryError> {
+    data.repositories
+        .access_logs
+        .create(
+            crate::AccessLogEntry {
+                access_id: crate::middleware::secure_tokens::generate_access_id(),
+                patient_id: prescription.patient_id.clone(),
+                accessor_id: actor.to_string(),
+                accessor_role: actor_role.to_string(),
+                access_type: event.to_string(),
+                location: None,
+                timestamp: chrono::Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await
+        .map(|_| ())
+}
+
+/// The client-observable facts an e-signature attests to.
+///
+/// These used to be the literals `"127.0.0.1"` and `"MediChain/1.0"`, written
+/// into every signature regardless of where the request came from. A signature
+/// record whose provenance fields are invented is worse than one that admits it
+/// does not know: it reads as evidence in an audit and is not. When the peer
+/// address or user agent is genuinely unavailable, that is what gets stored.
+fn signature_provenance(http_req: &HttpRequest) -> (String, String) {
+    const UNKNOWN: &str = "unavailable";
+    let ip = http_req
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string)
+        .unwrap_or_else(|| UNKNOWN.to_string());
+    let user_agent = http_req
+        .headers()
+        .get(actix_web::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.is_empty())
+        .unwrap_or(UNKNOWN)
+        .to_string();
+    (ip, user_agent)
 }
 
 /// Sign e-prescription request
@@ -225,6 +315,30 @@ pub async fn sign_e_prescription(
         _ => crate::clinical::SignatureMethod::Password,
     };
 
+    // Only an unsigned prescription may be signed.
+    //
+    // Without this, signing was reachable from *any* state: a transmitted
+    // prescription could be re-signed, which replaced the existing signature
+    // and walked `status` backwards from `Transmitted` to `Signed`. The
+    // pharmacy had already been sent the instruction; the record then claimed
+    // it had not been.
+    let signable = matches!(
+        prescription.status,
+        crate::clinical::PrescriptionStatus::Draft | crate::clinical::PrescriptionStatus::Pending
+    );
+    if !signable {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "Prescription cannot be signed from state '{}'",
+                status_token(&prescription.status)
+            ),
+            code: "NOT_SIGNABLE".to_string(),
+        });
+    }
+    let previous_status = status_token(&prescription.status);
+
+    let (ip_address, user_agent) = signature_provenance(&http_req);
     prescription.signature = Some(crate::clinical::ESignature {
         signature_id: format!("SIG-{}", uuid::Uuid::new_v4()),
         signer_id: current_user_id.clone(),
@@ -232,25 +346,61 @@ pub async fn sign_e_prescription(
         signer_credential: "MD".to_string(),
         signed_at: now,
         signature_method,
-        ip_address: "127.0.0.1".to_string(),
-        user_agent: "MediChain/1.0".to_string(),
+        ip_address,
+        user_agent,
         certificate_thumbprint: None,
         attestation: req.attestation.clone(),
     });
     prescription.signed_at = Some(now);
     prescription.status = crate::clinical::PrescriptionStatus::Signed;
 
-    // Persist the signed prescription (upsert preserves original created_at)
+    // Atomic transition, guarded on the state read above. Two concurrent
+    // signing requests would otherwise both commit, and the second would
+    // overwrite the first clinician's signature with its own.
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .replace_if_field_eq(
+            &prescription_id,
+            "status",
+            &previous_status,
+            prescription_record(&prescription, &prescription_id),
+        )
+        .await
     {
-        let now_dt = chrono::Utc::now();
-        let entity = crate::repositories::traits::JsonRecordEntity {
-            id: prescription_id.clone(),
-            owner_id: prescription.patient_id.clone(),
-            data: serde_json::to_value(&prescription).unwrap_or_default(),
-            created_at: now_dt,
-            updated_at: now_dt,
-        };
-        let _ = data.repositories.e_prescriptions_v2.create(entity).await;
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "Prescription was already signed or its state changed".to_string(),
+                code: "NOT_SIGNABLE".to_string(),
+            });
+        }
+        Err(e) => {
+            log::error!("E-prescription signing failed for {prescription_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Signature could not be saved".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
+    }
+
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user_id,
+        &current_user.role.to_string(),
+        "prescription_signed",
+    )
+    .await
+    {
+        log::error!("E-prescription signing audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Signature could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -271,10 +421,11 @@ pub async fn transmit_e_prescription(
 ) -> impl Responder {
     let prescription_id = path.into_inner();
 
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = current_user.wallet_address.clone();
 
     let mut prescription: crate::clinical::EPrescription = match data
         .repositories
@@ -318,17 +469,54 @@ pub async fn transmit_e_prescription(
     prescription.transmission_status = Some(crate::clinical::TransmissionStatus::Sent);
     prescription.status = crate::clinical::PrescriptionStatus::Transmitted;
 
-    // Persist the transmitted prescription (upsert preserves original created_at)
+    // Atomic transition out of `Signed`. The `status != Signed` check above is
+    // a read; on its own it let two concurrent transmissions both succeed, and
+    // a prescription sent twice is a prescription a pharmacy may dispense
+    // twice. The guard is what makes transmission happen once.
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .replace_if_field_eq(
+            &prescription_id,
+            "status",
+            &status_token(&crate::clinical::PrescriptionStatus::Signed),
+            prescription_record(&prescription, &prescription_id),
+        )
+        .await
     {
-        let now_dt = chrono::Utc::now();
-        let entity = crate::repositories::traits::JsonRecordEntity {
-            id: prescription_id.clone(),
-            owner_id: prescription.patient_id.clone(),
-            data: serde_json::to_value(&prescription).unwrap_or_default(),
-            created_at: now_dt,
-            updated_at: now_dt,
-        };
-        let _ = data.repositories.e_prescriptions_v2.create(entity).await;
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "Prescription is no longer awaiting transmission".to_string(),
+                code: "ALREADY_TRANSMITTED".to_string(),
+            });
+        }
+        Err(e) => {
+            log::error!("E-prescription transmission failed for {prescription_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Transmission could not be recorded".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
+    }
+
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user_id,
+        &current_user.role.to_string(),
+        "prescription_transmitted",
+    )
+    .await
+    {
+        log::error!("E-prescription transmission audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Transmission could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -446,4 +634,261 @@ pub async fn get_patient_e_prescriptions(
         "count": patient_prescriptions.len(),
         "next_cursor": next_cursor
     }))
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn prescriber() -> crate::User {
+        crate::User {
+            wallet_address: "doctor_rx".to_string(),
+            username: None,
+            name: "Dr Prescriber".to_string(),
+            role: crate::Role::Doctor,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// A prescription in a given state, stored the way the handlers read it.
+    async fn state_with(id: &str, status: crate::clinical::PrescriptionStatus) -> crate::AppState {
+        let state = crate::AppState::new();
+        let user = prescriber();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(user.wallet_address.clone(), user);
+
+        // Built from the real type, not hand-written JSON. A shape mismatch
+        // here does not fail loudly: the handler's
+        // `.and_then(|rec| serde_json::from_value(rec.data).ok())` turns a
+        // deserialisation failure into 404 "Prescription not found", so a
+        // wrong fixture reads as a missing record.
+        let prescription = crate::clinical::EPrescription {
+            prescription_id: id.to_string(),
+            patient_id: "PAT-RX".to_string(),
+            prescriber_id: "doctor_rx".to_string(),
+            prescriber_name: "Dr Prescriber".to_string(),
+            prescriber_npi: "1234567890".to_string(),
+            prescriber_dea: None,
+            medication: crate::clinical::PrescribedMedication {
+                rxcui: None,
+                ndc: None,
+                name: "Amoxicillin".to_string(),
+                generic_name: None,
+                strength: "500mg".to_string(),
+                form: "capsule".to_string(),
+                quantity: 21,
+                quantity_unit: "capsule".to_string(),
+                days_supply: 7,
+                directions: "one capsule three times a day".to_string(),
+                daw_code: 0,
+            },
+            pharmacy: crate::clinical::EPharmacyInfo {
+                ncpdp_id: "1234567".to_string(),
+                npi: "9876543210".to_string(),
+                name: "Test Pharmacy".to_string(),
+                address: "1 Test Street".to_string(),
+                city: "Testville".to_string(),
+                state: "GP".to_string(),
+                zip: "0001".to_string(),
+                phone: "(555) 123-4567".to_string(),
+                fax: None,
+                is_mail_order: false,
+                is_24_hour: false,
+                accepts_epcs: true,
+            },
+            status,
+            created_at: chrono::Utc::now().timestamp(),
+            signed_at: None,
+            signature: None,
+            transmitted_at: None,
+            transmission_status: None,
+            is_controlled: false,
+            dea_schedule: None,
+            refills_allowed: 0,
+            refills_remaining: 0,
+            last_filled: None,
+            expires_at: chrono::Utc::now().timestamp() + 86_400,
+            pharmacy_notes: None,
+            patient_instructions: "Take with food".to_string(),
+            diagnosis_codes: Vec::new(),
+        };
+
+        let now = chrono::Utc::now();
+        state
+            .repositories
+            .e_prescriptions_v2
+            .create(crate::repositories::traits::JsonRecordEntity {
+                id: id.to_string(),
+                owner_id: "PAT-RX".to_string(),
+                data: serde_json::to_value(&prescription).expect("serialise fixture"),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .expect("seed prescription");
+        state
+    }
+
+    async fn stored_status(state: &crate::AppState, id: &str) -> String {
+        state
+            .repositories
+            .e_prescriptions_v2
+            .get_by_id(id)
+            .await
+            .unwrap()
+            .expect("prescription present")
+            .data["status"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// Signing a prescription that has already been sent to a pharmacy used to
+    /// succeed: it replaced the signature and reset `status` from `Transmitted`
+    /// back to `Signed`, so the record denied a transmission that had happened.
+    #[actix_web::test]
+    async fn a_transmitted_prescription_cannot_be_re_signed() {
+        let state = state_with("RX-1", crate::clinical::PrescriptionStatus::Transmitted).await;
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(sign_e_prescription),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/e-prescriptions/RX-1/sign")
+                .insert_header(("x-user-id", "doctor_rx"))
+                .set_json(serde_json::json!({
+                    "signature_method": "password",
+                    "attestation": "I attest"
+                }))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(resp.status(), 400);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"]["code"], "NOT_SIGNABLE");
+        assert_eq!(stored_status(&app_state, "RX-1").await, "Transmitted");
+    }
+
+    /// The intended path still works, and the signature records where the
+    /// request actually came from rather than a hardcoded loopback address.
+    #[actix_web::test]
+    async fn a_draft_can_be_signed_and_records_real_provenance() {
+        let state = state_with("RX-2", crate::clinical::PrescriptionStatus::Draft).await;
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(sign_e_prescription),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/e-prescriptions/RX-2/sign")
+                .insert_header(("x-user-id", "doctor_rx"))
+                .insert_header(("user-agent", "MediChainTest/9.9"))
+                .set_json(serde_json::json!({
+                    "signature_method": "password",
+                    "attestation": "I attest"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+        assert_eq!(stored_status(&app_state, "RX-2").await, "Signed");
+
+        let stored = app_state
+            .repositories
+            .e_prescriptions_v2
+            .get_by_id("RX-2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.data["signature"]["user_agent"], "MediChainTest/9.9");
+        assert_ne!(
+            stored.data["signature"]["ip_address"], "127.0.0.1",
+            "the signature must not attest an invented peer address"
+        );
+
+        // Signing is a moment of personal clinical responsibility and must be
+        // attributable afterwards.
+        let logs = app_state
+            .repositories
+            .access_logs
+            .get_by_patient(
+                "PAT-RX",
+                crate::repositories::traits::Pagination::new(0, 50),
+            )
+            .await
+            .expect("access logs readable");
+        assert!(
+            logs.items.iter().any(|l| l.action == "prescription_signed"),
+            "signing must be audited"
+        );
+    }
+
+    /// A *sequential* second transmission is refused.
+    ///
+    /// This does not prove the concurrent case, and it passes with the atomic
+    /// guard removed: the pre-existing `status != Signed` read already rejects
+    /// a second call once the first has committed. The interleaving where both
+    /// callers read `Signed` before either writes is proved against the shared
+    /// `replace_if_field_eq` primitive — the same `pg_json_repo!` macro backs
+    /// this table — in `repositories::postgres::tests`.
+    ///
+    /// The distinction matters clinically: a prescription transmitted twice is
+    /// one a pharmacy may dispense twice.
+    #[actix_web::test]
+    async fn a_sequential_second_transmission_is_refused() {
+        let state = state_with("RX-3", crate::clinical::PrescriptionStatus::Signed).await;
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(transmit_e_prescription),
+        )
+        .await;
+
+        let first = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/e-prescriptions/RX-3/transmit")
+                .insert_header(("x-user-id", "doctor_rx"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(first.status(), 200);
+
+        let second = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/e-prescriptions/RX-3/transmit")
+                .insert_header(("x-user-id", "doctor_rx"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(second.status(), 400);
+        assert_eq!(stored_status(&app_state, "RX-3").await, "Transmitted");
+    }
 }

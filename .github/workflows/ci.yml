@@ -58,6 +58,16 @@ jobs:
             - name: Only the shared session helper emits the legacy identity header
               run: python scripts/check-legacy-identity-headers.py
 
+            # The three gates above all ask whether a request was allowed to do
+            # something. This one asks whether what it did actually happened.
+            # `let _ = data.repositories.x.create(..)` type-checks, returns 200,
+            # and stores nothing when the write fails — the caller is told the
+            # lab result was filed, or the prescription transmitted to a
+            # pharmacy, and neither is true. A ratchet, not a clean bill of
+            # health: 55 such writes remain and the number may only fall.
+            - name: No new repository write discards its own failure
+              run: python scripts/check-discarded-writes.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================

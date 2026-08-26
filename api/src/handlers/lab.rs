@@ -124,11 +124,22 @@ pub async fn submit_lab_results(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data
+        // 201 Created naming a submission_id that was never stored is the
+        // worst outcome here: the lab believes the result is filed and awaiting
+        // review, and no reviewer will ever see it.
+        if let Err(e) = data
             .repositories
             .lab_result_submissions
             .create(entity)
-            .await;
+            .await
+        {
+            log::error!("Lab submission persistence failed for {submission_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Lab results could not be saved".to_string(),
+                code: "LAB_SUBMISSION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     // CDS: evaluate lab-based rules (hyperkalemia, AKI, etc.) on the numeric values.
@@ -157,8 +168,10 @@ pub async fn submit_lab_results(
         }
     }
 
-    // Log access via repository
-    let _ = data
+    // Audit is an obligation, not a side effect: a clinical result filed
+    // against a patient with no record of who filed it is not auditable after
+    // the fact, and the submission is already durable by this point.
+    if let Err(e) = data
         .repositories
         .access_logs
         .create(
@@ -174,7 +187,15 @@ pub async fn submit_lab_results(
             }
             .into(),
         )
-        .await;
+        .await
+    {
+        log::error!("Lab submission audit failed for {submission_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Lab submission could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
 
     log::info!(
         "Lab results submitted: {} for patient {}",
