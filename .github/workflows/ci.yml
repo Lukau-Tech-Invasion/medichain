@@ -420,6 +420,47 @@ jobs:
                   actual="$(docker image inspect medichain-api:${{ github.sha }} --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
                   test "$actual" = "${{ github.sha }}"
 
+            # Record the digest, not just the label.
+            #
+            # "The label says the right SHA" proves the build was TOLD its
+            # source revision. It does not identify the image that came out.
+            # Without a recorded digest there is nothing to point at later and
+            # say "this artifact is the one that passed these gates" — a
+            # release can only claim provenance for an artifact it can name.
+            #
+            # This job still does not publish. What it produces is the
+            # source-SHA-to-image-digest link that a publishing workflow must
+            # carry forward, written where a human and a later job can both
+            # read it.
+            - name: Record source revision to image digest
+              id: digest
+              run: |
+                  digest="$(docker image inspect medichain-api:${{ github.sha }} --format '{{ .Id }}')"
+                  echo "image_digest=${digest}" >> "$GITHUB_OUTPUT"
+                  printf '%s\n' \
+                    "source_revision=${{ github.sha }}" \
+                    "image_digest=${digest}" \
+                    "image_tag=medichain-api:${{ github.sha }}" \
+                    "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    "workflow_run=${{ github.run_id }}" \
+                    > image-provenance.txt
+                  {
+                    echo "### API image provenance"
+                    echo
+                    echo "| field | value |"
+                    echo "| --- | --- |"
+                    echo "| source revision | \`${{ github.sha }}\` |"
+                    echo "| image digest | \`${digest}\` |"
+                    echo "| workflow run | ${{ github.run_id }} |"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload image provenance record
+              uses: actions/upload-artifact@v4
+              with:
+                  name: api-image-provenance
+                  path: image-provenance.txt
+                  if-no-files-found: error
+
     # ============================================================================
     # Snyk (11.2) — dependency vulnerability scanning, Rust + frontend.
     # Needs a SNYK_TOKEN repo secret (Settings → Secrets and variables → Actions)
