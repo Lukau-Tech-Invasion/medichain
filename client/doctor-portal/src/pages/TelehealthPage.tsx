@@ -113,6 +113,7 @@ export default function TelehealthPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(user.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({
@@ -149,6 +150,7 @@ export default function TelehealthPage() {
         method: 'POST',
         headers: {
           ...getApiClient().getSessionHeaders(user.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Provider-Role': user.role,
         },
       });

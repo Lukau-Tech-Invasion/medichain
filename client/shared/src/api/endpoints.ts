@@ -822,9 +822,12 @@ export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> 
   // Identity is resolved by the one helper that owns the Bearer-vs-legacy
   // decision. Building it by hand here used to send the wallet address
   // alongside a valid Bearer token, putting that identifier on every export.
+  // `getMutationHeaders`, not `getSessionHeaders`: this is a POST, and the
+  // idempotency middleware refuses a keyed-subject mutation without a key.
+  // `/api/pdf/document` is not on the middleware's allowlist — that list is
+  // only the identity-establishing endpoints, which have no subject yet.
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...client.getSessionHeaders(),
+    ...client.getMutationHeaders(),
   };
 
   const resp = await fetch(`${client.getBaseUrl()}/api/pdf/document`, {

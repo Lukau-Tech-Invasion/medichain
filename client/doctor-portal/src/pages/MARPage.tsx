@@ -381,6 +381,7 @@ export default function MARPage() {
           headers: {
             'Content-Type': 'application/json',
             ...getApiClient().getSessionHeaders(user.walletAddress),
+            'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
             'X-Provider-Role': user.role,
           },
           body: JSON.stringify({

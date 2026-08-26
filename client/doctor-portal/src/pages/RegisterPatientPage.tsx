@@ -94,6 +94,7 @@ function RegisterPatientPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(user?.userId),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
         },
         body: JSON.stringify({
           full_name: formData.fullName,

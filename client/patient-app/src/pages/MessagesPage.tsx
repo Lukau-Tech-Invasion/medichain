@@ -159,6 +159,7 @@ export function MessagesPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(patient.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Health-Id': patient.healthId,
         },
         body: JSON.stringify({

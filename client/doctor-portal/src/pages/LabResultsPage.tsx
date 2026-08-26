@@ -92,6 +92,7 @@ function LabResultsPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(user?.userId),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
         },
         body: JSON.stringify({ action: 'approve' }),
       });
@@ -125,6 +126,7 @@ function LabResultsPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(user?.userId),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
         },
         body: JSON.stringify({ action: 'reject', rejection_reason: rejectionReason }),
       });

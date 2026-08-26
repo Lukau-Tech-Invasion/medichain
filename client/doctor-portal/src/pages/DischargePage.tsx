@@ -241,6 +241,7 @@ function DischargePage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(user.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify(payload),
@@ -331,6 +332,7 @@ function DischargePage() {
         method: 'POST',
         headers: { 
           ...getApiClient().getSessionHeaders(user.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Provider-Role': user.role,
         },
       });

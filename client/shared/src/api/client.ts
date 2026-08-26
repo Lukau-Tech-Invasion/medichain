@@ -225,12 +225,13 @@ export class ApiClient {
     let revoked = false;
     if (this.accessToken) {
       try {
+        // Logout is deliberately absent from the middleware's allowlist —
+        // it is a keyed-subject mutation like any other — so it needs a key.
+        // Without one the server refused it and the session stayed alive
+        // while the client cleared its tokens and believed otherwise.
         const resp = await fetch(`${this.baseUrl}${path}`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...this.getSessionHeaders(),
-          },
+          headers: this.getMutationHeaders(),
         });
         revoked = resp.ok;
       } catch {
@@ -273,6 +274,32 @@ export class ApiClient {
    * used only when no session token exists, which keeps local demo flows
    * working while direct pages are migrated away from `X-User-Id`.
    */
+  /**
+   * Headers for a mutation made with a raw `fetch` rather than through this
+   * client's own `post`/`put`/`patch`/`delete`.
+   *
+   * `api/src/middleware/idempotency.rs` refuses any keyed-subject mutation
+   * that arrives without an `Idempotency-Key` (409
+   * IDEMPOTENCY_KEY_REQUIRED). `request()` adds one automatically; a direct
+   * `fetch` does not, and 30 production call sites were written that way
+   * before the middleware existed. Every one of them was being refused:
+   * recording vital signs, registering a patient, writing a SOAP note,
+   * placing an order, triage, wound care, discharge, messages, consent
+   * changes — and signing out.
+   *
+   * A fresh key per call is right for a user-initiated action: the button
+   * press *is* the intent, and two presses are two intents. Retrying one
+   * request with a stable key is a different problem, handled inside
+   * `request()`.
+   */
+  getMutationHeaders(legacyUserId?: string): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      ...this.getSessionHeaders(legacyUserId),
+      'Idempotency-Key': createOperationKey(),
+    };
+  }
+
   getSessionHeaders(legacyUserId?: string): Record<string, string> {
     if (this.accessToken) {
       return { Authorization: `Bearer ${this.accessToken}` };

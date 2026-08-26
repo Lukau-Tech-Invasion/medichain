@@ -247,6 +247,7 @@ export function ConsentManagementPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(patient.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Health-Id': patient.healthId,
         },
       });
@@ -277,6 +278,7 @@ export function ConsentManagementPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(patient.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Health-Id': patient.healthId,
         },
       });
@@ -301,6 +303,7 @@ export function ConsentManagementPage() {
         headers: {
           'Content-Type': 'application/json',
           ...getApiClient().getSessionHeaders(patient.walletAddress),
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
           'X-Health-Id': patient.healthId,
         },
       });
