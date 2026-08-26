@@ -495,6 +495,9 @@ async fn main() -> std::io::Result<()> {
     println!();
 
     // Start HTTP server
+    // ONE limiter for the whole process. See `middleware::rate_limit`.
+    let rate_limit = RateLimitMiddleware::default_config();
+
     HttpServer::new(move || {
         // Configure CORS - restrictive for production, permissive for demo
         let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
@@ -530,8 +533,11 @@ async fn main() -> std::io::Result<()> {
             cors
         };
 
-        // Configure rate limiting
-        let rate_limit = RateLimitMiddleware::default_config();
+        // Cloned from the single instance built before `HttpServer::new`, so
+        // every worker shares one set of counters. Constructing it here gave
+        // each worker its own and multiplied the effective limit by the worker
+        // count.
+        let rate_limit = rate_limit.clone();
 
         // Configure signature authentication (SEC-005)
         // SECURE BY DEFAULT: verification is ENABLED unless the operator explicitly
