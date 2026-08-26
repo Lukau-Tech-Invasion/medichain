@@ -26,7 +26,7 @@ locally built current-source API on `:8090`, not that image.
 
 ## B. Findings
 
-Eleven, all fixed and committed. Every regression test was **falsified against
+Fifteen, all fixed or explicitly deferred, all committed. Every regression test was **falsified against
 the unfixed code before being kept**; where that failed, it is said so.
 
 ### Clinical state machines
@@ -112,6 +112,35 @@ existed and the endpoint reported none.
 total}` envelope as its return type while `ApiClient.get` unwraps that to a
 bare array. TypeScript cannot catch it; the unwrap is a runtime cast.
 
+**UI-006 — a nurse's task list was invented.** The "Tasks Due" panel was four
+hardcoded rows: a dressing change in `'Room 403'`, an IV site assessment in
+`'ICU-2'`, and two rows interpolating the real `vitals_due` count into fixed
+08:00 and 09:00 slots. Those times, those locations and those two tasks exist
+nowhere in the backend — `/api/dashboard/nurse` returns `tasks.vitals_due` and
+a hardcoded `ivs_to_check: 0`. With nothing outstanding a nurse saw "Vitals x0"
+and "Blood sugar x0" listed as scheduled work beside a room number nobody
+chose. A task list is a work instruction, so this is worse than a wrong tile: a
+nurse either acts on a fabricated row or stops trusting the panel, and the
+screen causes both. No placeholder audit would find it — "Room 403" matches no
+keyword.
+
+**UI-007 / UI-008 — two screens could not name the patient.** The pharmacist's
+verification queue mapped `patient_name` out of the prescription document, and
+`EPrescription` has no such field, so the column showed `PAT-6381aba1` where a
+name belongs — to the person checking the order against an allergy list. The
+laboratory's rejected-specimen panel reads `accession_number` and
+`patient_name`; `SpecimenRejectionEntity` has `specimen_id` and `patient_id`
+and neither of the others, so every rejection read "Unknown - Haemolysed sample
+/ Patient: Unknown". Both now resolve the name once per distinct patient — it
+is encrypted at rest, so each lookup costs a decrypt.
+
+**UI-009 — the Notify / Request Recollect buttons are dead**, with no handler
+and no endpoint to call. `SpecimenRejectionEntity` carries
+`notified_ordering_provider`, `notification_sent_at`, `recollection_required`
+and `recollection_scheduled`, so the model anticipates the workflow and nothing
+sets them. Not built: who is notified, by what channel, and how a recollection
+is scheduled are clinical governance decisions.
+
 **UI-005 — patient wallet sign-in could not succeed for anyone.**
 `signMessage()` called `web3Accounts()` without the required once-per-page
 `web3Enable()` handshake, so polkadot-js threw its internal error and the
@@ -183,7 +212,21 @@ request and the database's unique index correctly refused the second, so the
 harness asserts that refusal and adopts the existing request. A harness that
 only passes on a clean database stops being run.
 
-### Browser — doctor portal, live API, real PostgreSQL
+### Browser — five of six roles, live API, real PostgreSQL
+
+Every role signed in through the real credential path — employee identifier and
+password, keystore, signer, challenge, JWT — with the seeded fixtures.
+
+| Role | What was seen |
+| --- | --- |
+| **Doctor** | Dashboard with 19 real patients, real critical values and orders; the Lab Review queue; **a real mutation** (below) |
+| **Nurse** | Nursing Dashboard, 15 assigned patients, "Tasks Due" now truthful after UI-006 |
+| **Pharmacist** | Pharmacy Dashboard, 17 real allergy alerts, and the prescriptions the harness created through the Doctor sitting in the verification queue — the Doctor-to-Pharmacist path end to end |
+| **Lab Technician** | Laboratory Dashboard, two pending specimens with patient names, a genuine unacknowledged critical potassium, the rejected specimen now identified |
+| **Admin** | 121 users with a real role breakdown, and **the access log showing this pass's own audit events** — `prescription_signed`, `prescription_transmitted`, `lab_review_approve` with the correct actors. Independent confirmation of AUD-002 and APP-003 from a different screen and a different role. |
+| **Patient** | Blocked: needs a browser wallet extension. See §E. |
+
+### Doctor mutation — the full proof chain
 
 | Check | Result |
 | --- | --- |
@@ -201,9 +244,9 @@ only passes on a clean database stops being run.
 
 | Suite | Result |
 | --- | --- |
-| API, nothing filtered | **502 passed, 0 failed, 1 ignored** (was 491) |
+| API, nothing filtered | **508 passed, 0 failed, 1 ignored** (was 491) |
 | Pallets | 60 (26 / 22 / 12) on the new lockfile |
-| Doctor portal | 85 files / **331** tests |
+| Doctor portal | **86 files / 331 tests** (was 85 / 321) |
 | Patient app | 26 files / 83 tests |
 | Typechecks | shared, doctor, patient — all pass |
 | `cargo fmt --check`, `clippy --all-targets -D warnings` | clean |
@@ -240,6 +283,16 @@ unlisted value fails it.
 * **A page that reassured on failure.** My own Lab Review screen showed
   "Nothing is waiting for review" underneath a load error. A test written for
   it caught that.
+* **I took the Laboratory Dashboard down.** The first attempt at UI-008 mapped
+  each rejection to `entity.data`, which is reasonable for the JSON-document
+  repository in the same file and wrong for this one: the field is
+  `#[sqlx(skip)]` and always null for a PostgreSQL row. The panel received an
+  array of nulls and the whole page died. The regression test now asserts the
+  elements are objects, not merely that the names are right.
+* **I trusted a rebuild that never happened.** A chained
+  `build && restart` in one backgrounded shell reported success while leaving
+  the old binary in place, so a fix looked ineffective for several minutes.
+  Comparing the binary's mtime against the source's is what settled it.
 
 ## E. What is still open
 
@@ -248,8 +301,9 @@ unlisted value fails it.
 * A successful patient sign-in in a browser needs a wallet extension this
   isolated browser does not have. The path is fixed and now fails for the right
   reason with the right message; the success path is undemonstrated.
-* Nurse, Pharmacist, Lab and Admin browser workflows. Their fixtures exist and
-  all four authenticate through the API; none has been driven on screen.
+* Browser *mutations* for Nurse, Pharmacist, Lab and Admin. All four were
+  driven on screen and read correctly; only the Doctor performed a write
+  through the UI, so the mutation half of the gate is met for one role.
 
 **Owner decisions**
 
