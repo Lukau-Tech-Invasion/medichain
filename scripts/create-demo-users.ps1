@@ -50,6 +50,23 @@ $headers = @{
     "X-User-Id" = $STAFF_ID
 }
 
+# A fresh Idempotency-Key per registration.
+#
+# api/src/middleware/idempotency.rs refuses any authenticated mutation that
+# arrives without one, and every call below carries X-User-Id, so all five
+# registrations were answered 409 IDEMPOTENCY_KEY_REQUIRED and this script --
+# which DEMO_SETUP.md tells a human to run -- created nothing.
+#
+# Per call, not per run, and NOT added to $headers above: the key is bound to a
+# request digest, so one key shared across five different bodies is rejected as
+# reused. $headers stays key-free because the GET identity probe below must not
+# carry one either.
+function Get-WriteHeaders {
+    $h = $headers.Clone()
+    $h["Idempotency-Key"] = [guid]::NewGuid().ToString()
+    return $h
+}
+
 # Fail loudly if the registering identity is not one the API will accept. Without
 # this the five try/catch blocks below swallow every 401 and the script still
 # reports success.
@@ -85,7 +102,7 @@ $patient1 = @{
 } | ConvertTo-Json
 
 try {
-    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient1 -Headers $headers -ErrorAction Stop
+    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient1 -Headers (Get-WriteHeaders) -ErrorAction Stop
     Write-Host "  Created: $($result.patient_id)" -ForegroundColor Green
 }
 catch {
@@ -112,7 +129,7 @@ $patient2 = @{
 } | ConvertTo-Json
 
 try {
-    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient2 -Headers $headers -ErrorAction Stop
+    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient2 -Headers (Get-WriteHeaders) -ErrorAction Stop
     Write-Host "  Created: $($result.patient_id)" -ForegroundColor Green
 }
 catch {
@@ -139,7 +156,7 @@ $patient3 = @{
 } | ConvertTo-Json
 
 try {
-    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient3 -Headers $headers -ErrorAction Stop
+    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient3 -Headers (Get-WriteHeaders) -ErrorAction Stop
     Write-Host "  Created: $($result.patient_id)" -ForegroundColor Green
 }
 catch {
@@ -166,7 +183,7 @@ $patient4 = @{
 } | ConvertTo-Json
 
 try {
-    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient4 -Headers $headers -ErrorAction Stop
+    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient4 -Headers (Get-WriteHeaders) -ErrorAction Stop
     Write-Host "  Created: $($result.patient_id)" -ForegroundColor Green
 }
 catch {
@@ -193,7 +210,7 @@ $patient5 = @{
 } | ConvertTo-Json
 
 try {
-    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient5 -Headers $headers -ErrorAction Stop
+    $result = Invoke-RestMethod -Uri "$API_URL/api/register" -Method Post -Body $patient5 -Headers (Get-WriteHeaders) -ErrorAction Stop
     Write-Host "  Created: $($result.patient_id)" -ForegroundColor Green
 }
 catch {
