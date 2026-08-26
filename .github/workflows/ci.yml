@@ -97,6 +97,18 @@ jobs:
             - name: No production screen renders data nobody supplied
               run: python scripts/check-fabricated-ui-data.py
 
+            # The idempotency middleware requires a header on every
+            # authenticated mutation and was landed without migrating one
+            # caller. The breakage surfaced four separate times, days apart,
+            # each looking like an unrelated bug: the fixture seeder, thirty
+            # raw-fetch sites in the portals, the synthetic e2e harness (which
+            # is what failed hosted CI), and the demo setup script DEMO_SETUP.md
+            # tells a human to run, which created nothing and printed a success
+            # banner anyway. None of that fails at compile time or in a Rust
+            # test. Baseline is zero, so the next one fails here instead.
+            - name: Every authenticated mutation sends an idempotency key
+              run: python scripts/check-idempotency-callers.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
