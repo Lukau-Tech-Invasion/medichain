@@ -109,6 +109,39 @@ jobs:
             - name: Every authenticated mutation sends an idempotency key
               run: python scripts/check-idempotency-callers.py
 
+            # ----------------------------------------------------------------
+            # Five gates below existed, passed, and ran NOWHERE. A ratchet that
+            # is not in CI is not a ratchet -- it is a script somebody has to
+            # remember, and the whole point of a baseline is that nobody has to.
+            # `check-state-durability.py` is the starkest: it is the guarantee
+            # that clinical handlers keep writing through repositories rather
+            # than into process memory, the single defect class this codebase
+            # has had most of, and nothing was enforcing it between commits.
+            # ----------------------------------------------------------------
+
+            # Clinical writes must reach a repository, never an AppState map.
+            # Baseline is 0 references; it may only stay there.
+            - name: No handler writes clinical state into process memory
+              run: python scripts/check-state-durability.py
+
+            # Frontend paths must match registered backend routes. Whole feature
+            # clusters once pointed at endpoints that did not exist.
+            - name: Frontend calls resolve to registered endpoints
+              run: python scripts/check-endpoint-drift.py
+
+            # A security control whose default is permissive is not a control.
+            - name: Security-relevant defaults fail closed
+              run: python scripts/check-uncontrolled-defaults.py
+
+            # WCAG AA contrast, checked at the design tokens rather than at a
+            # rendered pixel, so it holds for both themes.
+            - name: Colour tokens meet WCAG AA contrast
+              run: python scripts/check-contrast.py
+
+            # Test files that no longer match the components they name.
+            - name: Frontend tests have not drifted from their components
+              run: python scripts/check-frontend-test-drift.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
