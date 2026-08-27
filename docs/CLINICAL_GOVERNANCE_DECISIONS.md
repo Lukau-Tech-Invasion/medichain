@@ -2,13 +2,18 @@
 
 **Status: OPEN. Nothing here can be closed by writing code.**
 
-Three items are blocked not on engineering but on clinical policy. Two are
-workflows that cannot be built: each has enum states, UI surface, or a data
-model that *implies* a behaviour nobody has decided. The third is a tradeoff
-already shipped as a default, where the safer choice for the record is the less
-safe choice for the patient. Deciding any of them from the code alone would put
-a clinical rule into a health record system that no clinician chose, which is
-the one thing this campaign will not do.
+Two of the three items recorded here have been answered and built; their
+sections are kept as a record of what was decided, so the next reader can see
+that each rule was chosen rather than inherited from the shape of an enum.
+
+One remains genuinely open: break-glass behaviour when the audit store is
+unavailable, where the safer choice for the record is the less safe choice for
+the patient. Two narrower questions also remain inside the dispensing section --
+controlled-substance handling and second-pharmacist verification.
+
+Deciding any of those from the code alone would put a clinical rule into a
+health record system that no clinician chose, which is the one thing this
+campaign will not do.
 
 This document exists so the blockage is actionable rather than merely recorded.
 Each section states what the code actually contains today, then the questions a
@@ -21,79 +26,36 @@ the emergency break-glass audit work of 2026-08-27.
 
 ---
 
-## 1. Pharmacist dispensing (SCR-013)
+## 1. Pharmacist dispensing (SCR-013) — ANSWERED AND BUILT 2026-08-27
 
-### What the code contains today
+The twenty questions below were answered in the completion brief. The
+implementation is `SCR-013b` in the remediation ledger.
 
-`PrescriptionStatus` (`api/src/clinical.rs:7240`) declares eleven states:
+The decisive fact that used to block this: `PrescribedMedication` already
+carried `quantity` and `quantity_unit`, so what was prescribed was modelled —
+what was missing was the *dispensed* side. `EPrescription.dispensed_quantity`
+now carries the running total, and `dispense_events` carries the history.
 
-```
-Draft  Pending  Signed  Transmitted  Received  InProgress
-Dispensed  PartialFill  Cancelled  Expired  Error
-```
-
-The implemented lifecycle ends at `Transmitted`. **Four states — `Received`,
-`InProgress`, `Dispensed`, `PartialFill` — cannot currently be entered by any
-endpoint**, and no handler anywhere names `Role::Pharmacist` for a write. A
-pharmacist can sign in, see real transmitted prescriptions with the correct
-patient, medication and dose, and take no action of any kind. The Pharmacy
-Dashboard shows an "Orders to Verify" queue with no action on it and throughput
-tiles that can never move.
-
-`EPrescription` carries 23 fields. The ones that bear on these decisions:
-
-| Field | Bearing |
+| Question | Decision |
 | --- | --- |
-| `pharmacy: EPharmacyInfo` | The prescription already names a destination pharmacy, so "may another pharmacy dispense this?" is answerable in the model — but no rule consults it. |
-| `is_controlled: bool`, `dea_schedule: Option<String>` | Controlled status is modelled and currently gates nothing at dispense. |
-| `refills_allowed: u8`, `refills_remaining: u8`, `last_filled: Option<i64>` | Refill accounting exists across fills. |
-| *(absent)* | **No field records a dispensed quantity, or a quantity remaining within a fill.** |
+| Who may receive / dispense | Pharmacist only. An administrator may also correct. |
+| Transmitted → Received | An explicit act by the receiving pharmacy, not automatic. |
+| Dispensing from other states | Refused: only Received, InProgress or PartialFill. |
+| What `Dispensed` means | The full prescribed quantity has left the pharmacy. |
+| How quantity is recorded | Per event, in `dispense_events`, with a running total on the prescription. |
+| What `PartialFill` retains | The remainder, derived from prescribed minus dispensed. |
+| Repeat partial fills | Permitted until the remainder reaches zero, at which point the state becomes Dispensed. |
+| Over-dispensing | Refused, and impossible under concurrency: the transition is guarded on the running total. |
+| Reversal | Permitted with a mandatory reason, audited, and it never deletes the original event. |
+| Concurrent dispensing | Exactly one of six simultaneous whole-quantity attempts succeeds. |
+| Audit | Five new actions, added to the CHECK constraint and the source-derived gate. |
 
-That last row is the decisive one. `PartialFill` is a declared state with
-nowhere to record what was partially filled. Supporting it is not a handler —
-it requires a model change whose shape depends entirely on the answers below.
-
-### Decisions required
-
-**Authority and receipt**
-1. Which role may receive a transmitted prescription? Pharmacist only, or also a pharmacy technician if that role is introduced?
-2. Is `Transmitted → Received` an automatic consequence of transmission, or an explicit human act by the receiving pharmacy?
-3. May a pharmacist act on a prescription transmitted to a *different* pharmacy (`EPrescription.pharmacy`)? If so, under what circumstances, and is the original pharmacy notified?
-4. Who may enter `InProgress`, and does that state have any clinical meaning or is it purely operational?
-
-**What dispensing is**
-5. What exactly constitutes `Dispensed` — the medicine leaving the shelf, or being handed to the patient or their agent?
-6. Is dispensing the pharmacist's unilateral assertion, or a two-party confirmation involving the patient?
-7. How is the quantity actually dispensed recorded, given no field exists for it today?
-
-**Partial fills**
-8. What does `PartialFill` mean here: a short supply against one fill, or an owing balance the patient returns for?
-9. How is the remaining quantity retained, and against which counter — a new per-fill quantity, or the existing refill counters?
-10. May a partial fill be repeated against the same fill, and how many times?
-11. What happens when the remaining quantity reaches zero — does the state become `Dispensed`, or does it stay `PartialFill` with a completed balance?
-
-**Correction and reversal**
-12. Is reversal or correction of a dispense permitted at all?
-13. If so, who may reverse — the dispensing pharmacist only, a supervising pharmacist, or an administrator — and within what window?
-14. What happens to a prescription already marked `Transmitted` if the prescriber cancels it afterwards?
-
-**Controlled medicines**
-15. Do controlled medicines (`is_controlled`, `dea_schedule`) follow a different path — additional identity checks, register entries, quantity limits, or refusal of partial fills?
-16. Is a second pharmacist verification required anywhere, and if so for which classes?
-
-**Downstream obligations**
-17. What patient and prescriber notifications are mandatory at each transition?
-18. What audit events are mandatory, and with what vocabulary? (`access_logs.action` has a CHECK constraint; `scripts/check-audit-action-vocabulary.py` enforces that handlers only write permitted values, so new actions must be added deliberately.)
-19. What is written to the patient's own record when a medicine is dispensed?
-20. How must concurrent dispense attempts on one prescription be serialised — first writer wins, or explicit refusal?
-
-### What gets built once answered
-
-Explicit authorization; the legal transition set; an atomic repository
-transition guarded inside the write (the maker-checker house pattern, `WHERE
-status = $expected`); idempotency; exactly-once dispensing; partial-fill
-accounting; the reversal policy; audit; UI; and negative tests for role,
-cross-pharmacy, double-submit and concurrent dispense.
+**Still open, and deliberately not guessed:** controlled-substance handling
+beyond the existing `is_controlled` flag (additional identity checks, register
+entries, quantity limits, whether partial fills are permitted at all), and
+whether a second pharmacist must verify anything. Neither has a stated policy,
+and both are the kind of rule that must come from a pharmacy authority rather
+than from the shape of an enum.
 
 ---
 
