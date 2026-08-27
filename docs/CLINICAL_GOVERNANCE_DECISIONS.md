@@ -1,12 +1,14 @@
-# Clinical governance decisions required before two workflows can be built
+# Clinical governance decisions MediChain cannot make for itself
 
 **Status: OPEN. Nothing here can be closed by writing code.**
 
-Two workflows in MediChain are blocked not on engineering but on clinical
-policy. Each has enum states, UI surface, or a data model that *implies* a
-behaviour nobody has decided. Implementing them from the code alone would put a
-clinical rule into a health record system that no clinician chose, which is the
-one thing this campaign will not do.
+Three items are blocked not on engineering but on clinical policy. Two are
+workflows that cannot be built: each has enum states, UI surface, or a data
+model that *implies* a behaviour nobody has decided. The third is a tradeoff
+already shipped as a default, where the safer choice for the record is the less
+safe choice for the patient. Deciding any of them from the code alone would put
+a clinical rule into a health record system that no clinician chose, which is
+the one thing this campaign will not do.
 
 This document exists so the blockage is actionable rather than merely recorded.
 Each section states what the code actually contains today, then the questions a
@@ -14,7 +16,8 @@ qualified clinical or pharmacy authority must answer. The engineering work is
 small once the answers exist; the answers are not engineering.
 
 Ledger references: `SCR-013` (pharmacist dispensing), `SCR-009b` (specimen
-recollection), in `docs/REMEDIATION_LEDGER_2026-08-22.md`.
+recollection), in `docs/REMEDIATION_LEDGER_2026-08-22.md`. Section 3 arose from
+the emergency break-glass audit work of 2026-08-27.
 
 ---
 
@@ -134,6 +137,43 @@ consequences.
 Whatever is decided, **a dead affordance must not ship**. Until this is
 answered, any Recollect control must be absent or visibly disabled with a
 reason, never a button that appears actionable and does nothing.
+
+---
+
+## 3. Break-glass access when the audit store is unavailable (open tradeoff)
+
+### What changed, and why it needs a decision
+
+`grant_bound_emergency_access` previously wrote its field-level access record
+best-effort: the result of `log_access` was discarded, so a failed audit write
+lost the record and the disclosure proceeded. That cannot satisfy "every
+emergency access is logged and surfaced to the patient", so the handler now
+**fails closed** — if the access record cannot be persisted it returns
+`503 AUDIT_PERSISTENCE_REQUIRED` and discloses nothing.
+
+That is the right default for an auditable health record. It also has a clinical
+cost that belongs to someone other than an engineer:
+
+> With auditing unavailable, a paramedic holding a valid emergency grant is
+> refused the patient's blood type, allergies and DNR status.
+
+This is not hypothetical in this codebase. An earlier incident is on record in
+which fail-closed audit writes blocked emergency access rather than merely
+losing a log line — the in-memory repository enforces no CHECK constraints, so a
+vocabulary mismatch that passed everywhere else failed only on PostgreSQL, and
+took emergency access down with it.
+
+### Decisions required
+
+1. When the audit store is unavailable, does break-glass access **fail closed** (refuse, current behaviour) or **fail open with a queued record** (disclose, and reconcile the audit entry afterwards)?
+2. If fail-open is ever permitted, what compensating control applies — a durable local queue, a hard cap on how long it may run unaudited, or an out-of-band alert to the Information Officer?
+3. Does the answer differ between a total audit outage and a single rejected write (for example a constraint violation on one record)?
+4. Who is accountable for the decision, and where is it recorded for the regulator?
+
+Until this is answered the code stays fail-closed, because that is the safer
+default for the *record*; but note that it is the less safe default for the
+*patient in front of the paramedic*, and that asymmetry is exactly why it is not
+an engineering call.
 
 ---
 
