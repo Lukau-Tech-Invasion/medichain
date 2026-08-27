@@ -732,8 +732,14 @@ if [ -n "$PAT_COND" ]; then
   # server and then failed section 17 on every later run against the same one,
   # with a misleading 404 from the rotate call (the device id was simply empty).
   # Exactly the non-idempotency already fixed for the appointment slots below.
+  # `legacy-organization` is seeded by migration and is the organisation this
+  # deployment actually holds. The harness used to name a fictional ORG-SYNTH,
+  # which passed only while device enrolment lived in process memory: once
+  # devices became durable the foreign key to `organizations` rejected it, the
+  # device id came back empty, and the rotate below became /api/devices//rotate
+  # and 404'd -- a failure four assertions downstream from its cause.
   DEVICE_TAG=$(date +%s)-$$
-  code POST /api/devices/enroll     "{\"organization_id\":\"ORG-SYNTH\",\"device_name\":\"Synthetic Responder Tablet\",\"device_type\":\"tablet\",\"hardware_fingerprint\":\"SYNTH-FP-$DEVICE_TAG\",\"platform\":\"android\"}"     "$ADMIN" >/dev/null
+  code POST /api/devices/enroll     "{\"organization_id\":\"legacy-organization\",\"device_name\":\"Synthetic Responder Tablet\",\"device_type\":\"tablet\",\"hardware_fingerprint\":\"SYNTH-FP-$DEVICE_TAG\",\"platform\":\"android\"}"     "$ADMIN" >/dev/null
   SYNTH_DEVICE=$(jget id)
   c=$(code POST "/api/devices/$SYNTH_DEVICE/rotate" '{"key_id":"KEY-SYNTH-0001"}' "$ADMIN")
   check "responder device is enrolled and keyed" 200 "$c" "$(body)"

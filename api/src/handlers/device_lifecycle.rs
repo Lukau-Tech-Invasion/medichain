@@ -33,6 +33,15 @@ pub async fn enroll_managed_device(
     if let Err(response) = require_admin(&data, &req) {
         return response;
     }
+    // A managed device belongs to an organisation, and `managed_devices` carries
+    // a foreign key to `organizations`. Before enrolment was durable, naming an
+    // organisation that does not exist was silently accepted -- the device lived
+    // in process memory and nothing checked. Now the insert fails, and without
+    // this the operator gets an opaque persistence error for what is simply a
+    // wrong identifier.
+    if let Err(response) = require_known_organization(&data, &body.organization_id).await {
+        return response;
+    }
     let device = match data.device_lifecycle.enroll(
         body.organization_id.clone(),
         body.facility_id.clone(),
@@ -141,6 +150,49 @@ fn device_rejected(error: &'static str, code: &'static str) -> HttpResponse {
         error: error.into(),
         code: code.into(),
     })
+}
+
+/// Refuses an enrolment naming an organisation this deployment does not have.
+///
+/// Checked against the database rather than the in-process store, because the
+/// foreign key that will reject the insert lives there. On the memory backend
+/// there is no `organizations` table and no foreign key, so there is nothing to
+/// validate against and enrolment proceeds -- the check exists to turn a
+/// constraint violation into a comprehensible message, not to add a rule the
+/// memory backend would then enforce differently.
+async fn require_known_organization(
+    data: &web::Data<AppState>,
+    organization_id: &str,
+) -> Result<(), HttpResponse> {
+    let Some(pool) = data.db_pool.as_ref() else {
+        return Ok(());
+    };
+    // `EXISTS` yields a bool, so there is no integer width to get wrong. The
+    // first cut of this selected `1` into an `Option<i64>` -- PostgreSQL returns
+    // that literal as `i32` -- and the decode error was folded into `None` by an
+    // `unwrap_or`, so every organisation looked absent. A query failure and an
+    // unknown organisation are different answers and must not share a branch.
+    let exists =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1)")
+            .bind(organization_id)
+            .fetch_one(pool)
+            .await;
+    match exists {
+        Ok(true) => return Ok(()),
+        Ok(false) => {}
+        Err(error) => {
+            log::error!("organisation lookup failed during device enrolment: {error}");
+            return Err(device_persistence_failed());
+        }
+    }
+    Err(HttpResponse::BadRequest().json(ErrorResponse {
+        success: false,
+        error: format!(
+            "Unknown organisation '{organization_id}'. Enrol the device against an \
+             organisation this deployment holds."
+        ),
+        code: "ORGANIZATION_NOT_FOUND".to_string(),
+    }))
 }
 
 fn device_persistence_failed() -> HttpResponse {
