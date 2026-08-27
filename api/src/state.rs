@@ -392,6 +392,20 @@ impl AppState {
             }
             _ => crate::mobile_records::MobileRecordStore::new(),
         };
+        let device_lifecycle = match (repositories.backend, db_pool.as_ref()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                match crate::device_lifecycle::DeviceLifecycleStore::load_from_pool(pool).await {
+                    Ok(store) => store,
+                    Err(error) => {
+                        log::error!(
+                            "Managed-device reload failed; access will fail closed: {error}"
+                        );
+                        crate::device_lifecycle::DeviceLifecycleStore::new()
+                    }
+                }
+            }
+            _ => crate::device_lifecycle::DeviceLifecycleStore::new(),
+        };
 
         Self {
             db_pool,
@@ -410,7 +424,7 @@ impl AppState {
             security,
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
-            device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
+            device_lifecycle,
             emergency_grants,
             patient_access,
             mobile_records,
