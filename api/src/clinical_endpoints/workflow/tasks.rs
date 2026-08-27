@@ -117,6 +117,21 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
                 "timestamp": result.reviewed_at.map(|t| t.timestamp()).unwrap_or(0)
             }));
         }
+
+        if let Some(patient_id) = current_user.linked_patient_id.as_deref() {
+            let emergency_notifications =
+                match emergency_access_notifications(&data, patient_id).await {
+                    Ok(entries) => entries,
+                    Err(()) => {
+                        return HttpResponse::InternalServerError().json(ErrorResponse {
+                            success: false,
+                            error: "Failed to load notifications".to_string(),
+                            code: "NOTIFICATION_LOAD_FAILED".to_string(),
+                        })
+                    }
+                };
+            notifications.extend(emergency_notifications);
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -124,6 +139,36 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
         "notifications": notifications,
         "count": notifications.len()
     }))
+}
+
+async fn emergency_access_notifications(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+) -> Result<Vec<serde_json::Value>, ()> {
+    let accesses = data
+        .repositories
+        .emergency_capsules
+        .access_history(patient_id, 5)
+        .await
+        .map_err(|error| {
+            log::error!("Failed to load emergency-access notifications: {error}");
+        })?;
+    Ok(accesses
+        .into_iter()
+        .map(|access| {
+            serde_json::json!({
+                "id": access.id,
+                "type": "emergency_access",
+                "priority": "high",
+                "title": "Your emergency medical information was accessed",
+                "accessed_by": access.accessed_by,
+                "reason_code": access.reason_code,
+                "fields_revealed": access.fields_revealed,
+                "commitment_verified": access.commitment_verified,
+                "timestamp": access.accessed_at.timestamp()
+            })
+        })
+        .collect())
 }
 
 /// Get medication reminders for patient

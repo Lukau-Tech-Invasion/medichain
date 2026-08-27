@@ -190,19 +190,15 @@ pub async fn grant_bound_emergency_access(
     // records that a grant was issued; it cannot answer "which of this
     // patient's emergency fields were actually shown, and was the copy intact".
     let verified = crate::emergency_capsule::load_current_verified(&data, &grant.patient_id).await;
-    let (capsule_version, fields_revealed, commitment_verified) = match &verified {
-        Some(v) => (
-            Some(v.version),
-            crate::emergency_capsule::revealed_fields(&v.capsule),
-            v.commitment_verified,
-        ),
-        // No capsule on file. The read still happened and is still logged; an
-        // empty field list is the honest record of what was disclosed from the
-        // capsule store. `commitment_verified` is false because nothing was
-        // verified, not because verification failed.
-        None => (None, Vec::new(), false),
+    let (capsule_version, commitment_verified) = match &verified {
+        Some(v) => (Some(v.version), v.commitment_verified),
+        // No capsule on file. The emergency summary is still disclosed and
+        // logged; `commitment_verified` is false because no capsule integrity
+        // value existed to verify, not because verification failed.
+        None => (None, false),
     };
-    crate::emergency_capsule::log_access(
+    let fields_revealed = crate::emergency_capsule::emergency_summary_revealed_fields();
+    if let Err(error) = crate::emergency_capsule::log_access(
         &data,
         &grant.patient_id,
         capsule_version,
@@ -213,7 +209,15 @@ pub async fn grant_bound_emergency_access(
         fields_revealed,
         commitment_verified,
     )
-    .await;
+    .await
+    {
+        log::error!("{error}");
+        return emergency_error(
+            HttpResponse::ServiceUnavailable(),
+            "Emergency access audit is unavailable",
+            "AUDIT_PERSISTENCE_REQUIRED",
+        );
+    }
 
     HttpResponse::Ok().json(GrantBoundEmergencyAccessResponse {
         grant_id: grant.id,

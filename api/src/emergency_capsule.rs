@@ -373,10 +373,9 @@ pub async fn load_current_verified(
 /// Record a break-glass read: who, why, when, under which grant, and which
 /// fields were actually revealed.
 ///
-/// Failure to write the log is reported but does not fail the caller's read.
-/// Losing the audit entry is bad; withholding emergency data from a responder
-/// because an audit insert failed is worse, and the error is loud enough to
-/// investigate afterwards.
+/// The caller must not release the emergency payload unless this append
+/// succeeds. A warning in process logs is not an immutable disclosure record,
+/// and a database outage must not create an unaudited break-glass path.
 #[allow(clippy::too_many_arguments)]
 pub async fn log_access(
     data: &web::Data<AppState>,
@@ -388,7 +387,7 @@ pub async fn log_access(
     reason_text: Option<String>,
     fields_revealed: Vec<String>,
     commitment_verified: bool,
-) {
+) -> Result<(), String> {
     let entry = EmergencyCapsuleAccessEntity {
         id: format!("ECA-{}", uuid::Uuid::new_v4()),
         patient_id: patient_id.to_string(),
@@ -402,41 +401,39 @@ pub async fn log_access(
         accessed_at: chrono::Utc::now(),
     };
 
-    if let Err(e) = data.repositories.emergency_capsules.log_access(entry).await {
-        log::error!("Emergency capsule access log write failed: {e}");
-    }
+    data.repositories
+        .emergency_capsules
+        .log_access(entry)
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("Emergency capsule access log write failed: {error}"))
 }
 
-/// The capsule fields disclosed by a break-glass emergency summary read.
+/// Every protected field serialized by the grant-bound emergency response.
 ///
-/// Derived from the capsule's actual contents rather than hardcoded, so a field
-/// that is absent for this patient is not recorded as having been revealed.
-pub fn revealed_fields(capsule: &EmergencyCapsule) -> Vec<String> {
-    let mut fields = vec!["blood_type".to_string(), "organ_donor".to_string()];
-
-    if capsule.blood_type_source != BloodTypeSource::Unknown {
-        fields.push("blood_type_source".to_string());
-    }
-    if capsule.blood_type_verified_at.is_some() {
-        fields.push("blood_type_verified_at".to_string());
-    }
-    if capsule.blood_type_verified_by.is_some() {
-        fields.push("blood_type_verified_by".to_string());
-    }
-    if capsule.dnr_status {
-        fields.push("dnr_status".to_string());
-        // Disclosed alongside the raw flag, and separately recorded because it
-        // is the value a responder is expected to act on.
-        fields.push("dnr_actionable".to_string());
-    }
-    if capsule.dnr_document_ref.is_some() {
-        fields.push("dnr_document_ref".to_string());
-    }
-    if capsule.dnr_revoked_at.is_some() {
-        fields.push("dnr_revoked_at".to_string());
-    }
-
-    fields
+/// Optional and empty values remain in the JSON response as `null` or empty
+/// arrays, so they are still disclosures and must remain in the audit ledger.
+pub fn emergency_summary_revealed_fields() -> Vec<String> {
+    [
+        "patient_id",
+        "blood_type",
+        "allergies",
+        "current_medications",
+        "chronic_conditions",
+        "emergency_contacts",
+        "organ_donor",
+        "dnr_status",
+        "dnr_verified_by",
+        "dnr_verified_at",
+        "dnr_document_ref",
+        "languages",
+        "last_updated",
+        "dnr_actionable",
+        "commitment_verified",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 #[cfg(test)]
@@ -564,5 +561,89 @@ mod tests {
         let c = capsule();
         assert!(!c.dnr_status);
         assert!(!c.dnr_is_actionable());
+    }
+
+    /// Catches the drift the literal-list test above cannot.
+    ///
+    /// That test compares `emergency_summary_revealed_fields()` against a copy
+    /// of itself, so it only notices somebody editing the function. It would
+    /// stay green through the defect that produced this ledger in the first
+    /// place: a field added to `EmergencyInfo` is disclosed by the grant-bound
+    /// response and silently absent from the audit record, which is how the log
+    /// came to claim two fields while fifteen were released.
+    ///
+    /// This derives the truth from the type instead. The struct literal is
+    /// written out in full and deliberately does NOT use `..Default::default()`
+    /// -- adding a field to `EmergencyInfo` breaks this compile, which forces
+    /// whoever adds it to look at the disclosure ledger.
+    #[test]
+    fn every_serialized_emergency_field_appears_in_the_disclosure_ledger() {
+        let info = EmergencyInfo {
+            patient_id: "PAT-SYNTHETIC".to_string(),
+            blood_type: BloodType::OPositive,
+            allergies: Vec::new(),
+            current_medications: Vec::new(),
+            chronic_conditions: Vec::new(),
+            emergency_contacts: Vec::new(),
+            organ_donor: false,
+            dnr_status: false,
+            dnr_verified_by: None,
+            dnr_verified_at: None,
+            dnr_document_ref: None,
+            languages: Vec::new(),
+            last_updated: chrono::Utc::now(),
+        };
+
+        let serialized = serde_json::to_value(&info).expect("EmergencyInfo serializes");
+        let disclosed: Vec<&str> = serialized
+            .as_object()
+            .expect("EmergencyInfo is a JSON object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+
+        let ledger = emergency_summary_revealed_fields();
+        for field in &disclosed {
+            assert!(
+                ledger.iter().any(|entry| entry == field),
+                "`{field}` is released by the emergency response but is not in the disclosure ledger, so the audit record under-reports what was shown"
+            );
+        }
+
+        // And the converse: the ledger must not claim a clinical field that is
+        // not actually released. `dnr_actionable` and `commitment_verified` are
+        // response-level additions rather than capsule fields, so they are the
+        // only permitted extras.
+        for entry in &ledger {
+            let response_level = entry == "dnr_actionable" || entry == "commitment_verified";
+            assert!(
+                response_level || disclosed.contains(&entry.as_str()),
+                "the disclosure ledger claims `{entry}` was revealed, but the emergency response does not serialize it"
+            );
+        }
+    }
+
+    #[test]
+    fn grant_bound_emergency_field_ledger_matches_the_serialized_contract() {
+        assert_eq!(
+            emergency_summary_revealed_fields(),
+            vec![
+                "patient_id",
+                "blood_type",
+                "allergies",
+                "current_medications",
+                "chronic_conditions",
+                "emergency_contacts",
+                "organ_donor",
+                "dnr_status",
+                "dnr_verified_by",
+                "dnr_verified_at",
+                "dnr_document_ref",
+                "languages",
+                "last_updated",
+                "dnr_actionable",
+                "commitment_verified",
+            ]
+        );
     }
 }
