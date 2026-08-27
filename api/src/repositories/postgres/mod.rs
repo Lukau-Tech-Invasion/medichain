@@ -99,7 +99,7 @@ pub use wound_assessment::PgWoundAssessmentRepository;
 pub use phase3_lab::{
     PgCriticalValueRepository, PgLabPanelRepository, PgLabQcRecordRepository,
     PgLabSubmissionRepository, PgLabTrendRepository, PgSpecimenCollectionRepository,
-    PgSpecimenRejectionRepository,
+    PgSpecimenRecollectionRepository, PgSpecimenRejectionRepository,
 };
 
 // Phase 3 exports: Surgical & Procedures

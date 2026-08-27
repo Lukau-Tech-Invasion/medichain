@@ -3053,3 +3053,310 @@ impl AdherenceLogRepository for MemoryAdherenceLogRepository {
         Ok((taken_count as f64 / logs.len() as f64) * 100.0)
     }
 }
+
+/// In-process recollection requests (SCR-009b).
+///
+/// The externally visible contract matches PostgreSQL exactly -- one open
+/// request per rejection, terminal states terminal, retries returning `None`
+/// rather than acting twice. PostgreSQL enforces the first of those with a
+/// partial unique index; here the write lock does it, which is the same
+/// guarantee for a single process and is all this backend claims.
+#[derive(Debug)]
+pub struct MemorySpecimenRecollectionRepository {
+    data: RwLock<HashMap<String, SpecimenRecollectionRequestEntity>>,
+}
+
+impl Default for MemorySpecimenRecollectionRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MemorySpecimenRecollectionRepository {
+    pub fn new() -> Self {
+        Self {
+            data: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl SpecimenRecollectionRepository for MemorySpecimenRecollectionRepository {
+    async fn open(
+        &self,
+        request: SpecimenRecollectionRequestEntity,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // The duplicate test and the insert happen under one write lock, so a
+        // second caller cannot slip between them.
+        let already_open = data
+            .values()
+            .any(|r| r.rejection_id == request.rejection_id && r.status == "requested");
+        if already_open {
+            return Ok(None);
+        }
+        data.insert(request.id.clone(), request.clone());
+        Ok(Some(request))
+    }
+
+    async fn get_by_id(
+        &self,
+        id: &str,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.get(id).cloned())
+    }
+
+    async fn list_for_rejection(
+        &self,
+        rejection_id: &str,
+    ) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut rows: Vec<_> = data
+            .values()
+            .filter(|r| r.rejection_id == rejection_id)
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        Ok(rows)
+    }
+
+    async fn list_open(&self) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut rows: Vec<_> = data
+            .values()
+            .filter(|r| r.status == "requested")
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| a.requested_at.cmp(&b.requested_at));
+        Ok(rows)
+    }
+
+    async fn complete(
+        &self,
+        id: &str,
+        replacement_specimen_id: &str,
+        completed_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        match data.get_mut(id) {
+            // Only an open request completes. A second call finds `collected`
+            // and returns None rather than overwriting the first replacement.
+            Some(request) if request.status == "requested" => {
+                request.status = "collected".to_string();
+                request.replacement_specimen_id = Some(replacement_specimen_id.to_string());
+                request.completed_at = Some(completed_at);
+                request.updated_at = completed_at;
+                Ok(Some(request.clone()))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn cancel(
+        &self,
+        id: &str,
+        reason: &str,
+        cancelled_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        match data.get_mut(id) {
+            Some(request) if request.status == "requested" => {
+                request.status = "cancelled".to_string();
+                request.cancellation_reason = Some(reason.to_string());
+                request.cancelled_at = Some(cancelled_at);
+                request.updated_at = cancelled_at;
+                Ok(Some(request.clone()))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod specimen_recollection_tests {
+    use super::*;
+
+    fn request(id: &str, rejection_id: &str) -> SpecimenRecollectionRequestEntity {
+        let now = chrono::Utc::now();
+        SpecimenRecollectionRequestEntity {
+            id: id.to_string(),
+            rejection_id: rejection_id.to_string(),
+            original_specimen_id: "SPEC-ORIGINAL".to_string(),
+            patient_id: "PAT-SYNTHETIC".to_string(),
+            ordering_provider_id: Some("DOC-1".to_string()),
+            requested_by: "LAB-1".to_string(),
+            reason: "Haemolysed sample".to_string(),
+            status: "requested".to_string(),
+            requested_at: now,
+            replacement_specimen_id: None,
+            completed_at: None,
+            cancelled_at: None,
+            cancellation_reason: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Two technicians looking at the same rejected specimen will both press
+    /// Recollect. Only one request may open, or the patient is asked to attend
+    /// twice for one failed sample.
+    #[tokio::test]
+    async fn only_one_recollection_may_be_open_per_rejection() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+
+        let first = repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        assert!(first.is_some(), "the first request must open");
+
+        let second = repo.open(request("RECOL-2", "REJ-1")).await.unwrap();
+        assert!(
+            second.is_none(),
+            "a second open request for the same rejection must be refused"
+        );
+
+        // A different rejection is a different sample and is unaffected.
+        let other = repo.open(request("RECOL-3", "REJ-2")).await.unwrap();
+        assert!(other.is_some(), "a different rejection must not be blocked");
+    }
+
+    /// Completion is guarded, so a retried request cannot record a second
+    /// replacement over the first.
+    #[tokio::test]
+    async fn completing_twice_records_one_replacement() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+        repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        let now = chrono::Utc::now();
+
+        let first = repo
+            .complete("RECOL-1", "SPEC-REPLACEMENT", now)
+            .await
+            .unwrap()
+            .expect("the first completion succeeds");
+        assert_eq!(first.status, "collected");
+        assert_eq!(
+            first.replacement_specimen_id.as_deref(),
+            Some("SPEC-REPLACEMENT")
+        );
+
+        let second = repo
+            .complete("RECOL-1", "SPEC-SOMETHING-ELSE", now)
+            .await
+            .unwrap();
+        assert!(second.is_none(), "a retry must not complete it again");
+
+        let stored = repo.get_by_id("RECOL-1").await.unwrap().unwrap();
+        assert_eq!(
+            stored.replacement_specimen_id.as_deref(),
+            Some("SPEC-REPLACEMENT"),
+            "the first replacement must survive a retry"
+        );
+    }
+
+    /// Terminal states are terminal in both directions.
+    #[tokio::test]
+    async fn a_cancelled_recollection_cannot_be_completed() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+        repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        let now = chrono::Utc::now();
+
+        repo.cancel("RECOL-1", "Patient declined", now)
+            .await
+            .unwrap()
+            .expect("cancellation succeeds");
+
+        let completed = repo
+            .complete("RECOL-1", "SPEC-REPLACEMENT", now)
+            .await
+            .unwrap();
+        assert!(
+            completed.is_none(),
+            "a cancelled recollection must not be completable"
+        );
+
+        let stored = repo.get_by_id("RECOL-1").await.unwrap().unwrap();
+        assert_eq!(stored.status, "cancelled");
+        assert!(stored.replacement_specimen_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_completed_recollection_cannot_be_cancelled() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+        repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        let now = chrono::Utc::now();
+        repo.complete("RECOL-1", "SPEC-REPLACEMENT", now)
+            .await
+            .unwrap()
+            .expect("completion succeeds");
+
+        let cancelled = repo
+            .cancel("RECOL-1", "changed my mind", now)
+            .await
+            .unwrap();
+        assert!(
+            cancelled.is_none(),
+            "a completed recollection must not be cancellable"
+        );
+    }
+
+    /// Cancelling frees the rejection for another attempt.
+    ///
+    /// A recollection that was abandoned -- the patient could not attend, the
+    /// replacement was itself rejected -- must not permanently prevent asking
+    /// again. This is why the PostgreSQL uniqueness is partial.
+    #[tokio::test]
+    async fn a_cancelled_request_does_not_block_a_second_attempt() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+        repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        repo.cancel("RECOL-1", "Patient could not attend", chrono::Utc::now())
+            .await
+            .unwrap()
+            .expect("cancellation succeeds");
+
+        let retry = repo.open(request("RECOL-2", "REJ-1")).await.unwrap();
+        assert!(
+            retry.is_some(),
+            "after cancellation the rejection must be requestable again"
+        );
+    }
+
+    /// The whole history stays visible, including abandoned attempts.
+    #[tokio::test]
+    async fn the_lineage_retains_every_attempt() {
+        let repo = MemorySpecimenRecollectionRepository::new();
+        repo.open(request("RECOL-1", "REJ-1")).await.unwrap();
+        repo.cancel("RECOL-1", "Patient could not attend", chrono::Utc::now())
+            .await
+            .unwrap();
+        repo.open(request("RECOL-2", "REJ-1")).await.unwrap();
+
+        let history = repo.list_for_rejection("REJ-1").await.unwrap();
+        assert_eq!(
+            history.len(),
+            2,
+            "an abandoned attempt is part of the record, not something to erase"
+        );
+
+        // And the open queue shows only what is still awaited.
+        let open = repo.list_open().await.unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, "RECOL-2");
+    }
+}

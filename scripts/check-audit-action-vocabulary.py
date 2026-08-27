@@ -62,6 +62,14 @@ MIGRATIONS = ROOT / "api" / "migrations"
 RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
     # `action` is validated to exactly "approve" or "reject" before the audit
     # row is built, so the format string has exactly two expansions.
+    # `audit_recollection` takes the action as a parameter. Followed to all
+    # three call sites in the same file -- request, complete and cancel -- each
+    # of which passes a literal. There is no other caller.
+    'api/src/clinical_endpoints/lab.rs::action.to_string()': [
+        "specimen_recollection_requested",
+        "specimen_recollection_completed",
+        "specimen_recollection_cancelled",
+    ],
     'api/src/handlers/lab.rs::format!("lab_review_{}", action)': [
         "lab_review_approve",
         "lab_review_reject",

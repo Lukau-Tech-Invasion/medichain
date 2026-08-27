@@ -295,6 +295,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_critical_value)
         .service(clinical_endpoints::create_specimen_rejection)
         .service(clinical_endpoints::get_specimen_rejection)
+        // Specimen recollection (SCR-009b). Separate from `notify`: telling the
+        // ordering provider a specimen failed and asking the patient to attend
+        // again are different acts.
+        .service(clinical_endpoints::request_specimen_recollection)
+        .service(clinical_endpoints::complete_specimen_recollection)
+        .service(clinical_endpoints::cancel_specimen_recollection)
+        .service(clinical_endpoints::list_recollections_for_rejection)
+        .service(clinical_endpoints::list_open_recollections)
         .service(clinical_endpoints::notify_rejection_ordering_provider)
         // Physician documentation endpoints (Phase 8)
         .service(clinical_endpoints::create_order)

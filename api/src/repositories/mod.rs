@@ -124,6 +124,8 @@ pub struct RepositoryContainer {
     // Phase 3: Lab & Diagnostics repositories
     pub specimen_collections: Arc<dyn SpecimenCollectionRepository>,
     pub specimen_rejections: Arc<dyn SpecimenRejectionRepository>,
+    /// Recollection requests raised against rejected specimens (SCR-009b).
+    pub specimen_recollections: Arc<dyn SpecimenRecollectionRepository>,
     pub lab_submissions: Arc<dyn LabSubmissionRepository>,
     pub lab_panels: Arc<dyn LabPanelRepository>,
     pub lab_trends: Arc<dyn LabTrendRepository>,
@@ -362,6 +364,7 @@ impl RepositoryContainer {
             // Phase 3: Lab & Diagnostics repositories (memory)
             specimen_collections: Arc::new(memory::MemorySpecimenCollectionRepository::new()),
             specimen_rejections: Arc::new(memory::MemorySpecimenRejectionRepository::new()),
+            specimen_recollections: Arc::new(memory::MemorySpecimenRecollectionRepository::new()),
             lab_submissions: Arc::new(memory::MemoryLabSubmissionRepository::new()),
             lab_panels: Arc::new(memory::MemoryLabPanelRepository::new()),
             lab_trends: Arc::new(memory::MemoryLabTrendRepository::new()),
@@ -856,6 +859,9 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             specimen_rejections: Arc::new(postgres::PgSpecimenRejectionRepository::new(
+                pool.clone(),
+            )),
+            specimen_recollections: Arc::new(postgres::PgSpecimenRecollectionRepository::new(
                 pool.clone(),
             )),
             lab_submissions: Arc::new(postgres::PgLabSubmissionRepository::new(pool.clone())),

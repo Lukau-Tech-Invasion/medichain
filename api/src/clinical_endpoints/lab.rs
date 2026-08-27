@@ -1084,6 +1084,440 @@ pub async fn create_specimen_rejection(
 /// answered `ALREADY_NOTIFIED` rather than silently sending again — a provider
 /// receiving the same rejection twice has to work out whether it is one
 /// specimen or two.
+// ============================================================================
+// Specimen recollection (SCR-009b)
+// ============================================================================
+//
+// A rejected specimen stays rejected. When the laboratory needs another sample
+// that is a NEW act, recorded in `specimen_recollection_requests` and pointing
+// back at the rejection it answers, so the chain
+//
+//     rejected specimen -> recollection request -> replacement specimen
+//
+// stays navigable and the original failure remains permanently visible. Nothing
+// here edits the rejection.
+//
+// Notify and Recollect stay separate. Telling the ordering provider a specimen
+// failed and asking the patient to attend again are different acts, aimed at
+// different people, with different consequences.
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RequestRecollectionBody {
+    /// Why another sample is needed. Free text, recorded verbatim.
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CompleteRecollectionBody {
+    /// The specimen that replaced the rejected one. A different collection, not
+    /// an edit of the original.
+    pub replacement_specimen_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CancelRecollectionBody {
+    pub reason: String,
+}
+
+/// Who may act on a recollection.
+///
+/// The same set the Notify workflow uses: the laboratory that rejected the
+/// specimen, the clinicians responsible for the patient, and administrators.
+fn may_handle_recollection(role: &crate::Role) -> bool {
+    matches!(
+        role,
+        crate::Role::LabTechnician | crate::Role::Doctor | crate::Role::Nurse | crate::Role::Admin
+    )
+}
+
+fn recollection_role_refused(role: &crate::Role) -> HttpResponse {
+    HttpResponse::Forbidden().json(ErrorResponse {
+        success: false,
+        error: format!(
+            "Role {role} cannot act on a specimen recollection. Required: LabTechnician, Doctor, Nurse, or Admin"
+        ),
+        code: "INSUFFICIENT_ROLE".to_string(),
+    })
+}
+
+/// Writes the audit entry for a recollection transition.
+///
+/// An obligation, not a side effect -- the same stance the Notify handler
+/// takes. Asking a patient to give another sample is a clinical instruction,
+/// and one nobody can attribute afterwards is not one that happened.
+async fn audit_recollection(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+    user: &crate::User,
+    action: &str,
+    at: chrono::DateTime<Utc>,
+) -> Result<(), HttpResponse> {
+    data.repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: crate::middleware::secure_tokens::generate_access_id(),
+                patient_id: patient_id.to_string(),
+                accessor_id: user.wallet_address.clone(),
+                accessor_role: user.role.to_string(),
+                access_type: action.to_string(),
+                location: None,
+                timestamp: at,
+                emergency: false,
+            }
+            .into(),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Recollection audit failed ({action}): {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The recollection could not be audited".to_string(),
+                code: "AUDIT_UNAVAILABLE".to_string(),
+            })
+        })?;
+    Ok(())
+}
+
+/// Request another sample after a rejection.
+#[post("/api/clinical/specimen-rejection/{rejection_id}/recollect")]
+pub async fn request_specimen_recollection(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<RequestRecollectionBody>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_handle_recollection(&current_user.role) {
+        return recollection_role_refused(&current_user.role);
+    }
+
+    let rejection_id = path.into_inner();
+    let rejection = match data
+        .repositories
+        .specimen_rejections
+        .get_by_id(&rejection_id)
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Specimen rejection not found".to_string(),
+                code: "REJECTION_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if body.reason.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A reason is required to ask a patient for another sample".to_string(),
+            code: "REASON_REQUIRED".to_string(),
+        });
+    }
+
+    let now = Utc::now();
+    // Best-effort: a recollection is still worth recording for a specimen whose
+    // ordering provider cannot be resolved. Notify is the workflow that refuses
+    // in that case, because a notification with no recipient is nothing.
+    let ordering_provider = resolve_ordering_provider(&data, &rejection.specimen_id).await;
+
+    let request = crate::repositories::traits::SpecimenRecollectionRequestEntity {
+        id: format!("RECOL-{}", uuid::Uuid::new_v4()),
+        rejection_id: rejection_id.clone(),
+        original_specimen_id: rejection.specimen_id.clone(),
+        patient_id: rejection.patient_id.clone(),
+        ordering_provider_id: ordering_provider,
+        requested_by: current_user.wallet_address.clone(),
+        reason: body.reason.trim().to_string(),
+        status: "requested".to_string(),
+        requested_at: now,
+        replacement_specimen_id: None,
+        completed_at: None,
+        cancelled_at: None,
+        cancellation_reason: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    let opened = match data.repositories.specimen_recollections.open(request).await {
+        Ok(Some(r)) => r,
+        // Two technicians looking at the same rejected specimen will both press
+        // this. The guard is a partial unique index, so the loser is told the
+        // truth rather than the patient being asked twice.
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "A recollection is already open for this rejection".to_string(),
+                code: "RECOLLECTION_ALREADY_OPEN".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Recollection open failed for {rejection_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The recollection request could not be recorded".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+
+    if let Err(resp) = audit_recollection(
+        &data,
+        &opened.patient_id,
+        &current_user,
+        "specimen_recollection_requested",
+        now,
+    )
+    .await
+    {
+        return resp;
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "recollection": opened,
+    }))
+}
+
+/// Record the replacement specimen and close the request.
+#[post("/api/clinical/specimen-recollection/{recollection_id}/complete")]
+pub async fn complete_specimen_recollection(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<CompleteRecollectionBody>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_handle_recollection(&current_user.role) {
+        return recollection_role_refused(&current_user.role);
+    }
+
+    let recollection_id = path.into_inner();
+    let replacement = body.replacement_specimen_id.trim().to_string();
+    if replacement.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "The replacement specimen must be named".to_string(),
+            code: "REPLACEMENT_REQUIRED".to_string(),
+        });
+    }
+
+    // The replacement must be a different specimen. Naming the rejected one
+    // would make the lineage a loop and quietly assert that the failed sample
+    // replaced itself.
+    let existing = match data
+        .repositories
+        .specimen_recollections
+        .get_by_id(&recollection_id)
+        .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Recollection request not found".to_string(),
+                code: "RECOLLECTION_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Recollection lookup failed for {recollection_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The recollection could not be read".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    if replacement == existing.original_specimen_id {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "The replacement cannot be the specimen that was rejected".to_string(),
+            code: "REPLACEMENT_IS_ORIGINAL".to_string(),
+        });
+    }
+
+    let now = Utc::now();
+    let completed = match data
+        .repositories
+        .specimen_recollections
+        .complete(&recollection_id, &replacement, now)
+        .await
+    {
+        Ok(Some(r)) => r,
+        // Guarded inside the write, so a retry cannot overwrite the first
+        // replacement or revive a cancelled request.
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "This recollection is no longer open".to_string(),
+                code: "RECOLLECTION_NOT_OPEN".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Recollection completion failed for {recollection_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The replacement could not be recorded".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+
+    if let Err(resp) = audit_recollection(
+        &data,
+        &completed.patient_id,
+        &current_user,
+        "specimen_recollection_completed",
+        now,
+    )
+    .await
+    {
+        return resp;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "recollection": completed,
+    }))
+}
+
+/// Stop asking for another sample.
+#[post("/api/clinical/specimen-recollection/{recollection_id}/cancel")]
+pub async fn cancel_specimen_recollection(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<CancelRecollectionBody>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_handle_recollection(&current_user.role) {
+        return recollection_role_refused(&current_user.role);
+    }
+    if body.reason.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A reason is required to cancel a recollection".to_string(),
+            code: "REASON_REQUIRED".to_string(),
+        });
+    }
+
+    let recollection_id = path.into_inner();
+    let now = Utc::now();
+    let cancelled = match data
+        .repositories
+        .specimen_recollections
+        .cancel(&recollection_id, body.reason.trim(), now)
+        .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "This recollection is no longer open".to_string(),
+                code: "RECOLLECTION_NOT_OPEN".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Recollection cancellation failed for {recollection_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The cancellation could not be recorded".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+
+    if let Err(resp) = audit_recollection(
+        &data,
+        &cancelled.patient_id,
+        &current_user,
+        "specimen_recollection_cancelled",
+        now,
+    )
+    .await
+    {
+        return resp;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "recollection": cancelled,
+    }))
+}
+
+/// Every recollection ever raised for a rejection, newest first.
+///
+/// Cancelled and completed requests are included deliberately: the point of the
+/// lineage is that the whole history stays visible, including attempts that
+/// were abandoned.
+#[get("/api/clinical/specimen-rejection/{rejection_id}/recollections")]
+pub async fn list_recollections_for_rejection(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_handle_recollection(&current_user.role) {
+        return recollection_role_refused(&current_user.role);
+    }
+    match data
+        .repositories
+        .specimen_recollections
+        .list_for_rejection(&path.into_inner())
+        .await
+    {
+        Ok(rows) => HttpResponse::Ok().json(serde_json::json!({ "recollections": rows })),
+        Err(e) => {
+            log::error!("Recollection list failed: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Recollections could not be read".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            })
+        }
+    }
+}
+
+/// The laboratory's queue of samples still awaited.
+#[get("/api/clinical/specimen-recollections/open")]
+pub async fn list_open_recollections(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_handle_recollection(&current_user.role) {
+        return recollection_role_refused(&current_user.role);
+    }
+    match data.repositories.specimen_recollections.list_open().await {
+        Ok(rows) => HttpResponse::Ok().json(serde_json::json!({ "recollections": rows })),
+        Err(e) => {
+            log::error!("Open recollection list failed: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Recollections could not be read".to_string(),
+                code: "RECOLLECTION_UNAVAILABLE".to_string(),
+            })
+        }
+    }
+}
+
 #[post("/api/clinical/specimen-rejection/{rejection_id}/notify")]
 pub async fn notify_rejection_ordering_provider(
     data: web::Data<crate::AppState>,
@@ -1292,7 +1726,17 @@ pub async fn get_specimen_rejection(
         .get_by_id(&rejection_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        // Serialise the ENTITY, not `entity.data`.
+        //
+        // `SpecimenRejectionEntity.data` is `#[sqlx(skip)]`, so on PostgreSQL it
+        // is always `null` -- every rejection read returned a bare `null` body
+        // with a 200, which reads as "no such rejection" to any caller that
+        // checks the payload rather than the status. The typed columns carry the
+        // record; `data` is a memory-backend convenience.
+        //
+        // The Laboratory Dashboard had the identical defect for its rejection
+        // panel. Same field, same cause.
+        Ok(entity) => HttpResponse::Ok().json(entity),
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: "Specimen rejection not found".to_string(),

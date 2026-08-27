@@ -1606,6 +1606,35 @@ pub struct SpecimenRejectionEntity {
     pub data: serde_json::Value,
 }
 
+/// A request for a fresh sample after a specimen was rejected (SCR-009b).
+///
+/// Separate from `SpecimenRejectionEntity` on purpose. The rejection is a
+/// permanent historical fact and is never edited to look as though the specimen
+/// was fine; obtaining another sample is a new act, with its own requester,
+/// timing, outcome and audit trail, and it points back at the rejection it
+/// answers.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SpecimenRecollectionRequestEntity {
+    pub id: String,
+    pub rejection_id: String,
+    pub original_specimen_id: String,
+    pub patient_id: String,
+    pub ordering_provider_id: Option<String>,
+    pub requested_by: String,
+    pub reason: String,
+    /// `requested` -> `collected` | `cancelled`. Terminal states are terminal.
+    pub status: String,
+    pub requested_at: DateTime<Utc>,
+    /// The specimen that replaced the rejected one. Null until completion, and
+    /// the database refuses a `collected` row without it.
+    pub replacement_specimen_id: Option<String>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub cancellation_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Lab trend entity (historical trend data for lab values)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct LabTrendEntity {
@@ -2360,6 +2389,62 @@ pub trait SpecimenCollectionRepository: Send + Sync + fmt::Debug {
 }
 
 /// Specimen rejection repository trait
+#[async_trait]
+/// Recollection requests raised against rejected specimens (SCR-009b).
+///
+/// Every state change is a single conditional statement rather than a read
+/// followed by a write. Two technicians acting on one rejected specimen is the
+/// ordinary case, and a check-then-write would send the patient two
+/// appointments.
+#[async_trait]
+pub trait SpecimenRecollectionRepository: Send + Sync + fmt::Debug {
+    /// Opens a request.
+    ///
+    /// Returns `Ok(None)` when one is already open for this rejection, so the
+    /// caller can say so rather than creating a duplicate. On PostgreSQL the
+    /// guarantee is a partial unique index, so it holds under concurrency
+    /// regardless of interleaving.
+    async fn open(
+        &self,
+        request: SpecimenRecollectionRequestEntity,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    async fn get_by_id(
+        &self,
+        id: &str,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    async fn list_for_rejection(
+        &self,
+        rejection_id: &str,
+    ) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>>;
+
+    /// Every request still awaiting a replacement sample.
+    async fn list_open(&self) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>>;
+
+    /// Records the replacement specimen and closes the request.
+    ///
+    /// Returns `Ok(None)` when the request was not open -- already completed,
+    /// already cancelled, or absent -- so a retry cannot complete it twice or
+    /// resurrect a cancelled one.
+    async fn complete(
+        &self,
+        id: &str,
+        replacement_specimen_id: &str,
+        completed_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    /// Closes the request without a replacement.
+    ///
+    /// Returns `Ok(None)` under the same conditions as `complete`.
+    async fn cancel(
+        &self,
+        id: &str,
+        reason: &str,
+        cancelled_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+}
+
 #[async_trait]
 pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
     async fn create(

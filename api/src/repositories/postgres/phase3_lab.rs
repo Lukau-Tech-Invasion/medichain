@@ -1124,3 +1124,154 @@ impl LabTrendRepository for PgLabTrendRepository {
         Ok(result)
     }
 }
+
+/// Recollection requests raised against rejected specimens (SCR-009b).
+#[derive(Debug)]
+pub struct PgSpecimenRecollectionRepository {
+    pool: PgPool,
+}
+
+impl PgSpecimenRecollectionRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl SpecimenRecollectionRepository for PgSpecimenRecollectionRepository {
+    /// Opens a request, relying on the database to refuse a second open one.
+    ///
+    /// `idx_recollection_one_open_per_rejection` is a partial unique index on
+    /// `rejection_id WHERE status = 'requested'`. Two technicians pressing
+    /// Recollect on the same rejected specimen is the ordinary case, not the
+    /// exotic one, and a SELECT-then-INSERT would let both through and send the
+    /// patient two appointments. `ON CONFLICT DO NOTHING` turns the second into
+    /// `Ok(None)` so the caller can say a recollection is already open.
+    async fn open(
+        &self,
+        request: SpecimenRecollectionRequestEntity,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            INSERT INTO specimen_recollection_requests
+                (id, rejection_id, original_specimen_id, patient_id,
+                 ordering_provider_id, requested_by, reason, status, requested_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'requested', $8)
+            ON CONFLICT (rejection_id) WHERE status = 'requested' DO NOTHING
+            RETURNING *
+            "#,
+        )
+        .bind(&request.id)
+        .bind(&request.rejection_id)
+        .bind(&request.original_specimen_id)
+        .bind(&request.patient_id)
+        .bind(&request.ordering_provider_id)
+        .bind(&request.requested_by)
+        .bind(&request.reason)
+        .bind(request.requested_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn get_by_id(
+        &self,
+        id: &str,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Every request ever raised for this rejection, newest first.
+    ///
+    /// Includes cancelled and completed ones deliberately: the point of the
+    /// lineage is that the whole history stays visible.
+    async fn list_for_rejection(
+        &self,
+        rejection_id: &str,
+    ) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests
+              WHERE rejection_id = $1
+              ORDER BY requested_at DESC",
+        )
+        .bind(rejection_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn list_open(&self) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests
+              WHERE status = 'requested'
+              ORDER BY requested_at ASC
+              LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Completion guarded inside the write.
+    ///
+    /// `AND status = 'requested'` is what makes a retry safe: a second call
+    /// matches no row and returns `Ok(None)` rather than overwriting the first
+    /// replacement or reviving a cancelled request.
+    async fn complete(
+        &self,
+        id: &str,
+        replacement_specimen_id: &str,
+        completed_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            UPDATE specimen_recollection_requests
+               SET status = 'collected',
+                   replacement_specimen_id = $2,
+                   completed_at = $3,
+                   updated_at = NOW()
+             WHERE id = $1
+               AND status = 'requested'
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(replacement_specimen_id)
+        .bind(completed_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn cancel(
+        &self,
+        id: &str,
+        reason: &str,
+        cancelled_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            UPDATE specimen_recollection_requests
+               SET status = 'cancelled',
+                   cancellation_reason = $2,
+                   cancelled_at = $3,
+                   updated_at = NOW()
+             WHERE id = $1
+               AND status = 'requested'
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(reason)
+        .bind(cancelled_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+}

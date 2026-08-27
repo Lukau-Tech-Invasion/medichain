@@ -72,6 +72,7 @@ pub use phase3::MemoryLabQcRecordRepository;
 pub use phase3::MemoryLabSubmissionRepository;
 pub use phase3::MemoryLabTrendRepository;
 pub use phase3::MemorySpecimenCollectionRepository;
+pub use phase3::MemorySpecimenRecollectionRepository;
 pub use phase3::MemorySpecimenRejectionRepository;
 
 // Phase 3 exports - Surgical & Procedures
