@@ -1017,6 +1017,76 @@ export async function notifyRejectionOrderingProvider(
   );
 }
 
+/** The result of a dispensing step (SCR-013). */
+export interface DispenseResult {
+  success: boolean;
+  prescription_id: string;
+  dispense_event_id?: string;
+  status: string;
+  dispensed_now?: number;
+  dispensed_total: number;
+  prescribed_quantity?: number;
+  remaining?: number;
+}
+
+/**
+ * A pharmacy acknowledges a transmitted prescription.
+ *
+ * Refused 409 if it is not Transmitted -- including when a colleague has
+ * already received it, which is the common case rather than an error.
+ */
+export async function receivePrescription(prescriptionId: string): Promise<DispenseResult> {
+  return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/receive`, {});
+}
+
+/** A pharmacist begins preparing the medicine. Received -> InProgress. */
+export async function startPrescriptionFill(prescriptionId: string): Promise<DispenseResult> {
+  return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/start`, {});
+}
+
+/**
+ * Hand over medicine, in whole or in part.
+ *
+ * Refused 400 QUANTITY_EXCEEDS_REMAINING for more than the prescription still
+ * owes, and 409 DISPENSE_RACE_DETECTED when another fill was recorded while
+ * this one was being prepared -- re-read the prescription and dispense the
+ * remainder rather than retrying blindly.
+ */
+export async function dispensePrescription(
+  prescriptionId: string,
+  quantity: number,
+  notes?: string
+): Promise<DispenseResult> {
+  return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/dispense`, {
+    quantity,
+    notes,
+  });
+}
+
+/**
+ * Correct a dispense that should not have been recorded.
+ *
+ * The original event is kept and marked; a correction entry is added. Requires
+ * a reason and is audited.
+ */
+export async function reverseDispense(
+  prescriptionId: string,
+  dispenseEventId: string,
+  reason: string
+): Promise<DispenseResult> {
+  return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/dispense/reverse`, {
+    dispense_event_id: dispenseEventId,
+    reason,
+  });
+}
+
+/** The dispensing history, corrections included. Never pruned. */
+export async function getDispenseEvents(
+  prescriptionId: string
+): Promise<{ dispense_events: Record<string, unknown>[] }> {
+  return getApiClient().get(`/api/e-prescriptions/${prescriptionId}/dispense-events`);
+}
+
 /** A request for another sample after a specimen was rejected (SCR-009b). */
 export interface SpecimenRecollectionRequest {
   id: string;

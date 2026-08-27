@@ -18,7 +18,13 @@ import {
   Beaker,
   BarChart3,
 } from 'lucide-react';
-import { getPharmacistDashboard, useTranslation } from '@medichain/shared';
+import {
+  getPharmacistDashboard,
+  useTranslation,
+  receivePrescription,
+  startPrescriptionFill,
+  dispensePrescription,
+} from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -142,13 +148,81 @@ export default function PharmacistDashboardPage() {
   };
 
   // Prepare prescription queue table data
-  const prescriptionQueue = data?.prescriptions?.list?.slice(0, 10).map((rx) => [
-    rx.priority || t('docPharmDashboard.routine'),
-    rx.patient_name || rx.patient_id,
-    rx.medication_name,
-    rx.dosage,
-    rx.status,
-  ]) || [];
+  /** Which prescription has an action in flight, so its buttons disable. */
+  const [busyRx, setBusyRx] = useState<string | null>(null);
+  const [rxResult, setRxResult] = useState<Record<string, string>>({});
+
+  /**
+   * Drive one pharmacy transition.
+   *
+   * Every outcome is reported. A conflict is the ordinary case rather than a
+   * fault -- a colleague received or filled it first -- and saying so is more
+   * useful than a generic failure. Nothing here reports success the API did not
+   * confirm: `loadDashboard` reloads the queue so the row's state comes from the
+   * server, not from what this component hoped happened.
+   */
+  const handlePharmacyAction = async (
+    prescriptionId: string,
+    action: 'receive' | 'start' | 'dispense'
+  ) => {
+    let quantity = 0;
+    if (action === 'dispense') {
+      const entered = window.prompt(t('docPharmDashboard.dispenseQuantityPrompt'));
+      if (entered === null) return;
+      quantity = Number.parseInt(entered, 10);
+      // Refused here rather than sent: the API would reject it, and a refusal
+      // the pharmacist did not ask for reads like a broken button.
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        setRxResult((p) => ({ ...p, [prescriptionId]: t('docPharmDashboard.quantityInvalid') }));
+        return;
+      }
+    }
+
+    setBusyRx(prescriptionId);
+    setRxResult((p) => ({ ...p, [prescriptionId]: '' }));
+    try {
+      let message: string;
+      if (action === 'receive') {
+        await receivePrescription(prescriptionId);
+        message = t('docPharmDashboard.received');
+      } else if (action === 'start') {
+        await startPrescriptionFill(prescriptionId);
+        message = t('docPharmDashboard.fillStarted');
+      } else {
+        const result = await dispensePrescription(prescriptionId, quantity);
+        // `remaining` is optional on the response type; treat an absent value
+        // as nothing owed rather than interpolating `undefined` into a message
+        // a pharmacist has to act on.
+        const remaining = result.remaining ?? 0;
+        message =
+          remaining > 0
+            ? t('docPharmDashboard.partiallyFilled', { remaining })
+            : t('docPharmDashboard.fullyDispensed');
+      }
+      setRxResult((p) => ({ ...p, [prescriptionId]: message }));
+      await loadDashboard();
+    } catch (error: any) {
+      const code = error?.code ?? error?.response?.data?.error?.code;
+      const friendly =
+        code === 'DISPENSE_RACE_DETECTED'
+          ? t('docPharmDashboard.raceDetected')
+          : code === 'QUANTITY_EXCEEDS_REMAINING'
+            ? t('docPharmDashboard.exceedsRemaining')
+            : code === 'PRESCRIPTION_NOT_IN_EXPECTED_STATE' ||
+                code === 'PRESCRIPTION_NOT_DISPENSABLE'
+              ? t('docPharmDashboard.stateChanged')
+              : (error?.message ?? t('docPharmDashboard.actionFailed'));
+      setRxResult((p) => ({ ...p, [prescriptionId]: friendly }));
+      // The row's state is no longer trustworthy after a conflict; reload it.
+      await loadDashboard();
+    } finally {
+      setBusyRx(null);
+    }
+  };
+
+  // The rows carry the prescription itself, not a flattened array of strings:
+  // the action column has to know the id and the current state.
+  const prescriptionQueue = data?.prescriptions?.list?.slice(0, 10) || [];
 
   // Drug interactions table (moderate + major)
   const interactionsTable = data?.drug_interactions?.map((d) => [
@@ -233,16 +307,66 @@ export default function PharmacistDashboardPage() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docPharmDashboard.colMedication')}</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docPharmDashboard.colDose')}</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docPharmDashboard.colStatus')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docPharmDashboard.colAction')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {prescriptionQueue.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-surface-sunken cursor-pointer" onClick={() => navigate('/e-prescribe')}>
-                      <td className="px-3 py-2 text-content">{row[0]}</td>
-                      <td className="px-3 py-2 text-content-muted">{row[1]}</td>
-                      <td className="px-3 py-2 font-medium text-content">{row[2]}</td>
-                      <td className="px-3 py-2 text-content-muted">{row[3]}</td>
-                      <td className="px-3 py-2 text-content-muted">{row[4]}</td>
+                  {prescriptionQueue.map((rx) => (
+                    <tr key={rx.prescription_id} className="hover:bg-surface-sunken">
+                      <td className="px-3 py-2 text-content">{rx.priority || t('docPharmDashboard.routine')}</td>
+                      <td className="px-3 py-2 text-content-muted">{rx.patient_name || rx.patient_id}</td>
+                      <td className="px-3 py-2 font-medium text-content">{rx.medication_name}</td>
+                      <td className="px-3 py-2 text-content-muted">{rx.dosage}</td>
+                      <td className="px-3 py-2 text-content-muted">{rx.status}</td>
+                      <td className="px-3 py-2">
+                        {/*
+                          The action offered is the one the prescription's state
+                          actually permits. Showing every button and letting the
+                          API refuse would train a pharmacist to expect refusals,
+                          and a queue whose buttons do nothing is what this panel
+                          was before the pharmacy endpoints existed.
+                        */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {rx.status === 'Transmitted' && (
+                            <button
+                              type="button"
+                              onClick={() => void handlePharmacyAction(rx.prescription_id, 'receive')}
+                              disabled={busyRx === rx.prescription_id}
+                              className="text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {t('docPharmDashboard.receive')}
+                            </button>
+                          )}
+                          {rx.status === 'Received' && (
+                            <button
+                              type="button"
+                              onClick={() => void handlePharmacyAction(rx.prescription_id, 'start')}
+                              disabled={busyRx === rx.prescription_id}
+                              className="text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {t('docPharmDashboard.startFill')}
+                            </button>
+                          )}
+                          {(rx.status === 'InProgress' || rx.status === 'PartialFill') && (
+                            <button
+                              type="button"
+                              onClick={() => void handlePharmacyAction(rx.prescription_id, 'dispense')}
+                              disabled={busyRx === rx.prescription_id}
+                              className="text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {t('docPharmDashboard.dispense')}
+                            </button>
+                          )}
+                          {rx.status === 'Dispensed' && (
+                            <span className="text-xs text-content-muted">{t('docPharmDashboard.completed')}</span>
+                          )}
+                        </div>
+                        {rxResult[rx.prescription_id] && (
+                          <p role="status" className="mt-1 text-xs text-content-muted">
+                            {rxResult[rx.prescription_id]}
+                          </p>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
