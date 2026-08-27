@@ -1,0 +1,36 @@
+-- The legacy federation boundary must not count as this deployment's organisation.
+--
+-- 20260827000001 seeds a `legacy-organization` row so durable devices and
+-- emergency grants have a foreign-key target. It seeds it as `active`, and that
+-- is wrong in every configuration:
+--
+--   * On a FRESH deployment the operator's own organisation becomes the second
+--     active row, and `api/src/startup.rs::validate_single_organisation` then
+--     refuses to boot:
+--
+--         Refusing to start: this database holds 2 active organisations, but a
+--         MediChain instance serves exactly one (ADR-0006, ADR-0007).
+--
+--   * On an EXISTING deployment the seed itself is the second row, so the
+--     installations that had been running longest are the ones taken down.
+--
+-- This is not theoretical. It broke
+-- `test_pg_startup_refuses_a_multi_organisation_database`, whose whole premise
+-- is a deployment holding a single organisation of its own.
+--
+-- The fix is to make the boundary row inactive. `organizations.status` has
+-- exactly one consumer in the codebase -- the startup guard above, which counts
+-- only `status = 'active'`. Every other reference to `organizations` is a
+-- foreign key, and a foreign key is satisfied by the row existing, not by its
+-- status. So an inactive boundary row satisfies devices, facilities, emergency
+-- grants and the key registry while being invisible to the guard.
+--
+-- Deactivating rather than deleting, for the same reason: rows may already
+-- reference it and those foreign keys have to keep resolving.
+--
+-- Corrected forward rather than by editing 20260827000001, because sqlx records
+-- and verifies the checksum of every applied migration; amending one already
+-- applied to a running database makes that database refuse to start.
+UPDATE organizations
+   SET status = 'inactive'
+ WHERE id = 'legacy-organization';

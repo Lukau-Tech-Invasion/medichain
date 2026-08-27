@@ -3303,6 +3303,65 @@ async fn test_pg_startup_refuses_a_multi_organisation_database() {
     );
 }
 
+/// The legacy federation boundary must never count as an active organisation.
+///
+/// `20260827000001_seed_legacy_federation_boundary.sql` seeds a
+/// `legacy-organization` row so durable devices and emergency grants have a
+/// foreign-key target, and seeds it `active`. That is wrong everywhere: on a
+/// fresh deployment the operator's own organisation becomes a second active
+/// row, and on an existing one the seed itself is the second row. Either way
+/// `validate_single_organisation` refuses to start the API.
+///
+/// It is not hypothetical -- it broke
+/// `test_pg_startup_refuses_a_multi_organisation_database`, whose premise is a
+/// deployment holding one organisation of its own. `20260827000002` corrects it
+/// by deactivating the boundary row.
+///
+/// This asserts the property that matters after migrations have run: the seed
+/// exists for the foreign keys, and contributes nothing to the active count.
+#[tokio::test]
+async fn legacy_boundary_row_exists_but_is_never_active() {
+    let pool = get_test_pool().await;
+
+    // The row must still be there. Devices, facilities, emergency grants and
+    // the key registry all carry foreign keys to `organizations`, and a foreign
+    // key is satisfied by existence, not by status.
+    let present: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE id = 'legacy-organization'")
+            .fetch_one(&pool)
+            .await
+            .expect("count the legacy boundary row");
+    assert_eq!(
+        present, 1,
+        "the legacy boundary row must exist, or durable devices and emergency          grants have no foreign-key target"
+    );
+
+    // And it must be invisible to the startup guard.
+    let active: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM organizations WHERE id = 'legacy-organization' AND status = 'active'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count active legacy rows");
+    assert_eq!(
+        active, 0,
+        "the legacy boundary must not be active: it would be counted as this          deployment's organisation and the operator's own would refuse startup"
+    );
+
+    // The whole point: a deployment can now hold exactly one organisation of
+    // its own and still start.
+    sqlx::query(
+        "INSERT INTO organizations (id, name, organization_type, status)          VALUES ('ORG-INCUMBENT', 'Incumbent Hospital', 'hospital', 'active')          ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .expect("incumbent organisation inserts");
+
+    crate::startup::validate_single_organisation(&pool)
+        .await
+        .expect("one organisation of its own, plus the inactive boundary, must start");
+}
+
 /// Startup must not silently continue if the deployment-wide read boundary
 /// cannot be verified. Treating a failed query as zero organisations would
 /// restore the exact cross-organisation disclosure risk ADR-0007 prohibits.
