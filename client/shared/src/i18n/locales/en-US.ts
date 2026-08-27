@@ -1626,6 +1626,12 @@ const en_US: TranslationRecord = {
     // see `recollectBlocked`.
     notifyRecollect: '[Notify] [Request Recollect]',
     notifyProvider: 'Notify ordering provider',
+    requestRecollection: 'Request recollection',
+    requestingRecollection: 'Requesting…',
+    recollectionRequested: 'Recollection requested',
+    recollectionAlreadyOpen: 'A recollection is already open for this rejection',
+    recollectionFailed: 'The recollection could not be requested',
+    recollectionReasonPrompt: 'Why is another sample needed?',
     notifying: 'Notifying...',
     notified: 'Ordering provider notified',
     notifyFailed: 'Could not notify the ordering provider',

@@ -17,6 +17,7 @@ import {
 import {
   getLabDashboard,
   notifyRejectionOrderingProvider,
+  requestSpecimenRecollection,
   useTranslation,
 } from '@medichain/shared';
 import {
@@ -55,6 +56,9 @@ export default function LabTechDashboardPage() {
   /** Which rejection is mid-request, so its button can be disabled. */
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
   const [notifyResult, setNotifyResult] = useState<Record<string, string>>({});
+  /** Which rejection has a recollection in flight, so its button can be disabled. */
+  const [recollectingId, setRecollectingId] = useState<string | null>(null);
+  const [recollectResult, setRecollectResult] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -112,6 +116,36 @@ export default function LabTechDashboardPage() {
    * server decides whether the provider had already been told, and a second
    * clinician may have pressed Notify in the meantime.
    */
+  /**
+   * Ask for another sample.
+   *
+   * 409 RECOLLECTION_ALREADY_OPEN is the expected outcome when a colleague got
+   * there first, and is reported as information rather than as an error: the
+   * request they want already exists. Anything else is surfaced verbatim, so a
+   * technician is never told a recollection was raised when it was not.
+   */
+  const handleRecollect = async (rejectionId: string) => {
+    const reason = window.prompt(t('docLabDashboard.recollectionReasonPrompt'));
+    // Cancelled prompt, or an empty reason: do nothing. The API requires a
+    // reason and would refuse, and a silent refusal reads like a dead button.
+    if (reason === null || reason.trim() === '') return;
+    setRecollectingId(rejectionId);
+    setRecollectResult((p) => ({ ...p, [rejectionId]: '' }));
+    try {
+      await requestSpecimenRecollection(rejectionId, reason.trim());
+      setRecollectResult((p) => ({ ...p, [rejectionId]: t('docLabDashboard.recollectionRequested') }));
+    } catch (error: any) {
+      const code = error?.code ?? error?.response?.data?.error?.code;
+      const friendly =
+        code === 'RECOLLECTION_ALREADY_OPEN'
+          ? t('docLabDashboard.recollectionAlreadyOpen')
+          : (error?.message ?? t('docLabDashboard.recollectionFailed'));
+      setRecollectResult((p) => ({ ...p, [rejectionId]: friendly }));
+    } finally {
+      setRecollectingId(null);
+    }
+  };
+
   const handleNotify = async (rejectionId: string) => {
     setNotifyingId(rejectionId);
     setNotifyResult((p) => ({ ...p, [rejectionId]: '' }));
@@ -350,22 +384,30 @@ export default function LabTechDashboardPage() {
                           : t('docLabDashboard.notifyProvider')}
                     </button>
                     {/*
-                      "Request Recollect" is deliberately absent rather than
-                      disabled-and-unexplained. `recollection_required` and
-                      `recollection_scheduled` exist on the entity and
-                      `get_pending_recollections()` reads them, but nothing in
-                      the repository defines what scheduling a recollection
-                      means: when it is due, who performs it, whether the
-                      patient is contacted, or what the safety consequence of
-                      delay is. Those are clinical governance decisions, and
-                      guessing them in a UI is how a nurse ends up acting on an
-                      invented instruction. Tracked as SCR-009 in
-                      docs/REMEDIATION_LEDGER_2026-08-22.md.
+                      Recollect is a separate act from Notify, and the button
+                      says which. Telling the ordering provider their specimen
+                      failed does not obtain another sample, and obtaining one
+                      does not tell them it failed.
                     */}
+                    <button
+                      type="button"
+                      onClick={() => void handleRecollect(rej.id)}
+                      disabled={recollectingId === rej.id}
+                      className="text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {recollectingId === rej.id
+                        ? t('docLabDashboard.requestingRecollection')
+                        : t('docLabDashboard.requestRecollection')}
+                    </button>
                   </div>
                   {notifyResult[rej.id] && (
                     <p role="status" className="mt-1 text-xs text-critical-subtle-fg">
                       {notifyResult[rej.id]}
+                    </p>
+                  )}
+                  {recollectResult[rej.id] && (
+                    <p role="status" className="mt-1 text-xs text-critical-subtle-fg">
+                      {recollectResult[rej.id]}
                     </p>
                   )}
                 </div>

@@ -1017,6 +1017,97 @@ export async function notifyRejectionOrderingProvider(
   );
 }
 
+/** A request for another sample after a specimen was rejected (SCR-009b). */
+export interface SpecimenRecollectionRequest {
+  id: string;
+  rejection_id: string;
+  original_specimen_id: string;
+  patient_id: string;
+  ordering_provider_id: string | null;
+  requested_by: string;
+  reason: string;
+  /** `requested` -> `collected` | `cancelled`. Terminal states are terminal. */
+  status: 'requested' | 'collected' | 'cancelled';
+  requested_at: string;
+  /** The specimen that replaced the rejected one. Null until completion. */
+  replacement_specimen_id: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+}
+
+/**
+ * Ask for another sample after a rejection.
+ *
+ * Distinct from `notifyRejectionOrderingProvider`: telling the ordering
+ * provider their specimen failed and asking the patient to attend again are
+ * different acts aimed at different people. Both may be needed; neither implies
+ * the other.
+ *
+ * Refused with 409 RECOLLECTION_ALREADY_OPEN when one is already open for this
+ * rejection. Two technicians looking at the same rejected specimen will both
+ * press this, and the patient must not be called in twice for one failure.
+ */
+export async function requestSpecimenRecollection(
+  rejectionId: string,
+  reason: string
+): Promise<{ success: boolean; recollection: SpecimenRecollectionRequest }> {
+  return getApiClient().post(
+    `/api/clinical/specimen-rejection/${rejectionId}/recollect`,
+    { reason }
+  );
+}
+
+/**
+ * Record the replacement specimen and close the request.
+ *
+ * The replacement is a different specimen, not an edit of the rejected one --
+ * 400 REPLACEMENT_IS_ORIGINAL if they are the same. Refused with 409
+ * RECOLLECTION_NOT_OPEN once completed or cancelled, so a retry cannot record a
+ * second replacement over the first.
+ */
+export async function completeSpecimenRecollection(
+  recollectionId: string,
+  replacementSpecimenId: string
+): Promise<{ success: boolean; recollection: SpecimenRecollectionRequest }> {
+  return getApiClient().post(
+    `/api/clinical/specimen-recollection/${recollectionId}/complete`,
+    { replacement_specimen_id: replacementSpecimenId }
+  );
+}
+
+/** Stop asking for another sample. Requires a reason, and is audited. */
+export async function cancelSpecimenRecollection(
+  recollectionId: string,
+  reason: string
+): Promise<{ success: boolean; recollection: SpecimenRecollectionRequest }> {
+  return getApiClient().post(
+    `/api/clinical/specimen-recollection/${recollectionId}/cancel`,
+    { reason }
+  );
+}
+
+/**
+ * Every recollection ever raised for a rejection, newest first.
+ *
+ * Includes cancelled and completed attempts deliberately: the rejected specimen
+ * stays visible and so does every attempt to replace it.
+ */
+export async function getRecollectionsForRejection(
+  rejectionId: string
+): Promise<{ recollections: SpecimenRecollectionRequest[] }> {
+  return getApiClient().get(
+    `/api/clinical/specimen-rejection/${rejectionId}/recollections`
+  );
+}
+
+/** The laboratory's queue of samples still awaited. */
+export async function getOpenSpecimenRecollections(): Promise<{
+  recollections: SpecimenRecollectionRequest[];
+}> {
+  return getApiClient().get('/api/clinical/specimen-recollections/open');
+}
+
 /**
  * Get lab submissions for a specific patient
  * Healthcare providers see all, patients only see approved
