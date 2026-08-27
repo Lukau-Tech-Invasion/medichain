@@ -186,6 +186,7 @@ pg_json_repo!(
     "transfusion_event_records"
 );
 pg_json_repo!(PgEPrescriptionRecordRepository, "e_prescription_records");
+pg_json_repo!(PgDispenseEventRepository, "dispense_events");
 pg_json_repo!(
     PgDeathCertificateRecordRepository,
     "death_certificate_records"

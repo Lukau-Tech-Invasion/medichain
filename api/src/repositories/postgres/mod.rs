@@ -197,6 +197,7 @@ pub use phase7::{
     PgCdsAuditEntryRepository,
     PgCdsThresholdConfigRepository,
     PgDeathCertificateRecordRepository,
+    PgDispenseEventRepository,
     // Round 6: shape-mismatch domains
     PgDrugInteractionCheckRepository,
     PgEPrescriptionRecordRepository,

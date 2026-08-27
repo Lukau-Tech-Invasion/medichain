@@ -8766,6 +8766,19 @@ pub struct EPrescription {
     /// DEA schedule
     pub dea_schedule: Option<String>,
     /// Refills allowed
+    /// Units dispensed so far, across every fill.
+    ///
+    /// `medication.quantity` is what was prescribed; this is what has actually
+    /// left the pharmacy. The difference is what a partial fill still owes, and
+    /// keeping the running total on the prescription is what makes concurrent
+    /// dispensing safe: the transition is guarded on this value, so two
+    /// pharmacists filling the same prescription at the same moment cannot both
+    /// add to it.
+    ///
+    /// `#[serde(default)]` so prescriptions written before dispensing existed
+    /// still deserialize, as zero dispensed.
+    #[serde(default)]
+    pub dispensed_quantity: u32,
     pub refills_allowed: u8,
     /// Refills remaining
     pub refills_remaining: u8,

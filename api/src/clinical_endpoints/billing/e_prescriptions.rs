@@ -111,6 +111,7 @@ pub async fn create_esignature_prescription(
         transmission_status: None,
         is_controlled: req.is_controlled,
         dea_schedule: req.dea_schedule.clone(),
+        dispensed_quantity: 0,
         refills_allowed: req.refills_allowed,
         refills_remaining: req.refills_allowed,
         last_filled: None,
@@ -530,6 +531,642 @@ pub async fn transmit_e_prescription(
 }
 
 /// Get e-prescription details (Phase 29 E-Signature)
+// ============================================================================
+// Pharmacy dispensing (SCR-013)
+// ============================================================================
+//
+// The prescription lifecycle used to stop at `Transmitted`. `Received`,
+// `InProgress`, `Dispensed` and `PartialFill` were declared and unreachable,
+// and a pharmacist could see a real transmitted prescription and do nothing
+// with it.
+//
+// WHY QUANTITY IS THE CONCURRENCY GUARD
+//
+// `replace_if_field_eq` guards a transition on one field. For sign and transmit
+// that field is `status`, because those happen once. Dispensing does not: a
+// prescription may be filled in several parts, so `status` is `InProgress` or
+// `PartialFill` before AND after, and guarding on it would let two pharmacists
+// filling the same prescription at the same moment both succeed and hand out
+// more than was prescribed.
+//
+// The guard is therefore `dispensed_quantity`: read the running total, write
+// total + n only if it is still what was read. The loser of a race sees a
+// mismatch and is told to retry against the new total. That is optimistic
+// concurrency, and it makes over-dispensing impossible rather than unlikely.
+//
+// WHAT A REVERSAL IS
+//
+// Not a state regression. A correction is a new event that references the one
+// it corrects, and the original stays. A dispense that never happened must not
+// be erasable, because the question afterwards is not only "how much does the
+// patient have" but "who said they had it".
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DispenseBody {
+    /// Units being handed over now. Must be positive and must not exceed what
+    /// the prescription still owes.
+    pub quantity: u32,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ReverseDispenseBody {
+    /// The dispense event being corrected.
+    pub dispense_event_id: String,
+    pub reason: String,
+}
+
+/// Only a pharmacist dispenses. An administrator may correct.
+fn may_dispense(role: &crate::Role) -> bool {
+    matches!(role, crate::Role::Pharmacist)
+}
+
+fn may_reverse(role: &crate::Role) -> bool {
+    matches!(role, crate::Role::Pharmacist | crate::Role::Admin)
+}
+
+fn dispense_role_refused(role: &crate::Role) -> HttpResponse {
+    HttpResponse::Forbidden().json(ErrorResponse {
+        success: false,
+        error: format!("Role {role} cannot dispense. Required: Pharmacist"),
+        code: "INSUFFICIENT_ROLE".to_string(),
+    })
+}
+
+/// Loads a prescription, or the response explaining why it could not be.
+async fn load_prescription(
+    data: &web::Data<AppState>,
+    prescription_id: &str,
+) -> Result<crate::clinical::EPrescription, HttpResponse> {
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .get_by_id(prescription_id)
+        .await
+    {
+        Ok(Some(entity)) => serde_json::from_value(entity.data).map_err(|e| {
+            log::error!("Prescription {prescription_id} could not be decoded: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The prescription could not be read".to_string(),
+                code: "PRESCRIPTION_DECODE_FAILED".to_string(),
+            })
+        }),
+        Ok(None) => Err(HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Prescription not found".to_string(),
+            code: "PRESCRIPTION_NOT_FOUND".to_string(),
+        })),
+        Err(e) => {
+            log::error!("Prescription lookup failed for {prescription_id}: {e}");
+            Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The prescription could not be read".to_string(),
+                code: "PRESCRIPTION_UNAVAILABLE".to_string(),
+            }))
+        }
+    }
+}
+
+/// Moves a prescription between two lifecycle states, guarded on the state it
+/// is leaving so the transition happens exactly once.
+async fn transition_status(
+    data: &web::Data<AppState>,
+    prescription: &mut crate::clinical::EPrescription,
+    prescription_id: &str,
+    from: crate::clinical::PrescriptionStatus,
+    to: crate::clinical::PrescriptionStatus,
+) -> Result<(), HttpResponse> {
+    prescription.status = to;
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .replace_if_field_eq(
+            prescription_id,
+            "status",
+            &status_token(&from),
+            prescription_record(prescription, prescription_id),
+        )
+        .await
+    {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: format!("This prescription is no longer {}", status_token(&from)),
+            code: "PRESCRIPTION_NOT_IN_EXPECTED_STATE".to_string(),
+        })),
+        Err(e) => {
+            log::error!("Prescription transition failed for {prescription_id}: {e}");
+            Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The transition could not be recorded".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            }))
+        }
+    }
+}
+
+/// A pharmacy acknowledges a transmitted prescription.
+#[post("/api/e-prescriptions/{prescription_id}/receive")]
+pub async fn receive_prescription(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_dispense(&current_user.role) {
+        return dispense_role_refused(&current_user.role);
+    }
+    let prescription_id = path.into_inner();
+    let mut prescription = match load_prescription(&data, &prescription_id).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = transition_status(
+        &data,
+        &mut prescription,
+        &prescription_id,
+        crate::clinical::PrescriptionStatus::Transmitted,
+        crate::clinical::PrescriptionStatus::Received,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user.wallet_address,
+        &current_user.role.to_string(),
+        "prescription_received",
+    )
+    .await
+    {
+        log::error!("Dispensing audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The dispensing step could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "status": status_token(&prescription.status),
+    }))
+}
+
+/// A pharmacist begins preparing the medicine.
+#[post("/api/e-prescriptions/{prescription_id}/start")]
+pub async fn start_prescription_fill(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_dispense(&current_user.role) {
+        return dispense_role_refused(&current_user.role);
+    }
+    let prescription_id = path.into_inner();
+    let mut prescription = match load_prescription(&data, &prescription_id).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = transition_status(
+        &data,
+        &mut prescription,
+        &prescription_id,
+        crate::clinical::PrescriptionStatus::Received,
+        crate::clinical::PrescriptionStatus::InProgress,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user.wallet_address,
+        &current_user.role.to_string(),
+        "prescription_fill_started",
+    )
+    .await
+    {
+        log::error!("Dispensing audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The dispensing step could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "status": status_token(&prescription.status),
+    }))
+}
+
+/// Hand over medicine, in whole or in part.
+#[post("/api/e-prescriptions/{prescription_id}/dispense")]
+pub async fn dispense_prescription(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<DispenseBody>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_dispense(&current_user.role) {
+        return dispense_role_refused(&current_user.role);
+    }
+    if body.quantity == 0 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A dispense must hand over at least one unit".to_string(),
+            code: "QUANTITY_MUST_BE_POSITIVE".to_string(),
+        });
+    }
+
+    let prescription_id = path.into_inner();
+    let mut prescription = match load_prescription(&data, &prescription_id).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+
+    // Dispensing is only legal from a state a pharmacy has taken responsibility
+    // for. A transmitted-but-unreceived prescription has not reached anybody,
+    // and a cancelled or expired one must not be filled at all.
+    let dispensable = matches!(
+        prescription.status,
+        crate::clinical::PrescriptionStatus::Received
+            | crate::clinical::PrescriptionStatus::InProgress
+            | crate::clinical::PrescriptionStatus::PartialFill
+    );
+    if !dispensable {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "A prescription in state {} cannot be dispensed",
+                status_token(&prescription.status)
+            ),
+            code: "PRESCRIPTION_NOT_DISPENSABLE".to_string(),
+        });
+    }
+
+    let prescribed = prescription.medication.quantity;
+    let already = prescription.dispensed_quantity;
+    let remaining = prescribed.saturating_sub(already);
+    if body.quantity > remaining {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "This prescription has {remaining} {} remaining; {} was requested",
+                prescription.medication.quantity_unit, body.quantity
+            ),
+            code: "QUANTITY_EXCEEDS_REMAINING".to_string(),
+        });
+    }
+
+    let new_total = already + body.quantity;
+    let now = Utc::now();
+    // Complete when nothing is owed, partially filled otherwise.
+    prescription.status = if new_total == prescribed {
+        crate::clinical::PrescriptionStatus::Dispensed
+    } else {
+        crate::clinical::PrescriptionStatus::PartialFill
+    };
+    prescription.dispensed_quantity = new_total;
+    prescription.last_filled = Some(now.timestamp());
+
+    // Guarded on the QUANTITY, not the status: the status is unchanged across a
+    // partial fill, so guarding on it would let two concurrent fills both
+    // succeed and hand out more than was prescribed.
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .replace_if_field_eq(
+            &prescription_id,
+            "dispensed_quantity",
+            &already.to_string(),
+            prescription_record(&prescription, &prescription_id),
+        )
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "Another fill was recorded while this one was being prepared; \
+                        re-read the prescription and dispense the remainder"
+                    .to_string(),
+                code: "DISPENSE_RACE_DETECTED".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Dispense failed for {prescription_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The dispense could not be recorded".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
+    }
+
+    // The event history. Written after the quantity is committed, and never
+    // deleted -- a correction adds an entry rather than removing one.
+    let event_id = format!("DISP-{}", uuid::Uuid::new_v4());
+    let event = crate::repositories::traits::JsonRecordEntity {
+        id: event_id.clone(),
+        owner_id: prescription.patient_id.clone(),
+        data: serde_json::json!({
+            "dispense_event_id": event_id,
+            "prescription_id": prescription_id,
+            "patient_id": prescription.patient_id,
+            "pharmacist_id": current_user.wallet_address,
+            "quantity": body.quantity,
+            "quantity_unit": prescription.medication.quantity_unit,
+            "dispensed_total_after": new_total,
+            "prescribed_quantity": prescribed,
+            "notes": body.notes,
+            "dispensed_at": now.timestamp(),
+            "reversed": false,
+        }),
+        created_at: now,
+        updated_at: now,
+    };
+    if let Err(e) = data.repositories.dispense_events.create(event).await {
+        log::error!("Dispense event history write failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The dispense was recorded but its history entry was not; \
+                    do not hand over further medicine until this is resolved"
+                .to_string(),
+            code: "DISPENSE_HISTORY_FAILED".to_string(),
+        });
+    }
+
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user.wallet_address,
+        &current_user.role.to_string(),
+        if new_total == prescribed {
+            "prescription_dispensed"
+        } else {
+            "prescription_partial_fill"
+        },
+    )
+    .await
+    {
+        log::error!("Dispensing audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The dispensing step could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "dispense_event_id": event_id,
+        "status": status_token(&prescription.status),
+        "dispensed_now": body.quantity,
+        "dispensed_total": new_total,
+        "prescribed_quantity": prescribed,
+        "remaining": prescribed - new_total,
+    }))
+}
+
+/// Correct a dispense that should not have been recorded.
+///
+/// The original event is kept and marked, and a correction entry is added. The
+/// running total goes down so the patient can be given what they are owed, but
+/// the history still says the first dispense happened and who recorded it.
+#[post("/api/e-prescriptions/{prescription_id}/dispense/reverse")]
+pub async fn reverse_dispense(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<ReverseDispenseBody>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !may_reverse(&current_user.role) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: format!("Role {} cannot reverse a dispense", current_user.role),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+    if body.reason.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A reason is required to reverse a dispense".to_string(),
+            code: "REASON_REQUIRED".to_string(),
+        });
+    }
+
+    let prescription_id = path.into_inner();
+    let original = match data
+        .repositories
+        .dispense_events
+        .get_by_id(&body.dispense_event_id)
+        .await
+    {
+        Ok(Some(e)) => e,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Dispense event not found".to_string(),
+                code: "DISPENSE_EVENT_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Dispense event lookup failed: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The dispense event could not be read".to_string(),
+                code: "PRESCRIPTION_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    if original.data["reversed"].as_bool().unwrap_or(false) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "This dispense has already been reversed".to_string(),
+            code: "ALREADY_REVERSED".to_string(),
+        });
+    }
+    if original.data["prescription_id"].as_str() != Some(prescription_id.as_str()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "That dispense event belongs to a different prescription".to_string(),
+            code: "DISPENSE_EVENT_MISMATCH".to_string(),
+        });
+    }
+
+    let reversed_quantity = original.data["quantity"].as_u64().unwrap_or(0) as u32;
+    let mut prescription = match load_prescription(&data, &prescription_id).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let already = prescription.dispensed_quantity;
+    let new_total = already.saturating_sub(reversed_quantity);
+    prescription.dispensed_quantity = new_total;
+    prescription.status = if new_total == 0 {
+        crate::clinical::PrescriptionStatus::InProgress
+    } else {
+        crate::clinical::PrescriptionStatus::PartialFill
+    };
+
+    // Same quantity guard as dispensing, for the same reason.
+    match data
+        .repositories
+        .e_prescriptions_v2
+        .replace_if_field_eq(
+            &prescription_id,
+            "dispensed_quantity",
+            &already.to_string(),
+            prescription_record(&prescription, &prescription_id),
+        )
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "The dispensed total changed while this reversal was being prepared"
+                    .to_string(),
+                code: "DISPENSE_RACE_DETECTED".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Dispense reversal failed for {prescription_id}: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The reversal could not be recorded".to_string(),
+                code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
+    }
+
+    // Mark the original rather than deleting it, and add the correction.
+    let now = Utc::now();
+    let mut marked = original.clone();
+    marked.data["reversed"] = serde_json::Value::Bool(true);
+    marked.updated_at = now;
+    if let Err(e) = data.repositories.dispense_events.create(marked).await {
+        log::error!("Marking the reversed dispense failed: {e}");
+    }
+    let correction_id = format!("DISP-REV-{}", uuid::Uuid::new_v4());
+    let correction = crate::repositories::traits::JsonRecordEntity {
+        id: correction_id.clone(),
+        owner_id: prescription.patient_id.clone(),
+        data: serde_json::json!({
+            "dispense_event_id": correction_id,
+            "reverses_event_id": body.dispense_event_id,
+            "prescription_id": prescription_id,
+            "patient_id": prescription.patient_id,
+            "pharmacist_id": current_user.wallet_address,
+            "quantity": reversed_quantity,
+            "correction": true,
+            "reason": body.reason.trim(),
+            "dispensed_total_after": new_total,
+            "recorded_at": now.timestamp(),
+        }),
+        created_at: now,
+        updated_at: now,
+    };
+    if let Err(e) = data.repositories.dispense_events.create(correction).await {
+        log::error!("Dispense correction history write failed: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The reversal was applied but its history entry was not".to_string(),
+            code: "DISPENSE_HISTORY_FAILED".to_string(),
+        });
+    }
+
+    if let Err(e) = audit_prescription_event(
+        &data,
+        &prescription,
+        &current_user.wallet_address,
+        &current_user.role.to_string(),
+        "prescription_dispense_reversed",
+    )
+    .await
+    {
+        log::error!("Dispensing audit failed for {prescription_id}: {e}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The dispensing step could not be audited".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "reversed_event_id": body.dispense_event_id,
+        "correction_event_id": correction_id,
+        "dispensed_total": new_total,
+        "status": status_token(&prescription.status),
+    }))
+}
+
+/// The dispensing history for a prescription, corrections included.
+#[get("/api/e-prescriptions/{prescription_id}/dispense-events")]
+pub async fn list_dispense_events(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if !matches!(
+        current_user.role,
+        crate::Role::Pharmacist | crate::Role::Doctor | crate::Role::Admin
+    ) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: format!("Role {} cannot read dispensing history", current_user.role),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+    let prescription_id = path.into_inner();
+    match data.repositories.dispense_events.list_all().await {
+        Ok(rows) => {
+            let events: Vec<_> = rows
+                .into_iter()
+                .filter(|e| e.data["prescription_id"].as_str() == Some(prescription_id.as_str()))
+                .map(|e| e.data)
+                .collect();
+            HttpResponse::Ok().json(serde_json::json!({ "dispense_events": events }))
+        }
+        Err(e) => {
+            log::error!("Dispense history read failed: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Dispensing history could not be read".to_string(),
+                code: "PRESCRIPTION_UNAVAILABLE".to_string(),
+            })
+        }
+    }
+}
+
 #[get("/api/e-prescriptions/{prescription_id}")]
 pub async fn get_esignature_prescription(
     data: web::Data<crate::AppState>,
@@ -717,6 +1354,7 @@ mod lifecycle_tests {
             transmission_status: None,
             is_controlled: false,
             dea_schedule: None,
+            dispensed_quantity: 0,
             refills_allowed: 0,
             refills_remaining: 0,
             last_filled: None,

@@ -273,6 +273,9 @@ pub struct RepositoryContainer {
     pub blood_type_screen_records: Arc<dyn JsonRecordRepository>,
     pub transfusion_event_records: Arc<dyn JsonRecordRepository>,
     pub e_prescription_records: Arc<dyn JsonRecordRepository>,
+    /// Pharmacy dispensing events, including corrections (SCR-013).
+    /// Append-only by convention: a reversal adds an entry, never removes one.
+    pub dispense_events: Arc<dyn JsonRecordRepository>,
     pub death_certificate_records: Arc<dyn JsonRecordRepository>,
     pub family_history_records: Arc<dyn JsonRecordRepository>,
     pub user_setting_records: Arc<dyn JsonRecordRepository>,
@@ -508,6 +511,7 @@ impl RepositoryContainer {
             blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             e_prescription_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            dispense_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             death_certificate_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             family_history_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             user_setting_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -1066,6 +1070,7 @@ impl RepositoryContainer {
             e_prescription_records: Arc::new(postgres::PgEPrescriptionRecordRepository::new(
                 pool.clone(),
             )),
+            dispense_events: Arc::new(postgres::PgDispenseEventRepository::new(pool.clone())),
             death_certificate_records: Arc::new(postgres::PgDeathCertificateRecordRepository::new(
                 pool.clone(),
             )),

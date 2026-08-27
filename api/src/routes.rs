@@ -494,6 +494,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_esignature_prescription)
         .service(clinical_endpoints::sign_e_prescription)
         .service(clinical_endpoints::transmit_e_prescription)
+        // Pharmacy dispensing (SCR-013). The lifecycle used to stop at
+        // Transmitted, leaving four declared states unreachable.
+        .service(clinical_endpoints::receive_prescription)
+        .service(clinical_endpoints::start_prescription_fill)
+        .service(clinical_endpoints::dispense_prescription)
+        .service(clinical_endpoints::reverse_dispense)
+        .service(clinical_endpoints::list_dispense_events)
         .service(clinical_endpoints::get_esignature_prescription)
         .service(clinical_endpoints::get_patient_e_prescriptions)
         // Phase 30: Insurance Claim Integration endpoints
