@@ -25,6 +25,30 @@ impl MemoryJsonRecordRepository {
     }
 }
 
+/// Renders a JSON value the way PostgreSQL's `->>` operator does.
+///
+/// The guard in `replace_if_field_eq` compares a JSON field against a string,
+/// and the PostgreSQL implementation gets that string from `data ->> $4`, which
+/// yields the TEXT form of any scalar: the number 0 becomes "0", `true` becomes
+/// "true", and only JSON null yields NULL.
+///
+/// This used to be `v.as_str()`, which returns `None` for anything that is not
+/// a JSON string. Guarding on a string field therefore worked and guarding on a
+/// numeric one silently never matched -- the two backends disagreed about a
+/// primitive whose entire purpose is atomic state transition.
+///
+/// It surfaced when dispensing began guarding on `dispensed_quantity`: every
+/// fill on the memory backend was refused as a race that had not happened,
+/// while PostgreSQL was correct. Parity here is not cosmetic; the memory
+/// backend is the documented default for dev and demo.
+fn json_field_as_text(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
 #[async_trait]
 impl JsonRecordRepository for MemoryJsonRecordRepository {
     async fn create(&self, mut record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity> {
@@ -101,7 +125,7 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
         let Some(existing) = data.get(id) else {
             return Ok(None);
         };
-        if existing.data.get(field).and_then(|v| v.as_str()) != Some(expected) {
+        if json_field_as_text(existing.data.get(field)).as_deref() != Some(expected) {
             return Ok(None);
         }
 
@@ -117,6 +141,68 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The guard must work on numbers, not only strings.
+    ///
+    /// PostgreSQL's `->>` renders any scalar as text, so guarding on a numeric
+    /// field is legitimate and the dispensing workflow depends on it: the
+    /// running dispensed quantity is what makes concurrent fills safe. The
+    /// memory implementation used `as_str()`, which returns None for a number,
+    /// so every guarded numeric transition failed as a race that never
+    /// happened -- on the backend that is the documented dev/demo default.
+    #[tokio::test]
+    async fn the_field_guard_matches_numbers_the_way_postgres_does() {
+        let repo = MemoryJsonRecordRepository::new();
+        let mut e = entity("rx-1", "pat-1");
+        e.data = json!({ "dispensed_quantity": 0, "status": "InProgress" });
+        repo.create(e.clone()).await.unwrap();
+
+        let mut updated = e.clone();
+        updated.data = json!({ "dispensed_quantity": 5, "status": "PartialFill" });
+
+        // "0" is what `data ->> 'dispensed_quantity'` yields for the number 0.
+        let ok = repo
+            .replace_if_field_eq("rx-1", "dispensed_quantity", "0", updated.clone())
+            .await
+            .unwrap();
+        assert!(
+            ok.is_some(),
+            "a numeric guard must match its text rendering"
+        );
+
+        // And the stale value must now fail, which is what makes it a guard.
+        let stale = repo
+            .replace_if_field_eq("rx-1", "dispensed_quantity", "0", updated)
+            .await
+            .unwrap();
+        assert!(
+            stale.is_none(),
+            "the guard must refuse a stale expected value"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_field_guard_still_matches_strings_and_booleans() {
+        let repo = MemoryJsonRecordRepository::new();
+        let mut e = entity("rx-2", "pat-1");
+        e.data = json!({ "status": "Signed", "controlled": true });
+        repo.create(e.clone()).await.unwrap();
+
+        assert!(
+            repo.replace_if_field_eq("rx-2", "status", "Signed", e.clone())
+                .await
+                .unwrap()
+                .is_some(),
+            "string fields must keep working"
+        );
+        assert!(
+            repo.replace_if_field_eq("rx-2", "controlled", "true", e)
+                .await
+                .unwrap()
+                .is_some(),
+            "booleans render as their literal, as `->>` does"
+        );
+    }
 
     fn entity(id: &str, owner: &str) -> JsonRecordEntity {
         JsonRecordEntity {
