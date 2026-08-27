@@ -3126,7 +3126,9 @@ impl SpecimenRecollectionRepository for MemorySpecimenRecollectionRepository {
             .filter(|r| r.rejection_id == rejection_id)
             .cloned()
             .collect();
-        rows.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        // Newest first. `Reverse` rather than a comparator closure, which
+        // clippy flags as `unnecessary_sort_by`.
+        rows.sort_by_key(|r| std::cmp::Reverse(r.requested_at));
         Ok(rows)
     }
 
@@ -3140,7 +3142,9 @@ impl SpecimenRecollectionRepository for MemorySpecimenRecollectionRepository {
             .filter(|r| r.status == "requested")
             .cloned()
             .collect();
-        rows.sort_by(|a, b| a.requested_at.cmp(&b.requested_at));
+        // Oldest first: the laboratory works the queue in the order the
+        // samples were asked for.
+        rows.sort_by_key(|r| r.requested_at);
         Ok(rows)
     }
 
