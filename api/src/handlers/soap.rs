@@ -131,7 +131,19 @@ pub async fn create_soap_note(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.soap_note_records.create(entity).await;
+        // This repository IS the note's only persistence -- it replaced the
+        // in-process map named in the comment above. Discarding the result
+        // returned 201 and a note_id for a note that was never stored, and the
+        // clinician's only signal was the success they had just been shown.
+        if let Err(error) = data.repositories.soap_note_records.create(entity).await {
+            log::error!("SOAP note persistence failed for {note_id}: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The note could not be saved. Nothing was recorded; please retry."
+                    .to_string(),
+                code: "SOAP_NOTE_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     // Log access via repository
@@ -400,7 +412,18 @@ pub async fn add_soap_addendum(
     // Persist the updated note back via repository (was: in-memory get_mut)
     entity.data = serde_json::to_value(&note).unwrap_or_default();
     entity.updated_at = Utc::now();
-    let _ = data.repositories.soap_note_records.create(entity).await;
+    // An addendum is an amendment to a signed clinical note. Reporting it
+    // written when the write failed leaves the record saying something the
+    // author has already been told it no longer says.
+    if let Err(error) = data.repositories.soap_note_records.create(entity).await {
+        log::error!("SOAP addendum persistence failed for {note_id}: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The addendum could not be saved. The note is unchanged; please retry."
+                .to_string(),
+            code: "SOAP_ADDENDUM_PERSISTENCE_FAILED".to_string(),
+        });
+    }
 
     log::info!("SOAP-note addendum created");
 

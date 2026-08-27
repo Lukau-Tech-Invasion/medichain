@@ -103,29 +103,20 @@ def scan() -> dict[str, int]:
 # Numbers may only go down. Delete the entry when it reaches zero.
 # ---------------------------------------------------------------------------
 BASELINE: dict[str, int] = {
-    "api/src/clinical_endpoints/billing/insurance_claims.rs": 2,
-    "api/src/clinical_endpoints/billing/insurance_eligibility.rs": 1,
-    "api/src/clinical_endpoints/clinical_support/lab_trends.rs": 1,
     "api/src/clinical_endpoints/clinical_support/telehealth.rs": 4,
     "api/src/clinical_endpoints/emergency/assessments.rs": 4,
     "api/src/clinical_endpoints/emergency/crisis.rs": 2,
     "api/src/clinical_endpoints/engagement/appointments.rs": 1,
-    "api/src/clinical_endpoints/engagement/family.rs": 3,
-    "api/src/clinical_endpoints/engagement/symptoms.rs": 2,
-    "api/src/clinical_endpoints/engagement/wearables.rs": 4,
     "api/src/clinical_endpoints/insurance_pharmacy/drug_checking.rs": 1,
     "api/src/clinical_endpoints/medical_id/core.rs": 1,
     "api/src/clinical_endpoints/medical_id/preferences.rs": 1,
-    "api/src/clinical_endpoints/platform/localization.rs": 1,
-    "api/src/clinical_endpoints/platform/sync.rs": 3,
     "api/src/clinical_endpoints/surgical/diagnostics.rs": 4,
     "api/src/clinical_endpoints/surgical/perioperative.rs": 3,
     "api/src/clinical_endpoints/surgical/public_health.rs": 5,
     "api/src/clinical_endpoints/workflow/messaging.rs": 1,
     "api/src/handlers/ipfs_records.rs": 3,
     "api/src/handlers/nfc.rs": 3,
-    "api/src/handlers/sms_preferences.rs": 1,
-    "api/src/handlers/soap.rs": 3,
+    "api/src/handlers/soap.rs": 1,
     "api/src/handlers/vitals.rs": 1,
 }
 

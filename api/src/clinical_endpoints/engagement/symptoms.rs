@@ -59,7 +59,16 @@ pub async fn start_symptom_check(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.symptom_sessions.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
+            log::error!("symptom_sessions persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The symptom session could not be saved; please retry.".to_string(),
+                code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -254,7 +263,16 @@ pub async fn submit_symptom_answers(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.symptom_sessions.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
+            log::error!("symptom_sessions persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The symptom session could not be saved; please retry.".to_string(),
+                code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({

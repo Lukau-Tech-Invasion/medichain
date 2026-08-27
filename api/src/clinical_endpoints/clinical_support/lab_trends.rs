@@ -264,7 +264,16 @@ pub async fn analyze_lab_trends(
                 created_at: now_dt,
                 updated_at: now_dt,
             };
-            let _ = data.repositories.lab_trend_results.create(entity).await;
+            // This repository is the record's persistence. Discarding the result
+            // returned success for something that was never stored.
+            if let Err(error) = data.repositories.lab_trend_results.create(entity).await {
+                log::error!("lab_trend_results persistence failed: {error}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    success: false,
+                    error: "The trend result could not be saved; please retry.".to_string(),
+                    code: "LAB_TREND_RESULT_PERSISTENCE_FAILED".to_string(),
+                });
+            }
         }
         results.push(trend_result);
     }

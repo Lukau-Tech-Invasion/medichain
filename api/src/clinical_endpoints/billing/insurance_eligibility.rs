@@ -177,7 +177,7 @@ async fn persist_eligibility_check(
     patient_id: &str,
     response: &serde_json::Value,
     now: i64,
-) {
+) -> Result<(), String> {
     let eligibility = crate::clinical::EligibilityCheckResponse {
         check_id: check_id.to_string(),
         patient_id: patient_id.to_string(),
@@ -217,7 +217,14 @@ async fn persist_eligibility_check(
         created_at: now_dt,
         updated_at: now_dt,
     };
-    let _ = data.repositories.eligibility_checks.create(entity).await;
+    // The caller decides what a failed persist means; this helper must not
+    // swallow it, which is what returning () allowed.
+    data.repositories
+        .eligibility_checks
+        .create(entity)
+        .await
+        .map_err(|error| format!("eligibility_checks persistence failed: {error}"))?;
+    Ok(())
 }
 
 /// Check insurance eligibility
@@ -278,7 +285,18 @@ pub async fn check_insurance_eligibility(
         Some(ins) => build_eligibility_response(&check_id, &req, ins, today, now),
     };
 
-    persist_eligibility_check(&data, &check_id, &req.patient_id, &response, now).await;
+    // An eligibility result the payer will be billed against must not be
+    // reported to the caller unless it was actually stored.
+    if let Err(error) =
+        persist_eligibility_check(&data, &check_id, &req.patient_id, &response, now).await
+    {
+        log::error!("{error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The eligibility result could not be saved; please retry.".to_string(),
+            code: "ELIGIBILITY_CHECK_PERSISTENCE_FAILED".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(response)
 }

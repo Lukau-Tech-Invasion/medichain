@@ -88,11 +88,21 @@ pub async fn register_wearable_device(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data
             .repositories
             .wearable_device_records
             .create(entity)
-            .await;
+            .await
+        {
+            log::error!("wearable_device_records persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The alert rule could not be saved; please retry.".to_string(),
+                code: "WEARABLE_DEVICE_RECORD_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -275,11 +285,21 @@ pub async fn submit_wearable_reading(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data
             .repositories
             .wearable_reading_records
             .create(entity)
-            .await;
+            .await
+        {
+            log::error!("wearable_reading_records persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The alert rule could not be saved; please retry.".to_string(),
+                code: "WEARABLE_READING_RECORD_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     // If abnormal, create an alert
@@ -311,11 +331,21 @@ pub async fn submit_wearable_reading(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data
             .repositories
             .wearable_alert_records
             .create(entity)
-            .await;
+            .await
+        {
+            log::error!("wearable_alert_records persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The alert rule could not be saved; please retry.".to_string(),
+                code: "WEARABLE_ALERT_RECORD_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -484,7 +514,16 @@ pub async fn create_wearable_alert_rule(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.wearable_alert_rules.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.wearable_alert_rules.create(entity).await {
+            log::error!("wearable_alert_rules persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The alert rule could not be saved; please retry.".to_string(),
+                code: "WEARABLE_ALERT_RULE_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({

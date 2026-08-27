@@ -79,7 +79,16 @@ pub async fn set_language_preference(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.language_preferences.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.language_preferences.create(entity).await {
+            log::error!("language_preferences persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The language preference could not be saved; please retry.".to_string(),
+                code: "LANGUAGE_PREFERENCE_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({

@@ -63,7 +63,17 @@ pub async fn create_family_group(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.family_groups.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.family_groups.create(entity).await {
+            log::error!("family_groups persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The family group could not be saved. Nothing was changed; please retry."
+                    .to_string(),
+                code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -186,7 +196,17 @@ pub async fn add_family_member(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.family_groups.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.family_groups.create(entity).await {
+            log::error!("family_groups persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The family group could not be saved. Nothing was changed; please retry."
+                    .to_string(),
+                code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -372,7 +392,17 @@ pub async fn remove_family_member(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.family_groups.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.family_groups.create(entity).await {
+            log::error!("family_groups persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The family group could not be saved. Nothing was changed; please retry."
+                    .to_string(),
+                code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({

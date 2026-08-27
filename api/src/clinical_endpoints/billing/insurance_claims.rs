@@ -164,7 +164,17 @@ pub async fn create_insurance_claim(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.insurance_claims.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.insurance_claims.create(entity).await {
+            log::error!("insurance_claims persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The claim could not be saved. Nothing was submitted; please retry."
+                    .to_string(),
+                code: "INSURANCE_CLAIM_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -238,7 +248,17 @@ pub async fn submit_insurance_claim(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.insurance_claims.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.insurance_claims.create(entity).await {
+            log::error!("insurance_claims persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The claim could not be saved. Nothing was submitted; please retry."
+                    .to_string(),
+                code: "INSURANCE_CLAIM_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({

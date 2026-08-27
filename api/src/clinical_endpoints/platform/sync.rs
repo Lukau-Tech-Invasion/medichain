@@ -135,8 +135,16 @@ pub async fn register_sync_device(
         created_at: now,
         updated_at: now,
     };
-    let _ = data.repositories.sync_devices.create(entity).await;
-
+    // This repository is the record's persistence. Discarding the result
+    // returned success for something that was never stored.
+    if let Err(error) = data.repositories.sync_devices.create(entity).await {
+        log::error!("sync_devices persistence failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The sync record could not be saved; please retry.".to_string(),
+            code: "SYNC_DEVICE_PERSISTENCE_FAILED".to_string(),
+        });
+    }
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "device_id": device_id,
@@ -198,8 +206,20 @@ async fn record_sync_conflict(
         created_at: Some(chrono::Utc::now()),
         ..Default::default()
     };
-    let _ = data.repositories.sync_conflicts.create(entity).await;
-
+    // A conflict the client is told to resolve must exist on the server, or the
+    // resolution it sends back will have nothing to attach to. Reported in the
+    // returned record rather than swallowed, so the caller can surface it.
+    if let Err(error) = data.repositories.sync_conflicts.create(entity).await {
+        log::error!("sync_conflicts persistence failed: {error}");
+        return serde_json::json!({
+            "id": conflict_id,
+            "entity_type": item.entity_type,
+            "entity_id": entity_id,
+            "persisted": false,
+            "error": "The conflict could not be recorded; resolve it again after retrying.",
+            "code": "SYNC_CONFLICT_PERSISTENCE_FAILED",
+        });
+    }
     serde_json::json!({
         "id": conflict_id,
         "entity_type": item.entity_type,
@@ -289,7 +309,16 @@ pub async fn perform_sync(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.sync_queue_items.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.sync_queue_items.create(entity).await {
+            log::error!("sync_queue_items persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The sync record could not be saved; please retry.".to_string(),
+                code: "SYNC_QUEUE_ITEM_PERSISTENCE_FAILED".to_string(),
+            });
+        }
         processed_count += 1;
     }
 
