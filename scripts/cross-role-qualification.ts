@@ -370,18 +370,23 @@ async function qualifyRoleSurfaces(sessions: Record<string, Session>): Promise<v
  * result. The maker-checker rule is exercised in the same run: the submitter's
  * own approval must be refused, and a different clinician's must succeed.
  */
-async function qualifyLabWorkflow(m: Manifest, sessions: Record<string, Session>): Promise<void> {
+async function qualifyLabWorkflow(
+  m: Manifest,
+  sessions: Record<string, Session>,
+  patients: Record<string, Session>
+): Promise<void> {
   section = 'D. Cross-role clinical workflow — lab result';
   console.log(`\n${section}`);
 
   const { labtech, doctorA, doctorB } = sessions;
-  if (!labtech || !doctorA || !doctorB) {
+  const patientA = patients.patientA;
+  if (!labtech || !doctorA || !doctorB || !patientA) {
     // A section cannot run without its sessions. When those were refused by
     // the challenge limiter rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
       skip('lab workflow', 'sessions unavailable — challenge limiter, re-run after a minute');
     } else {
-      record('lab workflow prerequisites', false, 'needs labtech + two doctors');
+      record('lab workflow prerequisites', false, 'needs labtech + two doctors + patient');
     }
     return;
   }
@@ -428,7 +433,7 @@ async function qualifyLabWorkflow(m: Manifest, sessions: Record<string, Session>
   expectStatus('a second review cannot overturn the first', second.status, 400, second.json);
 
   // The approval's purpose: the result must now be on the patient's chart.
-  const records = await http('GET', `/records/${patientId}`, { token: doctorA.token });
+  const records = await http('GET', `/records/${patientId}`, { token: patientA.token });
   const body = JSON.stringify(records.json);
   record(
     'the approved result reaches the patient record',
@@ -757,6 +762,14 @@ async function qualifyConsentLifecycle(
 
   const patientId = m.patient.linked_patient_id;
 
+  const beforeGrant = await http('GET', `/records/${patientId}`, { token: doctorB.token });
+  expectStatus(
+    'a doctor without patient consent cannot list the patient records',
+    beforeGrant.status,
+    403,
+    beforeGrant.json
+  );
+
   const request = await http('POST', `/access/patient/${patientId}/requests`, {
     token: doctorB.token,
     body: { reason: 'synthetic qualification — ongoing care' },
@@ -841,6 +854,14 @@ async function qualifyConsentLifecycle(
   });
   if (!expectStatus('the patient approves it', approve.status, 200, approve.json)) return;
 
+  const duringGrant = await http('GET', `/records/${patientId}`, { token: doctorB.token });
+  expectStatus(
+    'the approved doctor can list the patient records',
+    duringGrant.status,
+    200,
+    duringGrant.json
+  );
+
   const grants = await http('GET', `/access/patient/${patientId}/grants`, { token: patientA.token });
   const grantsBody = JSON.stringify(grants.json);
   record(
@@ -870,6 +891,14 @@ async function qualifyConsentLifecycle(
 
   const revoke = await http('POST', `/access/grants/${grantId}/revoke`, { token: patientA.token });
   if (!expectStatus('the patient revokes the grant', revoke.status, 200, revoke.json)) return;
+
+  const afterRevoke = await http('GET', `/records/${patientId}`, { token: doctorB.token });
+  expectStatus(
+    'the same doctor session loses record access immediately after revocation',
+    afterRevoke.status,
+    403,
+    afterRevoke.json
+  );
 
   const reRevoke = await http('POST', `/access/grants/${grantId}/revoke`, { token: patientA.token });
   expectStatus('revoking twice is refused', reRevoke.status, [400, 404, 409], reRevoke.json);
@@ -1640,11 +1669,11 @@ async function main(): Promise<void> {
   const sessions = await qualifySessions(m);
   await qualifyRoleMatrix(sessions);
   await qualifyRoleSurfaces(sessions);
-  await qualifyLabWorkflow(m, sessions);
+  const patients = await qualifyPatientBoundary(m);
+  await qualifyLabWorkflow(m, sessions, patients);
   await qualifySelfReview(m, sessions);
   await qualifyObjectAuthorization(m, sessions);
   await qualifyPrescriptionWorkflow(m, sessions);
-  const patients = await qualifyPatientBoundary(m);
   await qualifyConsentLifecycle(m, sessions, patients);
   await qualifyPatientMutation(m, sessions, patients);
   await qualifyTelehealth(m, sessions, patients);

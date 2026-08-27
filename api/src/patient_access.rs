@@ -180,6 +180,24 @@ impl PatientAccessService {
             })
     }
 
+    /// Whether a provider currently holds an effective patient-approved grant.
+    ///
+    /// This is the server-side authorization decision used by clinical record
+    /// reads. It deliberately fails closed when the grant store is unavailable:
+    /// treating a storage error as "no consent required" would turn a database
+    /// outage into universal provider access.
+    pub async fn provider_has_active_grant(
+        &self,
+        patient_id: &str,
+        provider_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, &'static str> {
+        let grants = self.list_grants_by_patient(patient_id, now).await?;
+        Ok(grants
+            .iter()
+            .any(|grant| grant.provider_id == provider_id && grant.is_effective(now)))
+    }
+
     pub async fn get_request(
         &self,
         request_id: &str,
@@ -544,6 +562,60 @@ mod tests {
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, "expired");
+    }
+
+    #[tokio::test]
+    async fn provider_access_tracks_grant_expiry_and_revocation() {
+        let svc = service();
+        let now = Utc::now();
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+
+        let request = svc
+            .create_request("PAT-1".into(), provider(), now)
+            .await
+            .unwrap();
+        let (_, grant) = svc
+            .approve_request(
+                &request.id,
+                AccessType::Limited,
+                Some(now + Duration::hours(1)),
+                now,
+            )
+            .await
+            .unwrap();
+        assert!(svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5OtherWallet", now)
+            .await
+            .unwrap());
+        svc.revoke_grant(&grant.id, now).await.unwrap();
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+
+        let second_request = svc
+            .create_request("PAT-2".into(), provider(), now)
+            .await
+            .unwrap();
+        svc.approve_request(
+            &second_request.id,
+            AccessType::Limited,
+            Some(now + Duration::hours(1)),
+            now,
+        )
+        .await
+        .unwrap();
+        assert!(!svc
+            .provider_has_active_grant("PAT-2", "5DoctorWallet", now + Duration::hours(2))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

@@ -94,6 +94,12 @@ pub async fn upload_medical_record(
         });
     }
 
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &req.patient_id).await
+    {
+        return response;
+    }
+
     // Decode base64 content
     let content = match base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
@@ -283,44 +289,25 @@ pub async fn download_medical_record(
         }
     };
 
-    // Patients can only download their own records
-    // Healthcare providers can download any records
-    if !current_user.role.is_healthcare_provider() {
-        // Check via repository that this record belongs to the patient
-        let owns_record = match data
-            .repositories
-            .medical_records
-            .get_by_ipfs_hash(&req.content_hash)
-            .await
-        {
-            // `patient_id` is a record id (`PAT-…`) and `current_user_id` is an
-            // SS58 wallet: comparing them directly can never be true for a real
-            // patient account, so this denied every patient their own record.
-            // Same namespace bug `caller_owns_patient_record` was written for;
-            // these two download sites were missed in that sweep.
-            Ok(entity) => crate::support::caller_owns_patient_record(
-                &data,
-                &current_user_id,
-                &entity.patient_id,
-            ),
-            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => false,
-            Err(e) => {
-                log::error!("Medical record lookup failed: {}", e);
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Ownership check failed".to_string(),
-                    code: "REPO_ERROR".to_string(),
-                });
-            }
-        };
-
-        if !owns_record {
-            return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
-                error: "Patients can only download their own medical records".to_string(),
-                code: "ACCESS_DENIED".to_string(),
-            });
+    let record = match data
+        .repositories
+        .medical_records
+        .get_by_ipfs_hash(&req.content_hash)
+        .await
+    {
+        Ok(record) => record,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return access_denied();
         }
+        Err(error) => {
+            log::error!("Medical record lookup failed: {error}");
+            return access_check_unavailable();
+        }
+    };
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &record.patient_id).await
+    {
+        return response;
     }
 
     // Download and decrypt from IPFS
@@ -396,14 +383,34 @@ pub async fn download_medical_record(
 ///
 /// The IPFS path gets this from the `medical_records` row; these kinds have no
 /// such row, so they check the owning patient themselves.
-fn may_read_patient(
+async fn may_read_patient(
     data: &web::Data<AppState>,
     caller: &crate::types::User,
     caller_id: &str,
     patient_id: &str,
-) -> bool {
-    caller.role.is_healthcare_provider()
-        || crate::support::caller_owns_patient_record(data, caller_id, patient_id)
+) -> Result<bool, &'static str> {
+    if crate::support::caller_owns_patient_record(data, caller_id, patient_id) {
+        return Ok(true);
+    }
+    if !caller.role.is_healthcare_provider() {
+        return Ok(false);
+    }
+    data.patient_access
+        .provider_has_active_grant(patient_id, caller_id, Utc::now())
+        .await
+}
+
+async fn patient_read_denial(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    patient_id: &str,
+) -> Option<HttpResponse> {
+    match may_read_patient(data, caller, caller_id, patient_id).await {
+        Ok(true) => None,
+        Ok(false) => Some(access_denied()),
+        Err(_) => Some(access_check_unavailable()),
+    }
 }
 
 fn access_denied() -> HttpResponse {
@@ -411,6 +418,14 @@ fn access_denied() -> HttpResponse {
         success: false,
         error: "Patients can only download their own medical records".to_string(),
         code: "ACCESS_DENIED".to_string(),
+    })
+}
+
+fn access_check_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: "Patient consent records are temporarily unavailable".to_string(),
+        code: "CONSENT_CHECK_UNAVAILABLE".to_string(),
     })
 }
 
@@ -447,8 +462,8 @@ async fn download_history_physical(
             return not_found("History and physical");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &hp.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &hp.patient_id).await {
+        return response;
     }
     let some = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_string());
     let json_lines = |value: &Option<serde_json::Value>| match value {
@@ -518,8 +533,8 @@ async fn download_progress_note(
             return not_found("Progress note");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &note.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &note.patient_id).await {
+        return response;
     }
     let mut body = format!("Progress note {note_id}\n\n");
     body.push_str(&format!("Patient:    {}\n", note.patient_id));
@@ -557,8 +572,8 @@ async fn download_wound(
             return not_found("Wound assessment");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &wound.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &wound.patient_id).await {
+        return response;
     }
     let cm = |v: &Option<rust_decimal::Decimal>| {
         v.map(|d| format!("{d} cm"))
@@ -605,8 +620,8 @@ async fn download_vitals(
             return not_found("Vital signs");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &v.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &v.patient_id).await {
+        return response;
     }
     let num = |value: Option<i32>| {
         value
@@ -693,8 +708,8 @@ async fn download_soap_note(
             .to_string()
     };
     let patient_id = text(&v, "patient_id");
-    if !may_read_patient(data, caller, caller_id, &patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &patient_id).await {
+        return response;
     }
 
     // The four SOAP sections are nested objects, each with its own fields — a
@@ -826,8 +841,8 @@ async fn download_prescription(
             .to_string()
     };
     let patient_id = text(&v, "patient_id");
-    if !may_read_patient(data, caller, caller_id, &patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &patient_id).await {
+        return response;
     }
     let empty = serde_json::Value::Null;
     let med = v.get("medication").unwrap_or(&empty);
@@ -884,8 +899,8 @@ async fn download_triage(
             return not_found("Triage assessment");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &a.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &a.patient_id).await {
+        return response;
     }
 
     let num = |v: Option<i32>| v.map(|n| n.to_string()).unwrap_or_else(|| "-".into());
@@ -1114,14 +1129,10 @@ pub async fn download_medical_record_by_hash(
             });
         }
     };
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &entity.patient_id)
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &entity.patient_id).await
     {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Patients can only download their own medical records".to_string(),
-            code: "ACCESS_DENIED".to_string(),
-        });
+        return response;
     }
     // A record reference is a pointer, and not every pointer is an IPFS CID.
     // Approving a lab result files it in the patient's records with a synthetic
@@ -1205,7 +1216,7 @@ pub async fn download_medical_record_by_hash(
 }
 
 /// List medical records for a patient (paginated)
-/// Requires: Healthcare provider role OR patient accessing own records
+/// Requires: active patient consent OR patient accessing own records
 /// Query params: ?page=1&limit=20
 #[get("/api/records/{patient_id}")]
 pub async fn list_patient_records(
@@ -1239,15 +1250,10 @@ pub async fn list_patient_records(
         }
     };
 
-    // Patients can only list their own records
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &patient_id).await
     {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Patients can only view their own medical records".to_string(),
-            code: "ACCESS_DENIED".to_string(),
-        });
+        return response;
     }
 
     // Get patient records via repository (paginated)

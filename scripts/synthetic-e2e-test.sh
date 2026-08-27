@@ -499,6 +499,16 @@ check "anonymous CANNOT request access" 401 "$c" "$(body)"
 c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"x"}' "$WALLET_ADULT")
 check "a patient CANNOT request provider access" 403 "$c" "$(body)"
 
+# Establish a fresh treatment grant after proving revocation. The remaining
+# clinical workflow uses this doctor against this patient, so leaving the only
+# grant revoked would make later record tests exercise denial rather than the
+# upload/download behavior they are intended to qualify.
+c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"Synthetic treatment workflow"}' "$DOCTOR")
+check "provider requests replacement access after revocation" 201 "$c" "$(body)"
+TREATMENT_REQ=$(jget request id)
+c=$(code POST "/api/access/requests/$TREATMENT_REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
+check "patient grants access for the remaining clinical workflow" 200 "$c" "$(body)"
+
 # ---------------------------------------------------------------------------
 say "7. Nursing dashboard + care plans (doctor-portal)"
 
