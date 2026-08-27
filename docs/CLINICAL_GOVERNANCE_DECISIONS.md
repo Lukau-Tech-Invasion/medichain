@@ -97,46 +97,32 @@ cross-pharmacy, double-submit and concurrent dispense.
 
 ---
 
-## 2. Specimen recollection (SCR-009b)
+## 2. Specimen recollection (SCR-009b) — ANSWERED AND BUILT 2026-08-27
 
-### What the code contains today
+The twelve questions below were answered in the completion brief, so this
+section is a record of what was decided rather than an open request. The
+implementation is `SCR-009c` in the remediation ledger.
 
-`SpecimenRejection` (`api/src/clinical.rs:5351`) carries
-`rejection_id`, `accession_number`, `patient_id`, `test_ordered`,
-`rejection_reason`, `rejection_details`, `recollection_required: bool`,
-`provider_notified: bool`, `notification_time`, and `disposed`.
+What was built, and the decision each choice encodes:
 
-So the model records **that** a recollection is required. It records nothing
-about a recollection actually happening: no link from a rejected specimen to a
-replacement, no new accession number, no request state.
+| Question | Decision |
+| --- | --- |
+| Who may request | The laboratory, the patient's clinicians, or an administrator — the same set the Notify workflow already uses. |
+| Is the rejection immutable | Yes. Nothing in this feature writes to `specimen_rejections`. |
+| What recollection creates | A separate `specimen_recollection_requests` row referencing the rejection, not an edit of it. |
+| How lineage is preserved | `rejection_id` and `original_specimen_id` point backwards; `replacement_specimen_id` points forwards once complete. |
+| New accession number | The replacement is a new specimen collection with its own accession; the original keeps its own. |
+| Must the provider approve | No. The laboratory that found the problem may act, and Notify tells the provider separately. |
+| Patient notification | Out of scope for this slice, and deliberately not faked: no notification is claimed anywhere in the UI or API. |
+| Cancellation | Permitted, with a mandatory reason, audited. |
+| Duplicate requests | Refused — one open request per rejection, enforced by a partial unique index. |
+| Exactly-once | Completion and cancellation are guarded inside the write, so retries return a conflict rather than acting twice. |
+| Audit vocabulary | Three new actions, added to the CHECK constraint and to the source-derived gate. |
+| Does the rejection stay visible | Yes, permanently, including every abandoned attempt. |
 
-Notify is a separate, working workflow and was completed earlier in this
-campaign (`POST /api/clinical/specimen-rejection/{id}/notify`, which resolves
-the ordering provider through the specimen's submission). **Recollect must not
-be collapsed back into it** — telling a provider a specimen failed and
-obtaining a replacement sample from a patient are different acts with different
-consequences.
-
-### Decisions required
-
-1. Who may request a recollection — the laboratory that rejected the specimen, the ordering provider, or either?
-2. Is the rejected specimen record immutable once rejected, or may it be amended?
-3. Does recollection create a new specimen, a new collection event, a new submission, or a child record of the original?
-4. How is lineage to the rejected specimen preserved, and must it remain visible on the replacement result?
-5. Is a new accession number issued, or is the original reused?
-6. Must the ordering provider approve a recollection the laboratory requests?
-7. How and when is the patient notified that they must attend again?
-8. May a recollection request be cancelled, and by whom?
-9. What happens when the same rejection receives two recollection requests — refusal, or idempotent no-op?
-10. What guarantees exactly-once behaviour if a request is retried?
-11. What audit vocabulary do these transitions use? (Same CHECK-constraint gate as above.)
-12. Does the original rejection remain permanently visible on the patient's record once a replacement succeeds?
-
-### Interim UI obligation
-
-Whatever is decided, **a dead affordance must not ship**. Until this is
-answered, any Recollect control must be absent or visibly disabled with a
-reason, never a button that appears actionable and does nothing.
+The one thing deliberately **not** built is patient notification, because
+nothing in the repository defines how a patient is told to attend again. No UI
+or response claims it happened.
 
 ---
 
