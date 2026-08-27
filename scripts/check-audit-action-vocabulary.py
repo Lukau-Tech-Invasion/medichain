@@ -79,6 +79,12 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
     "api/src/clinical_endpoints/billing/e_prescriptions.rs::event.to_string()": [
         "prescription_signed",
         "prescription_transmitted",
+        # Pharmacy dispensing (SCR-013).
+        "prescription_received",
+        "prescription_fill_started",
+        "prescription_dispensed",
+        "prescription_partial_fill",
+        "prescription_dispense_reversed",
     ],
     # The recording handler picks one of two literals immediately above the
     # struct literal.
@@ -190,6 +196,72 @@ def consts() -> dict[str, str]:
     return found
 
 
+def stale_resolutions() -> list[str]:
+    """Finds RESOLVED_EXPRESSIONS entries that new call sites have outgrown.
+
+    A resolved expression is a snapshot of the call sites that existed when
+    somebody read them. Adding a call site does not invalidate the snapshot, so
+    the gate keeps passing while the new value is one the database will reject.
+
+    That is not hypothetical. It is how five dispensing actions
+    (prescription_received, prescription_fill_started, prescription_dispensed,
+    prescription_partial_fill, prescription_dispense_reversed) were nearly
+    shipped past this gate: `audit_prescription_event` takes its action as a
+    parameter, and the entry for `event.to_string()` listed only the two actions
+    that existed when it was written.
+
+    So: for an entry of the form `<param>.to_string()`, find the function that
+    takes `<param>: &str`, then require every string literal passed at any call
+    site of that function to appear in the recorded list.
+
+    A heuristic over source text, not a type-checked analysis, and deliberately
+    biased towards false alarms. Being told to re-read a list you have already
+    read costs a minute; the failure it prevents is a silently lost audit row.
+    """
+    findings: list[str] = []
+    for key, recorded in RESOLVED_EXPRESSIONS.items():
+        rel, expr = key.split("::", 1)
+        param_match = re.fullmatch(r"(\w+)\.to_string\(\)", expr)
+        if not param_match:
+            continue
+        param = param_match.group(1)
+
+        path = ROOT / rel
+        if not path.exists():
+            findings.append(f"{key}: the file no longer exists; remove the entry")
+            continue
+        body = path.read_text(encoding="utf-8", errors="replace")
+
+        # The function that takes `<param>: &str`, and therefore owns this
+        # expression.
+        fn = re.search(
+            r"async fn (\w+)\([^)]*?\b" + re.escape(param) + r"\s*:\s*&str",
+            body,
+            re.S,
+        )
+        if not fn:
+            continue
+        name = fn.group(1)
+
+        recorded_set = set(recorded)
+        for call in re.finditer(
+            re.escape(name) + r"\s*\((?P<call>[^;]*?)\)\s*\.await", body, re.S
+        ):
+            for value in re.findall(r'"([^"]*)"', call.group("call")):
+                if value in recorded_set:
+                    continue
+                # Only audit-action-shaped literals. Anything else in the call is
+                # some other argument, and flagging it would be noise.
+                if "_" in value and value.replace("_", "").isalnum():
+                    findings.append(
+                        f'{key}: a call site passes "{value}", which is not in the '
+                        f"recorded list. Re-read the call sites of `{name}` and "
+                        f"update RESOLVED_EXPRESSIONS, then add the value to the "
+                        f"access_logs_action_check constraint in a migration."
+                    )
+    return findings
+
+
 def written_values() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Returns (resolved value -> files, unverifiable expression -> files)."""
     resolved: dict[str, set[str]] = {}
@@ -257,6 +329,10 @@ def main() -> int:
             f"gate cannot evaluate. Follow it to its call sites and record the "
             f"values in RESOLVED_EXPRESSIONS, or write a literal."
         )
+
+    # A recorded resolution that new call sites have outgrown is the quiet
+    # failure: the gate passes while the new value is one the database rejects.
+    failures.extend(stale_resolutions())
 
     if failures:
         print("Audit action vocabulary gate FAILED:\n")

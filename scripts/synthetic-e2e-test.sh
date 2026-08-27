@@ -42,6 +42,9 @@ ADMIN=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
 JUDGE=5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y
 DOCTOR=5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 PARAMEDIC=5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
+# Dispensing is the pharmacist's act, so the pharmacy section needs one of its
+# own rather than borrowing a clinician's identity.
+PHARMACIST=5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW
 PATIENT_ADULT_WALLET=5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw
 # A wallet that is registered NOWHERE. PATIENT_ADULT_WALLET cannot serve this
 # purpose: it is one of the seeded demo accounts on the PostgreSQL backend (a
@@ -245,6 +248,9 @@ check_setup "admin registers doctor" "$c" "$(body)"
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$PARAMEDIC\",\"name\":\"Para Synthetic\",\"username\":\"para\",\"role\":\"Nurse\"}" "$ADMIN")
 check_setup "admin registers paramedic" "$c" "$(body)"
 
+c=$(code POST /api/auth/register "{\"wallet_address\":\"$PHARMACIST\",\"name\":\"Pharm Synthetic\",\"username\":\"pharm\",\"role\":\"Pharmacist\"}" "$ADMIN")
+check_setup "admin registers pharmacist" "$c" "$(body)"
+
 # Accounts created by an admin start `pending`, and `support::get_user` only
 # resolves users whose status is "active" — so a freshly registered doctor is
 # refused with 401 USER_NOT_FOUND until an admin activates them. That approval
@@ -252,7 +258,7 @@ check_setup "admin registers paramedic" "$c" "$(body)"
 # MFA-gated); the harness predated it and drove every later section with
 # accounts that could not act, which is why a single missing call cascaded into
 # ~100 failures that all looked like authorization bugs.
-for w in "$DOCTOR" "$PARAMEDIC"; do
+for w in "$DOCTOR" "$PARAMEDIC" "$PHARMACIST"; do
   c=$(code PUT "/api/users/$w" '{"status":"active"}' "$ADMIN")
   check "admin activates $w" 200 "$c" "$(body)"
 done
@@ -1110,6 +1116,156 @@ print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
                   "preferred_time": sys.argv[3], "reason": "Unknown provider"}))' "$UNREGISTERED_WALLET" "$APPT_DATE" "$T4" "$APPT_PATIENT")
 check "an unknown wallet cannot be named as the provider" 400 \
   "$(code POST /api/appointments "$GHOST" "$ADMIN")" "$(body)"
+
+
+# ---------------------------------------------------------------------------
+say "23. Pharmacy dispensing (SCR-013)"
+
+# The prescription lifecycle used to stop at Transmitted. `Received`,
+# `InProgress`, `Dispensed` and `PartialFill` were declared and unreachable, and
+# a pharmacist could see a real transmitted prescription and do nothing with it.
+
+RX_QTY=20
+RX=$(code POST /api/e-prescriptions "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[1], "medication_name": "Amoxicillin",
+                  "strength": "500mg", "form": "capsule", "quantity": int(sys.argv[2]),
+                  "days_supply": 7, "directions": "One three times daily",
+                  "refills_allowed": 0, "is_controlled": False,
+                  "pharmacy_ncpdp": "SYN-001", "pharmacy_name": "Synthetic Pharmacy",
+                  "diagnosis_codes": ["J01.0"], "patient_instructions": "With food"}))' \
+  "$PAT_ADULT" "$RX_QTY")" "$DOCTOR" >/dev/null; jget prescription_id)
+check "a prescription is created" "true" "$([ -n "$RX" ] && echo true || echo false)"
+
+check "the prescriber signs it" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/sign" \
+    '{"signature_method":"electronic","attestation":"Clinically appropriate"}' "$DOCTOR")" "$(body)"
+check "and transmits it to the pharmacy" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/transmit" '{}' "$DOCTOR")" "$(body)"
+
+# Role: dispensing is the pharmacist's act. A prescriber may not fill their own
+# prescription.
+check "the prescriber CANNOT dispense" 403 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$DOCTOR")" "$(body)"
+
+# State: a transmitted prescription has not reached anybody yet.
+check "dispensing before receipt is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$PHARMACIST")" "$(body)"
+check "  refused as not-dispensable, not a generic conflict" "PRESCRIPTION_NOT_DISPENSABLE" \
+  "$(jget error code)"
+
+check "the pharmacy receives it" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/receive" '{}' "$PHARMACIST")" "$(body)"
+check "receiving twice is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/receive" '{}' "$PHARMACIST")" "$(body)"
+check "the pharmacist starts the fill" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/start" '{}' "$PHARMACIST")" "$(body)"
+
+# Quantity: more than was prescribed, and nothing at all, are both refused.
+check "dispensing more than prescribed is refused" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" "{\"quantity\":$((RX_QTY + 1))}" "$PHARMACIST")" "$(body)"
+check "  refused on the remaining quantity" "QUANTITY_EXCEEDS_REMAINING" "$(jget error code)"
+check "dispensing zero is refused" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":0}' "$PHARMACIST")" "$(body)"
+
+# Partial fill: the remainder is tracked, not forgotten.
+check "a partial fill is accepted" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":5}' "$PHARMACIST")" "$(body)"
+check "  the prescription is PartialFill" "PartialFill" "$(jget status)"
+check "  and still owes the remainder" "15" "$(jget remaining)"
+
+check "the balance is dispensed" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":15}' "$PHARMACIST")" "$(body)"
+check "  the prescription is now Dispensed" "Dispensed" "$(jget status)"
+check "  with nothing remaining" "0" "$(jget remaining)"
+LAST_EVENT=$(jget dispense_event_id)
+
+check "a fully dispensed prescription cannot be dispensed again" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$PHARMACIST")" "$(body)"
+
+# Correction: the original event survives.
+check "a reversal requires a reason" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"   \"}" "$PHARMACIST")" "$(body)"
+check "the last dispense is reversed" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"Collected by the wrong person\"}" "$PHARMACIST")" "$(body)"
+check "  the dispensed total falls back" "5" "$(jget dispensed_total)"
+check "reversing the same event twice is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"again\"}" "$PHARMACIST")" "$(body)"
+
+# The history keeps every event, including the one that was corrected. A
+# dispensing record that can be erased answers "who said the patient had it"
+# wrongly.
+code GET "/api/e-prescriptions/$RX/dispense-events" '' "$PHARMACIST" >/dev/null
+# Read through `body |` on stdin, exactly as `jget` does. Passing the path
+# instead fails silently here: bash writes an MSYS /tmp path, and the Windows
+# python that reads it resolves /tmp against the current drive root.
+EVENT_COUNT=$(body | python -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(0); raise SystemExit
+print(len(d.get("dispense_events", [])))' 2>/dev/null || echo 0)
+check "the history retains the corrected dispense" "3" "$EVENT_COUNT"
+
+# -- Concurrency ------------------------------------------------------------
+#
+# The property that matters most: two pharmacists filling the same prescription
+# at the same moment must not hand out more than was prescribed. The transition
+# is guarded on the dispensed quantity rather than on the status, because status
+# is unchanged across a partial fill and guarding on it would let both succeed.
+
+RACE_QTY=10
+RACE_RX=$(code POST /api/e-prescriptions "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[1], "medication_name": "Ibuprofen",
+                  "strength": "200mg", "form": "tablet", "quantity": int(sys.argv[2]),
+                  "days_supply": 3, "directions": "As needed",
+                  "refills_allowed": 0, "is_controlled": False,
+                  "pharmacy_ncpdp": "SYN-001", "pharmacy_name": "Synthetic Pharmacy",
+                  "diagnosis_codes": ["M79.1"], "patient_instructions": "With food"}))' \
+  "$PAT_ADULT" "$RACE_QTY")" "$DOCTOR" >/dev/null; jget prescription_id)
+code POST "/api/e-prescriptions/$RACE_RX/sign" \
+  '{"signature_method":"electronic","attestation":"Clinically appropriate"}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$RACE_RX/transmit" '{}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$RACE_RX/receive" '{}' "$PHARMACIST" >/dev/null
+
+# Six simultaneous attempts to dispense the WHOLE quantity.
+RACE_DIR=$(mktemp -d)
+for i in 1 2 3 4 5 6; do
+  (
+    # Trailing newline matters: without it `cat` joins the six results into
+    # one line and `grep -c '^200$'` counts none -- which reads as "no
+    # dispense succeeded" when in fact exactly one did.
+    curl -s -o /dev/null -w '%{http_code}
+' -m 30 -X POST \
+      "$BASE/api/e-prescriptions/$RACE_RX/dispense" \
+      -H 'Content-Type: application/json' \
+      -H "X-User-Id: $PHARMACIST" \
+      -H "Idempotency-Key: $(python -c 'import uuid;print(uuid.uuid4())')" \
+      -d "{\"quantity\":$RACE_QTY}" > "$RACE_DIR/$i"
+  ) &
+done
+wait
+RACE_OK=$(cat "$RACE_DIR"/* 2>/dev/null | grep -c '^200$' || true)
+rm -rf "$RACE_DIR"
+check "exactly one of six simultaneous dispenses succeeds" "1" "$RACE_OK"
+
+# Proved from the stored events rather than from the status codes: what matters
+# is how much left the pharmacy, not what the API said.
+code GET "/api/e-prescriptions/$RACE_RX/dispense-events" '' "$PHARMACIST" >/dev/null
+RACE_TOTAL=$(body | python -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(-1); raise SystemExit
+print(sum(e.get("quantity", 0) for e in d.get("dispense_events", [])
+          if not e.get("correction")))' 2>/dev/null || echo -1)
+check "  and the patient received exactly the prescribed quantity" "$RACE_QTY" "$RACE_TOTAL"
 
 # ---------------------------------------------------------------------------
 say "RESULTS"
