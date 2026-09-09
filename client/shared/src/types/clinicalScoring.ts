@@ -57,10 +57,16 @@ export interface FallRiskCreateResult {
   risk_level: string;
 }
 
-/** One charted region on the burn body diagram. */
+/** One charted region on the Lund-Browder burn diagram. */
 export interface BurnAreaInput {
+  /** Lund-Browder region id (`head`, `right_forearm`, ...). */
   regionId: string;
-  percentage: number;
+  /**
+   * How much of **this region** is burned, 0-100 — not a share of the whole
+   * body. The server applies the region's size at the patient's age, so the
+   * clinician never multiplies anything.
+   */
+  percent_of_region: number;
   depth?: string;
 }
 
@@ -114,6 +120,10 @@ export interface BurnCreateResult {
   success: boolean;
   assessment_id: string;
   total_bsa_percent: number;
+  /** Which Lund-Browder column the body was charted against. */
+  lund_browder_band: number;
+  lund_browder_band_label: string;
+  patient_age_years: number | null;
   severity: 'minor' | 'moderate' | 'major';
   /** `null` when no weight was supplied: no weight, no fluid order. */
   parkland_fluid: ParklandFluid | null;
@@ -243,4 +253,72 @@ export interface PreOpCreateResult {
   /** `I`…`VI`, with a `-E` suffix for an emergency case (never on `VI`). */
   asa_classification: string | null;
   cleared_for_surgery: boolean;
+}
+
+/** One affected relative, for one condition category. */
+export interface AffectedRelativeInput {
+  relationship: string;
+  age_of_onset?: number;
+}
+
+export interface AssessFamilyHistoryRequest {
+  groups: Array<{
+    /** Echoed back so the caller can match the assessment to its panel. */
+    category: string;
+    relatives: AffectedRelativeInput[];
+  }>;
+}
+
+/** What a family history suggests should happen next, as the server scored it. */
+export interface FamilyHistoryAssessmentResult {
+  category: string;
+  score: number;
+  /** `standard_care` | `enhanced_screening` | `genetics_referral`. */
+  band: string;
+  first_degree_affected: number;
+  second_degree_affected: number;
+  third_degree_affected: number;
+  early_onset_affected: number;
+  /** Relationships the scale does not recognise. Counted, never guessed at. */
+  unscored_relatives: number;
+}
+
+export interface AssessFamilyHistoryResult {
+  assessments: FamilyHistoryAssessmentResult[];
+}
+
+/** qSOFA as the server scored it. */
+export interface QsofaResult {
+  total: number;
+  respiratory_rate_high: boolean | null;
+  systolic_bp_low: boolean | null;
+  altered_mentation: boolean | null;
+  /** How many of the three observations were recorded. */
+  criteria_measured: number;
+  positive: boolean;
+}
+
+/**
+ * SOFA as the server scored it.
+ *
+ * A system is `null` when nothing was recorded for it — deliberately not 0,
+ * which means "this organ is working". `systems_measured` travels with the
+ * total because 2 from six systems and 2 from one are different pictures.
+ */
+export interface SofaResult {
+  total: number;
+  respiration: number | null;
+  coagulation: number | null;
+  liver: number | null;
+  cardiovascular: number | null;
+  central_nervous_system: number | null;
+  renal: number | null;
+  systems_measured: number;
+}
+
+export interface SepsisCreateResult {
+  id: string;
+  success: boolean;
+  qsofa: QsofaResult;
+  sofa: SofaResult;
 }

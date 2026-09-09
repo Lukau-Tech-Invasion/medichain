@@ -90,7 +90,6 @@ export default function MARPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [selectedMed, setSelectedMed] = useState<ScheduledMedication | null>(null);
-  const [_scanMode, setScanMode] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
 
   // Medication orders for the patient
@@ -111,23 +110,8 @@ export default function MARPage() {
   });
 
   // Time slots for MAR grid
-  const _timeSlots = ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00', '00:00', '02:00', '04:00'];
 
   // Sample medication database
-  const _commonMedications = [
-    { name: 'Metoprolol', dose: '25mg', route: 'PO' as MedicationRoute, frequency: 'BID', highAlert: false },
-    { name: 'Lisinopril', dose: '10mg', route: 'PO' as MedicationRoute, frequency: 'Daily', highAlert: false },
-    { name: 'Heparin', dose: '5000 units', route: 'SC' as MedicationRoute, frequency: 'Q8H', highAlert: true },
-    { name: 'Insulin Regular', dose: 'Per sliding scale', route: 'SC' as MedicationRoute, frequency: 'AC', highAlert: true },
-    { name: 'Morphine', dose: '2mg', route: 'IV' as MedicationRoute, frequency: 'Q4H PRN', highAlert: true },
-    { name: 'Acetaminophen', dose: '650mg', route: 'PO' as MedicationRoute, frequency: 'Q6H PRN', highAlert: false },
-    { name: 'Ondansetron', dose: '4mg', route: 'IV' as MedicationRoute, frequency: 'Q6H PRN', highAlert: false },
-    { name: 'Furosemide', dose: '40mg', route: 'IV' as MedicationRoute, frequency: 'BID', highAlert: false },
-    { name: 'Potassium Chloride', dose: '20mEq', route: 'PO' as MedicationRoute, frequency: 'Daily', highAlert: true },
-    { name: 'Vancomycin', dose: '1g', route: 'IV' as MedicationRoute, frequency: 'Q12H', highAlert: true },
-    { name: 'Ceftriaxone', dose: '1g', route: 'IV' as MedicationRoute, frequency: 'Daily', highAlert: false },
-    { name: 'Pantoprazole', dose: '40mg', route: 'IV' as MedicationRoute, frequency: 'Daily', highAlert: false }
-  ];
 
   const loadMedicationsForPatient = useCallback(async (patientId: string) => {
     // Try to load medications from API first
@@ -432,7 +416,6 @@ export default function MARPage() {
       if (verified) {
         setSuccess(t('docMAR.barcodeVerifiedSuccess'));
         setBarcodeInput('');
-        setScanMode(false);
       } else {
         setError(t('docMAR.barcodeVerifiedError'));
       }

@@ -49,16 +49,6 @@ interface Patient {
   allergies: string[];
 }
 
-interface _Medication {
-  id: string;
-  name: string;
-  dose: string;
-  route: string;
-  frequency: string;
-  ndc: string;
-  expirationDate: string;
-}
-
 const BarcodePage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'settings'>('scan');

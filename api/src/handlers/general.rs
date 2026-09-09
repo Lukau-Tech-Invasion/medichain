@@ -4,15 +4,45 @@ use super::*;
 // API Endpoints
 // ============================================================================
 
-/// Health check endpoint
-#[get("/health")]
-pub async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(HealthCheckResponse {
+fn health_payload() -> HealthCheckResponse {
+    HealthCheckResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
         blockchain_connected: false, // Updated by actual blockchain client - see /health/db
-    })
+    }
+}
+
+/// Health check endpoint, for orchestration.
+///
+/// This is the path the compose healthcheck and nginx's `location = /health`
+/// name, so it stays exactly where it is.
+#[get("/health")]
+pub async fn health_check() -> impl Responder {
+    HttpResponse::Ok().json(health_payload())
+}
+
+/// The same health check, on the one prefix a browser can actually reach.
+///
+/// Every deployment shape proxies exactly one path prefix to the API: nginx has
+/// `location /api/`, and the Vite dev server proxies `/api`. A health path
+/// outside that prefix is therefore not routed to the API at all — and the
+/// frontends have always asked for `/api/health` (`API_CONFIG.HEALTH_ENDPOINT`).
+/// Against nginx that answered 404; against the dev server it answered the SPA's
+/// own `index.html`, which is a 200 and so reads as healthy no matter what the
+/// API is doing.
+///
+/// Both portals poll it (`useApiStatus`, `authStore.checkConnection`), so the
+/// visible cost was a connection indicator stuck on "disconnected" while the API
+/// was serving every other request normally — and a "Retry" button that could
+/// never clear it.
+///
+/// Deliberately not the readiness probe: this answers "can the browser reach the
+/// API", which is what the indicator claims. Storage health is `/health/ready`
+/// and `/health/db`, which report degradation instead of hiding it.
+#[get("/api/health")]
+pub async fn api_health_check() -> impl Responder {
+    HttpResponse::Ok().json(health_payload())
 }
 
 /// Readiness probe (graceful degradation).

@@ -8,6 +8,20 @@ cd "C:/Users/Admin/RustroverProjects/medichain"
 
 export IS_DEMO=true                 # demo secrets permitted; signature verification off
 export REQUIRE_SIGNATURES=false
+
+# The demo-only routes need dev mode AND demo mode, both defaulting to off, so
+# that enabling them is two deliberate acts rather than one omission. This
+# runner set only the second, and its PostgreSQL sibling set both — which is why
+# the same harness scored differently on the two backends for a reason that had
+# nothing to do with storage.
+#
+# `synthetic-e2e-test.sh` needs `POST /api/auth/demo-login` to stand up a SECOND
+# administrator: retention approval is maker-checker controlled, so the admin
+# who requests a token must not be the one who decides it. Without dev mode that
+# call is a deliberate 403 and five assertions fail in a cascade whose first
+# symptom -- "approval is not executable: status 'pending'" -- points at the
+# approval workflow instead of at a missing environment variable.
+export MEDICHAIN_DEV_MODE=1
 export BLOCKCHAIN_ENABLED=false     # no training chain attached yet; placeholder hashes
 export DISPENSING_POLICY_PATH="C:/Users/Admin/RustroverProjects/medichain/api/data/dispensing_policy.example.json"
 unset MEDICHAIN_STORAGE             # in-memory repositories

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createFallRisk,
+  listPatientFallRisk,
   getPatients,
   useTranslation,
   useScoringCatalog,
@@ -39,39 +40,20 @@ interface MorseScale {
   mentalStatus: 0 | 15;
 }
 
-interface FallRiskAssessment {
+/**
+ * One row of the History tab, as `/api/emergency/fall-risk/patient/{id}` sends
+ * it: the stored entity's columns, snake_case.
+ */
+interface FallRiskHistoryRow {
   id: string;
-  patientId: string;
-  assessmentDate: string;
-  assessmentTime: string;
-  assessedBy: string;
-  morseScale: MorseScale;
-  totalScore: number;
-  riskLevel: RiskLevel;
-  interventions: string[];
-  additionalFactors: string[];
-  environmentalHazards: string[];
-  medications: {
-    sedatives: boolean;
-    antihypertensives: boolean;
-    diuretics: boolean;
-    psychotropics: boolean;
-    narcotics: boolean;
-  };
-  recentFall: {
-    occurred: boolean;
-    date?: string;
-    circumstances?: string;
-    injuries?: string;
-  };
-  mobility: {
-    bedridden: boolean;
-    wheelchairBound: boolean;
-    usesWalker: boolean;
-    usesCane: boolean;
-    independent: boolean;
-  };
-  notes: string;
+  patient_id: string;
+  /** Generated from the six Morse items; null on a row written before they were. */
+  total_score: number | null;
+  /** Generated from `total_score`; null for the same reason. */
+  risk_level: string | null;
+  interventions?: string[] | null;
+  assessed_at: string;
+  assessed_by: string;
 }
 
 export default function FallRiskPage() {
@@ -88,7 +70,16 @@ export default function FallRiskPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
-  const [_assessmentHistory, _setAssessmentHistory] = useState<FallRiskAssessment[]>([]);
+  // The patient's previous assessments. This was `_assessmentHistory` with a
+  // dead setter, so the History tab rendered an empty array forever — which
+  // looks exactly like a patient who has never been assessed.
+  //
+  // Typed to what the API returns, not to the page's local
+  // `FallRiskAssessment`: that interface is camelCase and deeply nested, and
+  // nothing has ever produced it. The same drift as the H&P `VitalSigns` case
+  // in the register — a read side describing something the write side does not
+  // build.
+  const [assessmentHistory, setAssessmentHistory] = useState<FallRiskHistoryRow[]>([]);
   const { catalog } = useScoringCatalog();
   // What the server actually scored and stored. Until a save happens the page
   // shows a preview; after it, it shows the record.
@@ -210,6 +201,27 @@ export default function FallRiskPage() {
     fetchData();
   }, [searchParams]);
 
+
+  useEffect(() => {
+    if (!selectedPatient) {
+      setAssessmentHistory([]);
+      return;
+    }
+    let active = true;
+    listPatientFallRisk(selectedPatient.patient_id)
+      .then((rows) => {
+        if (active) setAssessmentHistory((rows ?? []) as unknown as FallRiskHistoryRow[]);
+      })
+      .catch(() => {
+        // An empty list on failure would read as "never assessed". Leaving the
+        // previous list alone is no better, so it clears and the tab's empty
+        // state says nothing was loaded.
+        if (active) setAssessmentHistory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPatient]);
   const filteredPatients = patients.filter(p =>
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -910,7 +922,7 @@ export default function FallRiskPage() {
               <History className="h-6 w-6 mr-2 text-orange-500" />
               {t('docFallRisk.assessmentHistoryTitle')}
             </h2>
-            {_assessmentHistory.length === 0 ? (
+            {assessmentHistory.length === 0 ? (
               <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('docFallRisk.noHistory')}</p>
@@ -918,21 +930,29 @@ export default function FallRiskPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {_assessmentHistory.map((assessment: FallRiskAssessment) => (
+                {assessmentHistory.map((assessment) => (
                   <div key={assessment.id} className="border rounded-lg p-4">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-bold">{assessment.patientId}</p>
+                        <p className="font-bold">{assessment.patient_id}</p>
                         <p className="text-sm text-content-muted">
-                          {assessment.assessmentDate} at {assessment.assessmentTime}
+                          {new Date(assessment.assessed_at).toLocaleString()}
                         </p>
                       </div>
-                      <span className={`px-3 py-1 rounded text-sm ${getRiskBadge(assessment.riskLevel)}`}>
-                        {t('docFallRisk.scoreRiskLine', { score: assessment.totalScore, level: t(`docFallRisk.risk_${assessment.riskLevel}`).toUpperCase() })}
-                      </span>
+                      {/* A row with no score was written before the six items
+                          were stored. Unscored, which is not low risk. */}
+                      {assessment.risk_level !== null && assessment.total_score !== null ? (
+                        <span className={`px-3 py-1 rounded text-sm ${getRiskBadge(assessment.risk_level as RiskLevel)}`}>
+                          {t('docFallRisk.scoreRiskLine', { score: assessment.total_score, level: t(`docFallRisk.risk_${assessment.risk_level}`).toUpperCase() })}
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 rounded text-sm bg-surface-sunken text-content-secondary">
+                          {t('docFallRisk.notScored')}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-content-muted mt-2">
-                      {t('docFallRisk.interventionsCountLine', { count: assessment.interventions.length })}
+                      {t('docFallRisk.interventionsCountLine', { count: assessment.interventions?.length ?? 0 })}
                     </p>
                   </div>
                 ))}

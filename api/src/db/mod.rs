@@ -3,7 +3,7 @@
 //! Provides PostgreSQL connection pooling using SQLx with optimized settings
 //! for a healthcare application.
 
-use sqlx::{postgres::PgPoolOptions, Error, PgPool};
+use sqlx::{postgres::PgPoolOptions, Connection, Error, PgPool};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -144,10 +144,48 @@ pub async fn check_health(pool: &PgPool) -> bool {
     sqlx::query("SELECT 1").execute(pool).await.is_ok()
 }
 
-/// Run database migrations
+/// Run database migrations on a connection that is closed afterwards, always.
+///
+/// The detach-and-close is the substance of this function, not housekeeping.
+///
+/// sqlx takes a **session-level** advisory lock around the migration chain and
+/// releases it on the success path only: every early `return Err` in
+/// `Migrator::run_direct` — a dirty version, a changed checksum, an applied
+/// migration this binary does not ship — propagates without unlocking. Handed a
+/// `&PgPool`, sqlx borrows a pooled connection, so that connection then goes
+/// back into the pool still holding the lock, and a session-scoped lock is held
+/// until the session ends: for the life of the process.
+///
+/// Nothing about *this* process looks wrong afterwards. It starts, serves
+/// traffic, and prints its migration warning. What breaks is every other
+/// process that migrates the same database — the next replica in a rolling
+/// deploy, or the test suite creating its schema — which blocks inside
+/// `pg_advisory_lock` indefinitely, with no error and nothing in its own logs
+/// to explain the wait.
+///
+/// Observed on 2026-09-09: a container whose image predated three migrations
+/// failed `validate_applied_migrations`, kept the lock, and the API test suite
+/// stopped dead at 387 of 591 tests until the holding backend was terminated by
+/// hand.
+///
+/// `detach()` removes the connection from the pool so it can never be handed
+/// out again, and closing it ends the session, which releases every
+/// session-level lock sqlx may have left behind.
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     log::info!("Running database migrations...");
-    sqlx::migrate!("./migrations").run(pool).await?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(sqlx::migrate::MigrateError::Execute)?
+        .detach();
+    let result = sqlx::migrate!("./migrations").run(&mut conn).await;
+    // Closing is what releases the lock. A close that itself fails must not
+    // mask the migration outcome — and dropping the connection ends the session
+    // regardless, which is the same release by a blunter route.
+    if let Err(e) = conn.close().await {
+        log::warn!("closing the migration connection failed: {e}");
+    }
+    result?;
     log::info!("Database migrations completed successfully");
     Ok(())
 }

@@ -187,28 +187,115 @@ pub async fn list_patient_stroke(
     }
 }
 
+/// The bedside observations qSOFA scores, plus the labs SOFA needs.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct SepsisVitalsInput {
+    #[serde(default)]
+    pub respiratory_rate: Option<i32>,
+    #[serde(default, alias = "systolic_bp")]
+    pub systolic_blood_pressure: Option<i32>,
+    #[serde(default, alias = "gcs")]
+    pub glasgow_coma_scale: Option<i32>,
+    #[serde(default, alias = "map")]
+    pub mean_arterial_pressure: Option<f64>,
+}
+
+/// What `SepsisPage` submits.
+///
+/// It used to be typed as `clinical::SepsisAssessment`, which wants
+/// `assessment_id`, a `severity` enum and a `qsofa` **struct**. The page sends
+/// `sepsis_id`, `classification` and a `qsofa_score` **number**, so every save
+/// was rejected — the sepsis screen had never filed a record.
+///
+/// Neither score is accepted from the caller. qSOFA is three bedside
+/// observations and SOFA is six organ systems, and both are computed here from
+/// the measurements. `sofa_score` in particular used to arrive as a constant 0:
+/// `SepsisPage._calculateSOFA` was never called, and the five inputs it read
+/// had no controls, so every sepsis assessment on file records "no organ
+/// dysfunction" on a septic patient.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct CreateSepsisRequest {
+    pub patient_id: String,
+    /// `sepsis` / `severe_sepsis` / `septic_shock`, free-form: the stored
+    /// column is a string and the vocabulary is not settled.
+    #[serde(default, alias = "classification")]
+    pub severity: Option<String>,
+    #[serde(default, alias = "infection_source")]
+    pub suspected_source: Option<String>,
+    #[serde(default)]
+    pub vital_signs: SepsisVitalsInput,
+    /// The measurements SOFA scores. Absent systems are not scored zero.
+    #[serde(default)]
+    pub sofa_inputs: crate::clinical_scoring::SofaInputs,
+    #[serde(default)]
+    pub labs: serde_json::Value,
+    #[serde(default)]
+    pub infection: serde_json::Value,
+    #[serde(default)]
+    pub bundle_completion: serde_json::Value,
+    #[serde(default)]
+    pub treatment: serde_json::Value,
+    #[serde(default)]
+    pub vasopressors_required: bool,
+    #[serde(default)]
+    pub icu_admission: bool,
+    #[serde(default)]
+    pub protocol_start_time: Option<String>,
+    #[serde(default)]
+    pub elapsed_minutes: Option<i64>,
+    #[serde(default)]
+    pub narrative: Option<String>,
+}
+
 /// Create sepsis assessment
 #[post("/api/emergency/sepsis")]
 pub async fn create_sepsis(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<SepsisAssessment>,
+    req: web::Json<CreateSepsisRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
-    let assessment = req.into_inner();
-    let id = assessment.assessment_id.clone();
+    let body = req.into_inner();
+    if body.patient_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id is required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
+    // Server-generated: a client-supplied id lets one submission overwrite another.
+    let id = format!("SEP-{}", uuid::Uuid::new_v4().simple());
+    let now = Utc::now();
+
+    // Both scores are derived here, from the measurements.
+    let qsofa = crate::clinical_scoring::qsofa_score(
+        body.vital_signs.respiratory_rate,
+        body.vital_signs.systolic_blood_pressure,
+        body.vital_signs.glasgow_coma_scale,
+    );
+    // The bedside GCS and MAP feed SOFA too, so a clinician does not enter them
+    // twice — an explicit value in `sofa_inputs` still wins.
+    let mut sofa_inputs = body.sofa_inputs;
+    sofa_inputs.glasgow_coma_scale = sofa_inputs
+        .glasgow_coma_scale
+        .or(body.vital_signs.glasgow_coma_scale);
+    sofa_inputs.mean_arterial_pressure = sofa_inputs
+        .mean_arterial_pressure
+        .or(body.vital_signs.mean_arterial_pressure);
+    let sofa = crate::clinical_scoring::sofa_score(&sofa_inputs);
 
     if let Err(response) = crate::support::require_durable_audit(
         &data,
         access_log_entity(
-            current_user_id,
+            current_user_id.clone(),
             "sepsis_team",
             "create_sepsis_assessment",
-            Some(assessment.patient_id.clone()),
+            Some(body.patient_id.clone()),
         ),
     )
     .await
@@ -216,15 +303,65 @@ pub async fn create_sepsis(
         return response;
     }
 
-    let entity = sepsis_entity(&assessment, json_value(&assessment));
+    let mut record = serde_json::to_value(&body).unwrap_or_default();
+    if let Some(obj) = record.as_object_mut() {
+        obj.insert("assessment_id".to_string(), serde_json::json!(id));
+        obj.insert(
+            "qsofa".to_string(),
+            // `qsofa` is `Copy`; `sofa` below is not, hence the asymmetry.
+            serde_json::to_value(qsofa).unwrap_or_default(),
+        );
+        obj.insert(
+            "sofa".to_string(),
+            serde_json::to_value(&sofa).unwrap_or_default(),
+        );
+        obj.insert(
+            "documented_by".to_string(),
+            serde_json::json!(current_user_id),
+        );
+    }
+
+    let entity = SepsisAssessmentEntity {
+        id: id.clone(),
+        patient_id: body.patient_id.clone(),
+        severity: body
+            .severity
+            .clone()
+            .unwrap_or_else(|| "sepsis".to_string()),
+        suspected_source: body.suspected_source.clone().unwrap_or_default(),
+        qsofa_score: qsofa.total,
+        // `None` when nothing was measured. Storing 0 there would say every
+        // organ was checked and every organ was working.
+        sofa_score: (sofa.systems_measured > 0).then_some(sofa.total),
+        vasopressors_required: body.vasopressors_required,
+        icu_admission: body.icu_admission,
+        assessed_by: current_user_id,
+        assessed_at: now.timestamp(),
+        data: record,
+        created_at: now,
+        updated_at: now,
+    };
+
     match data
         .repositories
         .sepsis_assessments_repo
         .create(entity)
         .await
     {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({
+            "id": id,
+            "success": true,
+            "qsofa": qsofa,
+            "sofa": sofa,
+        })),
+        Err(e) => {
+            log::error!("sepsis assessment persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save the sepsis assessment".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 

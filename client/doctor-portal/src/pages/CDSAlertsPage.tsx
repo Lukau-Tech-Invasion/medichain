@@ -13,9 +13,7 @@ import {
   Filter,
   Copy,
   Download,
-  Shield,
   Activity,
-  FileText,
   Clock,
   User,
   Code,
@@ -96,9 +94,6 @@ const CDSAlertsPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<AlertCategory | 'all'>('all');
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
-  const [_selectedRule, _setSelectedRule] = useState<CDSRule | null>(null);
-  const [_showEditModal, _setShowEditModal] = useState(false);
-  const [_showDetailsModal, _setShowDetailsModal] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
   // New Rule Form State
@@ -380,18 +375,6 @@ const CDSAlertsPage: React.FC = () => {
   };
 
   // Helper Functions
-  const _getCategoryIcon = (category: AlertCategory) => {
-    const icons = {
-      medication: <Shield className="w-5 h-5" />,
-      allergy: <AlertTriangle className="w-5 h-5" />,
-      vital_signs: <Activity className="w-5 h-5" />,
-      lab_results: <FileText className="w-5 h-5" />,
-      diagnosis: <FileText className="w-5 h-5" />,
-      procedure: <Activity className="w-5 h-5" />,
-      clinical_pathway: <FileText className="w-5 h-5" />,
-    };
-    return icons[category];
-  };
 
   const getSeverityBadge = (severity: AlertSeverity) => {
     const badges = {

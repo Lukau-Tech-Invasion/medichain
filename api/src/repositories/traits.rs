@@ -83,8 +83,19 @@ pub type RepositoryResult<T> = Result<T, RepositoryError>;
 // COMMON TYPES
 // =============================================================================
 
-/// Pagination parameters
-#[derive(Debug, Clone, Default)]
+/// Pagination parameters.
+///
+/// **Deliberately not `Default`.** The derive gave `page: 0, per_page: 0`, so
+/// `limit()` returned 0 and every paginated repository read applied `.take(0)`.
+/// The call came back with an empty `items` list and an accurate non-zero
+/// `total` — which reads exactly like "this patient has no records" rather than
+/// like a bug, and cost real time to diagnose the one time it was written.
+///
+/// There is no page size that is right by default: 0 returns nothing and any
+/// other number is this type guessing at the caller's intent. `new(page, size)`
+/// makes the caller say, and [`Pagination::first_page`] covers the common case
+/// of "the first screenful" without inventing a silent constant.
+#[derive(Debug, Clone)]
 pub struct Pagination {
     /// Page number (0-indexed)
     pub page: u32,
@@ -94,6 +105,11 @@ pub struct Pagination {
 
 impl Pagination {
     pub const MAX_PER_PAGE: u32 = 100;
+
+    /// The first page, at a stated size. Named so a reader sees the size.
+    pub fn first_page(per_page: u32) -> Self {
+        Self::new(0, per_page)
+    }
 
     pub fn new(page: u32, per_page: u32) -> Self {
         Self {

@@ -48,7 +48,6 @@ interface PsychAssessment {
   assessedAt: string;
   chiefComplaint: string;
   historyOfPresentIllness: string;
-  psychiatricHistory: string[];
   substanceUse: { substance: string; frequency: string; lastUse: string }[];
   medications: string[];
   mentalStatusExam: MentalStatusExam;
@@ -131,7 +130,6 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
     const legal = String(item.legal_status?.admission_type ?? 'voluntary').toLowerCase();
     return {
       historyOfPresentIllness: item.history_of_present_illness ?? '',
-      psychiatricHistory: asList(item.psych_history?.diagnoses),
       substanceUse: (item.substance_use?.substances ?? []).map((s) => ({
         substance: s.substance ?? '',
         frequency: s.frequency ?? '',
@@ -210,7 +208,6 @@ const PsychPage: React.FC = () => {
 
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [hpi, setHpi] = useState('');
-  const [psychHistory, _setPsychHistory] = useState<string[]>([]);
   const [substances, setSubstances] = useState<{ substance: string; frequency: string; lastUse: string }[]>([]);
   const [selectedDiagnoses, setSelectedDiagnoses] = useState<string[]>([]);
   const [legalStatus, setLegalStatus] = useState<LegalStatus>('voluntary');
@@ -313,7 +310,6 @@ const PsychPage: React.FC = () => {
       assessedAt: new Date().toISOString(),
       chiefComplaint,
       historyOfPresentIllness: hpi,
-      psychiatricHistory: psychHistory,
       substanceUse: substances,
       medications: [],
       mentalStatusExam: mse,
@@ -360,44 +356,39 @@ const PsychPage: React.FC = () => {
           cssrs_used: false,
           cssrs_score: null,
         },
+        // Only what the form collects.
+        //
+        // This block used to assert a page of negatives nobody entered:
+        // `history_of_violence: false`, `duty_to_warn: false`,
+        // `law_enforcement_notified: false`, `currently_intoxicated: false`,
+        // `in_withdrawal: false`, `self_harm_history: false`,
+        // `hospitalizations: 0`, and an empty `diagnoses` list from a
+        // `psychHistory` state that had no control and was always `[]` — so
+        // every psychiatric assessment on file recorded no prior diagnoses, no
+        // hospitalisations and no self-harm history.
+        //
+        // `legal_status.admission_type: 'Voluntary'` was the worst of them:
+        // whether a psychiatric admission is voluntary or under a hold is a
+        // legal status with due-process consequences, and it was asserted for
+        // every patient by a form that never asks.
+        //
+        // A psychiatric-history and legal-status sub-form is a feature to
+        // build. Until it exists, absent is the truthful value: the handler
+        // stores these as NULL, which reads as "not recorded" rather than as a
+        // negative finding.
         homicidal_risk: {
           ideation: newAssessment.homicideRisk.ideation,
           target_identified: newAssessment.homicideRisk.target,
-          target_description: null,
           plan: newAssessment.homicideRisk.plan,
           access_to_weapons: newAssessment.homicideRisk.means,
-          history_of_violence: false,
           risk_level: newAssessment.homicideRisk.riskLevel,
-          duty_to_warn: false,
-          law_enforcement_notified: false,
         },
         substance_use: {
-          currently_intoxicated: false,
-          substances: newAssessment.substanceUse.map((item) => ({ ...item, route: '', amount: null, last_use: item.lastUse })),
-          in_withdrawal: false,
-          withdrawal_symptoms: [],
-          withdrawal_score: null,
-          withdrawal_protocol: false,
+          substances: newAssessment.substanceUse.map((item) => ({ ...item, last_use: item.lastUse })),
         },
         psych_history: {
-          diagnoses: newAssessment.psychiatricHistory,
-          hospitalizations: 0,
           suicide_attempts: newAssessment.suicideRisk.priorAttempts,
-          self_harm_history: false,
-          trauma_history: null,
-          family_history: [],
         },
-        psych_medications: newAssessment.medications,
-        medication_compliant: null,
-        social_history: {
-          living_situation: '',
-          support_system: '',
-          employment: '',
-          recent_stressors: [],
-          legal_issues: null,
-          financial_issues: null,
-        },
-        legal_status: { admission_type: 'Voluntary', hold_type: null, hold_expiration: null, court_hearing: null, guardian: null },
         safety_precautions: [],
         disposition: newAssessment.disposition,
         safety_plan: null,

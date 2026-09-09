@@ -42,7 +42,7 @@ export default function TraumaPage() {
   const [breathing, setBreathing] = useState('spontaneous');
   const [circulation, setCirculation] = useState('stable');
   const [disability, setDisability] = useState('alert');
-  const [exposure, _setExposure] = useState('none');
+  const [exposure, setExposure] = useState('none');
 
   const [notes, setNotes] = useState('');
 
@@ -321,6 +321,23 @@ export default function TraumaPage() {
                 <option value="voice">{t('docTrauma.disVoice')}</option>
                 <option value="pain">{t('docTrauma.disPain')}</option>
                 <option value="unresponsive">{t('docTrauma.disUnresponsive')}</option>
+              </select>
+            </div>
+            {/* E — Exposure. A, B, C and D each had a control; this did not, so
+                every primary survey narrative recorded "E: none" regardless of
+                what was found. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+              <label htmlFor="trauma-exposure" className="font-medium text-content-secondary">{t('docTrauma.exposure')}</label>
+              <select
+                id="trauma-exposure"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                value={exposure}
+                onChange={(e) => setExposure(e.target.value)}
+              >
+                <option value="none">{t('docTrauma.expNone')}</option>
+                <option value="log-rolled">{t('docTrauma.expLogRolled')}</option>
+                <option value="fully-exposed">{t('docTrauma.expFullyExposed')}</option>
+                <option value="hypothermia-risk">{t('docTrauma.expHypothermia')}</option>
               </select>
             </div>
           </div>

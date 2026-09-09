@@ -162,6 +162,81 @@ pub async fn get_family_history(
     }
 }
 
+/// One condition category's affected relatives, to be assessed together.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct FamilyHistoryGroup {
+    /// `cancer`, `cardiovascular`, ... — echoed back so the caller can match
+    /// the assessment to the panel it belongs to.
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub relatives: Vec<crate::clinical_scoring::AffectedRelative>,
+}
+
+/// Assess a family history, one condition category at a time.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct AssessFamilyHistoryRequest {
+    #[serde(default)]
+    pub groups: Vec<FamilyHistoryGroup>,
+}
+
+/// Most categories a single request will assess.
+///
+/// Bounded because the handler loops over them, and the form offers eight.
+const MAX_FAMILY_HISTORY_GROUPS: usize = 32;
+
+/// Assess a family history for referral.
+///
+/// Stateless: it reads nothing and writes nothing. The relatives come from the
+/// caller, which already holds them, and the answer comes back with the working
+/// shown — the degree counts and how many were diagnosed early.
+///
+/// It exists so that `clinical_scoring::family_history_assessment` is the only
+/// implementation of this scale. `FamilyHistoryPage` used to band hereditary
+/// risk by counting affected relatives, 3 or more being "HIGH", and issue an
+/// automatic "consider genetic counseling" recommendation from that count. A
+/// mother and a sister with breast cancer at 40 counted 2; three second cousins
+/// with type 2 diabetes counted 3.
+///
+/// Authenticated as a registered caller rather than clinical staff: a patient
+/// reading their own family history sees the same assessment their clinician
+/// does, and the request carries no identifiers — only relationships and ages.
+#[post("/api/clinical/family-history/assess")]
+pub async fn assess_family_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<AssessFamilyHistoryRequest>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
+    }
+
+    let body = req.into_inner();
+    if body.groups.len() > MAX_FAMILY_HISTORY_GROUPS {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!("at most {MAX_FAMILY_HISTORY_GROUPS} categories per request"),
+            code: "TOO_MANY_GROUPS".to_string(),
+        });
+    }
+
+    let assessments: Vec<serde_json::Value> = body
+        .groups
+        .iter()
+        .take(MAX_FAMILY_HISTORY_GROUPS)
+        .map(|group| {
+            let assessment = crate::clinical_scoring::family_history_assessment(&group.relatives);
+            let mut value = serde_json::to_value(&assessment).unwrap_or_default();
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("category".to_string(), serde_json::json!(group.category));
+            }
+            value
+        })
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({ "assessments": assessments }))
+}
+
 /// Create blood type screen
 #[post("/api/surgical/blood-type")]
 pub async fn create_blood_type_screen(

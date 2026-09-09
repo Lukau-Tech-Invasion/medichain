@@ -89,6 +89,13 @@ const ChainOfCustodyPage: React.FC = () => {
     containerType: '',
     quantity: '',
     storageConditions: '',
+    // Whether the collector applied and checked the seal. Not defaulted true.
+    //
+    // The submitted record hardcoded `integrityVerified: true` with no control
+    // anywhere. A chain-of-custody record is a legal document, and the transfer
+    // path already asks the equivalent question (`transfer.sealIntact`) — only
+    // the collection did not.
+    integrityVerified: false,
     notes: '',
   });
 
@@ -190,7 +197,7 @@ const ChainOfCustodyPage: React.FC = () => {
       currentCustodian: user?.userId || 'USER-001',
       currentLocation: newCollection.collectionLocation,
       storageConditions: newCollection.storageConditions,
-      integrityVerified: true,
+      integrityVerified: newCollection.integrityVerified,
       transfers: [],
       notes: newCollection.notes,
     };
@@ -223,6 +230,7 @@ const ChainOfCustodyPage: React.FC = () => {
       caseNumber: '',
       investigatingAgency: '',
       sealNumber: '',
+      integrityVerified: false,
       containerType: '',
       quantity: '',
       storageConditions: '',
@@ -659,6 +667,21 @@ const ChainOfCustodyPage: React.FC = () => {
                   placeholder={t('docChainOfCustody.sealNumberPh')}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
+              </div>
+
+              <div>
+                {/* The collector attests to the seal here rather than the form
+                    asserting it for them. */}
+                <label htmlFor="coc-integrity-verified" className="flex items-start gap-2 text-sm font-semibold text-content-secondary mb-2 cursor-pointer min-h-[24px] py-1">
+                  <input
+                    id="coc-integrity-verified"
+                    type="checkbox"
+                    checked={newCollection.integrityVerified}
+                    onChange={(e) => setNewCollection({ ...newCollection, integrityVerified: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 rounded border-border-interactive"
+                  />
+                  <span>{t('docChainOfCustody.integrityVerifiedLabel')}</span>
+                </label>
               </div>
 
               <div>

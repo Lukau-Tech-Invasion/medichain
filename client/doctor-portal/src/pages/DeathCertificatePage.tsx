@@ -62,7 +62,6 @@ const DeathCertificatePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CertificateStatus | 'all'>('all');
   const [currentStep, setCurrentStep] = useState(1);
-  const [_selectedCertificate, _setSelectedCertificate] = useState<DeathCertificate | null>(null);
 
   // Form state
   const [deceasedInfo, setDeceasedInfo] = useState({

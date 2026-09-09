@@ -130,7 +130,6 @@ const IntakeOutputPage: React.FC = () => {
   const [patients, setPatients] = useState<PatientIO[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientIO | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [_showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState<'intake' | 'output'>('intake');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -260,19 +259,32 @@ const IntakeOutputPage: React.FC = () => {
   // here. `> 1000`, `> 500` and `< -500` are ward policy — a patient running a
   // litre positive is a patient being fluid-overloaded — and policy in a
   // component cannot be changed without a front-end deploy.
-  const getBalanceStatus = (balance: number): { color: string; icon: React.ReactNode; label: string } => {
+  //
+  // `surface` travels with `color` because the two have to name the same band.
+  // The cards used to pick their background from their own `> 500` / `< -500`
+  // literals while the text came from the catalog — a second copy of the ward
+  // policy this comment says must not live in a component, and one that
+  // disagreed with the first whenever the catalog had not loaded. The visible
+  // result was a green "balanced" card carrying grey placeholder text at 3.59:1
+  // against it, which is both below WCAG AA and a claim the page had no band to
+  // make.
+  const getBalanceStatus = (
+    balance: number
+  ): { color: string; surface: string; icon: React.ReactNode; label: string } => {
     switch (fluidBalanceBand(balance, catalog)) {
       case 'positive_high':
-        return { color: 'text-critical-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
+        return { color: 'text-critical-subtle-fg', surface: 'bg-critical-subtle', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
       case 'positive':
-        return { color: 'text-caution-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
+        return { color: 'text-caution-subtle-fg', surface: 'bg-caution-subtle', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
       case 'negative':
-        return { color: 'text-notice-subtle-fg', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
+        return { color: 'text-notice-subtle-fg', surface: 'bg-notice-subtle', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
       case 'balanced':
-        return { color: 'text-ok-subtle-fg', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
+        return { color: 'text-ok-subtle-fg', surface: 'bg-ok-subtle', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
       default:
-        // Catalog not loaded: no band, so no colour and no claim about it.
-        return { color: 'text-content-muted', icon: <CheckCircle className="w-4 h-4" />, label: '—' };
+        // Catalog not loaded: no band, so no colour, no background and no claim
+        // about it. A neutral surface is the honest one — a green card is a
+        // statement that this patient's fluid balance is fine.
+        return { color: 'text-content-muted', surface: 'bg-surface-sunken', icon: <CheckCircle className="w-4 h-4" />, label: '—' };
     }
   };
 
@@ -332,7 +344,6 @@ const IntakeOutputPage: React.FC = () => {
         }
       }
 
-      setShowEntryModal(false);
       setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
     } catch (err) {
       console.error('Error recording I/O:', err);
@@ -448,7 +459,7 @@ const IntakeOutputPage: React.FC = () => {
                         <p className="text-xl font-bold text-caution-subtle-fg">{patient.totalOutput24h}</p>
                         <p className="text-xs text-caution-subtle-fg">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
-                      <div className={`rounded-lg p-3 text-center ${patient.netBalance > 500 ? 'bg-critical-subtle' : patient.netBalance < -500 ? 'bg-notice-subtle' : 'bg-ok-subtle'}`}>
+                      <div className={`rounded-lg p-3 text-center ${balanceStatus.surface}`}>
                         <div className={`flex items-center justify-center gap-1 mb-1 ${balanceStatus.color}`}>
                           {balanceStatus.icon}
                           <span className="text-xs font-medium">{t('docIntakeOutput.balanceLabel')}</span>
@@ -668,12 +679,6 @@ const IntakeOutputPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setShowEntryModal(true); }}
-                  className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-sm font-medium flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" /> {t('docIntakeOutput.addEntryButton')}
-                </button>
                 <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
@@ -689,12 +694,17 @@ const IntakeOutputPage: React.FC = () => {
                   <p className="text-2xl font-bold text-caution-subtle-fg">{selectedPatient.totalOutput24h}</p>
                   <p className="text-sm text-caution-subtle-fg">{t('docIntakeOutput.totalOutput24h')}</p>
                 </div>
-                <div className={`rounded-lg p-4 text-center ${selectedPatient.netBalance > 500 ? 'bg-critical-subtle' : 'bg-ok-subtle'}`}>
-                  <p className={`text-2xl font-bold ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
-                  </p>
-                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
-                </div>
+                {(() => {
+                  const detail = getBalanceStatus(selectedPatient.netBalance);
+                  return (
+                    <div className={`rounded-lg p-4 text-center ${detail.surface}`}>
+                      <p className={`text-2xl font-bold ${detail.color}`}>
+                        {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
+                      </p>
+                      <p className={`text-sm ${detail.color}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Entries Table */}

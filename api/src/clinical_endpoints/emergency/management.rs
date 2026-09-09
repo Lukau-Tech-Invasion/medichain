@@ -1705,6 +1705,42 @@ pub async fn create_fall_risk(
     }
 }
 
+/// A patient's fall-risk assessments, most recent first.
+///
+/// `FallRiskPage`'s History tab renders this list and could never populate it:
+/// the repository has had `get_by_patient` all along and no route reached it,
+/// so the tab was permanently empty and indistinguishable from a patient who
+/// has never been assessed.
+#[get("/api/emergency/fall-risk/patient/{patient_id}")]
+pub async fn list_patient_fall_risk(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+    let patient_id = path.into_inner();
+    match data
+        .repositories
+        .fall_risk_assessments
+        // An explicit page size: `Pagination` has no `Default` precisely
+        // because the derived one was `per_page: 0`, which returns nothing.
+        .get_by_patient(&patient_id, Pagination::first_page(50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(e) => {
+            log::error!("fall-risk history lookup failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to read the fall-risk history".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 /// Get fall risk assessment
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.

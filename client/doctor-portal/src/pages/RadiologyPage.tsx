@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listRadiology, createRadiologyReport, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { listRadiology, createRadiologyReport, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
 
 type ReportStatus = 'pending' | 'in-progress' | 'preliminary' | 'final' | 'addendum';
 
@@ -54,7 +53,6 @@ const RadiologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [_patients, setPatients] = useState<PatientProfile[]>([]);
   const [studies, setStudies] = useState<RadiologyStudy[]>([]);
   const [reports, setReports] = useState<RadiologyReportRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,11 +77,11 @@ const RadiologyPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [patientData, radiologyData] = await Promise.all([
-        getPatients(),
-        listRadiology()
-      ]);
-      setPatients(patientData);
+      // The patient roster was fetched here, stored in state and never read.
+      // Dropping the call is not only tidier: `GET /api/patients` decrypts and
+      // returns PHI, and every such read is logged against the caller. This
+      // page shows radiology orders, which carry their own patient ids.
+      const radiologyData = await listRadiology();
       
       // Map API response (orders.items) to RadiologyStudy interface
       const orderItems = radiologyData.orders?.items || [];

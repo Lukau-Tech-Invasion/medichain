@@ -192,6 +192,47 @@ def constraint_vocabulary() -> set[str]:
     return set(re.findall(r"'([^']+)'", clause))
 
 
+ACTION_WIDTH_ALTER = re.compile(
+    r"ALTER\s+TABLE\s+access_logs\s+ALTER\s+COLUMN\s+action\s+TYPE\s+"
+    r"VARCHAR\s*\(\s*(\d+)\s*\)",
+    re.IGNORECASE,
+)
+ACTION_WIDTH_CREATE = re.compile(
+    r"CREATE\s+TABLE[^;]*?\baccess_logs\b(.*?);", re.IGNORECASE | re.DOTALL
+)
+ACTION_COLUMN = re.compile(r"\baction\s+VARCHAR\s*\(\s*(\d+)\s*\)", re.IGNORECASE)
+
+
+def action_column_width() -> int | None:
+    """The declared width of `access_logs.action`, from the migrations.
+
+    A value can be in the constraint's vocabulary and still be impossible to
+    store. `access_logs.action` was created VARCHAR(32) when the whole
+    vocabulary was 'View' .. 'EmergencyAccess'; every migration since added
+    names to the CHECK without asking whether the column could hold them, and
+    five could not:
+
+        value too long for type character varying(32)
+
+    That insert shares a transaction with the state change it records, so the
+    whole write rolled back and the second-pharmacist verification workflow was
+    unusable on PostgreSQL while passing in memory, which enforces no widths.
+
+    Migrations are read in order and the last statement to set the width wins —
+    the same rule `constraint_vocabulary` uses for the constraint itself.
+    """
+    width: int | None = None
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        body = re.sub(r"--.*", "", path.read_text(encoding="utf-8", errors="replace"))
+        for match in ACTION_WIDTH_ALTER.finditer(body):
+            width = int(match.group(1))
+        for table in ACTION_WIDTH_CREATE.finditer(body):
+            column = ACTION_COLUMN.search(table.group(1))
+            if column:
+                width = int(column.group(1))
+    return width
+
+
 def consts() -> dict[str, str]:
     """Every `const NAME: &str = "..."` in the API, by name."""
     found: dict[str, str] = {}
@@ -308,10 +349,14 @@ def written_values() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
 
 def main() -> int:
     permitted = constraint_vocabulary()
+    width = action_column_width()
     resolved, unresolved = written_values()
 
     if "--list" in sys.argv:
-        print(f"{len(permitted)} values permitted by the constraint\n")
+        print(
+            f"{len(permitted)} values permitted by the constraint, "
+            f"column width {width if width is not None else 'UNKNOWN'}\n"
+        )
         for v in sorted(resolved):
             mark = "ok " if v in permitted else "BAD"
             print(f"  {mark} {v}   ({', '.join(sorted(resolved[v]))})")
@@ -320,6 +365,27 @@ def main() -> int:
         return 0
 
     failures: list[str] = []
+
+    # The constraint and the column are two halves of one declaration, and a
+    # value only the constraint permits is stored nowhere. Checked across the
+    # whole vocabulary rather than only what handlers write today: a name the
+    # column cannot hold is a trap for the next handler either way.
+    if width is None:
+        failures.append(
+            "Could not read the declared width of access_logs.action from the "
+            "migrations. Without it a permitted value the column cannot store "
+            "would pass this gate, which is the failure it exists to catch."
+        )
+    else:
+        for value in sorted(v for v in permitted if len(v) > width):
+            failures.append(
+                f"'{value}' is {len(value)} characters and access_logs.action is "
+                f"VARCHAR({width}), so the constraint permits a value the column "
+                f"rejects with 'value too long for type character varying({width})'. "
+                f"On PostgreSQL that rolls back the transaction the audit row "
+                f"belongs to; in memory it succeeds. Widen the column in a "
+                f"migration, or shorten the name."
+            )
 
     for value, files in sorted(resolved.items()):
         if value not in permitted:
@@ -350,7 +416,8 @@ def main() -> int:
     # vocabulary valid for rows already in the table.
     print(
         f"Audit action vocabulary gate OK "
-        f"({len(resolved)} written values, all permitted by the constraint)."
+        f"({len(resolved)} written values, all permitted by the constraint; "
+        f"{len(permitted)} permitted values all fit VARCHAR({width}))."
     )
     return 0
 

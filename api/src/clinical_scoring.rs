@@ -138,21 +138,157 @@ pub fn burn_severity(tbsa_percent: f64, inhalation: bool, circumferential: bool)
     }
 }
 
-/// Sum charted region percentages into a total TBSA, clamped to 0-100.
+// ============================================================================
+// PATIENT AGE
+// ============================================================================
+
+/// Whole years between a `YYYY-MM-DD` date of birth and now.
 ///
-/// Clamping rather than rejecting is deliberate: a chart that sums above 100 is
-/// a charting error, and a fluid order computed from 130% TBSA is far worse
-/// than one computed from 100%.
-pub fn total_tbsa(region_percentages: &[f64]) -> f64 {
+/// Lives here because two scales turn on it — the TIMI age criterion and the
+/// Lund-Browder band — and both are boundary questions where being a year out
+/// changes the answer. `CardiacPage` computed it as `thisYear - birthYear`,
+/// which is exactly a year out for anyone who has not had their birthday yet,
+/// and 64-turning-65 is the boundary TIMI asks about.
+pub fn years_since(date_of_birth: &str, now: chrono::DateTime<chrono::Utc>) -> Option<i64> {
+    use chrono::Datelike;
+    let dob = chrono::NaiveDate::parse_from_str(date_of_birth.trim(), "%Y-%m-%d").ok()?;
+    let today = now.date_naive();
+    let mut years = i64::from(today.year() - dob.year());
+    // Not yet had this year's birthday.
+    if (today.month(), today.day()) < (dob.month(), dob.day()) {
+        years -= 1;
+    }
+    Some(years)
+}
+
+// ============================================================================
+// LUND-BROWDER BODY SURFACE CHART
+// ============================================================================
+
+/// The Lund-Browder age bands, as lower bounds in whole years.
+///
+/// Body proportions change continuously through childhood, and the chart
+/// samples that at five points before adulthood. A newborn's head is 19% of its
+/// body surface; a five-year-old's is 13%; an adult's is 7%. The legs move the
+/// other way to compensate.
+pub const LUND_BROWDER_AGE_BANDS: [u32; 6] = [0, 1, 5, 10, 15, 18];
+
+/// Human-readable band labels, in the same order.
+pub const LUND_BROWDER_BAND_LABELS: [&str; 6] = [
+    "under 1 year",
+    "1 to 4 years",
+    "5 to 9 years",
+    "10 to 14 years",
+    "15 to 17 years",
+    "18 years and over",
+];
+
+/// The Lund-Browder chart: region id, display name, and its percentage of total
+/// body surface in each of the six age bands.
+///
+/// This replaces a Rule of 9s chart with an `isChild` boolean. Rule of 9s is an
+/// adult approximation — it is the right tool for a rapid adult estimate and the
+/// wrong one for a child, because a boolean cannot express a proportion that
+/// changes at five points between birth and adulthood. Every child between the
+/// bands was charted against the wrong denominator.
+///
+/// Lund-Browder is not the same numbers on the same regions: it splits each limb
+/// (upper arm / forearm / hand, thigh / lower leg / foot), separates the neck
+/// and the buttocks, and charts the trunk as 13% front and 13% back against Rule
+/// of 9s' 18% and 18%. Substituting its percentages into a Rule-of-9s region set
+/// produces a chart that does not total 100, which is worse than either method
+/// used consistently — which is why the region set had to change with it.
+///
+/// The columns are ordered by [`LUND_BROWDER_AGE_BANDS`]. Every column sums to
+/// exactly 100; `lund_browder_columns_each_total_one_hundred` asserts it.
+pub const LUND_BROWDER_REGIONS: [(&str, &str, [f64; 6]); 19] = [
+    ("head", "Head", [19.0, 17.0, 13.0, 11.0, 9.0, 7.0]),
+    ("neck", "Neck", [2.0; 6]),
+    ("anterior_trunk", "Anterior trunk", [13.0; 6]),
+    ("posterior_trunk", "Posterior trunk", [13.0; 6]),
+    ("right_buttock", "Right buttock", [2.5; 6]),
+    ("left_buttock", "Left buttock", [2.5; 6]),
+    ("genitalia", "Genitalia", [1.0; 6]),
+    ("right_upper_arm", "Right upper arm", [4.0; 6]),
+    ("left_upper_arm", "Left upper arm", [4.0; 6]),
+    ("right_forearm", "Right forearm", [3.0; 6]),
+    ("left_forearm", "Left forearm", [3.0; 6]),
+    ("right_hand", "Right hand", [2.5; 6]),
+    ("left_hand", "Left hand", [2.5; 6]),
+    ("right_thigh", "Right thigh", [5.5, 6.5, 8.0, 8.5, 9.0, 9.5]),
+    ("left_thigh", "Left thigh", [5.5, 6.5, 8.0, 8.5, 9.0, 9.5]),
+    (
+        "right_lower_leg",
+        "Right lower leg",
+        [5.0, 5.0, 5.5, 6.0, 6.5, 7.0],
+    ),
+    (
+        "left_lower_leg",
+        "Left lower leg",
+        [5.0, 5.0, 5.5, 6.0, 6.5, 7.0],
+    ),
+    ("right_foot", "Right foot", [3.5; 6]),
+    ("left_foot", "Left foot", [3.5; 6]),
+];
+
+/// The Lund-Browder column for a patient's age in whole years.
+///
+/// Returns `None` for an age that cannot be a patient's — the caller refuses to
+/// chart rather than picking a column. There is no safe default here: taking the
+/// adult column for an unknown age charts a burned infant's head at 7% when it
+/// is 19%, and TBSA is what the fluid order is computed from.
+pub fn lund_browder_band(age_years: i64) -> Option<usize> {
+    if !(0..=130).contains(&age_years) {
+        return None;
+    }
+    let age = age_years as u32;
+    // Highest band whose lower bound the patient has reached.
+    let mut band = 0;
+    for (index, lower_bound) in LUND_BROWDER_AGE_BANDS.iter().enumerate() {
+        if age >= *lower_bound {
+            band = index;
+        }
+    }
+    Some(band)
+}
+
+/// What percentage of total body surface one region is, at a given age band.
+pub fn lund_browder_region_percent(region_id: &str, band: usize) -> Option<f64> {
+    debug_assert!(band < 6, "there are six Lund-Browder age bands");
+    LUND_BROWDER_REGIONS
+        .iter()
+        .find(|(id, _, _)| *id == region_id)
+        .and_then(|(_, _, by_age)| by_age.get(band).copied())
+}
+
+/// Total TBSA from a charted body, as `(region_id, fraction_of_region_burned)`.
+///
+/// `fraction` is the proportion of *that region* which is burned, 0.0 to 1.0 —
+/// not a share of the whole body. This is the input a burn chart actually
+/// collects ("the front half of the left forearm"), and it means the clinician
+/// never multiplies anything: the region's size at the patient's age is applied
+/// here.
+///
+/// The previous arrangement asked for a share of the whole body per region,
+/// which made the clinician do the multiplication in their head against a
+/// denominator the page had already chosen wrongly for children.
+///
+/// Unknown region ids contribute nothing rather than being guessed at, and each
+/// fraction is clamped to 0..=1 so a mis-scaled client cannot inflate the total.
+pub fn lund_browder_tbsa(charted: &[(String, f64)], band: usize) -> f64 {
     debug_assert!(
-        region_percentages.len() <= 64,
-        "no body chart has this many regions; a longer slice is a bug upstream"
+        charted.len() <= LUND_BROWDER_REGIONS.len(),
+        "a body has nineteen Lund-Browder regions; more is a bug upstream"
     );
     let mut total = 0.0_f64;
-    for p in region_percentages.iter().take(64) {
-        if p.is_finite() && *p > 0.0 {
-            total += *p;
+    for (region_id, fraction) in charted.iter().take(LUND_BROWDER_REGIONS.len()) {
+        if !fraction.is_finite() {
+            continue;
         }
+        let Some(region_percent) = lund_browder_region_percent(region_id, band) else {
+            continue;
+        };
+        total += region_percent * fraction.clamp(0.0, 1.0);
     }
     total.clamp(0.0, 100.0)
 }
@@ -407,6 +543,484 @@ pub fn fluid_balance_band(balance_ml: i32) -> &'static str {
 }
 
 // ============================================================================
+// qSOFA — BEDSIDE SEPSIS SCREEN
+// ============================================================================
+
+/// Respiratory rate at or above this scores a qSOFA point.
+pub const QSOFA_RESPIRATORY_RATE: i32 = 22;
+/// Systolic blood pressure at or below this scores a point.
+pub const QSOFA_SYSTOLIC_BP: i32 = 100;
+/// Any GCS below this scores a point (altered mentation).
+pub const QSOFA_GCS_BELOW: i32 = 15;
+/// A qSOFA of 2 or more is a positive screen.
+pub const QSOFA_POSITIVE_THRESHOLD: u8 = 2;
+
+/// qSOFA result, with the working shown.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct QsofaResult {
+    pub total: u8,
+    pub respiratory_rate_high: Option<bool>,
+    pub systolic_bp_low: Option<bool>,
+    pub altered_mentation: Option<bool>,
+    /// How many of the three were recorded.
+    pub criteria_measured: u8,
+    /// `total >= 2`. A positive screen prompts escalation, not a diagnosis.
+    pub positive: bool,
+}
+
+/// qSOFA: three bedside observations, no labs, 0-3.
+///
+/// Unrecorded observations are not scored as absent findings — the same rule
+/// SOFA follows, for the same reason. `criteria_measured` says how much of the
+/// screen was actually done.
+pub fn qsofa_score(
+    respiratory_rate: Option<i32>,
+    systolic_bp: Option<i32>,
+    glasgow_coma_scale: Option<i32>,
+) -> QsofaResult {
+    let rr_high = respiratory_rate.map(|r| r >= QSOFA_RESPIRATORY_RATE);
+    let bp_low = systolic_bp.map(|b| b <= QSOFA_SYSTOLIC_BP);
+    let altered = glasgow_coma_scale
+        .filter(|g| (3..=15).contains(g))
+        .map(|g| g < QSOFA_GCS_BELOW);
+
+    let flags = [rr_high, bp_low, altered];
+    let total: u8 = flags.iter().flatten().map(|f| u8::from(*f)).sum();
+    let measured = flags.iter().filter(|f| f.is_some()).count() as u8;
+    debug_assert!(total <= 3, "qSOFA has three criteria");
+
+    QsofaResult {
+        total,
+        respiratory_rate_high: rr_high,
+        systolic_bp_low: bp_low,
+        altered_mentation: altered,
+        criteria_measured: measured,
+        positive: total >= QSOFA_POSITIVE_THRESHOLD,
+    }
+}
+
+// ============================================================================
+// SOFA — SEQUENTIAL ORGAN FAILURE ASSESSMENT
+// ============================================================================
+
+/// The six SOFA organ systems, each scored 0-4.
+pub const SOFA_SYSTEMS: [&str; 6] = [
+    "respiration",
+    "coagulation",
+    "liver",
+    "cardiovascular",
+    "central_nervous_system",
+    "renal",
+];
+
+/// Vasopressor support, which the cardiovascular component scores on.
+///
+/// Doses are µg/kg/min. The tiers are the ones SOFA defines; a MAP alone can
+/// only reach 1, and everything above that is a statement about how much
+/// pharmacological support the circulation needs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct VasopressorSupport {
+    #[serde(default)]
+    pub dopamine_mcg_kg_min: Option<f64>,
+    #[serde(default)]
+    pub dobutamine_any_dose: bool,
+    #[serde(default)]
+    pub adrenaline_mcg_kg_min: Option<f64>,
+    #[serde(default)]
+    pub noradrenaline_mcg_kg_min: Option<f64>,
+}
+
+/// The measurements SOFA needs. Every field is optional.
+///
+/// A system with nothing recorded is **not scored as zero** — see
+/// [`sofa_score`]. Zero means "this organ is working", and asserting that about
+/// an organ nobody measured is the defect this type exists to make impossible.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct SofaInputs {
+    /// PaO2/FiO2 ratio, mmHg.
+    #[serde(default)]
+    pub pao2_fio2: Option<f64>,
+    /// Mechanically ventilated or on CPAP. The 3 and 4 tiers require it.
+    #[serde(default)]
+    pub respiratory_support: bool,
+    /// Platelets, x10^3/µL.
+    #[serde(default)]
+    pub platelets: Option<f64>,
+    /// Bilirubin, mg/dL.
+    #[serde(default)]
+    pub bilirubin_mg_dl: Option<f64>,
+    /// Mean arterial pressure, mmHg.
+    #[serde(default)]
+    pub mean_arterial_pressure: Option<f64>,
+    #[serde(default)]
+    pub vasopressors: VasopressorSupport,
+    /// Glasgow Coma Scale, 3-15.
+    #[serde(default)]
+    pub glasgow_coma_scale: Option<i32>,
+    /// Creatinine, mg/dL.
+    #[serde(default)]
+    pub creatinine_mg_dl: Option<f64>,
+    /// Urine output over 24 hours, mL. Scores renal alongside creatinine; the
+    /// worse of the two is taken, which is what SOFA specifies.
+    #[serde(default)]
+    pub urine_output_ml_24h: Option<f64>,
+}
+
+/// A SOFA result, with the working shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SofaScore {
+    /// Total across the systems that were measured, 0-24.
+    pub total: u8,
+    /// Per-system points, `None` where nothing was recorded.
+    pub respiration: Option<u8>,
+    pub coagulation: Option<u8>,
+    pub liver: Option<u8>,
+    pub cardiovascular: Option<u8>,
+    pub central_nervous_system: Option<u8>,
+    pub renal: Option<u8>,
+    /// How many of the six were measured.
+    ///
+    /// A total of 2 from six systems and a total of 2 from one are different
+    /// clinical pictures, and the number alone cannot tell them apart.
+    pub systems_measured: u8,
+}
+
+fn sofa_respiration(inputs: &SofaInputs) -> Option<u8> {
+    let ratio = inputs.pao2_fio2?;
+    // The 3 and 4 tiers require respiratory support: a ratio that low without
+    // it is a measurement to repeat, not a score to award.
+    Some(if ratio < 100.0 && inputs.respiratory_support {
+        4
+    } else if ratio < 200.0 && inputs.respiratory_support {
+        3
+    } else if ratio < 300.0 {
+        2
+    } else if ratio < 400.0 {
+        1
+    } else {
+        0
+    })
+}
+
+fn sofa_coagulation(inputs: &SofaInputs) -> Option<u8> {
+    let platelets = inputs.platelets?;
+    Some(if platelets < 20.0 {
+        4
+    } else if platelets < 50.0 {
+        3
+    } else if platelets < 100.0 {
+        2
+    } else if platelets < 150.0 {
+        1
+    } else {
+        0
+    })
+}
+
+fn sofa_liver(inputs: &SofaInputs) -> Option<u8> {
+    let bilirubin = inputs.bilirubin_mg_dl?;
+    Some(if bilirubin >= 12.0 {
+        4
+    } else if bilirubin >= 6.0 {
+        3
+    } else if bilirubin >= 2.0 {
+        2
+    } else if bilirubin >= 1.2 {
+        1
+    } else {
+        0
+    })
+}
+
+/// Cardiovascular: MAP alone reaches 1; 2 and above are about vasopressors.
+///
+/// The in-browser version scored only `map < 70 -> 1`, under a comment reading
+/// "Add more for vasopressor use...". A patient on high-dose noradrenaline
+/// therefore scored the same 1 as a patient with a slightly soft blood
+/// pressure and no support at all — and the gap between those two is three
+/// SOFA points and the definition of septic shock.
+fn sofa_cardiovascular(inputs: &SofaInputs) -> Option<u8> {
+    let v = &inputs.vasopressors;
+    let dopamine = v.dopamine_mcg_kg_min.unwrap_or(0.0);
+    let adrenaline = v.adrenaline_mcg_kg_min.unwrap_or(0.0);
+    let noradrenaline = v.noradrenaline_mcg_kg_min.unwrap_or(0.0);
+
+    if dopamine > 15.0 || adrenaline > 0.1 || noradrenaline > 0.1 {
+        return Some(4);
+    }
+    if dopamine > 5.0 || adrenaline > 0.0 || noradrenaline > 0.0 {
+        return Some(3);
+    }
+    if dopamine > 0.0 || v.dobutamine_any_dose {
+        return Some(2);
+    }
+    // No vasopressors: the MAP decides, and without one there is nothing to say.
+    let map = inputs.mean_arterial_pressure?;
+    Some(u8::from(map < 70.0))
+}
+
+fn sofa_cns(inputs: &SofaInputs) -> Option<u8> {
+    let gcs = inputs.glasgow_coma_scale?;
+    if !(3..=15).contains(&gcs) {
+        return None;
+    }
+    Some(if gcs < 6 {
+        4
+    } else if gcs < 10 {
+        3
+    } else if gcs < 13 {
+        2
+    } else if gcs < 15 {
+        1
+    } else {
+        0
+    })
+}
+
+/// Renal: the worse of creatinine and urine output, as SOFA specifies.
+fn sofa_renal(inputs: &SofaInputs) -> Option<u8> {
+    let by_creatinine = inputs.creatinine_mg_dl.map(|c| {
+        if c >= 5.0 {
+            4
+        } else if c >= 3.5 {
+            3
+        } else if c >= 2.0 {
+            2
+        } else if c >= 1.2 {
+            1
+        } else {
+            0
+        }
+    });
+    let by_urine = inputs.urine_output_ml_24h.map(|u| {
+        if u < 200.0 {
+            4
+        } else if u < 500.0 {
+            3
+        } else {
+            0
+        }
+    });
+    match (by_creatinine, by_urine) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// Sequential Organ Failure Assessment, 0-24.
+///
+/// **Unmeasured systems are not scored zero.** `SepsisPage` submitted
+/// `sofa_score` from a `_calculateSOFA` that was never called, over five inputs
+/// that had no controls — so every sepsis assessment on file records SOFA 0,
+/// which reads as "no organ dysfunction" on a septic patient. Zero is a
+/// finding; absent is not, and the two must not be the same number.
+///
+/// `systems_measured` travels with the total for that reason: a total of 2 from
+/// all six systems and a total of 2 from one are different pictures.
+pub fn sofa_score(inputs: &SofaInputs) -> SofaScore {
+    let respiration = sofa_respiration(inputs);
+    let coagulation = sofa_coagulation(inputs);
+    let liver = sofa_liver(inputs);
+    let cardiovascular = sofa_cardiovascular(inputs);
+    let central_nervous_system = sofa_cns(inputs);
+    let renal = sofa_renal(inputs);
+
+    let parts = [
+        respiration,
+        coagulation,
+        liver,
+        cardiovascular,
+        central_nervous_system,
+        renal,
+    ];
+    let total: u8 = parts.iter().flatten().sum();
+    let measured = parts.iter().filter(|p| p.is_some()).count() as u8;
+    debug_assert!(total <= 24, "SOFA is six systems scored 0-4");
+
+    SofaScore {
+        total,
+        respiration,
+        coagulation,
+        liver,
+        cardiovascular,
+        central_nervous_system,
+        renal,
+        systems_measured: measured,
+    }
+}
+
+// ============================================================================
+// FAMILY HISTORY — REFERRAL SCREENING
+// ============================================================================
+
+/// Relationships that share about half a patient's genome.
+pub const FIRST_DEGREE_RELATIVES: [&str; 6] =
+    ["mother", "father", "sister", "brother", "daughter", "son"];
+
+/// Relationships that share about a quarter.
+pub const SECOND_DEGREE_RELATIVES: [&str; 10] = [
+    "maternal-grandmother",
+    "maternal-grandfather",
+    "paternal-grandmother",
+    "paternal-grandfather",
+    "maternal-aunt",
+    "maternal-uncle",
+    "paternal-aunt",
+    "paternal-uncle",
+    "half-sister",
+    "half-brother",
+];
+
+/// Relationships that share about an eighth.
+pub const THIRD_DEGREE_RELATIVES: [&str; 6] = [
+    "cousin",
+    "maternal-cousin",
+    "paternal-cousin",
+    "great-grandmother",
+    "great-grandfather",
+    "great-aunt",
+];
+
+/// Points per affected relative, by degree.
+pub const FIRST_DEGREE_POINTS: f64 = 2.0;
+/// See [`FIRST_DEGREE_POINTS`].
+pub const SECOND_DEGREE_POINTS: f64 = 1.0;
+/// See [`FIRST_DEGREE_POINTS`].
+pub const THIRD_DEGREE_POINTS: f64 = 0.5;
+
+/// Onset below this age doubles a relative's weight.
+///
+/// Early onset is the single strongest signal that a condition in a family is
+/// inherited rather than incidental: common conditions become common with age,
+/// so a cancer at 40 says far more about the family than the same cancer at 75.
+pub const EARLY_ONSET_AGE_YEARS: i32 = 50;
+/// See [`EARLY_ONSET_AGE_YEARS`].
+pub const EARLY_ONSET_MULTIPLIER: f64 = 2.0;
+
+/// At or above this, prompt a genetics referral.
+pub const FAMILY_REFERRAL_THRESHOLD: f64 = 4.0;
+/// At or above this, prompt an enhanced-screening discussion.
+pub const FAMILY_ENHANCED_SCREENING_THRESHOLD: f64 = 2.0;
+
+/// One affected relative, for one condition category.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AffectedRelative {
+    /// Relationship to the patient, from the form's vocabulary.
+    #[serde(default)]
+    pub relationship: String,
+    /// Age at diagnosis, where it is known.
+    #[serde(default)]
+    pub age_of_onset: Option<i32>,
+}
+
+/// What a family history suggests should happen next.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FamilyHistoryAssessment {
+    /// Weighted total. Published so a clinician can see the working.
+    pub score: f64,
+    /// `standard_care` / `enhanced_screening` / `genetics_referral`.
+    pub band: &'static str,
+    pub first_degree_affected: u32,
+    pub second_degree_affected: u32,
+    pub third_degree_affected: u32,
+    /// Relatives diagnosed under [`EARLY_ONSET_AGE_YEARS`].
+    pub early_onset_affected: u32,
+    /// Relatives whose relationship this scale does not recognise.
+    ///
+    /// Not scored, and not silently ignored: the count is returned so a reader
+    /// knows the score is incomplete. Guessing a degree in either direction is
+    /// worse — too low misses a referral, too high makes the prompt noise.
+    pub unscored_relatives: u32,
+}
+
+/// The degree weight for a relationship, or `None` if it is not recognised.
+fn relationship_points(relationship: &str) -> Option<f64> {
+    let key = relationship.trim().to_ascii_lowercase();
+    if FIRST_DEGREE_RELATIVES.contains(&key.as_str()) {
+        Some(FIRST_DEGREE_POINTS)
+    } else if SECOND_DEGREE_RELATIVES.contains(&key.as_str()) {
+        Some(SECOND_DEGREE_POINTS)
+    } else if THIRD_DEGREE_RELATIVES.contains(&key.as_str()) {
+        Some(THIRD_DEGREE_POINTS)
+    } else {
+        None
+    }
+}
+
+/// Screen a family history for one condition category.
+///
+/// **This is a prompt, not a diagnosis, and not a probability.** It answers "is
+/// this family history worth a conversation?" and nothing more. It does not
+/// replace disease-specific criteria — NICE familial breast cancer, the
+/// Amsterdam and Bethesda criteria for Lynch syndrome, and their equivalents
+/// ask questions this cannot, about bilateral disease, multiple primaries and
+/// specific tumour patterns. A `standard_care` result is not a statement that a
+/// family is unaffected.
+///
+/// What it replaces is worse than nothing on the one case that matters most: a
+/// raw count of affected relatives, banded at 3+ for "HIGH", which issued an
+/// automatic "consider genetic counseling" recommendation. A mother and a
+/// sister with breast cancer at 40 counted 2 and read MODERATE; three second
+/// cousins with type 2 diabetes counted 3 and read HIGH. Degree and age of
+/// onset are exactly the two things that separate those, and both were already
+/// on file.
+pub fn family_history_assessment(relatives: &[AffectedRelative]) -> FamilyHistoryAssessment {
+    debug_assert!(
+        relatives.len() <= 256,
+        "a family history this large is a bug upstream"
+    );
+    let mut score = 0.0_f64;
+    let (mut first, mut second, mut third, mut early, mut unscored) = (0, 0, 0, 0, 0);
+
+    for relative in relatives.iter().take(256) {
+        let Some(points) = relationship_points(&relative.relationship) else {
+            unscored += 1;
+            continue;
+        };
+        if points == FIRST_DEGREE_POINTS {
+            first += 1;
+        } else if points == SECOND_DEGREE_POINTS {
+            second += 1;
+        } else {
+            third += 1;
+        }
+
+        // An unknown onset age is not treated as late onset — it weighs as
+        // recorded, without the early-onset multiplier, and the caller can see
+        // from `early_onset_affected` how much of the history carried one.
+        let early_onset = relative
+            .age_of_onset
+            .is_some_and(|age| age < EARLY_ONSET_AGE_YEARS);
+        if early_onset {
+            early += 1;
+            score += points * EARLY_ONSET_MULTIPLIER;
+        } else {
+            score += points;
+        }
+    }
+
+    let band = if score >= FAMILY_REFERRAL_THRESHOLD {
+        "genetics_referral"
+    } else if score >= FAMILY_ENHANCED_SCREENING_THRESHOLD {
+        "enhanced_screening"
+    } else {
+        "standard_care"
+    };
+
+    FamilyHistoryAssessment {
+        score,
+        band,
+        first_degree_affected: first,
+        second_degree_affected: second,
+        third_degree_affected: third,
+        early_onset_affected: early,
+        unscored_relatives: unscored,
+    }
+}
+
+// ============================================================================
 // CATALOG
 // ============================================================================
 
@@ -431,6 +1045,21 @@ pub fn catalog() -> serde_json::Value {
             ],
         },
         "burn": {
+            // The body chart itself, so the form renders the region set and the
+            // per-region maxima the server will score against rather than
+            // carrying its own copy of either.
+            "lund_browder": {
+                "age_bands": LUND_BROWDER_AGE_BANDS,
+                "age_band_labels": LUND_BROWDER_BAND_LABELS,
+                "regions": LUND_BROWDER_REGIONS
+                    .iter()
+                    .map(|(id, name, by_age)| serde_json::json!({
+                        "id": id,
+                        "name": name,
+                        "percent_by_age_band": by_age,
+                    }))
+                    .collect::<Vec<_>>(),
+            },
             "parkland_ml_per_kg_per_percent": PARKLAND_ML_PER_KG_PER_PERCENT,
             "urine_target_ml_kg_hr": PARKLAND_URINE_TARGET_ML_KG_HR,
             "first_block_fraction": 0.5,
@@ -485,6 +1114,36 @@ pub fn catalog() -> serde_json::Value {
                 { "level": fluid_balance_band(0), "min_ml": FLUID_BALANCE_NEGATIVE_ML, "max_ml": FLUID_BALANCE_POSITIVE_ML },
                 { "level": fluid_balance_band(FLUID_BALANCE_POSITIVE_ML + 1), "min_ml": FLUID_BALANCE_POSITIVE_ML, "max_ml": FLUID_BALANCE_POSITIVE_HIGH_ML },
                 { "level": fluid_balance_band(FLUID_BALANCE_POSITIVE_HIGH_ML + 1), "min_ml": FLUID_BALANCE_POSITIVE_HIGH_ML },
+            ],
+        },
+        "qsofa": {
+            "respiratory_rate_at_or_above": QSOFA_RESPIRATORY_RATE,
+            "systolic_bp_at_or_below": QSOFA_SYSTOLIC_BP,
+            "gcs_below": QSOFA_GCS_BELOW,
+            "positive_threshold": QSOFA_POSITIVE_THRESHOLD,
+        },
+        "sofa": {
+            "systems": SOFA_SYSTEMS,
+            "max_per_system": 4,
+            "max_total": 24,
+            "respiration_top_tiers_need_support": true,
+            "renal_takes_worse_of": ["creatinine_mg_dl", "urine_output_ml_24h"],
+        },
+        "family_history": {
+            "first_degree": FIRST_DEGREE_RELATIVES,
+            "second_degree": SECOND_DEGREE_RELATIVES,
+            "third_degree": THIRD_DEGREE_RELATIVES,
+            "points": {
+                "first_degree": FIRST_DEGREE_POINTS,
+                "second_degree": SECOND_DEGREE_POINTS,
+                "third_degree": THIRD_DEGREE_POINTS,
+            },
+            "early_onset_age_years": EARLY_ONSET_AGE_YEARS,
+            "early_onset_multiplier": EARLY_ONSET_MULTIPLIER,
+            "bands": [
+                { "level": "standard_care", "min": 0.0, "max": FAMILY_ENHANCED_SCREENING_THRESHOLD },
+                { "level": "enhanced_screening", "min": FAMILY_ENHANCED_SCREENING_THRESHOLD, "max": FAMILY_REFERRAL_THRESHOLD },
+                { "level": "genetics_referral", "min": FAMILY_REFERRAL_THRESHOLD, "max": serde_json::Value::Null },
             ],
         },
         "catheter_dwell_hours": {
@@ -552,16 +1211,425 @@ mod tests {
         );
     }
 
+    /// A fixed "now", so an age assertion does not drift with the wall clock.
+    fn at(date: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+    }
+
     #[test]
-    fn tbsa_clamps_an_over_charted_body() {
-        assert_eq!(total_tbsa(&[9.0, 18.0, 9.0]), 36.0);
-        assert_eq!(total_tbsa(&[]), 0.0);
+    fn age_is_whole_years_and_respects_the_birthday() {
+        // The boundary TIMI asks about, on either side of the birthday.
+        assert_eq!(years_since("1961-07-01", at("2026-06-30")), Some(64));
+        assert_eq!(years_since("1961-07-01", at("2026-07-01")), Some(65));
+        assert_eq!(years_since("2026-01-01", at("2026-09-09")), Some(0));
+        assert_eq!(years_since("not-a-date", at("2026-09-09")), None);
+    }
+
+    #[test]
+    fn lund_browder_columns_each_total_one_hundred() {
+        // The invariant that makes the chart usable at all. Rule of 9s numbers
+        // dropped into this region set would fail here, which is the point:
+        // Lund-Browder is a different region set, not a different set of
+        // numbers for the same regions.
+        for band in 0..6 {
+            let total: f64 = LUND_BROWDER_REGIONS
+                .iter()
+                .map(|(_, _, by_age)| by_age[band])
+                .sum();
+            assert!(
+                (total - 100.0).abs() < 1e-9,
+                "band {} ({}) totals {total}, not 100",
+                band,
+                LUND_BROWDER_BAND_LABELS[band]
+            );
+        }
+    }
+
+    #[test]
+    fn the_head_shrinks_and_the_legs_grow_with_age() {
+        // The whole reason a boolean could not express this.
+        let head = |band| lund_browder_region_percent("head", band).unwrap();
+        assert_eq!(head(0), 19.0, "a newborn's head");
+        assert_eq!(head(2), 13.0, "a five-year-old's");
+        assert_eq!(head(5), 7.0, "an adult's");
+        assert!(head(0) > head(1) && head(1) > head(2) && head(2) > head(3));
+
+        let thigh = |band| lund_browder_region_percent("right_thigh", band).unwrap();
+        assert_eq!(thigh(0), 5.5);
+        assert_eq!(thigh(5), 9.5);
+        assert!(thigh(0) < thigh(2) && thigh(2) < thigh(5));
+    }
+
+    #[test]
+    fn age_bands_pick_the_right_column() {
+        assert_eq!(lund_browder_band(0), Some(0));
         assert_eq!(
-            total_tbsa(&[90.0, 90.0]),
-            100.0,
-            "a chart summing past 100 is an error; 130% TBSA would be a fluid order"
+            lund_browder_band(1),
+            Some(1),
+            "1 is the first of the 1-4 band"
         );
-        assert_eq!(total_tbsa(&[9.0, -4.0, f64::NAN]), 9.0);
+        assert_eq!(lund_browder_band(4), Some(1), "4 is the last of it");
+        assert_eq!(lund_browder_band(5), Some(2));
+        assert_eq!(lund_browder_band(9), Some(2));
+        assert_eq!(lund_browder_band(10), Some(3));
+        assert_eq!(lund_browder_band(15), Some(4));
+        assert_eq!(lund_browder_band(17), Some(4));
+        assert_eq!(lund_browder_band(18), Some(5), "adult from 18");
+        assert_eq!(lund_browder_band(80), Some(5));
+        assert_eq!(
+            lund_browder_band(-1),
+            None,
+            "an impossible age gets no band, not the adult column"
+        );
+        assert_eq!(lund_browder_band(200), None);
+    }
+
+    #[test]
+    fn the_same_burn_is_a_different_tbsa_at_a_different_age() {
+        // A whole head and neck, charted on an infant and on an adult. This
+        // difference — 21% against 9% — is the defect the Rule of 9s chart with
+        // an `isChild` checkbox could not represent, and it is a fluid order.
+        let whole_head_and_neck = vec![("head".to_string(), 1.0), ("neck".to_string(), 1.0)];
+        let infant = lund_browder_tbsa(&whole_head_and_neck, 0);
+        let adult = lund_browder_tbsa(&whole_head_and_neck, 5);
+        assert_eq!(infant, 21.0);
+        assert_eq!(adult, 9.0);
+
+        // 70 kg adult vs 10 kg infant makes the gap concrete.
+        let infant_fluid = parkland_fluid(10.0, infant).expect("valid");
+        let adult_fluid = parkland_fluid(70.0, adult).expect("valid");
+        assert_eq!(infant_fluid.total_24h_ml, 840);
+        assert_eq!(adult_fluid.total_24h_ml, 2520);
+    }
+
+    #[test]
+    fn charting_handles_partial_regions_and_refuses_to_be_inflated() {
+        // Half a forearm at any age.
+        let half = vec![("right_forearm".to_string(), 0.5)];
+        assert_eq!(lund_browder_tbsa(&half, 5), 1.5);
+
+        // A fraction above 1.0 is a mis-scaled client (percent sent where a
+        // fraction was expected). Clamped, not trusted: 200% of a forearm is
+        // still one forearm.
+        let over = vec![("right_forearm".to_string(), 2.0)];
+        assert_eq!(lund_browder_tbsa(&over, 5), 3.0);
+
+        // An unknown region contributes nothing rather than being guessed at.
+        let unknown = vec![("left_wing".to_string(), 1.0)];
+        assert_eq!(lund_browder_tbsa(&unknown, 5), 0.0);
+
+        assert_eq!(lund_browder_tbsa(&[], 5), 0.0);
+    }
+
+    #[test]
+    fn a_whole_body_burn_is_one_hundred_percent_at_every_age() {
+        for band in 0..6 {
+            let everything: Vec<(String, f64)> = LUND_BROWDER_REGIONS
+                .iter()
+                .map(|(id, _, _)| ((*id).to_string(), 1.0))
+                .collect();
+            let total = lund_browder_tbsa(&everything, band);
+            assert!((total - 100.0).abs() < 1e-9, "band {band} totalled {total}");
+        }
+    }
+
+    fn relative(relationship: &str, onset: Option<i32>) -> AffectedRelative {
+        AffectedRelative {
+            relationship: relationship.to_string(),
+            age_of_onset: onset,
+        }
+    }
+
+    #[test]
+    fn qsofa_scores_three_bedside_observations() {
+        let full = qsofa_score(Some(24), Some(90), Some(13));
+        assert_eq!(full.total, 3);
+        assert!(full.positive);
+        assert_eq!(full.criteria_measured, 3);
+
+        let clean = qsofa_score(Some(16), Some(120), Some(15));
+        assert_eq!(clean.total, 0);
+        assert!(!clean.positive);
+
+        // Boundaries: 22 and 100 score, 21 and 101 do not.
+        assert_eq!(qsofa_score(Some(22), None, None).total, 1);
+        assert_eq!(qsofa_score(Some(21), None, None).total, 0);
+        assert_eq!(qsofa_score(None, Some(100), None).total, 1);
+        assert_eq!(qsofa_score(None, Some(101), None).total, 0);
+        assert_eq!(qsofa_score(None, None, Some(14)).total, 1);
+        assert_eq!(qsofa_score(None, None, Some(15)).total, 0);
+
+        // Two of three is a positive screen.
+        assert!(qsofa_score(Some(24), Some(90), None).positive);
+    }
+
+    #[test]
+    fn qsofa_does_not_score_an_observation_nobody_made() {
+        let nothing = qsofa_score(None, None, None);
+        assert_eq!(nothing.total, 0);
+        assert_eq!(
+            nothing.criteria_measured, 0,
+            "zero measured, not zero findings"
+        );
+        assert!(!nothing.positive);
+        assert_eq!(nothing.respiratory_rate_high, None);
+    }
+
+    #[test]
+    fn sofa_does_not_score_an_organ_nobody_measured() {
+        // The defect this replaces: `SepsisPage` submitted SOFA 0 for every
+        // patient, which reads as "no organ dysfunction" on someone septic.
+        let nothing = sofa_score(&SofaInputs::default());
+        assert_eq!(nothing.total, 0);
+        assert_eq!(
+            nothing.systems_measured, 0,
+            "zero measured, not zero dysfunction"
+        );
+        assert_eq!(nothing.respiration, None);
+        assert_eq!(nothing.renal, None);
+
+        // A measured, normal organ scores 0 and counts as measured. That is a
+        // finding; the case above is not.
+        let normal = sofa_score(&SofaInputs {
+            platelets: Some(250.0),
+            ..Default::default()
+        });
+        assert_eq!(normal.coagulation, Some(0));
+        assert_eq!(normal.systems_measured, 1);
+    }
+
+    #[test]
+    fn sofa_scores_each_system_at_its_boundaries() {
+        let with = |f: fn(&mut SofaInputs)| {
+            let mut i = SofaInputs::default();
+            f(&mut i);
+            sofa_score(&i)
+        };
+        assert_eq!(with(|i| i.platelets = Some(150.0)).coagulation, Some(0));
+        assert_eq!(with(|i| i.platelets = Some(149.0)).coagulation, Some(1));
+        assert_eq!(with(|i| i.platelets = Some(19.0)).coagulation, Some(4));
+
+        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.1)).liver, Some(0));
+        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.2)).liver, Some(1));
+        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(12.0)).liver, Some(4));
+
+        assert_eq!(
+            with(|i| i.glasgow_coma_scale = Some(15)).central_nervous_system,
+            Some(0)
+        );
+        assert_eq!(
+            with(|i| i.glasgow_coma_scale = Some(14)).central_nervous_system,
+            Some(1)
+        );
+        assert_eq!(
+            with(|i| i.glasgow_coma_scale = Some(5)).central_nervous_system,
+            Some(4)
+        );
+        assert_eq!(
+            with(|i| i.glasgow_coma_scale = Some(2)).central_nervous_system,
+            None,
+            "a GCS below 3 is not a GCS"
+        );
+
+        assert_eq!(with(|i| i.creatinine_mg_dl = Some(1.1)).renal, Some(0));
+        assert_eq!(with(|i| i.creatinine_mg_dl = Some(5.0)).renal, Some(4));
+    }
+
+    #[test]
+    fn sofa_respiration_needs_support_for_its_top_two_tiers() {
+        let ratio_only = sofa_score(&SofaInputs {
+            pao2_fio2: Some(90.0),
+            respiratory_support: false,
+            ..Default::default()
+        });
+        assert_eq!(ratio_only.respiration, Some(2), "no support caps it at 2");
+
+        let ventilated = sofa_score(&SofaInputs {
+            pao2_fio2: Some(90.0),
+            respiratory_support: true,
+            ..Default::default()
+        });
+        assert_eq!(ventilated.respiration, Some(4));
+    }
+
+    #[test]
+    fn sofa_cardiovascular_is_about_vasopressors_not_just_pressure() {
+        // The in-browser version scored only `map < 70 -> 1` and said so in a
+        // comment. A patient on high-dose noradrenaline scored the same as one
+        // with a slightly soft pressure and no support.
+        let soft_pressure = sofa_score(&SofaInputs {
+            mean_arterial_pressure: Some(65.0),
+            ..Default::default()
+        });
+        assert_eq!(soft_pressure.cardiovascular, Some(1));
+
+        let high_dose = sofa_score(&SofaInputs {
+            mean_arterial_pressure: Some(65.0),
+            vasopressors: VasopressorSupport {
+                noradrenaline_mcg_kg_min: Some(0.3),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_eq!(high_dose.cardiovascular, Some(4));
+        assert_eq!(
+            high_dose.total - soft_pressure.total,
+            3,
+            "three SOFA points, and the definition of septic shock"
+        );
+
+        let dobutamine = sofa_score(&SofaInputs {
+            mean_arterial_pressure: Some(75.0),
+            vasopressors: VasopressorSupport {
+                dobutamine_any_dose: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert_eq!(dobutamine.cardiovascular, Some(2), "any dose scores 2");
+    }
+
+    #[test]
+    fn sofa_renal_takes_the_worse_of_creatinine_and_urine_output() {
+        let both = sofa_score(&SofaInputs {
+            creatinine_mg_dl: Some(1.3),
+            urine_output_ml_24h: Some(150.0),
+            ..Default::default()
+        });
+        assert_eq!(both.renal, Some(4), "anuria outweighs a mild creatinine");
+
+        let urine_only = sofa_score(&SofaInputs {
+            urine_output_ml_24h: Some(400.0),
+            ..Default::default()
+        });
+        assert_eq!(urine_only.renal, Some(3));
+    }
+
+    #[test]
+    fn a_maximal_sofa_is_twenty_four() {
+        let worst = sofa_score(&SofaInputs {
+            pao2_fio2: Some(50.0),
+            respiratory_support: true,
+            platelets: Some(10.0),
+            bilirubin_mg_dl: Some(20.0),
+            mean_arterial_pressure: Some(50.0),
+            vasopressors: VasopressorSupport {
+                noradrenaline_mcg_kg_min: Some(0.5),
+                ..Default::default()
+            },
+            glasgow_coma_scale: Some(3),
+            creatinine_mg_dl: Some(6.0),
+            urine_output_ml_24h: Some(100.0),
+        });
+        assert_eq!(worst.total, 24);
+        assert_eq!(worst.systems_measured, 6);
+    }
+
+    #[test]
+    fn degree_and_onset_separate_the_two_families_a_count_could_not() {
+        // The case the old count model got backwards, in both directions.
+
+        // A mother and a sister with breast cancer at 40. Two first-degree
+        // relatives, both early onset: (2 x 2) + (2 x 2) = 8.
+        let strong = [relative("mother", Some(40)), relative("sister", Some(42))];
+        let strong = family_history_assessment(&strong);
+        assert_eq!(strong.score, 8.0);
+        assert_eq!(strong.band, "genetics_referral");
+        assert_eq!(strong.first_degree_affected, 2);
+        assert_eq!(strong.early_onset_affected, 2);
+
+        // Three second cousins with type 2 diabetes in their sixties.
+        // 0.5 x 3 = 1.5, and no multiplier.
+        let weak = [
+            relative("cousin", Some(61)),
+            relative("maternal-cousin", Some(64)),
+            relative("paternal-cousin", Some(68)),
+        ];
+        let weak = family_history_assessment(&weak);
+        assert_eq!(weak.score, 1.5);
+        assert_eq!(weak.band, "standard_care");
+
+        // The count model said the opposite: 2 was "MODERATE" and 3 was "HIGH".
+        assert!(
+            strong.score > weak.score,
+            "two early first-degree relatives must outweigh three late third-degree ones"
+        );
+    }
+
+    #[test]
+    fn early_onset_doubles_a_relative_and_late_onset_does_not() {
+        assert_eq!(
+            family_history_assessment(&[relative("father", Some(45))]).score,
+            4.0
+        );
+        assert_eq!(
+            family_history_assessment(&[relative("father", Some(70))]).score,
+            2.0
+        );
+        // 50 is not early: the threshold is "under 50".
+        assert_eq!(
+            family_history_assessment(&[relative("father", Some(50))]).score,
+            2.0
+        );
+        // An unknown onset weighs as recorded, without the multiplier.
+        assert_eq!(
+            family_history_assessment(&[relative("father", None)]).score,
+            2.0
+        );
+    }
+
+    #[test]
+    fn bands_sit_at_their_published_boundaries() {
+        // One late first-degree relative: 2.0, the first enhanced-screening score.
+        assert_eq!(
+            family_history_assessment(&[relative("mother", None)]).band,
+            "enhanced_screening"
+        );
+        // One late second-degree relative: 1.0.
+        assert_eq!(
+            family_history_assessment(&[relative("paternal-aunt", None)]).band,
+            "standard_care"
+        );
+        // One early first-degree relative: 4.0, the first referral score.
+        assert_eq!(
+            family_history_assessment(&[relative("mother", Some(38))]).band,
+            "genetics_referral"
+        );
+        assert_eq!(family_history_assessment(&[]).band, "standard_care");
+        assert_eq!(family_history_assessment(&[]).score, 0.0);
+    }
+
+    #[test]
+    fn an_unrecognised_relationship_is_counted_but_not_scored() {
+        // Guessing a degree is wrong in both directions: too low misses a
+        // referral, too high makes the prompt noise. The count is surfaced so a
+        // reader knows the score is incomplete.
+        let mixed = [
+            relative("mother", Some(40)),
+            relative("family friend", Some(40)),
+        ];
+        let result = family_history_assessment(&mixed);
+        assert_eq!(result.score, 4.0, "only the mother is scored");
+        assert_eq!(result.unscored_relatives, 1);
+        assert_eq!(result.first_degree_affected, 1);
+    }
+
+    #[test]
+    fn half_siblings_are_second_degree() {
+        // They share a quarter of the genome, not half — the same as a
+        // grandparent or an aunt.
+        assert_eq!(
+            family_history_assessment(&[relative("half-sister", None)]).score,
+            SECOND_DEGREE_POINTS
+        );
+        assert_eq!(
+            family_history_assessment(&[relative("sister", None)]).score,
+            FIRST_DEGREE_POINTS
+        );
     }
 
     #[test]
@@ -714,10 +1782,18 @@ mod tests {
         let c = catalog();
         assert_eq!(c["morse_fall_scale"]["bands"][1]["min"], 25);
         assert_eq!(c["burn"]["parkland_ml_per_kg_per_percent"], 4.0);
+        assert_eq!(c["burn"]["lund_browder"]["regions"][0]["id"], "head");
+        assert_eq!(
+            c["burn"]["lund_browder"]["regions"][0]["percent_by_age_band"][0],
+            19.0
+        );
         assert_eq!(c["burn"]["severity"]["major_tbsa_percent"], 25.0);
         assert_eq!(c["timi"]["troponin_threshold_ng_ml"], 0.04);
         assert_eq!(c["start_triage"]["respiratory_rate_immediate_above"], 30);
         assert_eq!(c["catheter_dwell_hours"]["peripheral"], 96);
+        assert_eq!(c["family_history"]["early_onset_age_years"], 50);
+        assert_eq!(c["sofa"]["max_total"], 24);
+        assert_eq!(c["family_history"]["points"]["first_degree"], 2.0);
         assert_eq!(c["medication"]["overdue_after_minutes"], 30);
         assert_eq!(c["fluid_balance"]["positive_high_ml"], 1000);
         assert_eq!(c["fluid_balance"]["bands"][0]["level"], "negative");

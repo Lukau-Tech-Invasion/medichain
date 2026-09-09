@@ -106,7 +106,16 @@ export const API_CONFIG = {
   /** WebSocket URL for Substrate node */
   SUBSTRATE_WS_URL: detectSubstrateWsUrl(),
   
-  /** Health check endpoint */
+  /**
+   * Health check endpoint.
+   *
+   * `/api/health`, not `/health`: a browser only ever reaches the API through
+   * the one path prefix each deployment proxies — nginx has `location /api/`,
+   * the Vite dev server proxies `/api`. `/health` exists on the API for
+   * orchestration probes, but from a page it resolved to nginx's 404 and to the
+   * dev server's own `index.html` (a 200, so "healthy" whatever the API was
+   * doing). The API answers this path too; see `api_health_check`.
+   */
   HEALTH_ENDPOINT: '/api/health',
 };
 

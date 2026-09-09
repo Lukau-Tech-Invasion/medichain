@@ -6,7 +6,6 @@ import {
   FileText,
   Plus,
   Search,
-  Edit,
   Copy,
   Trash2,
   User,
@@ -65,8 +64,6 @@ const OrderSetsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'templates'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<OrderSetType | 'all'>('all');
-  const [_selectedSet, setSelectedSet] = useState<OrderSet | null>(null);
-  const [_showEditModal, setShowEditModal] = useState(false);
   const [newOrderSet, setNewOrderSet] = useState<Partial<OrderSet>>({
     name: '',
     type: 'admission',
@@ -407,16 +404,6 @@ const OrderSetsPage: React.FC = () => {
                         >
                           <Copy className="w-4 h-4" />
                           {t('docOrderSets.duplicateButton')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedSet(set);
-                            setShowEditModal(true);
-                          }}
-                          className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Edit className="w-4 h-4" />
-                          {t('docOrderSets.editButton')}
                         </button>
                         <button
                           onClick={() => handleDeleteSet(set.setId)}

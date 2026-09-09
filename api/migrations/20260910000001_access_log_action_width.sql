@@ -1,0 +1,40 @@
+-- `access_logs.action` was narrower than its own CHECK constraint.
+--
+-- The column has been VARCHAR(32) since 20260123000001, when the whole
+-- vocabulary was 'View', 'Create', 'Update', 'Delete', 'Export', 'Print',
+-- 'EmergencyAccess' — the longest of which is fifteen characters. Every
+-- migration since has added names to the CHECK constraint without ever asking
+-- whether the column could hold them, and five now cannot be stored at all:
+--
+--     35  prescription_verification_requested
+--     34  prescription_verification_approved
+--     34  prescription_verification_rejected
+--     33  prescription_verification_expired
+--     33  prescription_verification_revoked
+--
+-- So the schema contradicted itself: the constraint declared these values
+-- permitted and the column rejected them with
+--
+--     value too long for type character varying(32)
+--
+-- What that cost: the audit write is part of the same transaction as the
+-- secondary-verification state change, so the transaction rolled back and the
+-- endpoint answered `503 PRESCRIPTION_PERSISTENCE_FAILED`. **The entire
+-- maker-checker second-pharmacist verification workflow was unusable on
+-- PostgreSQL** — a pharmacist could never request a second verifier, so a
+-- prescription requiring one could never be dispensed. Six assertions in
+-- `scripts/synthetic-e2e-test.sh` fail on the PostgreSQL leg and pass on the
+-- memory leg, which enforces no column widths, and 593 API tests pass because
+-- none of them exercises this path against a real column.
+--
+-- 64, not 35: the same width `transaction_authorization.action` already uses,
+-- and headroom for the next verb rather than the next migration like this one.
+-- `check-audit-action-vocabulary.py` now fails the build when any permitted
+-- value exceeds the declared width, so the constraint and the column cannot
+-- drift apart again.
+--
+-- Widening a VARCHAR takes no table rewrite in PostgreSQL and no existing row
+-- is affected: no row can be longer than 32 characters, because the column
+-- refused them.
+
+ALTER TABLE access_logs ALTER COLUMN action TYPE VARCHAR(64);

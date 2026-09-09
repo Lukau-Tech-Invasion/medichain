@@ -15,12 +15,18 @@ use super::*;
 /// One charted body region on the burn diagram.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct BurnAreaInput {
-    /// Region id from the body chart (`head`, `right-arm`, ...).
+    /// Lund-Browder region id (`head`, `right_forearm`, ...).
     #[serde(alias = "regionId")]
     pub region_id: String,
-    /// Percentage of total body surface this region contributes.
-    #[serde(default)]
-    pub percentage: f64,
+    /// How much of **this region** is burned, 0-100.
+    ///
+    /// Not a share of the whole body. The region's size at the patient's age is
+    /// applied here, so the clinician charts "the front half of the left
+    /// forearm" and never multiplies anything. It used to be a share of the
+    /// whole body, which made the clinician do that multiplication against a
+    /// denominator the page had already chosen wrongly for children.
+    #[serde(default, alias = "fractionBurned", alias = "percentage")]
+    pub percent_of_region: f64,
     /// Burn depth charted for the region.
     #[serde(default)]
     pub depth: Option<String>,
@@ -197,9 +203,40 @@ pub async fn create_burn(
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("BRN-{}", uuid::Uuid::new_v4().simple());
 
+    // The Lund-Browder column, from the patient's date of birth.
+    //
+    // There is no safe default. Taking the adult column for an unknown age
+    // charts a burned infant's head at 7% when it is 19%, and TBSA is what the
+    // fluid order is computed from — so an unchartable patient is refused
+    // rather than charted against the wrong denominator.
+    let patient = match data.repositories.patients.get_by_id(&body.patient_id).await {
+        Ok(entity) => entity,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let age_years = crate::patient_entity_to_profile(&patient, &data.encryption_keyring)
+        .and_then(|profile| crate::clinical_scoring::years_since(&profile.date_of_birth, now));
+    let Some(band) = age_years.and_then(crate::clinical_scoring::lund_browder_band) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "The patient's date of birth is needed to chart a burn: body                     proportions change with age, and the total drives the fluid order"
+                .to_string(),
+            code: "AGE_REQUIRED".to_string(),
+        });
+    };
+
     // Everything from here to the entity is derived, not accepted.
-    let percentages: Vec<f64> = body.areas.iter().map(|a| a.percentage).collect();
-    let tbsa = crate::clinical_scoring::total_tbsa(&percentages);
+    let charted: Vec<(String, f64)> = body
+        .areas
+        .iter()
+        .map(|a| (a.region_id.clone(), a.percent_of_region / 100.0))
+        .collect();
+    let tbsa = crate::clinical_scoring::lund_browder_tbsa(&charted, band);
     let fluid = body
         .weight
         .and_then(|w| crate::clinical_scoring::parkland_fluid(w, tbsa));
@@ -285,6 +322,12 @@ pub async fn create_burn(
             // calculation — but it still has to be told the answer, because the
             // answer is a fluid order.
             "total_bsa_percent": tbsa,
+            // Which column the body was charted against, so the record and the
+            // page agree on what "30%" meant.
+            "lund_browder_band": band,
+            "lund_browder_band_label":
+                crate::clinical_scoring::LUND_BROWDER_BAND_LABELS[band],
+            "patient_age_years": age_years,
             "severity": severity,
             "parkland_fluid": fluid,
             "transfer_to_burn_center": transfer_to_burn_center,

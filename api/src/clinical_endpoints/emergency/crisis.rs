@@ -227,19 +227,6 @@ fn normalise_cardiac_event_type(raw: &str) -> &'static str {
     }
 }
 
-/// Whole years between a `YYYY-MM-DD` date of birth and now.
-fn years_since(date_of_birth: &str, now: chrono::DateTime<chrono::Utc>) -> Option<i64> {
-    use chrono::Datelike;
-    let dob = chrono::NaiveDate::parse_from_str(date_of_birth, "%Y-%m-%d").ok()?;
-    let today = now.date_naive();
-    let mut years = i64::from(today.year() - dob.year());
-    // Not yet had this year's birthday.
-    if (today.month(), today.day()) < (dob.month(), dob.day()) {
-        years -= 1;
-    }
-    Some(years)
-}
-
 /// Create cardiac event record
 #[post("/api/emergency/cardiac")]
 pub async fn create_cardiac(
@@ -271,7 +258,7 @@ pub async fn create_cardiac(
     // boundary the criterion is about.
     let age_65_or_over = match data.repositories.patients.get_by_id(&body.patient_id).await {
         Ok(patient) => crate::patient_entity_to_profile(&patient, &data.encryption_keyring)
-            .and_then(|p| years_since(&p.date_of_birth, now))
+            .and_then(|p| crate::clinical_scoring::years_since(&p.date_of_birth, now))
             .map(|years| years >= 65)
             .unwrap_or(false),
         Err(_) => {

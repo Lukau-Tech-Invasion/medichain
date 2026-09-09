@@ -59,6 +59,29 @@ impl Role {
         matches!(self, Role::Doctor | Role::Nurse)
     }
 
+    /// May this role perform laboratory work?
+    ///
+    /// Specimen collection, specimen rejection, chain of custody, quality
+    /// control and the recording of critical values. These are the laboratory's
+    /// own functions, and every one of them was gated on
+    /// `can_edit_medical_records` — `Doctor | Nurse` — so **a lab technician
+    /// could not record a specimen collection, reject a specimen, or file a QC
+    /// run**. Quality control is the starkest: nobody but the lab does it.
+    ///
+    /// This is the same defect as the pharmacist read gate fixed on 2026-09-09
+    /// (`handlers/lab.rs` gated a *read* on the *edit* predicate, excluding the
+    /// pharmacists who need to see a result before dispensing against it): a
+    /// question about who does a job, answered with a predicate about who edits
+    /// a clinical record.
+    ///
+    /// Doctors and nurses keep it because ward-side collection is routine —
+    /// a nurse draws bloods. `Admin` is excluded for the separation-of-duties
+    /// reason recorded on `can_edit_medical_records`: the account that grants
+    /// roles does not also produce laboratory records.
+    pub fn can_perform_laboratory_work(&self) -> bool {
+        matches!(self, Role::Doctor | Role::Nurse | Role::LabTechnician)
+    }
+
     /// Check if this role can view medical records (all healthcare providers can read)
     pub fn can_view_medical_records(&self) -> bool {
         matches!(
@@ -646,6 +669,35 @@ mod role_authority_tests {
     /// `handlers/lab.rs` gated a *read* on `can_edit_medical_records` against a
     /// comment that said "healthcare provider", so it had always excluded
     /// pharmacists — who need to see a lab result before dispensing against it.
+    #[test]
+    fn a_lab_technician_can_do_laboratory_work() {
+        assert!(
+            Role::LabTechnician.can_perform_laboratory_work(),
+            "specimen collection, rejection, chain of custody and QC are the              laboratory's own functions; these were gated on              can_edit_medical_records, which excludes the lab entirely"
+        );
+        assert!(
+            Role::Nurse.can_perform_laboratory_work(),
+            "a nurse draws bloods"
+        );
+        assert!(Role::Doctor.can_perform_laboratory_work());
+
+        assert!(
+            !Role::Admin.can_perform_laboratory_work(),
+            "same separation of duties as can_edit_medical_records: the account              that grants roles does not also produce laboratory records"
+        );
+        assert!(!Role::Pharmacist.can_perform_laboratory_work());
+        assert!(!Role::Patient.can_perform_laboratory_work());
+    }
+
+    #[test]
+    fn laboratory_work_is_not_the_same_question_as_editing_a_record() {
+        // The bug this predicate exists to prevent coming back: a lab
+        // technician does laboratory work and does not edit clinical records,
+        // and one predicate cannot answer both.
+        assert!(Role::LabTechnician.can_perform_laboratory_work());
+        assert!(!Role::LabTechnician.can_edit_medical_records());
+    }
+
     #[test]
     fn pharmacists_and_lab_technicians_can_read_but_not_write() {
         for role in [Role::Pharmacist, Role::LabTechnician] {

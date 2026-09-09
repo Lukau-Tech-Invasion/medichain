@@ -46,6 +46,7 @@ AUTH_MARKERS = [
 # justified — every addition is a decision to expose an endpoint unauthenticated.
 PUBLIC_ROUTES = {
     '/health': 'liveness probe, no data',
+    '/api/health': 'the same liveness probe on the prefix a browser can reach, no data',
     '/health/ready': 'readiness probe, no data',
     '/health/db': 'DB liveness, no patient data',
     '/api/health/detailed': 'aggregate health, no patient data',

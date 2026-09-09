@@ -17,7 +17,7 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-08-25.
+Last updated: 2026-09-10.
 
 ---
 
@@ -1178,7 +1178,7 @@ bitten by.
 
 ---
 
-## Burn TBSA uses Rule of 9s where paediatric burns need Lund-Browder
+## Burn TBSA uses Rule of 9s where paediatric burns need Lund-Browder (CLOSED 2026-09-09)
 
 **Where:** `client/doctor-portal/src/pages/BurnPage.tsx` — `bodyRegions` (line ~85)
 and the `isChild` toggle (line ~113, applied at line ~588).
@@ -1509,7 +1509,7 @@ Two cases it deliberately does not guess at, documented in the script:
 Self-falsified before being trusted: removing the variables from one live call
 site made it fail with that exact line, and it passed again once restored.
 
-## Test schemas are never dropped (2026-08-19)
+## Test schemas are never dropped (2026-08-19, ALREADY FIXED - entry was stale)
 
 28 `medichain_test_*` schemas were present again and the dev database had grown
 to 815 MB. Test teardown creates them and does not drop them; a previous cleanup
@@ -1530,7 +1530,7 @@ now take DTOs matching the actual form bodies.
 
 Remove them once someone confirms nothing intends to use the structured shapes.
 
-## `Pagination::default()` means "return nothing" (2026-08-26)
+## `Pagination::default()` means "return nothing" (2026-08-26, CLOSED 2026-09-09)
 
 `Pagination` derives `Default`, which gives `page: 0, per_page: 0`. `limit()`
 returns `per_page.min(MAX_PER_PAGE)` — so 0 — and every paginated repository
@@ -1543,11 +1543,13 @@ written on 2026-08-26, which failed for precisely this reason and cost time to
 diagnose. It is recorded rather than fixed because the safe change is a
 behavioural one to a shared type, and this register is where those wait.
 
-The options, when someone picks it up: make `Default` return a usable first page
-(`per_page: 50`), or drop the derive so callers must state a page size. Dropping
-it is the stricter choice and, with one call site, the cheaper one.
+**Resolved by dropping the derive**, which was the stricter of the two options
+and, with one call site, the cheaper. `Pagination::first_page(size)` covers "the
+first screenful" without inventing a silent constant — there is no page size
+that is right by default, and `new(page, size)` makes every caller say which it
+wants.
 
-## `connectWallet()` hardcodes demo mode and has no callers (2026-08-26, half closed 2026-09-09)
+## `connectWallet()` hardcodes demo mode and has no callers (2026-08-26, CLOSED 2026-09-09)
 
 `client/shared/src/wallet/service.ts` contains:
 
@@ -1593,6 +1595,626 @@ confirmation, and it is now inert rather than quietly wrong.
 `useState({...})` initialisers and cannot see a bare `const X = true` inside a
 function body, so this defect class has a blind spot the size of every module-
 level and function-level constant in the codebase.
+
+---
+
+## The browser suites run, and the sign-in diagnosis was wrong (2026-09-09, round three)
+
+The entry above ends with "compare the `identifier` the browser posts to
+`/auth/staff/login` against the one `enrolCredentials` stored". Doing that found
+nothing to compare, because the premise was wrong.
+
+`STAFF_LOGIN_UNKNOWN identifier_hash=…`, the same hash every time, was the
+suite's own negative test:
+
+```ts
+// login.spec.ts — "should show error for invalid credentials"
+await page.locator('input#identifier').fill('no.such.person');
+```
+
+One identifier, posted once per run, hashing to one value. It was evidence that
+the suite was working, read as evidence that it was broken. **A log line that
+recurs identically is as likely to be one deliberate caller as one broken one**,
+and the way to tell is to look for a caller that would produce it.
+
+**What was actually wrong was the database, and it was upstream of the browser.**
+`GET /api/auth/demo-credentials` answered:
+
+```
+503  {"code":"AUTH_STORAGE_REQUIRED"}
+```
+
+`data.db_pool` was `None`. The API had come up before PostgreSQL was accepting
+connections, exhausted its twelve retries, printed its `[DEGRADED]` banner and
+fallen back to **empty in-memory storage** — which is the documented demo-mode
+behaviour and is loud in the log, but leaves a stack whose containers are all
+`healthy` and whose every credential is gone. Restarting the API alone fixed it.
+
+With a database behind it the suites pass: **50 of 51**, and the one failure is a
+real contrast defect recorded below rather than anything to do with sign-in. The
+`playwright.local-api.config.ts` from the entry above is what makes this
+runnable; `scripts/run-browser-e2e-api.sh` is new and assembles the four
+environment variables that were the actual barrier to anyone running it —
+PostgreSQL, `MEDICHAIN_DEV_MODE`, `DISPENSING_POLICY_PATH`, and an
+`ENCRYPTION_KEYS` matching whatever sealed the rows already in that database.
+
+The rate limiter did not bite. A full serial run is 7.7 minutes for 51 tests, and
+the 60/minute anonymous bucket was never the constraint it was recorded as; the
+46 refusals in the earlier run were a re-run inside a window that had already
+been spent.
+
+---
+
+## An idle connection held the migration lock, and the test suite stopped dead (2026-09-09)
+
+The API test run hung at 387 of 591 tests. Not slow — stopped, with one backend
+waiting:
+
+```
+ pid  | state  | wait_event_type | wait_event |              query
+ 1004 | active | Lock            | advisory   | SELECT pg_advisory_lock($1)
+  822 | idle   |                 |            | SELECT * FROM appointments ORDER BY ...
+```
+
+PID 822 held the lock and was **idle**. It belonged to the API container, whose
+image predated three migrations added that day, so its migration chain failed:
+
+```
+migration 20260909000001 was previously applied but is missing in the resolved migrations
+```
+
+`sqlx::migrate::Migrator::run_direct` takes a session-level advisory lock first
+and releases it **last**:
+
+```rust
+if self.locking { conn.lock().await?; }
+…
+let version = conn.dirty_version().await?;
+if let Some(version) = version { return Err(MigrateError::Dirty(version)); }
+let applied = conn.list_applied_migrations().await?;
+validate_applied_migrations(&applied, self)?;      // ← returned here
+…
+if self.locking { conn.unlock().await?; }          // ← never reached
+```
+
+Every early return skips the unlock. Handed a `&PgPool`, sqlx borrows a *pooled*
+connection, so that connection went back into the pool still holding it — and a
+session-level lock is held until the session ends, which for a pooled connection
+means for the life of the process.
+
+**Nothing about that process looks wrong.** It starts, serves traffic, and prints
+its migration warning. What breaks is every *other* process that migrates the
+same database: the next replica in a rolling deploy, or the test suite creating
+its schema, blocks inside `pg_advisory_lock` with no error, no timeout and
+nothing in its own logs to explain the wait. Two days of "the Postgres tests are
+slow on this machine" would look exactly like this.
+
+`run_migrations` now takes the connection out of the pool and closes it whatever
+happens:
+
+```rust
+let mut conn = pool.acquire().await.map_err(MigrateError::Execute)?.detach();
+let result = sqlx::migrate!("./migrations").run(&mut conn).await;
+if let Err(e) = conn.close().await { log::warn!("…") }
+result?
+```
+
+`detach()` means the connection can never be handed out again; closing it ends
+the session, which releases any lock sqlx left behind. The migration outcome is
+still returned unchanged — the point is that a failed migration now costs this
+process a warning instead of costing every future one its startup.
+
+The sibling in `repositories/postgres/tests.rs` was checked and is already safe:
+its admin pool is `max_connections(1)`, so its lock and unlock are guaranteed to
+be the same session.
+
+---
+
+## `/api/health` was never a route (2026-09-09)
+
+`API_CONFIG.HEALTH_ENDPOINT` has always been `/api/health`. The API serves
+`/health`. Nothing connected the two:
+
+```
+/health                 200
+/api/health             404
+```
+
+Both portals poll it — `useApiStatus` every few seconds, and
+`authStore.checkConnection` behind the "Retry" button — so the connection
+indicator read **disconnected permanently**, on a stack answering every other
+request normally, and the retry button could never clear it. A user watching that
+indicator would conclude the system was down while their records saved fine.
+
+Worse in development: the Vite dev server proxies `/api` and serves the SPA for
+everything else, so `/api/health` returned `index.html` — a **200**, and
+therefore "healthy" no matter what the API was doing. The check was wrong in both
+directions depending on where it ran, which is why neither symptom ever got
+attributed to it.
+
+The fix is a second registration rather than a moved one. `/health` is what the
+compose healthcheck and nginx's `location = /health` name, and orchestration
+should not be re-pointed to suit a browser. `/api/health` exists now because
+**the `/api` prefix is the only path a browser can reach the API through** in
+every deployment shape — nginx proxies `location /api/`, the dev server proxies
+`/api`, and anything outside it is not routed to the API at all.
+
+Deliberately the liveness payload and not the readiness one: the indicator claims
+"the browser can reach the API", which is what this answers. Storage degradation
+belongs to `/health/ready` and `/health/db`, which report it rather than folding
+it into one green dot.
+
+---
+
+## A green card that had no band to make the claim (2026-09-09)
+
+The Nurse route sweep found `/intake-output` in dark mode failing WCAG AA on 200
+of 1134 sampled elements — grey `text-content-muted` on a green `bg-ok-subtle`
+card at **3.59:1**, where AA wants 4.5:1.
+
+The colour was a symptom. `getBalanceStatus` derives the fluid-balance band from
+the scoring catalog, and its no-catalog branch returns `text-content-muted` and
+the label `—` precisely so the page makes no claim it cannot support. But the
+card's *background* was picked separately, from literals:
+
+```tsx
+patient.netBalance > 500 ? 'bg-critical-subtle'
+  : patient.netBalance < -500 ? 'bg-notice-subtle'
+  : 'bg-ok-subtle'
+```
+
+A second copy of the ward policy the comment three lines above says must not live
+in a component — and one that disagreed with the first whenever the catalog had
+not loaded. The result was a green "this patient's fluid balance is fine" card
+carrying placeholder text, which is a stronger claim than the one the code was
+carefully avoiding making. The contrast failure is what made it visible.
+
+`surface` now travels with `color` out of the same switch, so background and text
+always name the same band, and the no-band case is a neutral
+`bg-surface-sunken` (7.2:1 with muted text in dark mode). The same literals in
+the patient-detail modal went with it.
+
+Worth generalising: **a colour pair chosen in two places is a claim made twice**,
+and the contrast gate is the only thing that notices when the two disagree.
+
+---
+
+## The audit column was narrower than its own vocabulary (2026-09-10)
+
+The PostgreSQL leg of `synthetic-e2e-test.sh` failed six assertions the memory
+leg passed. The first was the only real one; the other five were its wake:
+
+```
+FAIL | first pharmacist requests a second verifier | want 200 got 503
+     | {"code":"PRESCRIPTION_PERSISTENCE_FAILED"}
+```
+
+In the API log:
+
+```
+Secondary verification transition failed: Database error:
+value too long for type character varying(32)
+```
+
+`access_logs.action` has been `VARCHAR(32)` since the first clinical migration,
+when the whole vocabulary was `View`, `Create`, `Update`, `Delete`, `Export`,
+`Print`, `EmergencyAccess` — fifteen characters at the longest. Every migration
+since has added names to the CHECK constraint without asking whether the column
+could hold them. Five now cannot be stored at all:
+
+| chars | value |
+|---:|---|
+| 35 | `prescription_verification_requested` |
+| 34 | `prescription_verification_approved` |
+| 34 | `prescription_verification_rejected` |
+| 33 | `prescription_verification_expired` |
+| 33 | `prescription_verification_revoked` |
+
+**The schema contradicted itself**: the constraint declared these permitted and
+the column refused them. And the audit row shares a transaction with the state
+change it records — correctly, since an unrecorded controlled-substance decision
+is worse than a refused one — so the whole transaction rolled back. **The
+maker-checker second-pharmacist verification workflow was unusable on
+PostgreSQL.** A pharmacist could never request a second verifier, so a
+prescription whose policy required one could never be dispensed at all.
+
+Three things had to be wrong at once for this to survive:
+
+1. **The memory backend enforces no column widths**, so the memory leg of the
+   same harness scored 247/0 against the PostgreSQL leg's 247/6.
+2. **`check-audit-action-vocabulary.py` only checked membership.** It proves
+   `written ⊆ constraint` from the Rust source and did so correctly — these five
+   values *are* in the constraint. It never asked whether a permitted value fits
+   the column.
+3. **`test_pg_access_log_accepts_every_action_the_handlers_write` compared a
+   hand-copy to the constraint** — the exact weakness the gate's own docstring
+   describes for a different case. Its list was missing all five values, so
+   there was nothing to reject; and its `action.len() <= 32` assertion passed
+   for the same reason.
+
+Fixed in three places, because any one of them alone leaves the trap set:
+
+* **Migration 20260910000001** widens the column to `VARCHAR(64)` — the width
+  `transaction_authorization.action` already uses. No table rewrite, and no
+  existing row is affected: no row could be longer than 32, because the column
+  refused them.
+* **The gate now reads the declared width** from the migrations and fails when
+  any *permitted* value exceeds it — across the whole vocabulary, not only what
+  handlers write today, because a name the column cannot hold is a trap for the
+  next handler either way. Verified by removing the migration and watching it
+  name all five.
+* **The test now derives its vocabulary from the live constraint** and its width
+  from the live column, and inserts every permitted value. The hand-copied list
+  is gone. The invariant it proves is `constraint ⊆ storable`, against the real
+  schema rather than a copy of it; the gate proves `written ⊆ constraint` from
+  source. Between them the loop closes.
+
+After the migration the PostgreSQL leg is **253/0**.
+
+Worth generalising, and it is the same lesson as the pharmacist and lab-technician
+gates: **a mirror of the thing under test cannot detect an omission the two
+share.** Both the test's list and the constraint had been updated by whoever
+added the feature; what nobody updated was the column, and nothing was reading
+the column.
+
+---
+
+## The two synthetic runners disagreed about dev mode (2026-09-10)
+
+`scripts/run-synthetic-local.sh` set `IS_DEMO=true` and not
+`MEDICHAIN_DEV_MODE`. Its PostgreSQL sibling set both. The demo-only routes are
+gated on **both**, deliberately, so that enabling them is two acts rather than
+one omission — which meant the memory leg of `synthetic-e2e-test.sh` failed five
+assertions the PostgreSQL leg passed, for a reason that had nothing to do with
+storage.
+
+The harness needs `POST /api/auth/demo-login` to stand up a *second*
+administrator: retention approval is maker-checker controlled, so the
+administrator who requests a token must not be the one who decides it. Without
+dev mode that call is a deliberate 403, and the cascade's loudest symptom was
+four assertions later:
+
+```
+approval is not executable: status 'pending', executed_at None
+```
+
+— which points at the approval workflow rather than at a missing environment
+variable. The runner sets it now, with the reason written down beside it.
+
+Memory leg after the fix: **247/0**.
+
+---
+
+## A lab technician could not do laboratory work (2026-09-09)
+
+Found by trying to run the browser suites against a locally built API — the
+fixture seeder they depend on failed at its first laboratory step:
+
+```
+FAILED: collect Original specimen for recollection journey
+  HTTP 403  {"code":"INSUFFICIENT_ROLE"}
+```
+
+The actor is the seeded **LabTechnician**. Five endpoints in
+`clinical_endpoints/lab.rs` gated on `can_edit_medical_records()`, which is
+`Doctor | Nurse`:
+
+| Endpoint | Who actually does this |
+|---|---|
+| `create_specimen` | phlebotomy — ward *or* lab |
+| `create_specimen_rejection` | the lab, and only the lab |
+| `create_chain_of_custody` | the lab |
+| `create_lab_qc` | the lab, and only the lab |
+| `create_critical_value` | the lab, which then calls the clinician |
+
+`create_lab_qc` is the starkest: laboratory quality control is not something a
+doctor or nurse does, and the only role that does it was refused.
+
+**This is the same defect as the pharmacist read gate closed earlier the same
+day** — `handlers/lab.rs` gated a *read* on `can_edit_medical_records` under a
+comment saying "healthcare provider", excluding the pharmacists who need to see
+a result before dispensing against it. Same shape: a question about **who does a
+job**, answered with a predicate about **who edits a clinical record**.
+
+It is not a regression from removing `Admin` from `can_edit_medical_records`:
+`LabTechnician` was never in that set. It has been this way for as long as the
+predicate has.
+
+**The fix** is a predicate that names its own question.
+`Role::can_perform_laboratory_work()` is `Doctor | Nurse | LabTechnician`:
+
+* the lab, obviously;
+* doctors and nurses, because ward-side collection is routine — a nurse draws
+  bloods;
+* **not `Admin`**, for the separation-of-duties reason recorded on
+  `can_edit_medical_records`: the account that grants and revokes roles does not
+  also produce laboratory records;
+* not `Pharmacist`, who reads results but does not produce them.
+
+Two tests pin it, beside the existing `role_authority_tests`. The second exists
+to stop the collapse happening again:
+
+```rust
+assert!(Role::LabTechnician.can_perform_laboratory_work());
+assert!(!Role::LabTechnician.can_edit_medical_records());
+```
+
+One predicate cannot answer both questions, and the moment it is asked to, one
+of the two answers is wrong.
+
+**Worth generalising:** `can_edit_medical_records` is doing duty as a
+catch-all "is this person clinical staff" gate across the codebase. Each such
+site is a question worth asking out loud — *who does this job?* — and the two
+found so far both had a different answer from "who edits a record".
+
+---
+
+## The browser suites only ever tested the stale image (2026-09-09)
+
+> **Superseded in part — see "The browser suites run, and the sign-in
+> diagnosis was wrong" above.** The config described here is right and is
+> still the way to run these suites. The failure analysis at the end of this
+> entry is not: the recurring `STAFF_LOGIN_UNKNOWN` was the suite's own
+> `no.such.person` negative test, and the real blocker was an API that had
+> degraded to empty in-memory storage. All 51 tests pass.
+
+`playwright.config.ts` sets `reuseExistingServer: !CI` and points the dev-server
+proxy at Nginx on `:80`. So a run adopts whatever dev server is already on 5173,
+proxying to whatever API that server was configured against — in practice the
+Docker image, which is days old. The suite goes green and green means "last
+week's image still works". A locally built change cannot be tested at all.
+
+`playwright.local-api.config.ts` binds its own port, sets its own proxy target
+and refuses to adopt a stray server:
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:8090 \
+  npx playwright test --config playwright.local-api.config.ts
+```
+
+**It is runnable now, and it does not pass here.** Reported honestly:
+
+* **9 failed, 42 never ran.** Every failure is sign-in; the 42 that did not run
+  are the route sweeps, so the suite gives **no signal about this campaign's
+  changes either way**.
+* The API is fine. The fixture seeder's own preflight signs in all seven
+  accounts against the same server (`✓ bt.doctor signs in`), and the browser's
+  request does reach the API — it is answered `STAFF_LOGIN_UNKNOWN`, the same
+  identifier hash every time.
+* So the browser posts an identifier the credential store does not hold, while
+  an identical API-level sign-in with the same `login_id` succeeds. That
+  discrepancy was not closed.
+
+**What running them needs**, all of which the suite documents and none of which
+the compose file supplies:
+
+1. `MEDICHAIN_DEV_MODE=1` — without it `GET /api/auth/demo-credentials` is a
+   deliberate 403 and no demo buttons render.
+2. `DISPENSING_POLICY_PATH` — without it the seeder's pharmacy journey dies with
+   `DISPENSING_POLICY_UNAVAILABLE`. `api/data/dispensing_policy.example.json`
+   works.
+3. Seeded fixtures — `scripts/seed-browser-test-fixtures.ts`.
+4. Patience with the rate limiter: every request comes from `127.0.0.1`, so the
+   whole suite shares one 60/minute bucket and a re-run inside the window fails
+   as navigation timeouts that read like application faults. 46 refusals were
+   logged across one run.
+
+**Next step for whoever picks this up:** compare the `identifier` the browser
+posts to `/auth/staff/login` against the one `enrolCredentials` stored. Both
+derive from `login_id` through the same `deriveCredential`, so they should agree
+and do not. Start by logging the identifier (not the proof) on both sides
+against a freshly seeded account.
+
+---
+
+## The owner's decisions, taken and applied (2026-09-09, round two)
+
+Everything the previous entries left "needs an owner decision" was authorised and
+is now done. What follows is what was decided and why, because the reasoning is
+the part worth keeping.
+
+### Paediatric burn charting: Lund-Browder, banded by date of birth — CLOSED
+
+Recorded above as *"Burn TBSA uses Rule of 9s where paediatric burns need
+Lund-Browder"*, and deferred because "Lund-Browder is not a different set of
+numbers for the same regions — it is a different region set."
+
+That was right, and it is what was built. `clinical_scoring::LUND_BROWDER_REGIONS`
+is nineteen regions against Rule of 9s' thirteen: each limb splits (upper arm /
+forearm / hand, thigh / lower leg / foot), the neck and buttocks separate, and
+the trunk charts 13% front and 13% back against 18% and 18%. Six age columns —
+0, 1, 5, 10, 15, adult — replace an `isChild` boolean.
+
+`lund_browder_columns_each_total_one_hundred` asserts every column sums to
+exactly 100. That is the invariant the deferral was protecting: Rule of 9s
+numbers dropped into this region set would fail it.
+
+**The age comes from the patient's date of birth, and there is no default.**
+`lund_browder_band` returns `Option`, and `create_burn` refuses a submission it
+cannot band with `400 AGE_REQUIRED`. Taking the adult column for an unknown age
+charts a burned infant's head at 7% when it is 19%, and TBSA is what the fluid
+order is computed from. A refusal is recoverable; a wrong denominator on a child
+is not.
+
+**The input changed too, and this is the part that removes the arithmetic from
+the clinician.** The form asked for each region's share of the *whole body* —
+"the front of the head, so 4.5%" — which is a multiplication done in the
+clinician's head against a denominator the page had already chosen wrongly. It
+now asks how much of *that region* is burned, and the server multiplies by the
+region's size at the patient's age. `the_same_burn_is_a_different_tbsa_at_a_different_age`
+pins what this was worth: a whole head and neck is 21% TBSA on an infant and 9%
+on an adult, which on realistic weights is a 840 mL against a 2520 mL first-day
+fluid order.
+
+`BurnPage.test.tsx` was rewritten with it, as this entry predicted it would need
+to be. Six tests now, including one asserting that a patient with no date of
+birth cannot be charted at all.
+
+### Hereditary risk: degree-weighted and onset-aware — CLOSED
+
+Recorded above as *"Family history banded hereditary risk on a raw count"*, with
+the model left open as "a clinical decision, not an engineering one".
+
+The decision taken: a **referral screen**, scored on the two things that actually
+separate an inherited pattern from an incidental one, both of which were already
+on file and neither of which the page was reading.
+
+* Degree: first-degree 2 points, second-degree 1, third-degree 0.5.
+* Age of onset under 50 doubles a relative's weight.
+* Bands name what to do — `standard_care`, `enhanced_screening`,
+  `genetics_referral` — rather than a probability the model cannot support.
+
+On the two cases the count model got backwards: a mother and sister with breast
+cancer at 40 now scores 8 and prompts a referral, where the count said MODERATE;
+three second cousins with type 2 diabetes in their sixties scores 1.5 and
+prompts nothing, where the count said HIGH and issued an automatic "consider
+genetic counseling".
+
+Three things it deliberately does not do:
+
+* **It does not guess an unrecognised relationship.** Those are counted in
+  `unscored_relatives` and surfaced, because guessing is wrong in both
+  directions — too low misses a referral, too high makes the prompt noise.
+* **It does not treat an unknown onset age as late onset.** The relative weighs
+  as recorded, and `early_onset_affected` says how much of the history carried a
+  multiplier.
+* **It does not claim to replace disease-specific criteria.** NICE familial
+  breast cancer and the Amsterdam/Bethesda criteria ask about bilateral disease,
+  multiple primaries and tumour patterns this cannot see. `standard_care` is not
+  a statement that a family is unaffected, and the code says so.
+
+It is scored by `POST /api/clinical/family-history/assess` rather than in the
+browser. Family history is the one scale with no stored value, so there is no
+create response to carry the answer — a small stateless endpoint was the price
+of keeping `clinical_scoring::family_history_assessment` the only
+implementation. The TypeScript copy that existed briefly was deleted.
+
+### SOFA: the dead binding was hiding a submitted zero — CLOSED
+
+`_calculateSOFA` was recorded above as "worth a second look before removal:
+SOFA is a real severity score and the setters beside it are its inputs, so this
+is an unfinished feature rather than an abandoned one."
+
+It was worse than unfinished. `SepsisPage` **submitted** `sofa_score`, and the
+five inputs `_calculateSOFA` read were initialised to normal values with no
+control — so every sepsis assessment on file records **SOFA 0**, which reads as
+"no organ dysfunction" on a septic patient.
+
+The in-browser version was also incomplete where it mattered most: its
+cardiovascular component scored only `map < 70 -> 1`, under a comment reading
+*"Add more for vasopressor use..."*. A patient on high-dose noradrenaline scored
+the same 1 as a patient with a slightly soft pressure and no support — three
+SOFA points apart, and the difference between sepsis and septic shock.
+
+`clinical_scoring::sofa_score` implements all six systems including the
+vasopressor tiers, takes the worse of creatinine and urine output for renal as
+SOFA specifies, and requires respiratory support for the top two respiration
+tiers. **An unmeasured system scores `None`, not 0**, and `systems_measured`
+travels with the total — a total of 2 from six systems and 2 from one are
+different clinical pictures.
+
+`SepsisPage` has the seven inputs now, blank rather than pre-filled, and a blank
+is sent as absent.
+
+**And the sepsis save path was broken too**, which nothing had noticed: the page
+posts `sepsis_id` and `classification` against a DTO wanting `assessment_id`,
+a `severity` enum and a `qsofa` **struct**. That is an eighth page in the same
+condition as the seven in the entry above. qSOFA moved to `clinical_scoring`
+with it, under the same rule about unmeasured observations.
+
+### Three more fabricated findings, found while removing dead bindings
+
+The dead-binding sweep kept turning up submitted values rather than dead code:
+
+* **`TraumaPage`** — A, B, C and D each had a `<select>`; **E (Exposure) did
+  not**, so every primary-survey narrative recorded "E: none" regardless of what
+  was found. It has a control now.
+* **`PsychPage`** — a page of asserted negatives nobody entered:
+  `history_of_violence: false`, `duty_to_warn: false`,
+  `law_enforcement_notified: false`, `currently_intoxicated: false`,
+  `in_withdrawal: false`, `self_harm_history: false`, `hospitalizations: 0`, and
+  an empty diagnoses list from a `psychHistory` state that had no control.
+  Worst of them: **`legal_status.admission_type: 'Voluntary'`** — whether a
+  psychiatric admission is voluntary or under a hold is a legal status with
+  due-process consequences, asserted for every patient by a form that never
+  asks. All removed; absent now means not recorded. A psychiatric-history and
+  legal-status sub-form is a feature to build.
+* **`BloodBankPage`** — every blood-product order filed with
+  `bloodType: 'Unknown'` while `patient` sat in scope holding the real value.
+  Blood type is what the crossmatch is against.
+
+### Dead bindings and dead controls — CLOSED
+
+Sixteen underscore-marked bindings, deleted with the owner's authorisation. Three
+were not simply dead:
+
+* **`FallRiskPage._assessmentHistory`** was rendered by the History tab and never
+  written, so the tab was permanently empty — indistinguishable from a patient
+  who has never been assessed. The repository has had `get_by_patient` all
+  along and no route reached it;
+  `GET /api/emergency/fall-risk/patient/{id}` now does. The tab's local
+  `FallRiskAssessment` interface was deleted with it: camelCase, deeply nested,
+  and nothing has ever produced it — the same read-side drift as the H&P
+  `VitalSigns` case above.
+* **`RadiologyPage._patients`** fetched the patient roster, stored it and never
+  read it. Not merely wasteful: `GET /api/patients` decrypts and returns PHI,
+  and every such read is logged against the caller.
+* **Four "Edit" and "Add Entry" buttons** set state nothing rendered. A control
+  that does nothing when clicked is worse than no control — the clinician
+  cannot tell it from a broken app — so the buttons went with the state.
+  Building the four modals is a feature, not debt removal.
+
+`connectWallet()` is deleted, and `cardiac_entity` / `sepsis_entity` with it.
+
+### Handler length: measured, and the mechanical fix made it worse — STILL OPEN
+
+**292 functions in `api/src` exceed the 60-line limit in CLAUDE.md rule 3.** That
+is a codebase-wide condition, not something this campaign introduced: the worst
+are `configure` (568), `main` (482), `sign_consent` (374) and
+`evaluate_cds_rules` (351), none of them touched here.
+
+The mechanical fix was tried on `create_burn` and measured. Extracting the entity
+construction into `burn_entity` gave **two** functions over the limit instead of
+one — a 128-line handler and a 74-line helper — plus an eight-argument signature
+needing `#[allow(clippy::too_many_arguments)]`. It was reverted.
+
+The reason is structural: the entity has forty fields, so the literal is
+irreducibly forty lines, and moving it does not change that. Meeting the rule
+here means changing the entity shape or the storage model, which is a design
+decision about the whole repository layer rather than a tidy-up.
+
+`create_burn` grew to 181 lines in this pass, and that growth is real work: the
+patient lookup and Lund-Browder age-band derivation the paediatric fix required.
+
+**What a real pass would need**, when someone takes it on: a decision on whether
+the 60-line rule applies to declarative field mapping at all, or only to
+branching logic. Most of these 292 are the former. A rule that 292 functions
+break is not being enforced, and the honest options are to scope it or to fund
+the campaign — not to keep recording it.
+
+### Verification that was outstanding
+
+* **`clippy -p medichain-api --all-targets -- -D warnings` is clean.** It was
+  not re-run in round one; it caught one finding in the new sepsis handler
+  (`needless_borrows_for_generic_args`), now fixed.
+* **The browser suites are runnable against a local build and do not pass.**
+  See "The browser suites only ever tested the stale image" above — 9 sign-in
+  failures, 42 tests never reached, so no signal about this campaign either way.
+  The attempt was still worth it: it is what found the laboratory authorization
+  defect.
+
+### Already fixed, recorded as open
+
+**Test schemas are never dropped** (2026-08-19) is stale. `create_test_pool`
+sweeps schemas older than two hours before creating a new one, and the comment
+there records what the leak had cost: 239 schemas and ~28,000 tables, which
+broke `pg_dump` with "out of shared memory / increase max_locks_per_transaction"
+and made the documented rollback procedure unusable.
+
+**`CDSAlertsPage.evidenceLevel`** was recorded as having no control. It has one
+(`CDSAlertsPage.tsx:898`). The initial value is still `'B'`, which is a
+pre-filled grade rather than an asserted one, and it is rule-authoring metadata
+rather than patient data.
 
 ---
 
@@ -1810,20 +2432,12 @@ A dose shown as pending that is actually late is recoverable. One shown as
 overdue because the page guessed teaches the nurse to ignore the colour, which
 is not.
 
-### Still open: handler length
+### Handler length
 
-`create_burn` (144 lines), `create_pre_op` (132), `create_cardiac` (125) and
-`create_mci` (126) all exceed the 60-line limit in CLAUDE.md rule 3, and so do
-the handlers around them that this pass did not touch — `create_psych` (203),
-`create_tox` (186), `create_mar` (108), every dashboard (96–176).
-
-The bulk of each is a single struct literal mapping thirty-odd request fields
-onto entity fields. Splitting that into helpers moves the lines without reducing
-the complexity, so it is recorded rather than done badly. `create_mci` came down
-from 206 to 126 by extracting `MciIncidentHeader`, which was real duplication —
-two near-identical thirty-field entity literals — rather than length for its own
-sake. That is the shape of fix worth making here; the rest wants a considered
-pass over the whole file, not a drive-by.
+Measured properly in round two and left open with a number: **292 functions in
+`api/src` exceed the limit**, and the mechanical fix was tried and reverted
+because it made the code worse. See "Handler length: measured, and the
+mechanical fix made it worse" above.
 
 ### Verified
 
@@ -1841,7 +2455,7 @@ so the helper was inlined.
 
 ---
 
-## Family history banded hereditary risk on a raw count (2026-09-09)
+## Family history banded hereditary risk on a raw count (2026-09-09, CLOSED 2026-09-09)
 
 `FamilyHistoryPage.calculateRiskAssessment` counted affected relatives per
 condition category and banded the count: 3 or more "HIGH", 2 "MODERATE". The
@@ -2001,7 +2615,7 @@ Left in place rather than deleted, per the project rule on removing code. The
 comment in `Layout.tsx` that repeated the wrong claim now says what is actually
 true.
 
-## Underscore-marked dead bindings (recorded 2026-09-09)
+## Underscore-marked dead bindings (recorded 2026-09-09, CLOSED 2026-09-09)
 
 `@typescript-eslint/no-unused-vars` now honours a leading underscore, which this
 codebase already used to mark a binding as deliberately unused. That makes the
@@ -2023,7 +2637,10 @@ SOFA is a real severity score and the setters beside it (`_setBilirubin`,
 `_setCreatinine`, `_setPlatelets`, `_setMap`, `_setPao2fio2`) are its inputs, so
 this is an unfinished feature rather than an abandoned one.
 
-Per the project rule, nothing here is deleted without the owner's confirmation.
+**The owner authorised the deletion on 2026-09-09 and it is done.** See "The
+owner's decisions, taken and applied" above: three of the sixteen were not
+simply dead, and `_calculateSOFA` was hiding a submitted `sofa_score: 0` on
+every sepsis assessment in the database.
 
 ## Validation message register: warning vs error (recorded 2026-09-09, CLOSED 2026-09-09)
 

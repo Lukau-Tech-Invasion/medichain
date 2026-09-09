@@ -1,6 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, getFamilyHistory, createFamilyHistory, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import {
+  getPatients,
+  getFamilyHistory,
+  createFamilyHistory,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  assessFamilyHistory,
+} from '@medichain/shared';
+import type {
+  PatientProfile,
+  FamilyHistoryAssessmentResult,
+  AffectedRelativeInput,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PedigreeChart from '../components/PedigreeChart';
@@ -83,12 +95,13 @@ interface FamilyMember {
 }
 
 /**
- * A family-history summary for one condition category.
+ * A family-history assessment for one condition category.
  *
- * No `riskLevel`. See `summariseFamilyHistory` for why a count of relatives is
- * not a hereditary risk band.
+ * `assessment` is `null` until the scoring catalog loads — the page shows the
+ * counts and no band rather than guessing one.
  */
 interface RiskAssessment {
+  assessment: FamilyHistoryAssessmentResult | null;
   category: ConditionCategory;
   affectedRelatives: number;
   conditions: string[];
@@ -97,6 +110,15 @@ interface RiskAssessment {
 
 const FamilyHistoryPage: React.FC = () => {
   const { t } = useTranslation();
+  // Assessments keyed by condition category, as the server scored them.
+  //
+  // Scored by the API rather than here: `clinical_scoring::family_history_assessment`
+  // is the only implementation of this scale. Nothing about a family history is
+  // stored on save, so there is no create response to carry it — hence a small
+  // stateless call, made when the selected patient's history changes.
+  const [assessments, setAssessments] = useState<
+    Record<string, FamilyHistoryAssessmentResult>
+  >({});
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -281,50 +303,113 @@ const FamilyHistoryPage: React.FC = () => {
   };
 
   /**
-   * Summarise a patient's family history by condition category.
+   * Assess a patient's family history, one condition category at a time.
    *
-   * This counts affected relatives. It deliberately no longer calls the result
-   * a *risk level*, because a count is not one: hereditary risk turns on the
-   * **degree** of relationship and the **age of onset**, and this function has
-   * access to neither in a usable form. A mother and a sister with breast
-   * cancer at 40 counted 2 and read "MODERATE"; three second cousins with type
-   * 2 diabetes counted 3 and read "HIGH", which triggered an automatic
-   * "consider genetic counseling" recommendation. That is the wrong way round
-   * for the case that matters most.
+   * Degree-weighted and onset-aware: a first-degree relative counts for twice a
+   * second-degree one, and a diagnosis under the catalog's early-onset age
+   * doubles again. Every number comes from
+   * `GET /api/clinical/scoring/catalog`, and the same arithmetic runs in
+   * `clinical_scoring::family_history_assessment`.
    *
-   * What it produces is still worth showing — how many relatives are affected
-   * in each category, and which conditions — and a clinician reading that can
-   * make the assessment the page was pretending to have made. Choosing a real
-   * model (degree-weighted, onset-aware) is a clinical decision, recorded in
-   * docs/TECHNICAL_DEBT_REGISTER.md rather than guessed at here.
+   * This replaced a raw count of affected relatives banded at 3+ for "HIGH",
+   * which issued an automatic "consider genetic counseling" recommendation. A
+   * mother and a sister with breast cancer at 40 counted 2 and read MODERATE;
+   * three second cousins with type 2 diabetes counted 3 and read HIGH. Degree
+   * and age of onset are exactly what separate those, and both were already on
+   * file — the page simply was not reading them.
+   *
+   * It remains a prompt, not a diagnosis: `standard_care` is not a statement
+   * that a family is unaffected, and it does not replace disease-specific
+   * criteria.
    */
   const summariseFamilyHistory = (patientId: string): RiskAssessment[] => {
     const patientMembers = familyMembers.filter((m) => m.patientId === patientId);
-    const categoryMap = new Map<ConditionCategory, { conditions: Set<string>; count: number }>();
+    const byCategory = new Map<
+      ConditionCategory,
+      { conditions: Set<string>; relatives: AffectedRelativeInput[] }
+    >();
 
     patientMembers.forEach((member) => {
       member.conditions.forEach((condition) => {
-        if (!categoryMap.has(condition.category)) {
-          categoryMap.set(condition.category, { conditions: new Set(), count: 0 });
+        if (!byCategory.has(condition.category)) {
+          byCategory.set(condition.category, { conditions: new Set(), relatives: [] });
         }
-        const entry = categoryMap.get(condition.category)!;
+        const entry = byCategory.get(condition.category)!;
         entry.conditions.add(condition.conditionName);
-        entry.count++;
+        entry.relatives.push({
+          relationship: member.relationship,
+          age_of_onset: condition.ageOfOnset,
+        });
       });
     });
 
-    const assessments: RiskAssessment[] = [];
-    categoryMap.forEach((value, category) => {
-      assessments.push({
+    const rows: RiskAssessment[] = [];
+    byCategory.forEach((value, category) => {
+      rows.push({
         category,
-        affectedRelatives: value.count,
+        affectedRelatives: value.relatives.length,
         conditions: Array.from(value.conditions),
+        assessment: assessments[category] ?? null,
       });
     });
 
-    // Most affected relatives first. Ordering by count is a statement about
-    // the data; ordering by "risk" would be a statement about the patient.
-    return assessments.sort((a, b) => b.affectedRelatives - a.affectedRelatives);
+    // Most concerning first, by the weighted score rather than by headcount.
+    return rows.sort((a, b) => (b.assessment?.score ?? 0) - (a.assessment?.score ?? 0));
+  };
+
+  // Re-assess whenever the selected patient or their recorded history changes.
+  // The relatives are already in hand; this call only scores them, so it is one
+  // round trip per selection rather than one per keystroke.
+  useEffect(() => {
+    if (!selectedPatient) {
+      setAssessments({});
+      return;
+    }
+    const groups = familyHistoryGroups(selectedPatient);
+    if (groups.length === 0) {
+      setAssessments({});
+      return;
+    }
+    let active = true;
+    assessFamilyHistory({ groups })
+      .then((result) => {
+        if (!active) return;
+        const next: Record<string, FamilyHistoryAssessmentResult> = {};
+        result.assessments.forEach((a) => {
+          next[a.category] = a;
+        });
+        setAssessments(next);
+      })
+      .catch(() => {
+        // No band rather than a guessed one: the panel falls back to showing
+        // the counts, which is what it did before any model existed.
+        if (active) setAssessments({});
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPatient, familyMembers]);
+
+  /** The relatives grouped by condition category, for the assessment call. */
+  const familyHistoryGroups = (patientId: string) => {
+    const byCategory = new Map<ConditionCategory, AffectedRelativeInput[]>();
+    familyMembers
+      .filter((m) => m.patientId === patientId)
+      .forEach((member) => {
+        member.conditions.forEach((condition) => {
+          const relatives = byCategory.get(condition.category) ?? [];
+          relatives.push({
+            relationship: member.relationship,
+            age_of_onset: condition.ageOfOnset,
+          });
+          byCategory.set(condition.category, relatives);
+        });
+      });
+    return Array.from(byCategory.entries()).map(([category, relatives]) => ({
+      category,
+      relatives,
+    }));
   };
 
   const filteredMembers = familyMembers.filter((m) => {
@@ -383,19 +468,14 @@ const FamilyHistoryPage: React.FC = () => {
     return colors[category];
   };
 
-  // Colours for a hereditary risk band. Kept, unused, because the band itself
-  // is coming back once someone picks a real model — degree-weighted and
-  // onset-aware — for `summariseFamilyHistory`. Underscored so the linter
-  // treats the pause as deliberate rather than as an oversight; see
-  // docs/TECHNICAL_DEBT_REGISTER.md, "Family history banded hereditary risk on
-  // a raw count".
-  const _getRiskColor = (risk: 'low' | 'moderate' | 'high') => {
-    const colors = {
-      low: 'bg-ok-subtle text-ok-subtle-fg',
-      moderate: 'bg-caution-subtle text-caution-subtle-fg',
-      high: 'bg-critical-subtle text-critical-subtle-fg',
+  /** Colour for an assessment band. Keyed on what to do, not on a probability. */
+  const getBandColor = (band: string) => {
+    const colors: Record<string, string> = {
+      standard_care: 'bg-ok-subtle text-ok-subtle-fg',
+      enhanced_screening: 'bg-caution-subtle text-caution-subtle-fg',
+      genetics_referral: 'bg-critical-subtle text-critical-subtle-fg',
     };
-    return colors[risk];
+    return colors[band] ?? 'bg-surface-sunken text-content-secondary';
   };
 
   const formatRelationship = (rel: string) => {
@@ -960,12 +1040,18 @@ const FamilyHistoryPage: React.FC = () => {
                           <p className="text-sm text-content-muted">{t('docFamilyHistory.affectedRelativesCount', { count: assessment.affectedRelatives })}</p>
                         </div>
                       </div>
-                      {/* The count, not a risk band. The badge used to read
-                          "HIGH RISK" off three affected relatives of any degree
-                          at any age. */}
-                      <span className="px-4 py-2 rounded-full text-sm font-bold bg-surface-sunken text-content-secondary">
-                        {t('docFamilyHistory.affectedRelativesBadge', { count: assessment.affectedRelatives })}
-                      </span>
+                      {/* The band names what to do next, not a probability.
+                          It used to read "HIGH RISK" off three affected
+                          relatives of any degree at any age. */}
+                      {assessment.assessment ? (
+                        <span className={`px-4 py-2 rounded-full text-sm font-bold ${getBandColor(assessment.assessment.band)}`}>
+                          {t(`docFamilyHistory.band_${assessment.assessment.band}`)}
+                        </span>
+                      ) : (
+                        <span className="px-4 py-2 rounded-full text-sm font-bold bg-surface-sunken text-content-secondary">
+                          {t('docFamilyHistory.affectedRelativesBadge', { count: assessment.affectedRelatives })}
+                        </span>
+                      )}
                     </div>
 
                     <div className="bg-surface-sunken rounded-lg p-3 mb-3">
@@ -977,22 +1063,36 @@ const FamilyHistoryPage: React.FC = () => {
                       </ul>
                     </div>
 
-                    {/* One prompt, not a graded recommendation.
+                    {/* The working, then the prompt.
 
-                        This was two blocks: "HIGH" produced "Consider genetic
-                        counseling and enhanced screening protocols" and
-                        "MODERATE" produced a milder one — both triggered purely
-                        by how many relatives were listed. A referral for
-                        genetic counselling is a clinical decision that depends
-                        on degree of relationship and age of onset, and issuing
-                        one off a count is worse than issuing none. */}
+                        Showing the composition is the point: a clinician can
+                        see that the band came from two early-onset first-degree
+                        relatives rather than from a headcount, and disagree with
+                        it if the family is more complicated than the scale. */}
+                    {assessment.assessment && (
+                      <p className="text-xs text-content-muted mb-2">
+                        {t('docFamilyHistory.assessmentWorking', {
+                          score: assessment.assessment.score,
+                          first: assessment.assessment.first_degree_affected,
+                          second: assessment.assessment.second_degree_affected,
+                          third: assessment.assessment.third_degree_affected,
+                          early: assessment.assessment.early_onset_affected,
+                        })}
+                        {assessment.assessment.unscored_relatives > 0 &&
+                          ` ${t('docFamilyHistory.unscoredRelatives', {
+                            count: assessment.assessment.unscored_relatives,
+                          })}`}
+                      </p>
+                    )}
                     <div className="bg-notice-subtle border border-notice rounded-lg p-3">
                       <p className="text-sm font-semibold text-notice-subtle-fg mb-1 flex items-center gap-2 min-h-[24px] py-1">
                         <AlertCircle className="w-4 h-4" />
                         {t('docFamilyHistory.recommendationsLabel')}
                       </p>
                       <p className="text-sm text-notice-subtle-fg">
-                        {t('docFamilyHistory.assessPrompt')}
+                        {assessment.assessment
+                          ? t(`docFamilyHistory.action_${assessment.assessment.band}`)
+                          : t('docFamilyHistory.assessPrompt')}
                       </p>
                     </div>
                   </div>

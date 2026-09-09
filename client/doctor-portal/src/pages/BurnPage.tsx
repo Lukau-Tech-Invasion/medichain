@@ -5,7 +5,10 @@ import {
   getPatients,
   useTranslation,
   useScoringCatalog,
-  totalTbsa,
+  yearsSince,
+  lundBrowderBand,
+  lundBrowderRegionPercent,
+  lundBrowderTbsa,
   parklandPreview,
   burnSeverityPreview,
 } from '@medichain/shared';
@@ -35,76 +38,12 @@ import {
 type BurnDepth = 'superficial' | 'partial-superficial' | 'partial-deep' | 'full-thickness';
 type BurnMechanism = 'thermal' | 'chemical' | 'electrical' | 'radiation' | 'friction' | 'frostbite';
 
-interface BodyRegion {
-  id: string;
-  name: string;
-  adultPercentage: number;
-  childPercentage: number; // For Rule of 9s adjustments in children
-}
-
 interface BurnArea {
   regionId: string;
-  percentage: number;
+  /** How much of THIS region is burned, 0-100 — not a share of the whole body. */
+  percentOfRegion: number;
   depth: BurnDepth;
 }
-
-interface _BurnAssessment {
-  id: string;
-  patientId: string;
-  assessmentDate: string;
-  assessmentTime: string;
-  assessedBy: string;
-  mechanism: BurnMechanism;
-  agentSource: string;
-  injuryTime: string;
-  weight: number;
-  burnAreas: BurnArea[];
-  totalBSA: number;
-  parklandFluid: {
-    total24h: number;
-    first8h: number;
-    next16h: number;
-    hourlyFirst8h: number;
-    hourlyNext16h: number;
-  };
-  inhalationInjury: {
-    suspected: boolean;
-    singedHairs: boolean;
-    sootInAirway: boolean;
-    hoarseness: boolean;
-    stridor: boolean;
-    carbonMonoxide: boolean;
-    coLevel?: number;
-  };
-  circumferential: {
-    present: boolean;
-    locations: string[];
-    escharotomyNeeded: boolean;
-  };
-  associatedInjuries: string[];
-  tetanusStatus: string;
-  painLevel: number;
-  interventions: string[];
-  fluidStartTime?: string;
-  urineOutput?: number;
-  notes: string;
-}
-
-const bodyRegions: BodyRegion[] = [
-  { id: 'head', name: 'Head (Front)', adultPercentage: 4.5, childPercentage: 9 },
-  { id: 'head-back', name: 'Head (Back)', adultPercentage: 4.5, childPercentage: 9 },
-  { id: 'chest', name: 'Chest', adultPercentage: 9, childPercentage: 9 },
-  { id: 'abdomen', name: 'Abdomen', adultPercentage: 9, childPercentage: 9 },
-  { id: 'upper-back', name: 'Upper Back', adultPercentage: 9, childPercentage: 9 },
-  { id: 'lower-back', name: 'Lower Back', adultPercentage: 9, childPercentage: 9 },
-  { id: 'right-arm', name: 'Right Arm (Entire)', adultPercentage: 9, childPercentage: 9 },
-  { id: 'left-arm', name: 'Left Arm (Entire)', adultPercentage: 9, childPercentage: 9 },
-  { id: 'genitalia', name: 'Genitalia/Perineum', adultPercentage: 1, childPercentage: 1 },
-  { id: 'right-leg-front', name: 'Right Leg (Front)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'right-leg-back', name: 'Right Leg (Back)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'left-leg-front', name: 'Left Leg (Front)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'left-leg-back', name: 'Left Leg (Back)', adultPercentage: 9, childPercentage: 6.5 }
-];
 
 export default function BurnPage() {
   const { t } = useTranslation();
@@ -120,7 +59,6 @@ export default function BurnPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'assessment' | 'calculator' | 'history'>('assessment');
-  const [isChild, setIsChild] = useState(false);
   const { catalog } = useScoringCatalog();
   // What the server computed and stored: the TBSA, the fluid order and the
   // severity band. Shown in place of the preview once the assessment is filed.
@@ -227,7 +165,26 @@ export default function BurnPage() {
   // `>= 25`, `>= 10` — posted under names the handler did not read, so the
   // database has never held a burn assessment with a TBSA above 0.00 or a
   // fluid volume at all.
-  const totalBSA = totalTbsa(burnAreas.map((area) => area.percentage));
+  // The Lund-Browder column, from the selected patient's date of birth.
+  //
+  // This replaces an `isChild` checkbox over a Rule of 9s chart. A boolean
+  // cannot express a proportion that changes at five points between birth and
+  // adulthood: a newborn's head is 19% of its body surface, a five-year-old's
+  // 13%, an adult's 7%. Every child between the bands was charted against the
+  // wrong denominator, and TBSA is what the Parkland volume is computed from.
+  //
+  // `null` when no patient is selected or the date of birth will not parse. It
+  // is never defaulted to the adult column — the server refuses such a
+  // submission outright, for the same reason.
+  const patientAgeYears = selectedPatient?.date_of_birth
+    ? yearsSince(selectedPatient.date_of_birth)
+    : null;
+  const ageBand = lundBrowderBand(patientAgeYears, catalog);
+  const bandLabel =
+    ageBand === null ? null : catalog?.burn?.lund_browder?.age_band_labels?.[ageBand] ?? null;
+  const regions = catalog?.burn?.lund_browder?.regions ?? [];
+
+  const totalBSA = lundBrowderTbsa(burnAreas, ageBand, catalog) ?? 0;
   const parklandFluid = parklandPreview(weight, totalBSA, catalog);
   const previewSeverity = burnSeverityPreview(
     totalBSA,
@@ -255,24 +212,24 @@ export default function BurnPage() {
         ? 'text-caution-subtle-fg bg-caution-subtle border-yellow-500'
         : 'text-ok-subtle-fg bg-ok-subtle border-green-500';
 
-  const updateBurnArea = (regionId: string, field: 'percentage' | 'depth', value: number | BurnDepth) => {
+  const updateBurnArea = (regionId: string, field: 'percentOfRegion' | 'depth', value: number | BurnDepth) => {
     setBurnAreas(prev => {
       const existing = prev.find(a => a.regionId === regionId);
       if (existing) {
-        if (field === 'percentage' && value === 0) {
+        if (field === 'percentOfRegion' && value === 0) {
           return prev.filter(a => a.regionId !== regionId);
         }
         return prev.map(a => a.regionId === regionId ? { ...a, [field]: value } : a);
-      } else if (field === 'percentage' && typeof value === 'number' && value > 0) {
-        return [...prev, { regionId, percentage: value, depth: 'partial-superficial' as BurnDepth }];
+      } else if (field === 'percentOfRegion' && typeof value === 'number' && value > 0) {
+        return [...prev, { regionId, percentOfRegion: value, depth: 'partial-superficial' as BurnDepth }];
       }
       return prev;
     });
   };
 
-  const getBurnAreaValue = (regionId: string, field: 'percentage' | 'depth') => {
+  const getBurnAreaValue = (regionId: string, field: 'percentOfRegion' | 'depth') => {
     const area = burnAreas.find(a => a.regionId === regionId);
-    if (!area) return field === 'percentage' ? 0 : 'partial-superficial';
+    if (!area) return field === 'percentOfRegion' ? 0 : 'partial-superficial';
     return area[field];
   };
 
@@ -318,7 +275,13 @@ export default function BurnPage() {
         agent_source: agentSource,
         injury_time: injuryTime,
         weight,
-        burn_areas: burnAreas,
+        // Region id and how much of THAT region is burned. The server applies
+        // the Lund-Browder size for the patient's age; nothing here multiplies.
+        burn_areas: burnAreas.map((area) => ({
+          regionId: area.regionId,
+          percent_of_region: area.percentOfRegion,
+          depth: area.depth,
+        })),
         inhalation_injury: inhalationInjury,
         circumferential,
         associated_injuries: associatedInjuries,
@@ -549,16 +512,28 @@ export default function BurnPage() {
                       className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
-                  <label htmlFor="burn-is-child" className="flex items-center space-x-2 min-h-[24px] py-1 cursor-pointer">
-                    <input
-                      id="burn-is-child"
-                      type="checkbox"
-                      checked={isChild}
-                      onChange={() => setIsChild(!isChild)}
-                      className="rounded border-border-interactive text-critical-subtle-fg"
-                    />
-                    <span className="text-sm">{t('docBurn.pediatricPatientLabel')}</span>
-                  </label>
+                  {/* Which Lund-Browder column the body is charted against.
+                      Read-only: it comes from the patient's date of birth, not
+                      from a checkbox. The chart it replaces was Rule of 9s with
+                      an `isChild` toggle, which cannot express a proportion
+                      that changes at five points before adulthood. */}
+                  <div className="text-sm">
+                    <span className="block font-medium text-content-secondary mb-1">
+                      {t('docBurn.ageBandLabel')}
+                    </span>
+                    {bandLabel ? (
+                      <span className="text-content">
+                        {t('docBurn.ageBandValue', {
+                          band: bandLabel,
+                          age: patientAgeYears ?? '?'
+                        })}
+                      </span>
+                    ) : (
+                      <span className="text-critical-subtle-fg">
+                        {t('docBurn.ageBandUnknown')}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -608,41 +583,59 @@ export default function BurnPage() {
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
                   <Ruler className="h-6 w-6 mr-2 text-red-500" />
-                  {t('docBurn.ruleOfNinesTitle')}
+                  {t('docBurn.lundBrowderTitle')}
                 </h2>
                 <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
                   <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-notice-subtle-fg">
-                    {t('docBurn.ruleOfNinesInfo')}
-                    {isChild && t('docBurn.pediatricAdjustmentNote')}
+                    {t('docBurn.lundBrowderInfo')}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {bodyRegions.map(region => {
-                    const maxPercent = isChild ? region.childPercentage : region.adultPercentage;
-                    const currentPercent = getBurnAreaValue(region.id, 'percentage') as number;
+                  {regions.map(region => {
+                    // What this region is worth on the whole body at this
+                    // patient's age, shown so the clinician can see the chart
+                    // they are working against.
+                    const regionPercent = lundBrowderRegionPercent(region.id, ageBand, catalog);
+                    const currentPercent = getBurnAreaValue(region.id, 'percentOfRegion') as number;
                     const currentDepth = getBurnAreaValue(region.id, 'depth') as BurnDepth;
+                    // The share of the whole body this entry contributes.
+                    const contribution =
+                      regionPercent === null ? null : (regionPercent * currentPercent) / 100;
 
                     return (
                       <div key={region.id} className={`p-3 rounded-lg border ${currentPercent > 0 ? 'border-critical bg-critical-subtle' : 'border-border'}`}>
                         <div className="flex justify-between items-center mb-2">
                           <span className="font-medium text-content">{region.name}</span>
-                          <span className="text-sm text-content-muted">{t('docBurn.maxPercent', { value: maxPercent })}</span>
+                          <span className="text-sm text-content-muted">
+                            {regionPercent === null
+                              ? '—'
+                              : t('docBurn.regionIsPercentOfBody', { value: regionPercent })}
+                          </span>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label htmlFor={`burn-percent-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.percentAffectedLabel')}</label>
+                            {/* Percent of THIS region, not of the body. The
+                                clinician charts "half the left forearm" and the
+                                multiplication happens on the server. */}
+                            <label htmlFor={`burn-percent-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.percentOfRegionLabel')}</label>
                             <input
                               id={`burn-percent-${region.id}`}
                               type="number"
                               min="0"
-                              max={maxPercent}
-                              step="0.5"
+                              max="100"
+                              step="5"
+                              disabled={ageBand === null}
                               value={currentPercent}
-                              onChange={(e) => updateBurnArea(region.id, 'percentage', Math.min(maxPercent, Number(e.target.value)))}
-                              className="w-full p-1 border border-border-interactive rounded text-sm"
+                              onChange={(e) => updateBurnArea(region.id, 'percentOfRegion', Math.min(100, Math.max(0, Number(e.target.value))))}
+                              className="w-full p-1 border border-border-interactive rounded text-sm disabled:bg-surface-sunken"
                             />
+                            {contribution !== null && currentPercent > 0 && (
+                              <p className="text-xs text-content-muted mt-1">
+                                {t('docBurn.contributesToTbsa', { value: contribution.toFixed(1) })}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <label htmlFor={`burn-depth-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.depthLabel')}</label>

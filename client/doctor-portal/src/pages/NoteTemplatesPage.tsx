@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { getNoteTemplates, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
-import { FileText, Plus, Search, Edit, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
+import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
 type TemplateCategory = 'general' | 'emergency' | 'surgery' | 'medicine' | 'pediatrics' | 'psychiatry';
@@ -46,8 +46,6 @@ const NoteTemplatesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'macros'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TemplateType | 'all'>('all');
-  const [_selectedTemplate, setSelectedTemplate] = useState<NoteTemplate | null>(null);
-  const [_showEditModal, _setShowEditModal] = useState(false);
   const [newTemplate, setNewTemplate] = useState<Partial<NoteTemplate>>({
     name: '',
     type: 'soap',
@@ -374,13 +372,6 @@ const NoteTemplatesPage: React.FC = () => {
                       >
                         <Copy className="w-4 h-4" />
                         {t('docNoteTemplates.duplicateButton')}
-                      </button>
-                      <button
-                        onClick={() => setSelectedTemplate(template)}
-                        className="px-3 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors flex items-center gap-2 text-sm"
-                      >
-                        <Edit className="w-4 h-4" />
-                        {t('docNoteTemplates.editButton')}
                       </button>
                       <button
                         onClick={() => handleDeleteTemplate(template.templateId)}

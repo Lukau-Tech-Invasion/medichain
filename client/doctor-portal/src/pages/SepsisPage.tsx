@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { apiUrl, createSepsis, getApiClient, getPatients, useTranslation, clickable } from '@medichain/shared';
+import type { SepsisCreateResult } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Thermometer,
@@ -70,12 +71,23 @@ export default function SepsisPage() {
   const [qsofaScore, setQsofaScore] = useState(0);
 
   // SOFA Scoring for ICU
-  const [pao2fio2, _setPao2fio2] = useState<number>(400);
-  const [platelets, _setPlatelets] = useState<number>(150);
-  const [bilirubin, _setBilirubin] = useState<number>(1.0);
-  const [map, _setMap] = useState<number>(70);
-  const [creatinine, _setCreatinine] = useState<number>(1.0);
-  const [sofaScore, setSofaScore] = useState(0);
+  // SOFA inputs. Empty, not pre-filled with normal values.
+  //
+  // These were `400 / 150 / 1.0 / 70 / 1.0` — every one a normal result — with
+  // no control to change them and a `_calculateSOFA` that was never called. So
+  // the page submitted `sofa_score: 0` for every patient, which reads as "no
+  // organ dysfunction" on someone septic. An organ nobody measured is not an
+  // organ that is working, and the server scores absent as absent.
+  const [pao2fio2, setPao2fio2] = useState<string>('');
+  const [respiratorySupport, setRespiratorySupport] = useState(false);
+  const [platelets, setPlatelets] = useState<string>('');
+  const [bilirubin, setBilirubin] = useState<string>('');
+  const [map, setMap] = useState<string>('');
+  const [creatinine, setCreatinine] = useState<string>('');
+  const [urineOutput, setUrineOutput] = useState<string>('');
+  const [noradrenaline, setNoradrenaline] = useState<string>('');
+  // What the server scored, once the assessment is filed.
+  const [savedScores, setSavedScores] = useState<SepsisCreateResult | null>(null);
 
   // Lactate Trending
   const [lactateReadings, setLactateReadings] = useState<LactateReading[]>([]);
@@ -205,44 +217,24 @@ export default function SepsisPage() {
     }
   };
 
-  const _calculateSOFA = () => {
-    let score = 0;
-    // Respiration
-    if (pao2fio2 < 100) score += 4;
-    else if (pao2fio2 < 200) score += 3;
-    else if (pao2fio2 < 300) score += 2;
-    else if (pao2fio2 < 400) score += 1;
-    
-    // Coagulation
-    if (platelets < 20) score += 4;
-    else if (platelets < 50) score += 3;
-    else if (platelets < 100) score += 2;
-    else if (platelets < 150) score += 1;
-    
-    // Liver
-    if (bilirubin >= 12) score += 4;
-    else if (bilirubin >= 6) score += 3;
-    else if (bilirubin >= 2) score += 2;
-    else if (bilirubin >= 1.2) score += 1;
-    
-    // Cardiovascular
-    if (map < 70) score += 1;
-    // Add more for vasopressor use...
-    
-    // Renal
-    if (creatinine >= 5) score += 4;
-    else if (creatinine >= 3.5) score += 3;
-    else if (creatinine >= 2) score += 2;
-    else if (creatinine >= 1.2) score += 1;
-    
-    // CNS (GCS)
-    if (gcsScore < 6) score += 4;
-    else if (gcsScore < 10) score += 3;
-    else if (gcsScore < 13) score += 2;
-    else if (gcsScore < 15) score += 1;
-    
-    setSofaScore(score);
-  };
+  /** The SOFA measurements, in the order SOFA lists its organ systems. */
+  const SOFA_FIELDS = [
+    { id: 'pao2fio2', labelKey: 'docSepsis.sofaPao2Fio2', value: pao2fio2, set: setPao2fio2, step: '1' },
+    { id: 'platelets', labelKey: 'docSepsis.sofaPlatelets', value: platelets, set: setPlatelets, step: '1' },
+    { id: 'bilirubin', labelKey: 'docSepsis.sofaBilirubin', value: bilirubin, set: setBilirubin, step: '0.1' },
+    { id: 'map', labelKey: 'docSepsis.sofaMap', value: map, set: setMap, step: '1' },
+    { id: 'noradrenaline', labelKey: 'docSepsis.sofaNoradrenaline', value: noradrenaline, set: setNoradrenaline, step: '0.01' },
+    { id: 'creatinine', labelKey: 'docSepsis.sofaCreatinine', value: creatinine, set: setCreatinine, step: '0.1' },
+    { id: 'urine-output', labelKey: 'docSepsis.sofaUrineOutput', value: urineOutput, set: setUrineOutput, step: '10' },
+  ];
+
+  // SOFA is scored by the API, from the measurements below.
+  //
+  // The version that stood here was never called and was incomplete besides:
+  // its cardiovascular component scored only `map < 70 -> 1`, under a comment
+  // reading "Add more for vasopressor use...". A patient on high-dose
+  // noradrenaline scored the same as one with a slightly soft pressure — three
+  // SOFA points apart, and the difference between sepsis and septic shock.
 
   const hour1Complete = hour1Bundle.every(item => item.completed);
   const hour3Complete = hour3Bundle.every(item => item.completed);
@@ -258,24 +250,37 @@ export default function SepsisPage() {
     setError('');
 
     try {
+      // A number the clinician did not enter is sent as absent, not as a
+      // normal result. `num('')` is undefined, and the server scores an
+      // unmeasured organ as unmeasured.
+      const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
+
+      // Neither score is sent: qSOFA and SOFA are both computed by the API from
+      // the measurements. `sofa_score` used to go as a constant 0.
       const sepsisData = {
-        sepsis_id: `SEPSIS-${Date.now()}`,
         patient_id: selectedPatient,
-        classification,
-        qsofa_score: qsofaScore,
-        sofa_score: sofaScore,
+        severity: classification,
+        suspected_source: infectionSource,
         vital_signs: {
           respiratory_rate: respiratoryRate,
-          systolic_bp: systolicBP,
-          gcs: gcsScore,
-          map
+          systolic_blood_pressure: systolicBP,
+          glasgow_coma_scale: gcsScore,
+          mean_arterial_pressure: num(map)
+        },
+        sofa_inputs: {
+          pao2_fio2: num(pao2fio2),
+          respiratory_support: respiratorySupport,
+          platelets: num(platelets),
+          bilirubin_mg_dl: num(bilirubin),
+          mean_arterial_pressure: num(map),
+          creatinine_mg_dl: num(creatinine),
+          urine_output_ml_24h: num(urineOutput),
+          vasopressors: {
+            noradrenaline_mcg_kg_min: num(noradrenaline)
+          }
         },
         labs: {
-          lactate_readings: lactateReadings,
-          pao2_fio2: pao2fio2,
-          platelets,
-          bilirubin,
-          creatinine
+          lactate_readings: lactateReadings
         },
         infection: {
           source: infectionSource,
@@ -292,14 +297,17 @@ export default function SepsisPage() {
           fluid_volume_ml: fluidVolume,
           vasopressor: vasopressorType
         },
+        vasopressors_required: Boolean(vasopressorType),
         protocol_start_time: sepsisStartTime?.toISOString(),
         elapsed_minutes: elapsedMinutes,
-        narrative,
-        documented_by: user?.userId || 'unknown',
-        documented_at: Math.floor(Date.now() / 1000)
+        narrative
       };
 
-      await createSepsis(sepsisData);
+      const saved = await createSepsis(sepsisData);
+      // Show what the server scored, including how much of SOFA was actually
+      // measured — a total of 2 from six systems and 2 from one are different
+      // clinical pictures.
+      setSavedScores(saved);
       setSuccess(true);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -549,6 +557,63 @@ export default function SepsisPage() {
                   {qsofaScore >= 2 && (
                     <p className="flex items-center gap-1 text-xs text-critical-subtle-fg mt-1">
                       <AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.qsofaHighRisk')}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* SOFA measurements.
+
+                  These are the five inputs `_calculateSOFA` read and no
+                  control ever wrote, pre-filled with normal values — so the
+                  page submitted SOFA 0 for every patient. They are blank now,
+                  and blank is sent as absent: the API scores an organ nobody
+                  measured as unmeasured rather than as working. */}
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold text-content mb-1">
+                  {t('docSepsis.sofaTitle')}
+                </h2>
+                <p className="text-xs text-content-muted mb-4">{t('docSepsis.sofaInfo')}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {SOFA_FIELDS.map(({ id, labelKey, value, set, step }) => (
+                    <div key={id}>
+                      <label htmlFor={`sepsis-${id}`} className="block text-xs text-content-secondary mb-1">
+                        {t(labelKey)}
+                      </label>
+                      <input
+                        id={`sepsis-${id}`}
+                        type="number"
+                        step={step}
+                        min="0"
+                        value={value}
+                        onChange={(e) => set(e.target.value)}
+                        placeholder={t('docSepsis.notMeasured')}
+                        className="w-full p-2 border border-border-interactive rounded text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <label htmlFor="sepsis-respiratory-support" className="flex items-center gap-2 mt-3 text-sm cursor-pointer min-h-[24px] py-1">
+                  <input
+                    id="sepsis-respiratory-support"
+                    type="checkbox"
+                    checked={respiratorySupport}
+                    onChange={(e) => setRespiratorySupport(e.target.checked)}
+                    className="h-4 w-4 rounded border-border-interactive"
+                  />
+                  <span className="text-content-secondary">{t('docSepsis.respiratorySupport')}</span>
+                </label>
+                {/* The score is the server's, and only exists once filed. */}
+                <div className="mt-4 p-4 rounded-lg text-center bg-surface-sunken">
+                  <p className="text-sm font-medium text-content-secondary">{t('docSepsis.sofaScore')}</p>
+                  <p className="text-4xl font-bold text-content">
+                    {savedScores ? `${savedScores.sofa.total}/24` : '—'}
+                  </p>
+                  {savedScores && (
+                    <p className="text-xs text-content-muted mt-1">
+                      {t('docSepsis.sofaSystemsMeasured', {
+                        measured: savedScores.sofa.systems_measured
+                      })}
                     </p>
                   )}
                 </div>

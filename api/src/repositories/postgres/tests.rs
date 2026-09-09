@@ -2937,84 +2937,74 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
     pool.close().await;
 }
 
-/// Every `action` value the handlers write must satisfy the `access_logs`
-/// CHECK constraint.
+/// Every value the `access_logs` CHECK constraint permits must actually be
+/// storable in the column it constrains.
 ///
-/// This is the test that was missing. `access_logs.action` was created with a
-/// seven-value PascalCase CRUD enum, the handlers evolved to record operation
-/// names instead, and the two drifted apart until only `'View'` still matched.
-/// The in-memory backend has no constraint, so nothing caught it; on PostgreSQL
-/// almost every audit insert was rejected, and because the audit path fails
-/// closed that surfaced as `503 AUDIT_PERSISTENCE_REQUIRED` on emergency card
-/// reads, patient lockscreen reads and record uploads.
+/// This started as a test that a hand-copied list of handler actions satisfied
+/// the constraint, and it caught the original drift: `access_logs.action` was
+/// created with a seven-value PascalCase CRUD enum, the handlers evolved to
+/// record operation names, and the two diverged until only `'View'` still
+/// matched. The in-memory backend has no constraint, so nothing noticed; on
+/// PostgreSQL almost every audit insert was rejected, and because the audit path
+/// fails closed that surfaced as `503 AUDIT_PERSISTENCE_REQUIRED` on emergency
+/// card reads, patient lockscreen reads and record uploads.
 ///
-/// Failing closed is correct for a medical audit trail, so the fix belongs in
-/// the schema (migration 20260813000001). This test pins the two together: add
-/// a new `action` string in a handler without widening the constraint and this
-/// goes red instead of silently blocking access in production.
+/// The hand-copied list is gone, and this is why. A mirror of the thing under
+/// test cannot detect an omission the two share: the list was missing the five
+/// `prescription_verification_*` values *and* the constraint's own copy was
+/// fine, so a test that compared list to constraint passed while every one of
+/// those five inserts failed in production — on **length**, not the CHECK, at
+/// 33 to 35 characters against a `VARCHAR(32)` column. The whole
+/// second-pharmacist verification workflow was unusable on PostgreSQL.
+/// See migration 20260910000001.
+///
+/// So the vocabulary is now read from the live constraint and the width from the
+/// live column, and every permitted value is inserted. The invariant is
+/// `constraint ⊆ storable`, proved against the real schema rather than against
+/// a copy of it. `scripts/check-audit-action-vocabulary.py` proves the other
+/// half — `written ⊆ constraint` — from the Rust source.
 #[tokio::test]
-async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
+async fn test_pg_access_log_permits_only_values_it_can_store() {
     let pool = get_test_pool().await;
 
-    // Mirrors the vocabulary in migration 20260813000001. Kept as an explicit
-    // list rather than derived, because the point is to notice divergence.
-    const ACTIONS: &[&str] = &[
-        "View",
-        "Create",
-        "Update",
-        "Delete",
-        "Export",
-        "Print",
-        "EmergencyAccess",
-        "view",
-        "create",
-        "emergency",
-        "restricted",
-        "upload_record",
-        "download_record",
-        "list_records",
-        "view_medical_id",
-        "nfc_tap",
-        "nfc_self_verify",
-        "qr_verification",
-        "log_symptom",
-        "lab_submission",
-        "add_vital_signs",
-        "create_soap_note",
-        "create_operative_note",
-        "create_pre_op",
-        "create_post_op",
-        "create_anesthesia",
-        "create_pathology",
-        "create_radiology_order",
-        "create_radiology_report",
-        "create_transfusion",
-        "create_e_prescription",
-        "create_death_certificate",
-        "create_autopsy_request",
-        "create_autopsy_report",
-        "create_trauma_assessment",
-        "create_stroke_assessment",
-        "create_sepsis_assessment",
-        "create_ems_handoff",
-        "create_code_blue",
-        "create_cardiac_event",
-        "telehealth",
-        "recording-started",
-        "recording-stopped",
-        // Client-supplied telehealth lifecycle events. These appear nowhere as
-        // Rust literals -- they originate in JitsiMeetComponent and arrive as
-        // `event_type` -- so deriving the vocabulary from backend source alone
-        // missed them entirely.
-        "conference-joined",
-        "conference-left",
-        "participant-joined",
-        "participant-left",
-        "error",
-    ];
+    let definition: String = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint
+         WHERE conname = 'access_logs_action_check'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("access_logs_action_check must exist");
+
+    // Every single-quoted literal in the CHECK body. Doubled quotes would break
+    // this, and no value in this vocabulary contains one.
+    let permitted: Vec<String> = definition
+        .split('\'')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect();
+    assert!(
+        permitted.len() > 20,
+        "read only {} values from {definition}; the parse is wrong, not the schema",
+        permitted.len()
+    );
+
+    let width: i32 = sqlx::query_scalar(
+        "SELECT character_maximum_length FROM information_schema.columns
+         WHERE table_name = 'access_logs' AND column_name = 'action'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("access_logs.action must have a declared width");
+
+    let too_long: Vec<String> = permitted
+        .iter()
+        .filter(|value| value.len() as i32 > width)
+        .map(|value| format!("{value} ({} chars)", value.len()))
+        .collect();
 
     let mut rejected: Vec<String> = Vec::new();
-    for action in ACTIONS {
+    for action in &permitted {
         let id = format!("audit-vocab-{}", uuid::Uuid::new_v4());
         let result = sqlx::query(
             "INSERT INTO access_logs
@@ -3025,7 +3015,7 @@ async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
         .bind("synthetic-accessor")
         .bind("Doctor")
         .bind("synthetic")
-        .bind(*action)
+        .bind(action)
         .bind(false)
         .execute(&pool)
         .await;
@@ -3035,20 +3025,17 @@ async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
         }
     }
 
-    // `action` is VARCHAR(32); a longer value fails on length, not the CHECK.
-    for action in ACTIONS {
-        assert!(
-            action.len() <= 32,
-            "action {action:?} is {} chars and cannot fit access_logs.action",
-            action.len()
-        );
-    }
-
     pool.close().await;
 
     assert!(
+        too_long.is_empty(),
+        "the constraint permits {} value(s) longer than VARCHAR({width}):\n  {}",
+        too_long.len(),
+        too_long.join("\n  ")
+    );
+    assert!(
         rejected.is_empty(),
-        "{} action value(s) the handlers write are rejected by the schema:\n  {}",
+        "{} permitted value(s) the column rejects:\n  {}",
         rejected.len(),
         rejected.join("\n  ")
     );

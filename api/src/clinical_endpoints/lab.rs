@@ -52,7 +52,7 @@ pub async fn create_specimen(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -287,7 +287,7 @@ pub async fn create_chain_of_custody(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -531,7 +531,7 @@ pub async fn create_lab_qc(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -724,7 +724,7 @@ pub async fn create_critical_value(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -948,7 +948,7 @@ pub async fn create_specimen_rejection(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

@@ -30,48 +30,6 @@ type ASAClass = 'I' | 'II' | 'III' | 'IV' | 'V' | 'VI';
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type AnesthesiaType = 'general' | 'regional' | 'local' | 'mac' | 'spinal' | 'epidural' | 'combined';
 
-interface _PreOpAssessment {
-  id: string;
-  patientId: string;
-  assessmentDate: string;
-  assessmentTime: string;
-  assessedBy: string;
-  scheduledSurgery: string;
-  surgeon: string;
-  scheduledDate: string;
-  scheduledTime: string;
-  asaClass: ASAClass;
-  asaEmergency: boolean;
-  anesthesiaType: AnesthesiaType;
-  airwayAssessment: {
-    mallampati: MallampatiClass;
-    mouthOpening: string;
-    thyromental: string;
-    neckMobility: string;
-    dentition: string;
-    beardPresent: boolean;
-    obeseNeck: boolean;
-    difficultyPredicted: boolean;
-  };
-  npoStatus: {
-    lastSolid: string;
-    lastClear: string;
-    compliant: boolean;
-  };
-  consents: {
-    surgicalConsent: boolean;
-    anesthesiaConsent: boolean;
-    bloodConsent: boolean;
-  };
-  labsReviewed: string[];
-  allergies: string[];
-  currentMedications: string[];
-  holdMedications: string[];
-  medicalHistory: string[];
-  preOpChecklist: Record<string, boolean>;
-  notes: string;
-}
-
 export default function PreOpPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();

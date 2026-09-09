@@ -129,7 +129,6 @@ export default function MCIPage() {
   // MCI Patients
   const [patients, setPatients] = useState<MCIPatient[]>([]);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [_editingPatient, _setEditingPatient] = useState<MCIPatient | null>(null);
   const [tagCounter, setTagCounter] = useState(1);
   // START's thresholds come from the API, not from this file.
   const { catalog } = useScoringCatalog();

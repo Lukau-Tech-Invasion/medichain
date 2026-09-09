@@ -378,50 +378,6 @@ fn stroke_entity(assessment: &StrokeAssessment, data: Value) -> StrokeAssessment
     }
 }
 
-/// Superseded by `crisis::create_cardiac`, which builds the entity from
-/// `CreateCardiacRequest` — the shape the form actually submits — and derives
-/// the TIMI score rather than storing the client's.
-///
-/// Kept rather than deleted per the project rule on removing code, and because
-/// the structured `clinical::CardiacEvent` it maps from is still the read-side
-/// type. Remove once someone confirms nothing intends to use that shape.
-#[allow(dead_code)]
-fn cardiac_entity(event: &CardiacEvent, data: Value) -> CardiacEventEntity {
-    let now = Utc::now();
-    CardiacEventEntity {
-        id: event.event_id.clone(),
-        patient_id: event.patient_id.clone(),
-        event_type: json_label(&event.event_type),
-        cath_lab_activated: event.cath_lab_activated,
-        pci_performed: event.pci_performed,
-        door_to_balloon_minutes: event.door_to_balloon_minutes,
-        documented_by: event.documented_by.clone(),
-        documented_at: event.documented_at,
-        data,
-        created_at: now,
-        updated_at: now,
-    }
-}
-
-fn sepsis_entity(assessment: &SepsisAssessment, data: Value) -> SepsisAssessmentEntity {
-    let now = Utc::now();
-    SepsisAssessmentEntity {
-        id: assessment.assessment_id.clone(),
-        patient_id: assessment.patient_id.clone(),
-        severity: json_label(&assessment.severity),
-        suspected_source: assessment.suspected_source.clone(),
-        qsofa_score: assessment.qsofa.score(),
-        sofa_score: assessment.sofa_score,
-        vasopressors_required: assessment.vasopressors_required,
-        icu_admission: assessment.icu_admission,
-        assessed_by: assessment.assessed_by.clone(),
-        assessed_at: assessment.assessed_at,
-        data,
-        created_at: now,
-        updated_at: now,
-    }
-}
-
 fn ems_handoff_entity(handoff: &EMSHandoff, data: Value) -> EmsHandoffEntity {
     let now = Utc::now();
     EmsHandoffEntity {

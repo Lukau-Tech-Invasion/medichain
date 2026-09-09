@@ -149,6 +149,9 @@ import type {
   MciCreateResult,
   IvSiteCreateResult,
   PreOpCreateResult,
+  AssessFamilyHistoryRequest,
+  AssessFamilyHistoryResult,
+  SepsisCreateResult,
 } from '../types';
 
 // ============================================================================
@@ -459,7 +462,6 @@ import type {
   BootstrapAdminResponse,
   WalletRegisterRequest,
   WalletRegisterResponse,
-  WalletUserInfo,
   CurrentUser,
   Role,
 } from '../types';
@@ -949,7 +951,6 @@ import type {
   SubmitLabResultResponse,
   ReviewLabResultRequest,
   ReviewLabResultResponse,
-  PendingLabResultsResponse,
   LabResultSubmission,
 } from '../types';
 
@@ -1257,7 +1258,7 @@ export async function getCardiac(eventId: string): Promise<CardiacEvent> {
   return getApiClient().get(`/api/emergency/cardiac/${eventId}`);
 }
 
-export async function createSepsis(data: unknown): Promise<ClinicalCreateResult> {
+export async function createSepsis(data: unknown): Promise<SepsisCreateResult> {
   return getApiClient().post('/api/emergency/sepsis', data);
 }
 
@@ -1385,6 +1386,17 @@ export async function createFallRisk(
   return getApiClient().post('/api/emergency/fall-risk', data);
 }
 
+/**
+ * A patient's fall-risk assessments, most recent first.
+ *
+ * `FallRiskPage`'s History tab rendered an always-empty array: the repository
+ * had the read and no route reached it, so the tab could not populate and was
+ * indistinguishable from a patient never assessed.
+ */
+export async function listPatientFallRisk(patientId: string): Promise<FallRiskAssessment[]> {
+  return getApiClient().get(`/api/emergency/fall-risk/patient/${patientId}`);
+}
+
 export async function getFallRisk(assessmentId: string): Promise<FallRiskAssessment> {
   return getApiClient().get(`/api/emergency/fall-risk/${assessmentId}`);
 }
@@ -1396,6 +1408,21 @@ export async function getNurseTasks(): Promise<NurseTasksResponse> {
 // ============================================================================
 // Specialized Assessments (Phase 4)
 // ============================================================================
+
+/**
+ * Assess a family history for referral, one condition category at a time.
+ *
+ * Stateless: it stores nothing and the request carries no identifiers, only
+ * relationships and ages. It exists so `clinical_scoring::family_history_assessment`
+ * is the only implementation of this scale — the page used to band hereditary
+ * risk by counting relatives and issue an automatic genetics referral from that
+ * count.
+ */
+export async function assessFamilyHistory(
+  data: AssessFamilyHistoryRequest,
+): Promise<AssessFamilyHistoryResult> {
+  return getApiClient().post('/api/clinical/family-history/assess', data);
+}
 
 export async function createBurn(data: CreateBurnRequest): Promise<BurnCreateResult> {
   return getApiClient().post('/api/clinical/burn', data);

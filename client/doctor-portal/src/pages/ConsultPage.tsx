@@ -293,25 +293,11 @@ const ConsultPage: React.FC = () => {
     return t(`docConsult.specialty_${specialty}`);
   };
 
-  const _formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
-  };
 
   const formatDateTime = (isoString: string) => {
     return new Date(isoString).toLocaleString();
   };
 
-  const _filteredConsults = consults.filter((c) => {
-    const matchesSearch =
-      c.consultId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.reason.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
-    const matchesSpecialty = specialtyFilter === 'all' || c.specialty === specialtyFilter;
-
-    return matchesSearch && matchesStatus && matchesSpecialty;
-  });
 
   const activeConsults = consults.filter((c) => c.status !== 'completed' && c.status !== 'cancelled');
   const completedConsults = consults.filter((c) => c.status === 'completed');

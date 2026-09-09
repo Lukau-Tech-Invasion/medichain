@@ -55,6 +55,18 @@ export interface ScoringCatalog {
     bands: ScoreBand[];
   };
   burn: {
+    /** The Lund-Browder body chart, age-banded. */
+    lund_browder: {
+      /** Lower bound in whole years for each column. */
+      age_bands: number[];
+      age_band_labels: string[];
+      regions: Array<{
+        id: string;
+        name: string;
+        /** Percentage of total body surface, one per age band. */
+        percent_by_age_band: number[];
+      }>;
+    };
     parkland_ml_per_kg_per_percent: number;
     urine_target_ml_kg_hr: number;
     first_block_fraction: number;
@@ -82,6 +94,15 @@ export interface ScoringCatalog {
     actions: Array<{ score: number; action: string }>;
   };
   catheter_dwell_hours: Record<string, number | null>;
+  family_history: {
+    first_degree: string[];
+    second_degree: string[];
+    third_degree: string[];
+    points: { first_degree: number; second_degree: number; third_degree: number };
+    early_onset_age_years: number;
+    early_onset_multiplier: number;
+    bands: ScoreBand[];
+  };
   medication: {
     /** Minutes after the scheduled time before a dose counts as overdue. */
     overdue_after_minutes: number;
@@ -173,13 +194,75 @@ export function parklandPreview(
   };
 }
 
-/** Total charted TBSA, clamped the same way the server clamps it. */
-export function totalTbsa(percentages: number[]): number {
-  const sum = percentages.reduce(
-    (acc, p) => acc + (Number.isFinite(p) && p > 0 ? p : 0),
-    0,
-  );
-  return Math.min(Math.max(sum, 0), 100);
+/**
+ * Whole years between a `YYYY-MM-DD` date of birth and now.
+ *
+ * Mirrors `clinical_scoring::years_since`, including the birthday check that
+ * `CardiacPage`'s `thisYear - birthYear` was missing — a year out for anyone who
+ * has not had their birthday, on a boundary that decides a Lund-Browder column.
+ */
+export function yearsSince(dateOfBirth: string, now: Date = new Date()): number | null {
+  const dob = new Date(`${dateOfBirth}T00:00:00Z`);
+  if (Number.isNaN(dob.getTime())) return null;
+  let years = now.getUTCFullYear() - dob.getUTCFullYear();
+  const beforeBirthday =
+    now.getUTCMonth() < dob.getUTCMonth() ||
+    (now.getUTCMonth() === dob.getUTCMonth() && now.getUTCDate() < dob.getUTCDate());
+  if (beforeBirthday) years -= 1;
+  return years >= 0 && years <= 130 ? years : null;
+}
+
+/**
+ * The Lund-Browder column index for an age. `null` when there isn't one.
+ *
+ * Null is not a signal to fall back to the adult column. A burn charted on the
+ * adult column puts an infant's head at 7% when it is 19%, and TBSA is what the
+ * fluid order is computed from — the server refuses such a submission outright.
+ */
+export function lundBrowderBand(
+  ageYears: number | null,
+  catalog: ScoringCatalog | null,
+): number | null {
+  const bands = catalog?.burn?.lund_browder?.age_bands;
+  if (!bands?.length || ageYears === null) return null;
+  let band = 0;
+  bands.forEach((lowerBound, index) => {
+    if (ageYears >= lowerBound) band = index;
+  });
+  return band;
+}
+
+/** What percentage of the body one region is, at a given age band. */
+export function lundBrowderRegionPercent(
+  regionId: string,
+  band: number | null,
+  catalog: ScoringCatalog | null,
+): number | null {
+  if (band === null) return null;
+  const region = catalog?.burn?.lund_browder?.regions?.find((r) => r.id === regionId);
+  return region?.percent_by_age_band?.[band] ?? null;
+}
+
+/**
+ * Preview TBSA from a charted body.
+ *
+ * `percentOfRegion` is how much of *that region* is burned, 0-100 — not a share
+ * of the whole body. The region's size at the patient's age is applied here, so
+ * the clinician never multiplies anything.
+ */
+export function lundBrowderTbsa(
+  charted: Array<{ regionId: string; percentOfRegion: number }>,
+  band: number | null,
+  catalog: ScoringCatalog | null,
+): number | null {
+  if (band === null || !catalog?.burn?.lund_browder?.regions) return null;
+  let total = 0;
+  for (const { regionId, percentOfRegion } of charted) {
+    const size = lundBrowderRegionPercent(regionId, band, catalog);
+    if (size === null || !Number.isFinite(percentOfRegion)) continue;
+    total += size * Math.min(Math.max(percentOfRegion, 0), 100) / 100;
+  }
+  return Math.min(Math.max(total, 0), 100);
 }
 
 /** Burn severity preview. `null` until the catalog loads. */
@@ -279,3 +362,18 @@ export function isDoseOverdue(
   if (minutes == null) return null;
   return now.getTime() > scheduledAt.getTime() + minutes * 60_000;
 }
+
+/*
+ * There is deliberately no `familyHistoryAssessment` here.
+ *
+ * It existed briefly, mirroring the Rust, and was deleted once
+ * `POST /api/clinical/family-history/assess` landed: family history is the one
+ * scale with no stored value, so there was no create response to carry the
+ * answer and a client-side copy looked like the only option. A small stateless
+ * endpoint is the better one, because it leaves
+ * `clinical_scoring::family_history_assessment` as the single implementation.
+ *
+ * The catalog still publishes the degree lists, the early-onset age and the
+ * band thresholds under `family_history` — that is a description of what the
+ * server will do, not a second place it is done.
+ */

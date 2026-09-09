@@ -22,9 +22,13 @@ script was blind until 2026-09-09:
   CodeBluePage     location: 'Emergency Department'      every code, anywhere
   BloodBankPage    bloodType: 'Unknown'                  while the patient
                                                          record held the type
-                                                         (fixed, so it no longer
-                                                         appears — it reads the
-                                                         profile now)
+  ChainOfCustody   integrityVerified: true               a legal document
+                                                         asserting the seal was
+                                                         checked, with no
+                                                         control asking
+
+The last two no longer appear: both were fixed rather than baselined, which is
+what should happen to most of what this finds.
 
 All sixteen of those were found by hand. This script scanned past every one,
 because it only ever read `useState` initialisers — and none of them are state
@@ -103,12 +107,6 @@ BASELINE: dict[tuple[str, str], str] = {
     ("AutopsyPage.tsx", "status"): "'in-progress' — an autopsy is in progress the moment it is opened.",
     ("BloodBankPage.tsx", "status"): "'ordered' — the state a new blood order is created in.",
     ("ChainOfCustodyPage.tsx", "status"): "'collected' — the specimen is being collected on this form.",
-    ("ChainOfCustodyPage.tsx", "integrityVerified"): (
-        "true at collection, because the collector applies the seal on this form. "
-        "WORTH A SECOND LOOK: a chain-of-custody record is a legal document and "
-        "the form never asks. The transfer path does it properly, from "
-        "`transfer.sealIntact`."
-    ),
     ("ConsultPage.tsx", "status"): "'requested' — a new consult is a request.",
     ("CriticalValuePage.tsx", "notificationStatus"): "'pending' — nobody has been notified yet.",
     ("DeathCertificatePage.tsx", "status"): "'filed' — this submission is the filing.",

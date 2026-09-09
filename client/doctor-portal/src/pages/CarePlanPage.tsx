@@ -17,9 +17,6 @@ import {
   Activity,
   RefreshCw,
   ArrowRight,
-  Heart,
-  Brain,
-  Shield,
   Stethoscope
 } from 'lucide-react';
 
@@ -55,17 +52,6 @@ interface Intervention {
   responsibleParty: string;
   lastPerformed?: string;
   notes?: string;
-}
-
-interface _CarePlan {
-  id: string;
-  patientId: string;
-  diagnoses: NursingDiagnosis[];
-  goals: Goal[];
-  interventions: Intervention[];
-  createdAt: string;
-  updatedAt: string;
-  createdBy: string;
 }
 
 export default function CarePlanPage() {
@@ -198,15 +184,6 @@ export default function CarePlanPage() {
     }
   };
 
-  const _getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'Safety': return <Shield className="h-4 w-4" />;
-      case 'Cardiac': return <Heart className="h-4 w-4" />;
-      case 'Cognition': return <Brain className="h-4 w-4" />;
-      case 'Activity': return <Activity className="h-4 w-4" />;
-      default: return <Stethoscope className="h-4 w-4" />;
-    }
-  };
 
   const addDiagnosis = () => {
     if (!newDiagnosis.diagnosis) return;

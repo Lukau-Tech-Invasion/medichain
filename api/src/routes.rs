@@ -15,6 +15,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::middleware::metrics::metrics_endpoint),
         )
         .service(health_check)
+        .service(api_health_check)
         .service(readiness_check)
         .service(db_health_check)
         .service(detailed_health_check)
@@ -195,6 +196,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // used to be duplicated inside the forms. Registered before the
         // `/api/clinical/...` records so `scoring` is never matched as an id.
         .service(get_scoring_catalog)
+        // Stateless family-history referral screening. Registered before the
+        // `/api/surgical/family-history/{id}` read so `assess` is never matched
+        // as a record id.
+        .service(clinical_endpoints::assess_family_history)
         // Clinical documentation endpoints (Phase 1)
         // IMPORTANT: get_triage_queue must be registered BEFORE get_triage_assessment
         // otherwise /api/clinical/triage/queue matches {assessment_id} as "queue"
@@ -263,6 +268,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_incident)
         .service(clinical_endpoints::get_incident)
         .service(clinical_endpoints::create_fall_risk)
+        // IMPORTANT: the patient list must be registered BEFORE the by-id
+        // route, or `/fall-risk/patient/{id}` matches `patient` as an {id}.
+        .service(clinical_endpoints::list_patient_fall_risk)
         .service(clinical_endpoints::get_fall_risk)
         // Specialized assessment endpoints (Phase 4)
         .service(clinical_endpoints::create_burn)

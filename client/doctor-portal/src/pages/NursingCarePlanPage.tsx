@@ -64,7 +64,6 @@ const NursingCarePlanPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'plans' | 'new' | 'templates'>('plans');
   const [plans, setPlans] = useState<CarePlan[]>([]);
-  const [_selectedPlan, _setSelectedPlan] = useState<CarePlan | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
