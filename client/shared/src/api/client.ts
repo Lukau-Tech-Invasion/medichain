@@ -625,7 +625,7 @@ export class ApiClient {
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
       if (data && typeof data === 'object' && !Array.isArray(data)) {
-        const wrappedData = data as Record<string, any>;
+        const wrappedData = data as Record<string, unknown>;
         if (Array.isArray(wrappedData.items)) return wrappedData.items as T;
         if (Array.isArray(wrappedData.records)) return wrappedData.records as T;
         if (Array.isArray(wrappedData.submissions)) return wrappedData.submissions as T;

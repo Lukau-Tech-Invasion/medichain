@@ -93,7 +93,9 @@ export const cache = new CacheManager();
  */
 export function cached<T>(key: string, ttl?: number) {
   return function (
-    target: any,
+    // Unused: the decorator wraps `descriptor.value`, so the prototype it was
+    // applied to never needs to be inspected.
+    target: unknown,
     propertyKey: string,
     descriptor: PropertyDescriptor
   ) {

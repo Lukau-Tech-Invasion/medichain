@@ -144,6 +144,153 @@ pub struct SignConsentRequest {
     pub child_maturity_assessment: Option<String>,
 }
 
+/// The lawful basis a consent record is written under.
+///
+/// POPIA wants the grounds evidenced, not a boolean, so these five travel
+/// together: the four grounds and the evidence for the signer's authority.
+struct ConsentAuthority {
+    emergency_basis: EmergencyBasis,
+    section_11_basis: PopiaSection11Basis,
+    special_basis: SpecialInformationBasis,
+    capacity: ConsentGiverCapacity,
+    authority_evidence_id: Option<String>,
+}
+
+/// Work out what lawful basis this consent is recorded under, or refuse.
+///
+/// Separated from `sign_consent` so the legal determination reads as one thing.
+/// Every default here is a claim about the law, and each is deliberate:
+///
+/// * `emergency_basis` defaults to none, and an override *without* a recorded
+///   reason is rejected rather than defaulted — an unjustified emergency
+///   override is unauditable, which is the one thing this record exists to
+///   prevent.
+/// * `section_11_basis` falls back to ordinary consent for callers that predate
+///   the field, and says so in the log rather than silently inventing grounds.
+/// * `capacity` is trusted when stated and otherwise inferred from how the
+///   caller's access actually resolved, so a guardian-signed consent is
+///   attributed to the guardian.
+fn resolve_consent_authority(
+    body: &SignConsentRequest,
+    access: &crate::support::PatientAccessGrant,
+    consent_type: &str,
+    patient_id: &str,
+) -> Result<ConsentAuthority, HttpResponse> {
+    let emergency_basis = body.emergency_basis.unwrap_or(EmergencyBasis::None);
+    if emergency_basis.requires_justification()
+        && body
+            .emergency_justification
+            .as_ref()
+            .map(|j| j.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "emergency_justification is required when emergency_basis is not 'none'"
+                .to_string(),
+            code: "EMERGENCY_JUSTIFICATION_REQUIRED".to_string(),
+        }));
+    }
+
+    let section_11_basis = body.popia_section_11_basis.unwrap_or_else(|| {
+        log::warn!(
+            "consent {} for patient {} recorded without an explicit POPIA s11 basis; \
+             defaulting to 'consent'. Caller should be updated to send one.",
+            consent_type,
+            patient_id
+        );
+        PopiaSection11Basis::Consent
+    });
+
+    let special_basis = body
+        .special_information_basis
+        .unwrap_or(SpecialInformationBasis::S32Treatment);
+
+    let capacity = body.consent_giver_capacity.unwrap_or(match access {
+        crate::support::PatientAccessGrant::Guardian(_) => ConsentGiverCapacity::Guardian,
+        _ => ConsentGiverCapacity::SelfCapacity,
+    });
+
+    Ok(ConsentAuthority {
+        emergency_basis,
+        section_11_basis,
+        special_basis,
+        capacity,
+        authority_evidence_id: access.authority_evidence_id().map(|s| s.to_string()),
+    })
+}
+
+/// The Children's Act §129 test on who may sign this consent, or `None` when
+/// the signer may proceed.
+///
+/// Both halves of the mature-minor test are required. A claim of mature-minor
+/// capacity used to be accepted on the caller's word alone — the enum value
+/// existed and nothing checked it. The age is settled by the patient's date of
+/// birth; the maturity finding is not something any amount of data can
+/// establish, so a clinician must have recorded it.
+///
+/// And a child under 12 may not consent for themselves at all. Without that
+/// check, a patient account belonging to a young child could self-sign consent
+/// that no statute supports.
+///
+/// Lifted out of `sign_consent` because it is one legal question with one
+/// answer, and reading it should not mean reading a request handler.
+fn child_capacity_refusal(
+    capacity: ConsentGiverCapacity,
+    treatment_capacity: crate::support::TreatmentConsentCapacity,
+    patient_age: Option<u32>,
+    child_maturity_assessment: Option<&str>,
+) -> Option<HttpResponse> {
+    if capacity == ConsentGiverCapacity::ChildOver12Mature {
+        if treatment_capacity != crate::support::TreatmentConsentCapacity::MatureChildEligible {
+            return Some(HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "consent_giver_capacity 'child_over_12_mature' is not available for this \
+                     patient: Children's Act s129 requires an age of at least {} years, and \
+                     the patient's recorded age is {}",
+                    crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS,
+                    patient_age
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "indeterminable".to_string())
+                ),
+                code: "CHILD_SELF_CONSENT_AGE_NOT_MET".to_string(),
+            }));
+        }
+        if child_maturity_assessment
+            .map(|a| a.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Some(
+                HttpResponse::BadRequest().json(ErrorResponse {
+                    success: false,
+                    error: "child_maturity_assessment is required when consent_giver_capacity is \
+                        'child_over_12_mature': age alone does not establish capacity under \
+                        Children's Act s129"
+                        .to_string(),
+                    code: "CHILD_MATURITY_ASSESSMENT_REQUIRED".to_string(),
+                }),
+            );
+        }
+    }
+
+    if capacity == ConsentGiverCapacity::SelfCapacity
+        && treatment_capacity == crate::support::TreatmentConsentCapacity::CompetentPersonRequired
+    {
+        return Some(HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "a patient under {} may not consent for themselves; a parent, guardian, or \
+                 other competent person must consent on their behalf",
+                crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS
+            ),
+            code: "COMPETENT_PERSON_REQUIRED".to_string(),
+        }));
+    }
+
+    None
+}
+
 /// Sign a consent form
 ///
 /// Records the POPIA lawful basis for the processing, not merely a boolean.
@@ -212,48 +359,16 @@ pub async fn sign_consent(
         return resp;
     }
 
-    let emergency_basis = body.emergency_basis.unwrap_or(EmergencyBasis::None);
-    // An emergency override with no recorded reason is unauditable — this is
-    // the one lawful-basis field that is rejected rather than defaulted.
-    if emergency_basis.requires_justification()
-        && body
-            .emergency_justification
-            .as_ref()
-            .map(|j| j.trim().is_empty())
-            .unwrap_or(true)
-    {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "emergency_justification is required when emergency_basis is not 'none'"
-                .to_string(),
-            code: "EMERGENCY_JUSTIFICATION_REQUIRED".to_string(),
-        });
-    }
-
-    // Fall back to the ordinary clinical-care grounds when a caller predates
-    // this schema, and say so in the log rather than silently inventing a
-    // lawful basis.
-    let section_11_basis = body.popia_section_11_basis.unwrap_or_else(|| {
-        log::warn!(
-            "consent {} for patient {} recorded without an explicit POPIA s11 basis; \
-             defaulting to 'consent'. Caller should be updated to send one.",
-            consent_type,
-            patient_id
-        );
-        PopiaSection11Basis::Consent
-    });
-    let special_basis = body
-        .special_information_basis
-        .unwrap_or(SpecialInformationBasis::S32Treatment);
-
-    // Capacity: trust an explicit value, otherwise infer from how access was
-    // actually resolved above.
-    let capacity = body.consent_giver_capacity.unwrap_or(match &access {
-        crate::support::PatientAccessGrant::Guardian(_) => ConsentGiverCapacity::Guardian,
-        _ => ConsentGiverCapacity::SelfCapacity,
-    });
-
-    let authority_evidence_id = access.authority_evidence_id().map(|s| s.to_string());
+    let ConsentAuthority {
+        emergency_basis,
+        section_11_basis,
+        special_basis,
+        capacity,
+        authority_evidence_id,
+    } = match resolve_consent_authority(&body, &access, &consent_type, &patient_id) {
+        Ok(authority) => authority,
+        Err(refusal) => return refusal,
+    };
 
     let patient_chain_account = match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(patient) => patient.wallet_address,
@@ -297,59 +412,13 @@ pub async fn sign_consent(
     let patient_age = crate::support::patient_age_years(&data, &patient_id).await;
     let treatment_capacity = crate::support::treatment_consent_capacity(patient_age);
 
-    // A claim of mature-minor capacity used to be accepted on the caller's word
-    // alone — the enum value existed and nothing checked it. Both halves of the
-    // §129 test are now required: the age (verified here from the patient's
-    // date of birth) and the maturity finding (which no amount of data can
-    // establish, so it must be recorded by the clinician).
-    if capacity == ConsentGiverCapacity::ChildOver12Mature {
-        if treatment_capacity != crate::support::TreatmentConsentCapacity::MatureChildEligible {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
-                error: format!(
-                    "consent_giver_capacity 'child_over_12_mature' is not available for this \
-                     patient: Children's Act s129 requires an age of at least {} years, and \
-                     the patient's recorded age is {}",
-                    crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS,
-                    patient_age
-                        .map(|a| a.to_string())
-                        .unwrap_or_else(|| "indeterminable".to_string())
-                ),
-                code: "CHILD_SELF_CONSENT_AGE_NOT_MET".to_string(),
-            });
-        }
-        if body
-            .child_maturity_assessment
-            .as_ref()
-            .map(|a| a.trim().is_empty())
-            .unwrap_or(true)
-        {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
-                error: "child_maturity_assessment is required when consent_giver_capacity is \
-                        'child_over_12_mature': age alone does not establish capacity under \
-                        Children's Act s129"
-                    .to_string(),
-                code: "CHILD_MATURITY_ASSESSMENT_REQUIRED".to_string(),
-            });
-        }
-    }
-
-    // A child under 12 cannot consent for themselves at all — a competent
-    // person must. Without this, a patient account belonging to a young child
-    // could self-sign consent that no statute supports.
-    if capacity == ConsentGiverCapacity::SelfCapacity
-        && treatment_capacity == crate::support::TreatmentConsentCapacity::CompetentPersonRequired
-    {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: format!(
-                "a patient under {} may not consent for themselves; a parent, guardian, or \
-                 other competent person must consent on their behalf",
-                crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS
-            ),
-            code: "COMPETENT_PERSON_REQUIRED".to_string(),
-        });
+    if let Some(refusal) = child_capacity_refusal(
+        capacity,
+        treatment_capacity,
+        patient_age,
+        body.child_maturity_assessment.as_deref(),
+    ) {
+        return refusal;
     }
 
     // POPIA ss.34-35 layer on top of the health-data authorisation for a

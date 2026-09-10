@@ -393,7 +393,64 @@ reused as a data source for another, and the filter that made it correct for the
 first purpose becomes an invisible bug in the second. Ask what a collection was
 *hydrated for* before reading from it.
 
-## 2026-08-20 — OPEN, NEEDS AN OWNER DECISION: the node binary links GPL-3.0-only code while declaring MIT
+## Licence metadata: three pallets declared nothing, the node declared MIT (2026-09-10)
+
+`cargo deny --manifest-path blockchain/Cargo.toml check licenses` **fails**, and
+had been failing unread — the check is report-only for that workspace, which is
+recorded below as deliberate while the allow-list is discovered. Report-only
+means an error is a line in a log nobody reads:
+
+```
+error[unlicensed]: pallet-access-control = 0.1.0 is unlicensed
+error[unlicensed]: pallet-medical-records = 0.1.0 is unlicensed
+error[unlicensed]: pallet-patient-identity = 0.1.0 is unlicensed
+```
+
+All three MediChain pallets had **no `license` field at all**, while CLAUDE.md
+and this register both assert they are MIT. `license.workspace = true` now says
+so in the manifests, which is where a licence claim has to live to mean
+anything. `licenses ok` on that workspace now, and 60/60 pallet tests still pass.
+
+### And the node's declaration is corrected — the 2026-08-20 owner decision, taken
+
+The entry below sets out two ways out and ends: *"Doing neither is the only
+option that is actually unsafe."* **Option B is taken.**
+`blockchain/node/Cargo.toml` declares `license = "GPL-3.0-only"` instead of
+inheriting the workspace's MIT, because that is what the binary links: 17 strict
+GPL-3.0-only crates, all of them through `frame-benchmarking-cli`.
+
+Option A — making that dependency optional behind the existing
+`runtime-benchmarks` feature — is the better long-term shape and is still worth
+doing: it removes all 17 from the default graph and shrinks a ~20 GB release
+build. It is deliberately **not** done here, for one reason: it gates
+`mod benchmarking`, the `Subcommand::Benchmark` variant and its `command.rs`
+arm, and **this workspace cannot be compiled on the development host** —
+`substrate-wasm-builder` has no working WASM toolchain here, so only hosted CI
+builds the node. An unverifiable dependency change to the binary that signs
+blocks is exactly the kind of change this campaign has spent its time cleaning
+up after. It belongs to the same coordinated Subxt/runtime/node upgrade the
+advisories entry names, where it can be compiled and the benchmark subcommands
+re-tested.
+
+What Option B costs is nothing, and what it buys is that the metadata stops
+being false. The runtime and the three pallets stay MIT, which the measurement
+in that entry shows is accurate: 4 GPL-with-Classpath-exception crates in the
+runtime graph and **zero** strict ones.
+
+### A guard that was claimed but not switched on
+
+The root `deny.toml` header has said since 2026-08-25 that
+`unused-ignored-advisory` "below now makes a stale entry a build failure". It
+was not below. The setting existed only in `blockchain/deny.toml`; the four
+stale `rustls-webpki` ignores were removed by hand and the mechanism meant to
+stop them coming back was never enabled. It is enabled now, and
+`cargo deny check advisories` is green with it on — so there are no stale
+entries, which is the claim the register's "Note for the reviewer" could not
+previously support.
+
+---
+
+## 2026-08-20 — DECIDED 2026-09-10 (Option B): the node binary links GPL-3.0-only code while declaring MIT
 
 **This is the one item in this file with a legal rather than an engineering
 consequence, and it is not something an implementer should decide alone.**
@@ -1598,6 +1655,160 @@ level and function-level constant in the codebase.
 
 ---
 
+## `client/shared` had two dead hooks, and one of them was an auth bypass (2026-09-10)
+
+Chasing the last eight lint warnings in `client/shared` — the only workspace not
+at zero — turned up two hooks with **no consumers anywhere**, only a re-export
+from `hooks/index.ts`.
+
+**`useApi` / `useMutation`** (155 lines). Generic fetch wrappers. All three of
+their dependency arrays were the ones the linter was complaining about, and the
+linter was right: `fetchData` reads `options.onSuccess` and `options.onError`
+but lists only `options?.cacheKey` and `options?.cacheTTL`, so an inline callback
+would go stale. Nothing was broken, because nothing used it — what it offered a
+future caller was three stale-closure bugs in a wrapper that looks safe.
+
+**`AuthProvider` / `useAuth`** (153 lines), and this one is not merely dead:
+
+```tsx
+const savedWalletAddress = localStorage.getItem('medichain_wallet_address');
+if (savedWalletAddress) {
+  loginInternal(savedWalletAddress);      // -> isAuthenticated: true
+}
+```
+
+It restores a session by reading a wallet address out of `localStorage` on
+mount. That is precisely the path `authStore.restoreSession` **fails closed on
+by design** — no access token, refresh token or signing key is persisted, so
+nothing is supposed to survive a full page load, and the long comment there
+records that a durable session needs a cookie-borne refresh token and that
+trade-off has not been decided. Both portals use their own Zustand `authStore`;
+this was the old model left in the shared package.
+
+A dead weaker auth path sitting beside the live one is a trap, not spare
+capacity — the same shape as [[dead-durable-variant-beside-live-volatile-one]],
+with the polarity reversed. Both hooks removed, with the reasons left in
+`hooks/index.ts` where the exports used to be.
+
+### The `any` that was hiding a clinical alert reading "undefined severity"
+
+`RealtimeEvent.payload` was `any`. Typing it — named fields for what consumers
+actually read, plus an index signature for the rest, because the payload
+genuinely varies by `event_type` — made the compiler find two things
+immediately:
+
+* `showInfo(latestEvent.payload.message, 'New Notification')` in the shared
+  `Layout`. **Every sibling case in that switch has a fallback and this one did
+  not**, so a `notification` event carrying no message rendered a toast with an
+  empty body.
+* `` `Patient ${patient_id}: ${payload.severity} severity` `` — in **both**
+  portals. An absent severity interpolates as the literal string `undefined`, so
+  a clinical decision-support alert would read *"Patient PAT-123: undefined
+  severity"*. It says nothing about the severity now rather than saying that.
+
+Neither was reachable through a keyword search and neither had a test. The type
+found both in one compile, which is the argument against `any` in one line:
+[[keyword-audit-misses-invented-data]] is about the same blind spot from the
+other direction.
+
+`client/shared` lints at **zero warnings** now, alongside the two portals.
+
+---
+
+## The 60-line rule: scoped, enforced, and now true — CLOSED (2026-09-10)
+
+Recorded three times and never actioned, most recently as *"Handler length:
+measured, and the mechanical fix made it worse — STILL OPEN"*, which ended:
+
+> A rule that 292 functions break is not being enforced, and the honest options
+> are to scope it or to fund it — not to keep recording it.
+
+Both were done. **Scoped**, because the raw-line form of the rule was measuring
+the wrong thing; **funded**, because after scoping it the backlog was two
+functions rather than three hundred.
+
+### What the measurement actually showed
+
+326 functions in `api/src` exceed 60 raw lines. The three longest are:
+
+| lines | function | what it is |
+|---:|---|---|
+| 569 | `configure` | one builder chain registering routes |
+| 482 | `main` | genuinely long — see below |
+| 369 | `get_standard_lab_panels` | a reference table of laboratory panels |
+
+Two of those three are a **single expression** with one exit and no branches.
+`new_memory` (193 lines) is one struct literal. None is hard to verify, and the
+one time the mechanical fix was tried — extracting the entity construction out
+of `create_burn` — it produced **two** functions over the limit instead of one,
+plus an eight-argument signature needing `#[allow(clippy::too_many_arguments)]`.
+It was reverted, and that measurement is what this entry is built on.
+
+### The rule the Power of 10 actually states
+
+> "each function should be a logical unit in the code that is understandable and
+> verifiable as a unit"
+
+Line count is a **proxy** for that, and on this codebase it is a bad one. What
+defeats understanding is branching and state, not repetition. So the rule is now:
+
+> **A function carries at most 60 lines that branch or bind** — `if`, `else`,
+> `match`, `for`, `while`, `loop`, `return`, `break`, `continue`, `let`, a match
+> arm `=>`, and `?`, which is an early return.
+
+Data, straight-line calls and formatting do not count, because they are not what
+the limit is for. You cannot hide a branch from this measure; you can only
+remove one.
+
+Counted that way, **two** functions were over the limit, not 326:
+
+| branching lines | raw | function |
+|---:|---:|---|
+| 117 | 482 | `main` |
+| 73 | 374 | `sign_consent` |
+
+Both are exactly the functions a reviewer would name.
+
+### What was done to the two
+
+**`main` → 4 named phases.** Startup was four separate decisions in one body,
+and reading any one of them meant reading all four. Now
+`initialise_storage`, `connect_blockchain`, `hydrate_caches` and
+`spawn_background_jobs`, with `main` reading as the sequence it always was.
+Behaviour is unchanged; the only reordering is that the blockchain outbox job is
+spawned alongside the other three rather than a few milliseconds earlier, and
+none of them ticks for at least 30 seconds.
+
+**`sign_consent` → two legal determinations lifted out.** Both seams were
+already there in the comments:
+
+* `child_capacity_refusal` — the Children's Act §129 test on who may sign. One
+  legal question with one answer, and reading it should not mean reading a
+  request handler.
+* `resolve_consent_authority` + `ConsentAuthority` — what lawful basis the
+  record is written under. POPIA wants the grounds evidenced rather than a
+  boolean, so the four grounds and the authority evidence travel together, and
+  every default in there is a claim about the law with a reason beside it.
+
+`sign_consent` is 60 branching lines now, from 73.
+
+### Enforcement
+
+`scripts/check-function-length.py` is CI gate #17, **with no exemption list** —
+the `EXEMPT` map is empty, which is where this started and where it should stay.
+Adding an entry costs a reason in the source.
+
+Raw length is still reported and deliberately **not** enforced. Ratcheting it
+would penalise exactly the extraction the rule wants: lifting a guard out of a
+handler adds a function and usually adds lines. The raw count went from 326 to
+328 in this pass, and both new entries are the extracted helpers.
+
+The entry above — "the mechanical fix made it worse" — stands as the reason this
+was not done mechanically. What it was missing was a measure that could tell the
+difference between a long function and a complicated one.
+
+---
+
 ## The browser suites run, and the sign-in diagnosis was wrong (2026-09-09, round three)
 
 The entry above ends with "compare the `identifier` the browser posts to
@@ -2166,7 +2377,10 @@ were not simply dead:
 
 `connectWallet()` is deleted, and `cardiac_entity` / `sepsis_entity` with it.
 
-### Handler length: measured, and the mechanical fix made it worse — STILL OPEN
+### Handler length: measured, and the mechanical fix made it worse — CLOSED 2026-09-10
+
+> Closed by "The 60-line rule: scoped, enforced, and now true" above. The
+> measurement below is what that entry is built on.
 
 **292 functions in `api/src` exceed the 60-line limit in CLAUDE.md rule 3.** That
 is a codebase-wide condition, not something this campaign introduced: the worst

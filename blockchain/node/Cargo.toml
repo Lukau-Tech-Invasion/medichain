@@ -5,7 +5,34 @@ description = "MediChain Substrate node - emergency medical records blockchain"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
-license.workspace = true
+# NOT `license.workspace = true`, which is MIT and was false for this crate.
+#
+# `medichain-node` links 17 crates that are strict GPL-3.0-only -- no Classpath
+# exception, no permissive alternative -- among them `polkadot-primitives`,
+# `polkadot-overseer`, `staging-xcm` and `polkadot-runtime-parachains`. Every one
+# arrives through `frame-benchmarking-cli`, which drags the whole Cumulus /
+# parachain / XCM stack into a solo chain that has no parachain and no XCM.
+#
+# GPL obligations attach on distribution, and this binary is not distributed
+# today (`publish = false`; the release workflow uploads a run-scoped artifact
+# and says promoting it is a separate deliberate step; production points at an
+# external node via SUBSTRATE_WS_URL). So this was latent rather than breached --
+# but a binary whose declared licence does not match what it links is wrong
+# whether or not anyone has shipped it yet, and the fix that costs nothing is to
+# stop declaring the wrong thing.
+#
+# The runtime and the three pallets stay MIT, and that is accurate: the runtime
+# graph carries 4 GPL-with-Classpath-exception crates and **zero** strict ones.
+#
+# The better long-term shape is to make `frame-benchmarking-cli` optional behind
+# the existing `runtime-benchmarks` feature, which removes all 17 from the
+# default graph and shrinks a ~20 GB release build. That is deliberately not
+# done here: it gates `mod benchmarking`, the `Subcommand::Benchmark` variant and
+# its `command.rs` arm, and this workspace cannot be compiled on the development
+# host (substrate-wasm-builder has no working WASM toolchain here -- see
+# docs/BLOCKCHAIN_NODE.md), so it would be an unverifiable change to a binary
+# that signs blocks. See the register entry of 2026-08-20.
+license = "GPL-3.0-only"
 repository.workspace = true
 publish = false
 

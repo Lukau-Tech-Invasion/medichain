@@ -167,6 +167,14 @@ jobs:
             - name: Frontend tests have not drifted from their components
               run: python scripts/check-frontend-test-drift.py
 
+            # CLAUDE.md rule 3, made enforceable. Counted as branching and
+            # binding rather than raw lines: 326 functions broke the raw-line
+            # form of the rule and none of the worst three were hard to read --
+            # a route table, a struct literal and a reference table of lab
+            # panels. The script's header carries the full reasoning.
+            - name: No function carries more branching than one unit should
+              run: python scripts/check-function-length.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================

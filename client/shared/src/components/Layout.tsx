@@ -68,7 +68,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
-  const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  const { showInfo, showWarning, showSuccess } = useToastActions();
   const lastProcessedEventRef = useRef<number>(0);
 
   // Handle incoming real-time events
@@ -94,7 +94,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               );
               break;
             case 'notification':
-              showInfo(latestEvent.payload.message, 'New Notification');
+              // Every sibling case here had a fallback and this one did not, so
+              // a `notification` event carrying no `message` rendered a toast
+              // with an empty body. Typing `payload` is what surfaced it.
+              showInfo(
+                latestEvent.payload.message || 'You have a new notification',
+                'New Notification'
+              );
               break;
             default:
               // For patients, maybe show less technical info
@@ -108,7 +114,12 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
             case 'cds_alert':
               showWarning(
                 latestEvent.payload.title || 'Clinical Alert',
-                `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                // An absent severity used to interpolate as the literal string
+                // "undefined severity" into a clinical alert. Say nothing about
+                // the severity rather than say that.
+                latestEvent.payload.severity
+                  ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                  : `Patient ${latestEvent.patient_id}`
               );
               break;
             case 'lab_result':
@@ -196,9 +207,6 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
     },
   ];
 
-  // Flatten patient sections for mobile and simple nav
-  const _patientNavItems: NavItem[] = patientNavSections.flatMap(section => section.items);
-  
   // Main nav for top bar (subset for cleaner UX)
   const patientMainNav: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },

@@ -128,13 +128,19 @@ export function useSSE(): UseSSEReturn {
           }
         }
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err) {
+      // An abort is this hook's own teardown, not a failure: reconnecting after
+      // one would fight the unmount that caused it. Narrowed rather than read
+      // off `any`, because a thrown non-Error (a string, a rejected fetch
+      // value) has no `.name` and the old code compared `undefined` to
+      // 'AbortError' and took the reconnect branch.
+      const aborted = err instanceof Error && err.name === 'AbortError';
+      if (aborted) {
         debugLog('useSSE', 'SSE connection aborted');
         connectedUserRef.current = null;
       } else {
         console.error('SSE Error:', err);
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'SSE connection failed');
         setIsConnected(false);
         connectedUserRef.current = null;
 

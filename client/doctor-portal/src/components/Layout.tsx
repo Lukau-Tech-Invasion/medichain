@@ -351,7 +351,12 @@ function Layout() {
           case 'cds_alert':
             showWarning(
               latestEvent.payload.title || 'Clinical Alert',
-              `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+              // An absent severity used to interpolate as the literal string
+              // "undefined severity" into a clinical alert. Say nothing about
+              // the severity rather than say that.
+              latestEvent.payload.severity
+                ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                : `Patient ${latestEvent.patient_id}`
             );
             break;
           case 'lab_result':

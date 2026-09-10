@@ -555,8 +555,26 @@ export interface PushEvent {
   event_type: string;
   /** Optional patient identifier the event relates to */
   patient_id?: string;
-  /** Arbitrary JSON payload */
-  payload: any;
+  /**
+   * The event's own JSON body.
+   *
+   * The named fields are the ones consumers actually read — `Layout` in both
+   * portals renders `message`, `title` and `severity` straight into a toast,
+   * and `JitsiMeetComponent` keys off `session_id` and `event`. They were
+   * reached through `any`, so a backend rename would have produced
+   * `undefined` in a clinician's alert with nothing failing to say so.
+   *
+   * The index signature keeps the rest reachable without pretending it is
+   * typed: the payload genuinely varies by `event_type`.
+   */
+  payload: {
+    message?: string;
+    title?: string;
+    severity?: string;
+    session_id?: string;
+    event?: string;
+    [key: string]: unknown;
+  };
   /** Unix timestamp (seconds since epoch) */
   timestamp: number;
 }

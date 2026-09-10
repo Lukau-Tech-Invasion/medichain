@@ -98,7 +98,16 @@ const FORCE = process.argv.includes('--i-understand-this-writes-accounts');
 const PASSWORD = 'BrowserTest!2026';
 
 interface StaffFixture {
-  key: 'doctor' | 'doctor2' | 'nurse' | 'admin' | 'pharmacist' | 'pharmacist2' | 'labtech';
+  key:
+    | 'doctor'
+    | 'doctor2'
+    | 'nurse'
+    | 'nurse2'
+    | 'admin'
+    | 'pharmacist'
+    | 'pharmacist2'
+    | 'labtech'
+    | 'labtech2';
   loginId: string;
   name: string;
   username: string;
@@ -130,12 +139,23 @@ const STAFF: StaffFixture[] = [
   // rule and proving the workflow need two people.
   { key: 'doctor2', loginId: sfx('bt.doctor2'), name: 'Dr Browser Test Two', username: sfx('btdoctor2'), role: 'Doctor' },
   { key: 'nurse', loginId: sfx('bt.nurse'), name: 'Nurse Browser Test', username: sfx('btnurse'), role: 'Nurse' },
+  // A SECOND nurse, for the same reason there is a second doctor. A shift
+  // handoff is a transfer of responsibility between two people: with one nurse
+  // fixture the outgoing and incoming nurse are the same account, and "the
+  // ward was handed over" degrades into "the record I wrote is still there".
+  // The interesting failure — a handoff that persists but never reaches the
+  // person taking over — is invisible without a second identity.
+  { key: 'nurse2', loginId: sfx('bt.nurse2'), name: 'Nurse Browser Test Two', username: sfx('btnurse2'), role: 'Nurse' },
   // Pharmacist and LabTechnician exist in `Role` and gate real endpoints, but
   // had no fixture, so neither role had ever been exercised — the 2026-08-26
   // campaign recorded both as untestable for exactly this reason.
   { key: 'pharmacist', loginId: sfx('bt.pharm'), name: 'Pharm Browser Test', username: sfx('btpharm'), role: 'Pharmacist' },
   { key: 'pharmacist2', loginId: sfx('bt.pharm2'), name: 'Pharm Browser Test Two', username: sfx('btpharm2'), role: 'Pharmacist' },
   { key: 'labtech', loginId: sfx('bt.lab'), name: 'Lab Browser Test', username: sfx('btlab'), role: 'LabTechnician' },
+  // And a second lab technician, so specimen collection and the QC/rejection
+  // review that follows it can be performed by different people. Several lab
+  // controls are maker-checker in the same way the clinical ones are.
+  { key: 'labtech2', loginId: sfx('bt.lab2'), name: 'Lab Browser Test Two', username: sfx('btlab2'), role: 'LabTechnician' },
 ];
 
 // There is deliberately no 'EmergencyResponder' fixture.
@@ -238,9 +258,20 @@ function okOrExisting(status: number, json: Json): boolean {
   return status === 409 || /ALREADY|EXISTS|DUPLICATE|BOOTSTRAPPED/i.test(code);
 }
 
+/** Thrown by `fail` once its diagnostic is already on the console. */
+class SeedFailure extends Error {}
+
 function fail(what: string, status: number, json: Json): never {
   console.error(`\n  FAILED: ${what}\n    HTTP ${status}\n    ${JSON.stringify(json)}\n`);
-  process.exit(1);
+  // Deliberately a throw, not `process.exit(1)`. Exiting from inside an async
+  // call with sockets still open aborted Node mid-teardown on Windows:
+  //
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c
+  //
+  // printed directly beneath the diagnostic above, so the last thing on the
+  // console was a libuv crash rather than the reason the seed failed. Throwing
+  // lets the runtime unwind; the exit status is set at the top level.
+  throw new SeedFailure(what);
 }
 
 /** Create real server state used by the lab and pharmacy browser journeys. */
@@ -729,6 +760,10 @@ them into any image that serves real patients.
 }
 
 main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  // A `SeedFailure` has already printed the only useful thing about itself, and
+  // a stack trace through the fetch helpers adds nothing. Anything else is
+  // unexpected and gets printed in full.
+  if (!(err instanceof SeedFailure)) console.error(err);
+  // `process.exitCode`, not `process.exit()` — see the comment on `fail`.
+  process.exitCode = 1;
 });

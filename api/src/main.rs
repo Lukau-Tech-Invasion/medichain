@@ -140,52 +140,15 @@ fn init_logging() {
     registry.init();
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    // Initialize logging (Phase 8.2). LOG_FORMAT=json emits structured JSON logs
-    // via `tracing` (with a `log` bridge so existing `log::` calls are captured);
-    // otherwise the human-readable `env_logger` is used.
-    init_logging();
-
-    // Start the uptime clock before anything else can take time, so the
-    // operations dashboard reports how long the process has been up rather than
-    // the hardcoded availability figure it used to print.
-    crate::middleware::metrics::mark_process_start();
-
-    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
-    // docker-compose publishes on the host. When the API bound 8080 it stole that
-    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
-    // resolved back to the API itself — every encrypted-record download fetched
-    // the API, got a 404, and surfaced as a misleading "Record content not found".
-    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
-    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
-    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let bind_addr = format!("{}:{}", host, port);
-
-    print_startup_banner(&bind_addr);
-    // =========================================================================
-    // PostgreSQL Database Initialization (for persistent demo users)
-    // =========================================================================
-
-    // Load environment variables from .env file if present
-    let _ = dotenvy::dotenv();
-
-    // Fail fast if a production deployment is configured with demo/default
-    // secrets; warn (but continue) in demo mode. (Phase 6.1)
-    if let Err(msg) = validate_production_secrets() {
-        log::error!("startup aborted: {msg}");
-        return Err(std::io::Error::other(msg));
-    }
-
-    // Warn (do not block boot) if any national-ID verifier's API key is unset in
-    // non-demo mode — that country would silently run on the deterministic stub
-    // verifier (Horizon HZ-004).
-    warn_missing_national_id_keys();
-    warn_if_clinic_offset_unset();
-
+/// Bring up the storage backend the environment names, or say why not.
+///
+/// Extracted from `main` because startup is four separate decisions -- storage,
+/// chain, caches, background jobs -- and reading any one of them meant reading
+/// all four. See the register entry on the 60-line rule for the measurement
+/// that motivated this.
+async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
     // Try to connect to PostgreSQL if DATABASE_URL is set
-    let db_pool = match std::env::var("DATABASE_URL") {
+    Ok(match std::env::var("DATABASE_URL") {
         Ok(database_url) => {
             println!("  [DB] Connecting to PostgreSQL database...");
 
@@ -310,13 +273,18 @@ async fn main() -> std::io::Result<()> {
             println!("  [INFO] No DATABASE_URL set - using in-memory storage (demo mode)");
             None
         }
-    };
+    })
+}
 
-    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
-        .map_err(std::io::Error::other)?;
-
+/// Connect the Substrate client, if one is configured.
+///
+/// Failure is fatal only when `BLOCKCHAIN_ENABLED` claims the chain is in use;
+/// otherwise it is a warning, because a disabled chain has nothing to connect
+/// to and every write path already returns a typed error for it.
+async fn connect_blockchain(
+) -> std::io::Result<Option<std::sync::Arc<crate::blockchain::SubstrateClient>>> {
     // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
+    Ok(match crate::blockchain::SubstrateClient::from_env() {
         Some(ws_url) => {
             log::info!("connecting to configured Substrate node");
             match crate::blockchain::SubstrateClient::new(&ws_url).await {
@@ -348,34 +316,15 @@ async fn main() -> std::io::Result<()> {
             println!("  [INFO] No SUBSTRATE_WS_URL set - blockchain features disabled");
             None
         }
-    };
+    })
+}
 
-    // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
-    if !crate::support::is_demo_mode()
-        && state.repositories.backend != crate::repositories::StorageBackend::Postgres
-    {
-        return Err(std::io::Error::other(
-            "persistent PostgreSQL repositories failed to initialize",
-        ));
-    }
-    let app_state = web::Data::new(state);
-
-    // The federation boundary is the deployment, not a column (ADR-0007), so a
-    // second organisation in this database would silently widen every
-    // deployment-wide read into a cross-organisation disclosure.
-    if let Some(pool) = app_state.db_pool.as_ref() {
-        startup::validate_single_organisation(pool)
-            .await
-            .map_err(std::io::Error::other)?;
-        // A published development key holding an Admin role is an open door,
-        // and nothing else checks for it — `blockchain.rs` guards only the
-        // chain signer.
-        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
-            .await
-            .map_err(std::io::Error::other)?;
-    }
-
+/// Fill the in-process caches the authorization path reads from.
+///
+/// Outside demo mode every one of these is fatal: an empty user cache is not a
+/// degraded service, it is an API that refuses every authenticated request
+/// while reporting healthy.
+async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> {
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
         println!("  [INFO] Loading demo users from database...");
@@ -418,6 +367,12 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Start the periodic jobs. None of them can fail startup, by design: a
+/// reminder that does not fire is not a reason to refuse to serve records.
+fn spawn_background_jobs(app_state: &web::Data<AppState>) {
     if let (Some(pool), Some(client)) = (
         app_state.db_pool.clone(),
         app_state.substrate_client.clone(),
@@ -435,33 +390,6 @@ async fn main() -> std::io::Result<()> {
                 }
             }
         });
-    }
-
-    match crate::deferred_emergency_audit::EmergencyAuditMode::from_env()
-        .map_err(std::io::Error::other)?
-    {
-        crate::deferred_emergency_audit::EmergencyAuditMode::Deny => {}
-        crate::deferred_emergency_audit::EmergencyAuditMode::DurableDefer => {
-            crate::deferred_emergency_audit::replay_pending(&app_state)
-                .await
-                .map_err(std::io::Error::other)?;
-            let replay_state = app_state.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-                loop {
-                    interval.tick().await;
-                    match crate::deferred_emergency_audit::replay_pending(&replay_state).await {
-                        Ok(count) if count > 0 => {
-                            log::info!("Reconciled {count} deferred emergency audit event(s)")
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            log::error!("Deferred emergency audit backlog unreconciled: {error}")
-                        }
-                    }
-                }
-            });
-        }
     }
 
     // Start medication reminder background task
@@ -519,6 +447,116 @@ async fn main() -> std::io::Result<()> {
         });
         println!("  [INFO] Retention assessment task started (daily, report-only — never deletes)");
     }
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Initialize logging (Phase 8.2). LOG_FORMAT=json emits structured JSON logs
+    // via `tracing` (with a `log` bridge so existing `log::` calls are captured);
+    // otherwise the human-readable `env_logger` is used.
+    init_logging();
+
+    // Start the uptime clock before anything else can take time, so the
+    // operations dashboard reports how long the process has been up rather than
+    // the hardcoded availability figure it used to print.
+    crate::middleware::metrics::mark_process_start();
+
+    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
+    // docker-compose publishes on the host. When the API bound 8080 it stole that
+    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
+    // resolved back to the API itself — every encrypted-record download fetched
+    // the API, got a 404, and surfaced as a misleading "Record content not found".
+    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
+    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let bind_addr = format!("{}:{}", host, port);
+
+    print_startup_banner(&bind_addr);
+    // =========================================================================
+    // PostgreSQL Database Initialization (for persistent demo users)
+    // =========================================================================
+
+    // Load environment variables from .env file if present
+    let _ = dotenvy::dotenv();
+
+    // Fail fast if a production deployment is configured with demo/default
+    // secrets; warn (but continue) in demo mode. (Phase 6.1)
+    if let Err(msg) = validate_production_secrets() {
+        log::error!("startup aborted: {msg}");
+        return Err(std::io::Error::other(msg));
+    }
+
+    // Warn (do not block boot) if any national-ID verifier's API key is unset in
+    // non-demo mode — that country would silently run on the deterministic stub
+    // verifier (Horizon HZ-004).
+    warn_missing_national_id_keys();
+    warn_if_clinic_offset_unset();
+
+    let db_pool = initialise_storage().await?;
+
+    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
+        .map_err(std::io::Error::other)?;
+
+    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
+    let substrate_client = connect_blockchain().await?;
+
+    // Create shared state with optional database pool (using async version for PostgreSQL support)
+    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
+    if !crate::support::is_demo_mode()
+        && state.repositories.backend != crate::repositories::StorageBackend::Postgres
+    {
+        return Err(std::io::Error::other(
+            "persistent PostgreSQL repositories failed to initialize",
+        ));
+    }
+    let app_state = web::Data::new(state);
+
+    // The federation boundary is the deployment, not a column (ADR-0007), so a
+    // second organisation in this database would silently widen every
+    // deployment-wide read into a cross-organisation disclosure.
+    if let Some(pool) = app_state.db_pool.as_ref() {
+        startup::validate_single_organisation(pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        // A published development key holding an Admin role is an open door,
+        // and nothing else checks for it — `blockchain.rs` guards only the
+        // chain signer.
+        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
+            .await
+            .map_err(std::io::Error::other)?;
+    }
+
+    hydrate_caches(&app_state).await?;
+
+    match crate::deferred_emergency_audit::EmergencyAuditMode::from_env()
+        .map_err(std::io::Error::other)?
+    {
+        crate::deferred_emergency_audit::EmergencyAuditMode::Deny => {}
+        crate::deferred_emergency_audit::EmergencyAuditMode::DurableDefer => {
+            crate::deferred_emergency_audit::replay_pending(&app_state)
+                .await
+                .map_err(std::io::Error::other)?;
+            let replay_state = app_state.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    match crate::deferred_emergency_audit::replay_pending(&replay_state).await {
+                        Ok(count) if count > 0 => {
+                            log::info!("Reconciled {count} deferred emergency audit event(s)")
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            log::error!("Deferred emergency audit backlog unreconciled: {error}")
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    spawn_background_jobs(&app_state);
 
     println!();
     println!("  [OK] Server ready!");

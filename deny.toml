@@ -97,6 +97,16 @@ ignore = [
     #     periodically until upstream ships a fix.
 ]
 
+# The header above has claimed since 2026-08-25 that this setting is here, and
+# it was not — it existed only in `blockchain/deny.toml`. A comment asserting a
+# guard that does not exist is worse than no comment: the four stale
+# `rustls-webpki` entries this file used to carry were removed by hand, and the
+# thing that was supposed to stop them coming back was never switched on.
+#
+# An accepted advisory whose crate later leaves the tree becomes a justification
+# nobody rechecks. With this, it is a build failure instead.
+unused-ignored-advisory = "deny"
+
 # ---------------------------------------------------------------------------
 # License compliance — only permissive / health-data-safe licenses allowed.
 # A copyleft dependency (e.g. GPL) must be reviewed before being added here.
