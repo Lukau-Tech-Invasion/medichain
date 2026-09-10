@@ -421,6 +421,35 @@ pub fn require_clinical_staff(
     Ok(user)
 }
 
+/// Resolve the caller and require that they are an administrator.
+///
+/// The distinction from [`require_clinical_staff`] is the whole point.
+/// `can_view_medical_records()` is true for Doctor, Nurse, LabTechnician *and*
+/// Pharmacist, which is the right question for "may this person see a patient's
+/// record" and the wrong one for a deployment-wide aggregate.
+///
+/// The five analytics endpoints used the clinical predicate, so a lab
+/// technician signed in as themselves could read the compliance score, the
+/// audit-entry totals and the critical-alert counts for every patient in the
+/// deployment. The navigation had already made the opposite decision —
+/// `/analytics` appears in `ADMIN_NAV` and in no other role's — so this is the
+/// same failure `roles.spec.ts` names for `/mar`: the navigation and the
+/// authorization disagreed, and the router was not the one enforcing it.
+pub fn require_administrator(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user = require_registered_caller(data, req)?;
+    if !user.role.is_admin() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            success: false,
+            error: "This endpoint is restricted to administrators".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    Ok(user)
+}
+
 /// Which clinician a record is attributed to, and who actually filed it.
 ///
 /// See [`resolve_attributed_provider`] for why the distinction matters.

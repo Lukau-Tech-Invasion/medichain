@@ -352,8 +352,15 @@ pub struct TriageAssessmentEntity {
     pub weight: Option<f64>,
     pub is_critical: bool,
     pub requires_isolation: bool,
+    /// Where the patient went. NOT the triage note — the queue used to read
+    /// this in the note's place, and the create path never sets it.
     pub disposition: Option<String>,
     pub assigned_bed: Option<String>,
+    /// The free-text triage note, which had no column at all until
+    /// `20260910000002`. `CreateTriageRequest` has always carried it and the
+    /// handler has always validated its length; both then dropped it.
+    #[serde(default)]
+    pub notes: Option<String>,
     pub triage_time: DateTime<Utc>,
     pub seen_by_provider_at: Option<DateTime<Utc>>,
     pub performed_by: String,
@@ -939,7 +946,12 @@ pub struct IVAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1561,7 +1573,12 @@ pub struct LabQcRecordEntity {
     pub lot_number: Option<String>,
     pub expiration_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1617,7 +1634,12 @@ pub struct SpecimenCollectionEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3259,7 +3281,11 @@ pub struct PhysicianOrderEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The order as the ordering screen composed it.
+    ///
+    /// NOT `#[sqlx(skip)]` any more: `20260910000005` gave it a column. While it
+    /// was skipped, `update` bound a column that did not exist, so every status
+    /// change on an order was a 500 on PostgreSQL.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3308,7 +3334,12 @@ pub struct DischargeSummaryEntity {
     pub addendum_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The summary in the shape the discharge screen composed it.
+    ///
+    /// NOT `#[sqlx(skip)]` any more: `20260910000003` gave it a column. While
+    /// it was skipped, `create` never wrote it, every read served
+    /// `Value::Null`, and `update` bound a column that did not exist — which is
+    /// why approving a discharge summary was a 500 on PostgreSQL.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3481,7 +3512,12 @@ pub struct IncidentReportEntity {
     pub confidential: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3587,7 +3623,12 @@ pub struct MciRecordEntity {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3840,6 +3881,17 @@ pub trait DischargeSummaryRepository: Send + Sync + fmt::Debug {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>>;
+    /// Every summary in the deployment, for the discharge worklist.
+    ///
+    /// Required, not defaulted. `list_discharges` used to reach this by calling
+    /// `get_by_patient("all", ..)` — a literal patient id, which matched
+    /// nothing on PostgreSQL and left the worklist permanently empty. A
+    /// defaulted body returning `NotImplemented` would have reproduced that
+    /// silently on one backend, which is why trait methods here are required.
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>>;
     async fn update(
         &self,
         summary: DischargeSummaryEntity,
@@ -3905,6 +3957,13 @@ pub trait ShiftHandoffRepository: Send + Sync + fmt::Debug {
         provider_id: &str,
         date: chrono::NaiveDate,
     ) -> RepositoryResult<Vec<ShiftHandoffEntity>>;
+    /// Every row of one handoff.
+    ///
+    /// A handoff covers a ward, and storage is one row per patient keyed
+    /// `{batch}-{patient_id}` — so the batch id `create_shift_handoff` returns
+    /// is not the primary key of anything, and `get_by_id` on it was a 404. A
+    /// client that stored the id it was handed had stored nothing.
+    async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>>;
     async fn acknowledge(&self, id: &str) -> RepositoryResult<ShiftHandoffEntity>;
     async fn get_unacknowledged(
         &self,

@@ -298,7 +298,7 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
                 start_datetime, end_datetime, frequency, duration, special_instructions,
                 requires_cosign, cosigned_by, cosigned_at, verified_by, verified_at,
                 executed_by, executed_at, discontinued_by, discontinued_at,
-                discontinue_reason, linked_order_id, notes
+                discontinue_reason, linked_order_id, notes, data
             ) ",
         );
 
@@ -329,7 +329,10 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
                 .push_bind(o.discontinued_at)
                 .push_bind(&o.discontinue_reason)
                 .push_bind(&o.linked_order_id)
-                .push_bind(&o.notes);
+                .push_bind(&o.notes)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000005`, so every order read back as `null`.
+                .push_bind(&o.data);
         });
 
         qb.push(" RETURNING *");
@@ -519,7 +522,7 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
                 pending_results, pending_studies, primary_care_notified,
                 specialist_follow_up, durable_medical_equipment, home_health_orders,
                 physical_therapy_orders, dictated_by, dictated_at, transcribed_by,
-                signed_by, signed_at, addendum, addendum_by, addendum_at
+                signed_by, signed_at, addendum, addendum_by, addendum_at, data
             ) ",
         );
 
@@ -561,7 +564,11 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
                 .push_bind(s.signed_at)
                 .push_bind(&s.addendum)
                 .push_bind(&s.addendum_by)
-                .push_bind(s.addendum_at);
+                .push_bind(s.addendum_at)
+                // The blob the read handlers serve. Omitted here until
+                // `20260910000003`, so every summary read back as `null` on
+                // PostgreSQL while the typed columns held the record.
+                .push_bind(&s.data);
         });
 
         qb.push(" RETURNING *");
@@ -621,6 +628,29 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
             QueryBuilder::new("SELECT * FROM discharge_summaries WHERE patient_id = ");
         qb.push_bind(patient_id);
         qb.push(" ORDER BY discharge_datetime DESC LIMIT ");
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<DischargeSummaryEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM discharge_summaries")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM discharge_summaries ORDER BY discharge_datetime DESC LIMIT ",
+        );
         qb.push_bind(pagination.limit() as i32);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i32);
@@ -1180,6 +1210,23 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
         Ok(items)
     }
 
+    async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
+        // `LIKE 'batch-%'` with the pattern bound, never concatenated. The
+        // batch id is server-generated and hex, but a parameterised query is
+        // the rule here regardless of who supplies the value.
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM shift_handoffs WHERE id LIKE ");
+        qb.push_bind(format!("{batch_id}-%"));
+        qb.push(" ORDER BY handoff_datetime DESC");
+
+        let items = qb
+            .build_query_as::<ShiftHandoffEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(items)
+    }
+
     async fn acknowledge(&self, id: &str) -> RepositoryResult<ShiftHandoffEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE shift_handoffs SET ");
         qb.push("acknowledged_by_incoming = true");
@@ -1245,7 +1292,7 @@ impl IncidentReportRepository for PgIncidentReportRepository {
                 corrective_actions, follow_up_required, follow_up_assigned_to,
                 follow_up_due_date, follow_up_completed, follow_up_completed_at,
                 investigation_status, reviewed_by, reviewed_at, review_comments,
-                regulatory_reportable, reported_to_agencies, confidential
+                regulatory_reportable, reported_to_agencies, confidential, data
             ) ",
         );
 
@@ -1285,7 +1332,12 @@ impl IncidentReportRepository for PgIncidentReportRepository {
                 .push_bind(&r.review_comments)
                 .push_bind(r.regulatory_reportable)
                 .push_bind(&r.reported_to_agencies)
-                .push_bind(r.confidential);
+                .push_bind(r.confidential)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

@@ -26,7 +26,7 @@ impl IVAssessmentRepository for PgIVAssessmentRepository {
                 id, patient_id, site_id, site_location, catheter_type, catheter_gauge,
                 insertion_date, patency, site_appearance, infiltration_grade, phlebitis_grade,
                 current_infusions, dressing_intact, dressing_change_due, pain_level, notes,
-                actions_taken, site_discontinued, discontinuation_reason, assessed_by, assessed_at, facility_id
+                actions_taken, site_discontinued, discontinuation_reason, assessed_by, assessed_at, facility_id, data
             ) "
         );
 
@@ -52,7 +52,12 @@ impl IVAssessmentRepository for PgIVAssessmentRepository {
                 .push_bind(&e.discontinuation_reason)
                 .push_bind(&e.assessed_by)
                 .push_bind(e.assessed_at)
-                .push_bind(&e.facility_id);
+                .push_bind(&e.facility_id)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&e.data);
         });
 
         qb.push(" RETURNING *");

@@ -238,12 +238,43 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
-    let screens = data
+    // Two stores held blood-bank records and this register read the wrong one.
+    //
+    // `create_blood_type_screen` writes to `blood_type_screen_records` (the
+    // JSON store) and `create_transfusion` to `transfusion_event_records`;
+    // this read `blood_type_screens`, a typed repository nothing on the ward
+    // path writes to. So an order raised on `BloodBankPage` and a transfusion
+    // documented against it were both invisible on the register that exists to
+    // show them — the "correct implementation beside the wrong one that
+    // everything calls" pattern, again.
+    //
+    // Both stores are read, and the typed one is kept so any laboratory caller
+    // that does write to it is not dropped.
+    let typed = data
         .repositories
         .blood_type_screens
         .list_all()
         .await
         .unwrap_or_default();
+    let ordered = data
+        .repositories
+        .blood_type_screen_records
+        .list_all()
+        .await
+        .unwrap_or_default();
+    let transfusions = data
+        .repositories
+        .transfusion_event_records
+        .list_all()
+        .await
+        .unwrap_or_default();
+
+    let mut screens: Vec<serde_json::Value> = typed
+        .into_iter()
+        .map(|s| serde_json::to_value(s).unwrap_or_default())
+        .collect();
+    screens.extend(ordered.into_iter().map(|r| r.data));
+    let transfusions: Vec<serde_json::Value> = transfusions.into_iter().map(|r| r.data).collect();
 
     // Horizon HZ-023 class: `inventory` was a hardcoded literal — "O-Pos: 12
     // units, adequate", "A-Neg: 2 units, low" — returned regardless of what any
@@ -255,6 +286,9 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     // be mistaken for real stock levels.
     HttpResponse::Ok().json(serde_json::json!({
         "screens": screens,
+        // The transfusions given against those orders, which is the other half
+        // of what a blood-bank register is for.
+        "transfusions": transfusions,
         "inventory": [],
         "inventory_available": false,
         "inventory_note": "Blood-unit inventory tracking is not implemented. \
@@ -270,6 +304,29 @@ pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> i
     }
     match data.repositories.autopsy_requests.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// Every death certificate on the register.
+///
+/// `ADMIN_NAV` has offered `/death-certificate` since the navigation was
+/// written, and `DeathCertificatePage` renders a list of filed certificates —
+/// from local component state, because the only endpoint that existed was
+/// `GET /api/surgical/death-certificate/{id}`. A certificate could be filed and
+/// then found only by somebody who already knew its id, which is not a
+/// register. Registrars, coroners and the family all arrive without one.
+#[get("/api/platform/list/death-certificates")]
+pub async fn list_death_certificates(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    match data.repositories.death_certificate_records.list_all().await {
+        // The stored record, which is the certificate as it was filed.
+        Ok(list) => HttpResponse::Ok().json(list.into_iter().map(|r| r.data).collect::<Vec<_>>()),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -295,17 +352,56 @@ pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> 
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
-    match data
-        .repositories
-        .progress_notes
-        .list_all(Pagination::new(0, 100))
-        .await
-    {
-        Ok(result) => HttpResponse::Ok().json(
-            result
-                .items
+    // Consults live in `consultation_notes`, which is where `create_consult`
+    // writes them.
+    //
+    // This used to read `progress_notes` and filter for `note_type == "consult"`
+    // — a table nothing writes a consult into — so the consult list was
+    // permanently empty and a requested consult was invisible to the specialty
+    // it was addressed to. `ConsultPage` reads this endpoint for both its
+    // outstanding list and its answered list.
+    match data.repositories.consultation_notes.list_all().await {
+        Ok(items) => HttpResponse::Ok().json(
+            items
                 .into_iter()
-                .filter(|n| n.note_type == "consult")
+                .map(|c| {
+                    // The blob carries what the form filed and the response the
+                    // specialist wrote; the columns carry the identifiers. Both
+                    // are served so neither read path can disagree with the
+                    // other about whether a consult was answered.
+                    let mut value = c.data.clone();
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert("consult_id".into(), serde_json::json!(c.id));
+                        object.insert("patient_id".into(), serde_json::json!(c.patient_id));
+                        object.insert("status".into(), serde_json::json!(c.status));
+                        object.insert(
+                            "consultation_type".into(),
+                            serde_json::json!(c.consultation_type),
+                        );
+                        object.insert(
+                            "requesting_provider".into(),
+                            serde_json::json!(c.requesting_provider),
+                        );
+                        object.insert(
+                            "consulting_provider".into(),
+                            serde_json::json!(c.consulting_provider),
+                        );
+                        object.insert(
+                            "clinical_question".into(),
+                            serde_json::json!(c.clinical_question),
+                        );
+                        object.insert(
+                            "examination_findings".into(),
+                            serde_json::json!(c.examination_findings),
+                        );
+                        object.insert(
+                            "recommendations".into(),
+                            serde_json::json!(c.recommendations),
+                        );
+                        object.insert("completed_at".into(), serde_json::json!(c.completed_at));
+                    }
+                    value
+                })
                 .collect::<Vec<_>>(),
         ),
         Err(e) => registry_read_error(&http_req, e),

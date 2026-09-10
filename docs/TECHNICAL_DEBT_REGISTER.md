@@ -21,6 +21,98 @@ Last updated: 2026-09-10.
 
 ---
 
+## 2026-09-10 — OPEN: 21 entities carry a `data` blob with no column to live in
+
+`#[sqlx(skip)] pub data: serde_json::Value` appears on 28 repository entities,
+and **70 GET handlers** read or serve that blob. `sqlx(skip)` means the field is
+never selected and never written, so on PostgreSQL it is permanently
+`Value::Null` — while the in-memory backend holds exactly what the handler put
+there. The same endpoint therefore behaves one way in development and another
+against a database, and the difference is invisible from the response: `200 OK`
+with a `null` where the record should be.
+
+Measured 2026-09-10: of those 28 tables, exactly **one** had a `data` column.
+
+Six now do. `20260910000003` (discharge summaries), `20260910000005` (physician
+orders) and `20260910000006` (lab QC, specimen collections, IV assessments, MCI
+records, incident reports) added the column, un-skipped the field and bound it on
+insert — those six because their blob was the **sole home** of content a reader
+needs: the Westgard rules behind a failed control, the pre-collection safety
+checklist, the findings a VIP score is derived from, the triage category on a
+casualty, the staff and witnesses on a safety report.
+
+**The remaining 21 are open.** None of them is currently the only home of
+clinical content — their typed columns carry the record — so nothing is being
+lost today. What is open is the *shape*: the next handler that stores something
+in one of those blobs will reproduce the whole class, silently, and only on
+PostgreSQL.
+
+The entities still skipping their blob:
+
+`WoundAssessmentEntity`, `FallRiskAssessmentEntity`, `CriticalValueEntity`,
+`SpecimenRejectionEntity`, `IntubationRecordEntity`, `LacerationRepairEntity`,
+`SplintCastRecordEntity`, `BloodTypeScreenEntity`, `TransfusionRecordEntity`,
+`EPrescriptionEntity`, `BurnAssessmentEntity`, `PsychiatricAssessmentEntity`,
+`ToxicologyAssessmentEntity`, `PediatricAssessmentEntity`,
+`ObstetricEmergencyEntity`, `DischargeInstructionsEntity`, `AmaDischargeEntity`,
+`ShiftHandoffEntity`, `EmsHandoffEntity`, `ChainOfCustodyEntity`,
+`IORecordEntity`.
+
+**What closes it:** the same three-step change, per table — a column, remove the
+skip, bind it on insert. Mechanical, but a `push_values` arity mismatch is a
+RUNTIME error rather than a compile error, so each one needs its insert located
+and edited deliberately and then proven by reading a record back. The six that
+were done are proven by `scripts/role-journeys.ts`.
+
+**What would catch a regression today:** nothing automatically. A gate that
+flags an entity whose `data` is skipped while a read path serves it would be the
+right shape, and does not exist.
+
+---
+
+## 2026-09-10 — CLOSED same day: staff contact details have no encrypted storage
+
+`POST /api/auth/register` refused any non-empty `phone` with
+`PHONE_STORAGE_UNAVAILABLE`, and `PUT /api/users/{wallet}` refused a phone
+update for the same reason. Both refusals were correct: `user_profiles.phone` is
+a plaintext `VARCHAR(20)` and a staff mobile number is personal information
+POPIA requires be protected. Patients' contact details go through
+`profile_extras_encrypted` with the encryption keyring; staff had no equivalent.
+
+Earlier the same day this made account creation **impossible**:
+`UserManagementPage` required a phone number and the API refused every one. That
+half was fixed by making the field optional, which let the onboarding journey
+complete but left an administrator unable to record a way to contact the
+clinician they had just onboarded.
+
+**How it was closed:** migration `20260910000007` adds
+`user_profiles.contact_encrypted BYTEA` and `contact_key_version INTEGER`, the
+staff equivalent of `patients.profile_extras_encrypted`. `seal_staff_contact` /
+`open_staff_contact` in `types/domain.rs` sit beside the patient helpers they
+mirror; `state::persist_user` seals under `keyring.current_version()` and
+`load_demo_users_from_db` and `user_from_db_row` decrypt with whichever version
+the row was stamped with. Both refusals are gone, replaced by a length bound
+(`MAX_STAFF_PHONE_LEN`) and no format rule — MediChain spans several national
+dialling plans and a pattern written against one would reject the others.
+
+Two details worth keeping:
+
+- **Every** `SELECT` that builds a `DbUserWithProfile` had to take the new
+  columns, not just the directory read. `update_user_profile` reads a user
+  through `user_from_db_row` and writes it back, so a path that left
+  `phone: None` would have silently erased a stored number on an edit to an
+  unrelated field — the register's own dominant defect class, arriving through
+  the fix for it.
+- The plaintext `phone` column is still there and is still never written.
+  `COMMENT ON COLUMN` marks it deprecated rather than dropping it, per
+  CLAUDE.md rule 7.
+
+**Proof:** five unit tests in `types::domain::staff_contact_tests` (including
+one asserting the number does not appear verbatim in the sealed bytes, which the
+round-trip test alone would not catch), and a round-trip assertion in
+`scripts/journeys/admin.ts` that reads the number back out of the directory
+rather than out of the create response.
+
 ## 2026-08-25 — OPEN, TIME-BOUND: two accepted upstream advisories in the Subxt graph
 
 `cargo deny check advisories` is green as of 2026-08-25, and two of the reasons

@@ -427,7 +427,18 @@ pub async fn create_psych(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("PSY-{}", uuid::Uuid::new_v4().simple());
@@ -721,7 +732,18 @@ pub async fn create_tox(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("TOX-{}", uuid::Uuid::new_v4().simple());
@@ -799,10 +821,15 @@ pub async fn create_tox(
             .map(str::to_string),
         decontamination_performed: body
             .get("decontamination_performed")
+            // The page sends one `decontamination` value covering both whether it happened and what was done.
+            .or_else(|| body.get("decontamination"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
         decontamination_type: body
             .get("decontamination_type")
+            // `ToxicologyPage` sends one `decontamination` value covering both
+            // whether it was done and what was done.
+            .or_else(|| body.get("decontamination"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
         antidote_given: body
@@ -1386,6 +1413,31 @@ pub async fn get_mci(
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
+    }
+
+    // An incident is a set of casualties, not one row.
+    //
+    // `create_mci` writes one row per casualty keyed `{incident_id}-0000` and
+    // returns the bare `incident_id` — which is the `incident_id` COLUMN, not
+    // the primary key. So `get_by_id` on the id the API had just handed back
+    // was a 404 for every incident ever declared, and the MCI board could not
+    // be reopened. `get_by_incident` already existed and nothing called it.
+    if let Ok(rows) = data
+        .repositories
+        .mci_records
+        .get_by_incident(&incident_id)
+        .await
+    {
+        if !rows.is_empty() {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "incident_id": incident_id,
+                // The typed columns are the record: `data` is the submission,
+                // and both are served so a reader sees the triage category that
+                // was applied as well as the one the algorithm computed.
+                "casualties": rows,
+            }));
+        }
     }
 
     match data.repositories.mci_records.get_by_id(&incident_id).await {

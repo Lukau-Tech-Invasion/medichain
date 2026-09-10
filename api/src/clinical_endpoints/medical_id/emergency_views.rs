@@ -18,7 +18,13 @@ use super::*;
 /// something that will harm the patient. Merged by allergen name, repository
 /// entries winning (a clinician-entered record carries a real severity
 /// assessment; a registration entry does not).
-async fn merged_allergies(
+/// Used by `core.rs` too. It was private here while
+/// `GET /api/medical-id/{id}` — the card the patient app and the lock screen
+/// actually open — read the allergies repository directly and therefore showed
+/// **no allergies at all** for a patient whose penicillin allergy was captured
+/// at registration. The correct implementation existed, unused, beside the
+/// wrong one that everything called.
+pub(super) async fn merged_allergies(
     data: &web::Data<AppState>,
     patient: &crate::repositories::traits::PatientEntity,
     patient_id: &str,

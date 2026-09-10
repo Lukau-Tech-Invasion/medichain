@@ -18,7 +18,10 @@ import {
   Brain,
   Bone
 } from 'lucide-react';
-import { analyzeSymptoms as analyzeSymptomAPI, useTranslation } from '@medichain/shared';
+import { analyzeSymptoms as analyzeSymptomAPI, useTranslation,
+  startSymptomCheck,
+  submitSymptomAnswers,
+} from '@medichain/shared';
 
 /**
  * SymptomCheckerPage
@@ -63,6 +66,9 @@ const SymptomCheckerPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [triageResult, setTriageResult] = useState<TriageResult | null>(null);
+  // A session that could not be filed is shown, not swallowed: the advice
+  // stands, but the patient should know it was not written down.
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [age, setAge] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -200,13 +206,23 @@ const SymptomCheckerPage: React.FC = () => {
     setIsTyping(true);
     
     // Helper to map API triage level to local severity
+    // `low` is the level the API starts at and returns when nothing matched a
+    // red-flag rule; it is an explicit case, not a fallthrough.
+    //
+    // The default is deliberately NOT the most reassuring answer. An
+    // unrecognised triage level means the page and the server disagree about
+    // the vocabulary, and answering "mild" to a level nobody understood is how
+    // this screen came to show "mild" for an assessment the server had graded
+    // `emergency`. Falling back to `moderate` — see a clinician — is the only
+    // safe direction to be wrong in.
     const mapTriageToSeverity = (triage: string): Severity => {
       switch (triage) {
         case 'emergency': return 'emergency';
         case 'urgent_care': return 'urgent';
         case 'schedule_appointment': return 'moderate';
         case 'self_care': return 'self-care';
-        default: return 'mild';
+        case 'low': return 'mild';
+        default: return 'moderate';
       }
     };
 
@@ -217,6 +233,7 @@ const SymptomCheckerPage: React.FC = () => {
         case 'urgent_care': return t('symptomChecker.triageUrgent');
         case 'schedule_appointment': return t('symptomChecker.triageSchedule');
         case 'self_care': return t('symptomChecker.triageSelfCare');
+        case 'low': return t('symptomChecker.triageSelfCare');
         default: return t('symptomChecker.triageConsult');
       }
     };
@@ -230,15 +247,67 @@ const SymptomCheckerPage: React.FC = () => {
         patient_gender: gender || undefined,
       });
 
-      // Map API result to local TriageResult format
+      // Map API result to local TriageResult format.
+      //
+      // The field names here are the ones the endpoint actually sends. The
+      // previous ones (`triage_message`, `recommendations`, `self_care_advice`,
+      // `when_to_seek_care`) existed only in a wrong TypeScript declaration, so
+      // `triage_level` read `undefined` and every assessment fell to the
+      // `default:` arm of `mapTriageToSeverity` — "mild". A patient reporting
+      // chest pain with shortness of breath was told "mild" while the server
+      // had answered `emergency`.
+      // Record the session.
+      //
+      // `POST /api/symptoms/start`, `POST /api/symptoms/{id}/answers` and
+      // `GET /api/symptoms/history/{id}` are all registered, all typed in the
+      // shared client, and had **zero callers anywhere in either application**.
+      // So a patient could be told "Call 911 or your local emergency number
+      // immediately" and no record existed that they had been told — nothing
+      // for the clinician who sees them next, and nothing for the patient to
+      // refer back to.
+      //
+      // Deliberately not awaited into the critical path: the advice on screen
+      // is what matters in the moment, and a failure to file the session must
+      // not withhold it. It is reported rather than swallowed.
+      void (async () => {
+        try {
+          const started = await startSymptomCheck({
+            primary_symptom: symptomNames[0] ?? 'unspecified',
+            age: age ? parseInt(age, 10) : undefined,
+            gender: gender || undefined,
+          });
+          const sessionId = started?.session_id;
+          if (sessionId) {
+            await submitSymptomAnswers(sessionId, {
+              answers: {
+                symptoms: symptomNames,
+                triage_level: apiResult.triage_level,
+                recommendation: apiResult.recommendation,
+                red_flags: apiResult.red_flags,
+              },
+            });
+          }
+        } catch (err) {
+          console.error('The symptom check could not be recorded:', err);
+          setSessionError(t('symptomChecker.sessionNotRecorded'));
+        }
+      })();
+
       const result: TriageResult = {
         severity: mapTriageToSeverity(apiResult.triage_level),
         title: getTriageTitle(apiResult.triage_level),
-        description: apiResult.triage_message,
+        description: apiResult.recommendation,
         recommendations: [
-          ...apiResult.recommendations,
-          ...apiResult.self_care_advice,
-          ...apiResult.when_to_seek_care
+          // Red flags first: they are the reason the triage came out where it
+          // did, and they are what the patient must act on.
+          ...apiResult.red_flags,
+          ...apiResult.next_steps,
+          ...apiResult.specific_advice,
+          ...apiResult.self_care,
+          ...apiResult.context_notes.age_considerations,
+          ...apiResult.context_notes.gender_considerations,
+          ...apiResult.context_notes.condition_interactions,
+          ...apiResult.context_notes.medication_notes,
         ],
         possibleConditions: apiResult.possible_conditions.map(c => c.condition_name)
       };
@@ -565,6 +634,11 @@ const SymptomCheckerPage: React.FC = () => {
       {/* Result Screen */}
       {step === 'result' && triageResult && (
         <div className="flex-1 p-4 pb-8">
+          {sessionError && (
+            <div role="alert" className="mb-4 p-3 rounded-xl bg-caution-subtle text-caution-subtle-fg text-sm">
+              {sessionError}
+            </div>
+          )}
           {/* Severity Banner */}
           <div className={`${getSeverityColor(triageResult.severity)} text-white rounded-lg p-4 mb-4`}>
             <div className="flex items-center gap-3">

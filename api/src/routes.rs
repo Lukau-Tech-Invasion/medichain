@@ -490,6 +490,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::end_telehealth_session)
         .service(clinical_endpoints::submit_device_check)
         .service(clinical_endpoints::get_patient_telehealth_sessions)
+        .service(clinical_endpoints::list_my_telehealth_sessions)
         .service(clinical_endpoints::telehealth_join_redirect) // GET /…/join/{id} 302 in-app (Phase 4)
         .service(clinical_endpoints::telehealth_join_qr) // GET /…/{id}/qr  in-app QR (Phase 4)
         // Phase 27: Clinical Decision Support endpoints
@@ -562,6 +563,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_blood_bank)
         .service(clinical_endpoints::list_autopsy)
         .service(clinical_endpoints::list_autopsy_reports)
+        .service(clinical_endpoints::list_death_certificates)
         .service(clinical_endpoints::list_consults)
         .service(clinical_endpoints::list_cds_alerts)
         // Additional frontend-compatible endpoints

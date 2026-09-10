@@ -186,7 +186,21 @@ function NursingPage() {
   }, [isAuthenticated, user, fetchData, fetchPatients]);
 
   // MAR: Administer medication
-  const administerMedication = async (marId: string, medIndex: number, doseIndex: number) => {
+  //
+  // Takes the MAR row and the medicine, not three indices.
+  //
+  // The previous signature posted `{mar_id, medication_index, dose_index,
+  // administered_time, status}` to `/api/nursing/mar/administer`, which
+  // requires `patient_id` and knows nothing about indices — so every click of
+  // the Give button answered `400 MISSING_PATIENT_ID` and no dose was ever
+  // recorded from this screen. `MARPage` posts to the same endpoint with the
+  // patient, the drug, the dose and the route, which is the shape the endpoint
+  // documents; this now sends the same thing.
+  const administerMedication = async (
+    mar: MAR,
+    med: MedicationEntry,
+    dose: MedicationDose
+  ) => {
     if (!user) return;
     setSaving(true);
     try {
@@ -199,10 +213,12 @@ function NursingPage() {
           'X-Provider-Role': user.role,
         },
         body: JSON.stringify({
-          mar_id: marId,
-          medication_index: medIndex,
-          dose_index: doseIndex,
-          administered_time: new Date().toISOString(),
+          patient_id: mar.patient_id,
+          medication_name: med.medication_name,
+          dose: med.dose,
+          route: med.route,
+          scheduled_time: dose.scheduled_time,
+          actual_time: new Date().toISOString(),
           status: 'given',
         }),
       });
@@ -413,7 +429,7 @@ function NursingPage() {
                                 <td className="px-4 py-3 text-center">
                                   {dose.status === 'pending' && (
                                     <button
-                                      onClick={() => administerMedication(mar.mar_id, medIdx, doseIdx)}
+                                      onClick={() => administerMedication(mar, med, dose)}
                                       disabled={saving}
                                       className="px-3 py-1 bg-ok text-ok-fg text-sm rounded hover:bg-ok disabled:opacity-50"
                                     >

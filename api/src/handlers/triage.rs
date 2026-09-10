@@ -186,8 +186,10 @@ pub async fn create_triage_assessment(
         weight: req.vital_signs.weight_kg.map(|v| v as f64),
         is_critical: has_critical_vitals,
         requires_isolation: false,
+        // Not the note. `disposition` is where the patient goes, decided later.
         disposition: None,
         assigned_bed: None,
+        notes: req.notes.clone().filter(|n| !n.trim().is_empty()),
         triage_time: Utc::now(),
         seen_by_provider_at: None,
         performed_by: current_user_id.clone(),
@@ -313,13 +315,13 @@ pub async fn get_triage_assessment(
                     bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
                     temperature_celsius: entity.temperature.map(|v| v as f32),
                     oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
-                    pain_scale: None,
-                    gcs_score: None,
-                    blood_glucose: None,
-                    weight_kg: None,
+                    pain_scale: entity.pain_scale.map(|v| v as u8),
+                    gcs_score: entity.gcs_score.map(|v| v as u8),
+                    blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                    weight_kg: entity.weight.map(|v| v as f32),
                 },
-                pain_scale: None,
-                notes: entity.disposition.clone(), // Map disposition to notes for now
+                pain_scale: entity.pain_scale.map(|v| v as u8),
+                notes: entity.notes.clone(), // Map disposition to notes for now
                 performed_by: entity.performed_by,
                 performed_at: entity.triage_time.timestamp(),
             };
@@ -398,13 +400,19 @@ pub async fn get_patient_triage_assessments(
                         bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
                         temperature_celsius: entity.temperature.map(|v| v as f32),
                         oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
-                        pain_scale: None,
-                        gcs_score: None,
-                        blood_glucose: None,
-                        weight_kg: None,
+                        // All four are stored on the entity and were hardcoded
+                        // to None on the way out. The pain score, the GCS, the
+                        // glucose and the weight are the observations that
+                        // decide an ESI level, and the queue is the only screen
+                        // that displays them — so a nurse recorded them, the
+                        // database kept them, and every reader saw blanks.
+                        pain_scale: entity.pain_scale.map(|v| v as u8),
+                        gcs_score: entity.gcs_score.map(|v| v as u8),
+                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        weight_kg: entity.weight.map(|v| v as f32),
                     },
-                    pain_scale: None,
-                    notes: entity.disposition.clone(),
+                    pain_scale: entity.pain_scale.map(|v| v as u8),
+                    notes: entity.notes.clone(),
                     performed_by: entity.performed_by,
                     performed_at: entity.triage_time.timestamp(),
                 })
@@ -485,13 +493,21 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
                         bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
                         temperature_celsius: entity.temperature.map(|v| v as f32),
                         oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
-                        pain_scale: None,
-                        gcs_score: None,
-                        blood_glucose: None,
-                        weight_kg: None,
+                        // Stored on the entity and previously hardcoded to
+                        // None on the way out. Three handlers built this same
+                        // response and all three blanked the same four
+                        // observations, so a nurse's pain score, GCS, glucose
+                        // and weight were invisible on every screen that reads
+                        // a triage assessment.
+                        pain_scale: entity.pain_scale.map(|v| v as u8),
+                        gcs_score: entity.gcs_score.map(|v| v as u8),
+                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        weight_kg: entity.weight.map(|v| v as f32),
                     },
-                    pain_scale: None,
-                    notes: entity.disposition.clone(),
+                    pain_scale: entity.pain_scale.map(|v| v as u8),
+                    // The triage NOTE, not the disposition. `disposition` is
+                    // where the patient went and the create path never sets it.
+                    notes: entity.notes.clone(),
                     performed_by: entity.performed_by,
                     performed_at: entity.triage_time.timestamp(),
                 })

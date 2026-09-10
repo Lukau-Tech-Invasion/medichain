@@ -57,6 +57,10 @@ export function SymptomTrackerPage() {
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [entries, setEntries] = useState<SymptomEntry[]>([]);
+  // A failed log has to be visible. The entry is added optimistically, so
+  // without this a rejected write left the symptom on screen and out of the
+  // record.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -164,6 +168,7 @@ export function SymptomTrackerPage() {
       relievedBy: newEntry.relievedBy,
     };
 
+    setSaveError(null);
     setEntries(prev => [entry, ...prev]);
     setShowAddModal(false);
     setSelectedCategory(null);
@@ -188,7 +193,14 @@ export function SymptomTrackerPage() {
           }),
         });
       } catch (err) {
-        console.warn('Failed to log symptom to API:', err);
+        // Surfaced, not warned about in a console the patient cannot see.
+        //
+        // The entry is added to the list before this request runs, so
+        // swallowing the failure left a symptom on screen that no clinician
+        // would ever see — the patient believes it was recorded and it was not.
+        console.error('Failed to log symptom to API:', err);
+        setEntries(prev => prev.filter(e => e.id !== entry.id));
+        setSaveError(t('symptomTracker.logFailed'));
       }
     }
   };
@@ -299,6 +311,12 @@ export function SymptomTrackerPage() {
           <div className="text-xs text-content-muted">{t('symptomTracker.avgSeverity')}</div>
         </div>
       </div>
+
+      {saveError && (
+        <div role="alert" className="p-3 rounded-xl bg-critical-subtle text-critical-subtle-fg text-sm">
+          {saveError}
+        </div>
+      )}
 
       {/* Add New Button */}
       <button

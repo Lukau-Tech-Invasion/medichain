@@ -281,7 +281,18 @@ export function burnSeverityPreview(
   return 'minor';
 }
 
-/** The VIP phlebitis stage for a set of site findings. `null` until loaded. */
+/**
+ * The VIP phlebitis stage for a set of site findings. `null` until loaded.
+ *
+ * The scale COUNTS the early signs; it does not take the highest one. Stage 1
+ * is one of slight pain or slight redness, stage 2 is two of pain, redness and
+ * swelling — so a site with tenderness AND redness is stage 2, which is the
+ * point at which the cannula comes out. Taking a maximum returned 1 and left it
+ * in.
+ *
+ * Mirrors `clinical_scoring::vip_score`. This is a live preview only: the
+ * server recomputes and its answer is the one stored (CLAUDE.md rule 8).
+ */
 export function vipScorePreview(
   conditions: string[],
   catalog: ScoringCatalog | null,
@@ -289,12 +300,18 @@ export function vipScorePreview(
   if (!catalog) return null;
   const signs = catalog.vip_phlebitis?.signs;
   if (!signs) return null;
-  let score = 0;
-  for (const condition of conditions) {
-    const sign = signs.find((s) => s.name === condition);
-    if (sign && sign.stage > score) score = sign.stage;
-  }
-  return score;
+  const has = (name: string) => conditions.includes(name);
+
+  // Stages 3 to 5 are single-sign findings and outrank any count.
+  if (has('drainage')) return 5;
+  if (has('palpable-cord')) return 4;
+  if (has('induration')) return 3;
+
+  // `warmth` is grouped with swelling: the same inflammatory finding at the
+  // same stage, so a single warm swollen site is not two signs.
+  const early =
+    Number(has('tenderness')) + Number(has('redness')) + Number(has('swelling') || has('warmth'));
+  return Math.min(early, 2);
 }
 
 /** What a VIP stage requires. `null` until the catalog loads. */

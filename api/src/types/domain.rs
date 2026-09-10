@@ -24,6 +24,63 @@ impl Role {
         )
     }
 
+    /// Which roles may break the glass on a patient's emergency capsule.
+    ///
+    /// Break-glass bypasses consent. It exists so that a patient who cannot
+    /// speak still gets their blood type, allergies and DNR status read to the
+    /// person about to treat them — and the justification for overriding
+    /// consent is entirely that a treating relationship is being formed in the
+    /// moment.
+    ///
+    /// `is_healthcare_provider()` was the gate, which admits `Pharmacist` and
+    /// `LabTechnician`. Neither forms a treating relationship at the bedside: a
+    /// pharmacist dispenses against a prescription and a lab technician
+    /// analyses a sample, and neither needs to override a patient's consent to
+    /// do it. Both were able to open the capsule.
+    ///
+    /// `Admin` is included, and this is the one place it is. An administrator
+    /// is deliberately excluded from `can_edit_medical_records` — but
+    /// break-glass is a *read* under emergency conditions, it is the account
+    /// that has to be able to act when a clinician's own access is the thing
+    /// that has failed, and every use is audited before disclosure. Excluding
+    /// it would leave a deployment with no recourse at the worst moment.
+    ///
+    /// Paramedics map to `Nurse` in this system, so pre-hospital break-glass is
+    /// covered by the `Nurse` arm.
+    ///
+    /// Decided 2026-09-10 by the product owner, closing the open question
+    /// `docs/NEXT_WEEK_TODO.md` printed on every CI run. The two endpoints move
+    /// together on purpose: `POST /api/emergency-access` reveals the capsule and
+    /// `POST /api/emergency/nfc-token` mints the one-time token that opens it,
+    /// so narrowing one and not the other narrows nothing.
+    pub fn may_break_glass(&self) -> bool {
+        matches!(self, Role::Doctor | Role::Nurse | Role::Admin)
+    }
+
+    /// Which roles may issue a patient a national health ID card.
+    ///
+    /// The third of the three break-glass questions, and the one left open when
+    /// the other two were decided on 2026-09-10. An NFC card is not a read: it
+    /// is a durable credential that, once minted, lets whoever holds it start an
+    /// emergency capsule disclosure. Issuing one is therefore a stronger act
+    /// than performing a single audited break-glass read.
+    ///
+    /// The gate was `is_healthcare_provider()`, which admits `Pharmacist` and
+    /// `LabTechnician` — so a pharmacist could mint a national health identity
+    /// credential, while `POST /api/nfc/suspend` was already `Admin`-only. That
+    /// asymmetry is the defect: the roles able to create a credential could not
+    /// revoke one, and the role able to revoke was not the only one creating.
+    ///
+    /// Doctor and Nurse are included because card issuance happens at
+    /// registration, at the point of care, by the clinician in front of the
+    /// patient; paramedics map to `Nurse`. `Admin` is included because it
+    /// already suspends cards. Neither a pharmacist dispensing against a
+    /// prescription nor a lab technician analysing a sample is in a position to
+    /// establish who a patient is.
+    pub fn may_issue_identity_credentials(&self) -> bool {
+        matches!(self, Role::Doctor | Role::Nurse | Role::Admin)
+    }
+
     /// Which roles may write to a patient's clinical record.
     ///
     /// **Not `Admin`.** An administrator creates accounts, assigns and revokes
@@ -593,6 +650,65 @@ pub(crate) fn patient_entity_to_profile(
     serde_json::from_slice::<PatientProfile>(&bytes).ok()
 }
 
+/// A staff member's contact details, as stored.
+///
+/// Sealed into `user_profiles.contact_encrypted` rather than written to the
+/// plaintext `phone` column. A struct rather than a bare string so a second
+/// number or a pager can be added without another migration — the same
+/// reasoning behind the patient side's `profile_extras_encrypted`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StaffContact {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+}
+
+impl StaffContact {
+    /// Whether there is anything worth sealing.
+    pub fn is_empty(&self) -> bool {
+        self.phone
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+    }
+}
+
+/// Seal a staff member's contact details under the current keyring version.
+///
+/// `None` when there is nothing to store, so an account with no phone number
+/// writes a NULL blob rather than an encrypted empty object a reader would have
+/// to decrypt before discovering it was empty.
+pub(crate) fn seal_staff_contact(
+    contact: &StaffContact,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> Option<Vec<u8>> {
+    if contact.is_empty() {
+        return None;
+    }
+    let plaintext = serde_json::to_vec(contact).ok()?;
+    let sealed = medichain_crypto::encrypt(keyring.current(), &plaintext).ok()?;
+    Some(sealed.to_bytes())
+}
+
+/// Open a sealed staff contact with whichever keyring version sealed it.
+///
+/// `None` for an absent blob, a key version the keyring no longer holds, or a
+/// blob that will not decrypt — the same three cases
+/// [`patient_entity_to_profile`] distinguishes, and for the same reason: a
+/// missing contact number must not be indistinguishable from a key-management
+/// failure that has made every stored one unreadable.
+pub(crate) fn open_staff_contact(
+    blob: Option<&Vec<u8>>,
+    key_version: Option<i32>,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> Option<StaffContact> {
+    let blob = blob?;
+    let key = keyring.get(key_version.unwrap_or(1) as u32)?;
+    let ed = medichain_crypto::EncryptedData::from_bytes(blob).ok()?;
+    let bytes = medichain_crypto::decrypt(key, &ed).ok()?;
+    serde_json::from_slice::<StaffContact>(&bytes).ok()
+}
+
 /// NFC Tag data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NfcTagData {
@@ -710,5 +826,90 @@ mod role_authority_tests {
                 "{role} must not be able to write"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod staff_contact_tests {
+    use super::*;
+    use crate::encryption_keyring::EncryptionKeyring;
+
+    #[test]
+    fn a_sealed_contact_number_comes_back_unchanged() {
+        let keyring = EncryptionKeyring::ephemeral();
+        let contact = StaffContact {
+            phone: Some("+27 11 555 0100".to_string()),
+        };
+
+        let blob = seal_staff_contact(&contact, &keyring).expect("a contact with a number seals");
+        let opened = open_staff_contact(
+            Some(&blob),
+            Some(keyring.current_version() as i32),
+            &keyring,
+        )
+        .expect("what this keyring sealed, this keyring opens");
+
+        assert_eq!(opened.phone.as_deref(), Some("+27 11 555 0100"));
+    }
+
+    #[test]
+    fn the_sealed_blob_does_not_contain_the_number_in_the_clear() {
+        let keyring = EncryptionKeyring::ephemeral();
+        let contact = StaffContact {
+            phone: Some("0115550100".to_string()),
+        };
+
+        let blob = seal_staff_contact(&contact, &keyring).expect("seals");
+
+        // The point of the column. A blob that happened to store the JSON
+        // unencrypted would pass the round-trip test above and still be exactly
+        // the plaintext `phone` column this replaces.
+        assert!(
+            !blob.windows(10).any(|w| w == b"0115550100"),
+            "the contact number appears verbatim in the stored blob"
+        );
+    }
+
+    #[test]
+    fn nothing_to_store_seals_to_nothing() {
+        let keyring = EncryptionKeyring::ephemeral();
+
+        // A blank field is absent, not a contact number that is the empty
+        // string (CLAUDE.md rule 9). Sealing "" would write a blob every reader
+        // has to decrypt before discovering it holds nothing.
+        assert!(seal_staff_contact(&StaffContact::default(), &keyring).is_none());
+        assert!(seal_staff_contact(
+            &StaffContact {
+                phone: Some("   ".to_string()),
+            },
+            &keyring
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_key_version_the_keyring_does_not_hold_reads_as_absent() {
+        let keyring = EncryptionKeyring::ephemeral();
+        let blob = seal_staff_contact(
+            &StaffContact {
+                phone: Some("+27 11 555 0100".to_string()),
+            },
+            &keyring,
+        )
+        .expect("seals");
+
+        // Fail closed rather than panicking or returning a wrong number: a row
+        // stamped with a retired version is unreadable, and the caller renders
+        // "no contact recorded" instead of taking the process down.
+        assert!(open_staff_contact(Some(&blob), Some(7), &keyring).is_none());
+        assert!(open_staff_contact(None, Some(1), &keyring).is_none());
+    }
+
+    #[test]
+    fn a_blob_that_will_not_decrypt_reads_as_absent() {
+        let keyring = EncryptionKeyring::ephemeral();
+        let garbage = vec![9u8; 64];
+
+        assert!(open_staff_contact(Some(&garbage), Some(1), &keyring).is_none());
     }
 }

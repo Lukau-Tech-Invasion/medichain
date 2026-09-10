@@ -1050,7 +1050,17 @@ pub async fn pharmacist_dashboard(
                 "dosage": text(&med, "strength"),
                 "directions": text(&med, "directions"),
                 "status": text(v, "status"),
-                "prescribed_quantity": v.get("quantity").and_then(|q| q.as_u64()).unwrap_or(0),
+                // `quantity` lives on the MEDICATION, beside `strength` and
+                // `directions` which this same block already reads from there.
+                // Reading it from the top level returned 0 for every
+                // prescription ever written, so the pharmacy queue told the
+                // pharmacist to dispense none of a drug that had been
+                // prescribed thirty of.
+                "prescribed_quantity": med
+                    .get("quantity")
+                    .or_else(|| v.get("quantity"))
+                    .and_then(|q| q.as_u64())
+                    .unwrap_or(0),
                 "dispensed_quantity": v.get("dispensed_quantity").and_then(|q| q.as_u64()).unwrap_or(0),
                 "priority": if v.get("is_controlled").and_then(|c| c.as_bool()).unwrap_or(false) {
                     "STAT"

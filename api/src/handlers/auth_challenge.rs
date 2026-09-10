@@ -511,7 +511,8 @@ pub async fn list_users(
     let user_list: Vec<User> = match &data.db_pool {
         Some(pool) => {
             let rows = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-                "SELECT u.*, p.department, p.specialty, p.license_number
+                "SELECT u.*, p.department, p.specialty, p.license_number,
+                        p.contact_encrypted, p.contact_key_version
                  FROM users u
                  LEFT JOIN user_profiles p ON p.user_id = u.id
                  ORDER BY u.created_at DESC",
@@ -520,7 +521,10 @@ pub async fn list_users(
             .await;
 
             match rows {
-                Ok(rows) => rows.into_iter().map(user_from_db_row).collect(),
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|row| user_from_db_row(row, &data.encryption_keyring))
+                    .collect(),
                 Err(e) => {
                     log::error!("list_users: user directory unavailable: {e}");
                     return HttpResponse::ServiceUnavailable().json(ErrorResponse {
@@ -552,7 +556,25 @@ pub async fn list_users(
 /// that one builds the authorization cache and is only ever fed active rows,
 /// whereas this one must faithfully carry `status` through so an administrator
 /// can see and act on inactive, suspended and pending accounts.
-fn user_from_db_row(row: crate::models::DbUserWithProfile) -> User {
+/// Rebuild the runtime `User` from a directory row.
+///
+/// Takes the keyring because the contact details are sealed:
+/// `user_profiles.phone` is plaintext and is never written, so the number lives
+/// in `contact_encrypted` and there is no way to produce a complete `User`
+/// without being able to open it. Returning `phone: None` here instead would be
+/// worse than incomplete — `update_user_profile` reads a user through this
+/// function and writes it back, so an unread phone number would be silently
+/// erased by an edit to an unrelated field.
+fn user_from_db_row(
+    row: crate::models::DbUserWithProfile,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> User {
+    let phone = crate::types::open_staff_contact(
+        row.contact_encrypted.as_ref(),
+        row.contact_key_version,
+        keyring,
+    )
+    .and_then(|contact| contact.phone);
     let db = row.user;
     User {
         wallet_address: db.wallet_address,
@@ -570,7 +592,7 @@ fn user_from_db_row(row: crate::models::DbUserWithProfile) -> User {
         created_by: db.created_by,
         linked_patient_id: db.linked_patient_id,
         email: db.email,
-        phone: None,
+        phone,
         department: row.department,
         specialty: row.specialty,
         license_number: row.license_number,
@@ -671,11 +693,20 @@ fn apply_profile_update(
     mut user: User,
     body: &UpdateUserProfileRequest,
 ) -> Result<User, (&'static str, &'static str)> {
-    if body.phone.is_some() {
-        return Err((
-            "PHONE_UPDATE_UNAVAILABLE",
-            "Phone updates are disabled until encrypted profile storage is available",
-        ));
+    if let Some(value) = &body.phone {
+        // Sealed by `persist_user` into `user_profiles.contact_encrypted`; the
+        // plaintext `phone` column is never written. Until that column existed
+        // this returned PHONE_UPDATE_UNAVAILABLE, so a clinician who changed
+        // their number had no way to record it.
+        let trimmed = value.trim();
+        if trimmed.chars().count() > MAX_STAFF_PHONE_LEN {
+            return Err((
+                "INVALID_PHONE",
+                "Phone number must be at most 32 characters",
+            ));
+        }
+        // An explicit empty string clears the number rather than storing "".
+        user.phone = Some(trimmed.to_string()).filter(|value| !value.is_empty());
     }
     if let Some(email) = &body.email {
         if email.len() > 254 || !email.contains('@') {
@@ -785,7 +816,8 @@ pub async fn update_user_profile(
         None => {
             let from_db = match &data.db_pool {
                 Some(pool) => sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-                    "SELECT u.*, p.department, p.specialty, p.license_number
+                    "SELECT u.*, p.department, p.specialty, p.license_number,
+                            p.contact_encrypted, p.contact_key_version
                      FROM users u
                      LEFT JOIN user_profiles p ON p.user_id = u.id
                      WHERE u.wallet_address = $1",
@@ -794,7 +826,7 @@ pub async fn update_user_profile(
                 .fetch_optional(pool)
                 .await
                 .unwrap_or(None)
-                .map(user_from_db_row),
+                .map(|row| user_from_db_row(row, &data.encryption_keyring)),
                 None => None,
             };
 

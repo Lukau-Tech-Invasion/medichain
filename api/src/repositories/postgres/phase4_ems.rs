@@ -239,7 +239,7 @@ impl MciRecordRepository for PgMciRecordRepository {
                 decontamination_required, decontamination_completed, treatments_provided,
                 disposition, disposition_datetime, destination, family_notified,
                 family_reunification_completed, patient_tracking_updated,
-                media_release_authorized, special_circumstances, created_by
+                media_release_authorized, special_circumstances, created_by, data
             ) ",
         );
 
@@ -275,7 +275,12 @@ impl MciRecordRepository for PgMciRecordRepository {
                 .push_bind(r.patient_tracking_updated)
                 .push_bind(r.media_release_authorized)
                 .push_bind(&r.special_circumstances)
-                .push_bind(&r.created_by);
+                .push_bind(&r.created_by)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

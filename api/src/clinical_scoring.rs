@@ -444,6 +444,11 @@ pub fn start_triage(v: &StartVitals) -> &'static str {
 /// listed explicitly at stage 0 so that "no abnormality observed" is a recorded
 /// finding rather than an empty list, which is indistinguishable from "not
 /// assessed".
+/// The seven signs the Visual Infusion Phlebitis scale is scored from, as the
+/// bedside form names them.
+///
+/// The stage against each name is the LOWEST stage at which that sign appears.
+/// It is not the score: see [`vip_score`], which counts rather than maximises.
 pub const VIP_SIGNS: [(&str, u8); 8] = [
     ("clean-dry-intact", 0),
     ("tenderness", 1),
@@ -451,23 +456,58 @@ pub const VIP_SIGNS: [(&str, u8); 8] = [
     ("swelling", 2),
     ("warmth", 2),
     ("induration", 3),
-    ("drainage", 4),
-    ("palpable-cord", 5),
+    // Stage 4 is "pain along the path of the cannula, erythema, induration,
+    // palpable venous cord"; stage 5 adds pyrexia or purulent discharge. The
+    // table used to give drainage 4 and the cord 5, which is the two the wrong
+    // way round.
+    ("palpable-cord", 4),
+    ("drainage", 5),
 ];
 
-/// VIP score from the observed signs. Unknown sign names are ignored rather
-/// than counted, so a client sending a typo cannot inflate the score.
+/// VIP score from the observed signs.
+///
+/// # The scale counts; it does not take a maximum
+///
+/// This function used to return the highest stage of any single sign observed.
+/// That is not the VIP scale. Stage 1 is **one** of slight pain or slight
+/// redness; stage 2 is **two** of pain, redness and swelling. So a cannula site
+/// with both tenderness AND redness — the commonest presentation of early
+/// phlebitis — scored 1 under the old rule and 2 under the scale.
+///
+/// The difference is the bedside action. [`vip_action`] maps 1 to
+/// "observe_closely" and 2 to "resite_cannula", so under-scoring by one stage
+/// left an inflamed cannula in the patient's arm.
+///
+/// The higher stages stay sign-driven, because that is how the scale defines
+/// them: induration is stage 3 on its own, a palpable venous cord is stage 4,
+/// and purulent discharge is stage 5. Those are cumulative descriptions, so the
+/// highest one observed wins.
+///
+/// Unknown sign names are ignored rather than counted, so a client sending a
+/// typo cannot inflate the score.
 pub fn vip_score(observed: &[String]) -> u8 {
     debug_assert!(observed.len() <= 32, "VIP has seven signs");
-    let mut score = 0_u8;
-    for sign in observed.iter().take(32) {
-        for (name, stage) in VIP_SIGNS.iter() {
-            if sign == name && *stage > score {
-                score = *stage;
-            }
-        }
+    let has = |name: &str| observed.iter().take(32).any(|s| s == name);
+
+    // Stages 3 to 5 are single-sign findings and outrank any count.
+    if has("drainage") {
+        return 5;
     }
-    score
+    if has("palpable-cord") {
+        return 4;
+    }
+    if has("induration") {
+        return 3;
+    }
+
+    // Stages 0 to 2 are a count of the early signs. `warmth` is grouped with
+    // swelling: both are the same inflammatory finding at the same stage on the
+    // table above, and counting them separately would take a single warm,
+    // swollen site to stage 2 on one observation.
+    let early = u8::from(has("tenderness"))
+        + u8::from(has("redness"))
+        + u8::from(has("swelling") || has("warmth"));
+    early.min(2)
 }
 
 /// What a VIP score requires. Stage 2 is the point of no return for the
@@ -1721,16 +1761,51 @@ mod tests {
     }
 
     #[test]
-    fn vip_takes_the_highest_stage_present() {
+    fn vip_counts_the_early_signs_rather_than_maximising() {
         assert_eq!(vip_score(&[]), 0);
         assert_eq!(vip_score(&["clean-dry-intact".to_string()]), 0);
+
+        // Stage 1 is ONE of slight pain or slight redness.
         assert_eq!(vip_score(&["tenderness".to_string()]), 1);
+        assert_eq!(vip_score(&["redness".to_string()]), 1);
+
+        // Stage 2 is TWO of pain, redness and swelling — and it is the point at
+        // which the cannula comes out. This is the case the old
+        // highest-stage-wins rule got wrong: it returned 1, so `vip_action`
+        // said "observe_closely" and an inflamed cannula stayed in the arm.
+        assert_eq!(
+            vip_score(&["tenderness".to_string(), "redness".to_string()]),
+            2,
+            "pain and redness together is stage 2, not two separate stage-1 signs"
+        );
+        assert_eq!(vip_action(2), "resite_cannula");
+
+        // Warmth and swelling are the same inflammatory finding at the same
+        // stage; a single warm, swollen site is one sign, not two.
+        assert_eq!(
+            vip_score(&["swelling".to_string(), "warmth".to_string()]),
+            1,
+            "swelling and warmth are one finding, so this must not reach stage 2"
+        );
+
+        // Stages 3 to 5 are single-sign findings and outrank any count.
         assert_eq!(
             vip_score(&["tenderness".to_string(), "induration".to_string()]),
             3,
-            "the score is the highest stage observed, not a sum"
+            "induration is stage 3 on its own"
         );
-        assert_eq!(vip_score(&["drainage".to_string()]), 4);
+        assert_eq!(
+            vip_score(&["palpable-cord".to_string()]),
+            4,
+            "a palpable venous cord is stage 4"
+        );
+        assert_eq!(
+            vip_score(&["drainage".to_string()]),
+            5,
+            "purulent discharge is stage 5; the table used to give it 4 and give \
+             the cord 5, which is the two the wrong way round"
+        );
+
         assert_eq!(
             vip_score(&["not_a_sign".to_string()]),
             0,

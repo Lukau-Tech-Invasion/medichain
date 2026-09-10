@@ -125,6 +125,38 @@ pub async fn nursing_administer_medication(
     // the rest, so a held dose was indistinguishable from a given one.
     let text = |key: &str| body.get(key).and_then(|v| v.as_str());
     let flag = |key: &str| body.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
+    // Two screens post here and they name things differently.
+    //
+    // `MedicationAdminPage` sends `actual_time` and `reason_not_given`;
+    // `MARPage` sends `administered_time` and `hold_reason`. Only the first set
+    // was read, so a dose given from the eMAR was stamped with the moment the
+    // request arrived rather than the time the nurse entered, and a **held**
+    // dose lost the reason it was held — which is the entire clinical content
+    // of a held dose. `prn_reason` was read by neither.
+    let first = |keys: &[&str]| keys.iter().find_map(|k| text(k)).map(str::to_string);
+    let status = text("status").unwrap_or("given").to_string();
+    let reason_not_given = first(&["reason_not_given", "hold_reason", "refusal_reason"]);
+
+    // A dose that was not given needs a reason. Without one the record cannot
+    // distinguish "the patient refused" from "the ward ran out" from "held on
+    // the doctor's instruction", and the next nurse has to guess.
+    if matches!(
+        status.as_str(),
+        "held" | "not-given" | "not_given" | "refused"
+    ) && reason_not_given
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty()
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!("a dose recorded as '{status}' requires a reason"),
+            code: "REASON_REQUIRED".to_string(),
+        });
+    }
+
+    let now = Utc::now();
     let administration = serde_json::json!({
         "administration_id": format!("ADM-{}", Uuid::new_v4()),
         "medication_id": text("medication_id"),
@@ -132,17 +164,21 @@ pub async fn nursing_administer_medication(
         "dose": text("dose"),
         "route": text("route"),
         "notes": text("notes"),
-        "status": text("status").unwrap_or("given"),
+        "status": status,
         "scheduled_time": text("scheduled_time"),
-        "actual_time": text("actual_time"),
-        "reason_not_given": text("reason_not_given"),
+        // The time the nurse recorded, under both spellings the two screens use.
+        "actual_time": first(&["actual_time", "administered_time"]),
+        "reason_not_given": reason_not_given,
+        // Why a PRN dose was given at all, which is the indication for it.
+        "prn_reason": text("prn_reason"),
         "site": text("site"),
         "witnessed_by": text("witnessed_by"),
         "patient_response": text("patient_response"),
         "barcode_scanned": flag("barcode_scanned"),
         "five_rights_verified": flag("five_rights_verified"),
+        // Who recorded it is the authenticated caller, never a client claim.
         "administered_by": current_user_id,
-        "administered_at": Utc::now().to_rfc3339(),
+        "administered_at": now.to_rfc3339(),
     });
 
     match crate::clinical_endpoints::append_mar_administration(
@@ -204,12 +240,45 @@ pub async fn nursing_record_fluid(
             })
         }
     };
-    let category = body
+    // Three screens post fluids here, and they name the field three ways.
+    //
+    // `IntakeOutputPage` sends `category` ("oral", "urine"); `NursingPage`
+    // sends `fluid_type` ("Oral", "Urine") plus an `entry_type` of "intake" or
+    // "output". Only `category`/`type` were read, so everything the Nursing Hub
+    // charted fell through to the unknown branch and was counted as
+    // `other_intake` — including urine. An 800 mL output moved the running
+    // balance by **+800** instead of −800, a 1600 mL error in the wrong
+    // direction on the number a clinician titrates fluids against.
+    let raw_category = body
         .get("category")
         .or_else(|| body.get("type"))
+        .or_else(|| body.get("fluid_type"))
         .and_then(|v| v.as_str())
-        .unwrap_or("other")
-        .to_string();
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let direction = body
+        .get("entry_type")
+        .or_else(|| body.get("direction"))
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    // Left as the nurse named it. `append_io_event` owns the routing table and
+    // falls back to `direction` for anything it does not recognise, so
+    // second-guessing it here would put the same decision in two places.
+    let category = raw_category.clone();
+    // The fluid the nurse actually named, kept for the chart even when it had
+    // to be bucketed as "other".
+    let fluid_label = if raw_category.is_empty() {
+        None
+    } else {
+        body.get("fluid_type")
+            .or_else(|| body.get("category"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    };
     let shift = body
         .get("shift")
         .and_then(|v| v.as_str())
@@ -218,11 +287,26 @@ pub async fn nursing_record_fluid(
 
     match crate::clinical_endpoints::append_io_event(
         &data,
-        &patient_id,
-        &shift,
-        &current_user_id,
-        &category,
-        amount_ml,
+        crate::clinical_endpoints::FluidEvent {
+            patient_id: &patient_id,
+            shift: &shift,
+            recorded_by: &current_user_id,
+            category: &category,
+            // `entry_type` is this page's word for direction. Passing it means a
+            // fluid the routing table does not recognise is still counted the
+            // way the nurse charted it.
+            direction: if direction.is_empty() {
+                None
+            } else {
+                Some(&direction)
+            },
+            // What the nurse called it, kept even when it had to be bucketed
+            // as "other": "wound drain" and "chest drain" are both drainage to
+            // the totals and different things to the person reading the chart.
+            label: fluid_label.as_deref(),
+            notes: body.get("notes").and_then(|v| v.as_str()),
+            amount_ml,
+        },
     )
     .await
     {

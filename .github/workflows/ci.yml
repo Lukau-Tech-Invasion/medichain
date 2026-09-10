@@ -158,6 +158,24 @@ jobs:
             - name: No page asserts a clinical value nobody entered
               run: python scripts/check-uncontrolled-defaults.py
 
+            # A handler that reads a body key its callers never send.
+            #
+            # `body.get("patient_id")...unwrap_or_default()` cannot fail: when
+            # the page posts `patientId`, the lookup misses, the default is
+            # `""`, and the handler stores a record whose clinical content is
+            # empty strings while answering 201. Seventeen handlers were doing
+            # this on 2026-09-10 — the consult request and the critical-value
+            # notification among them, both of which then hit a foreign-key
+            # constraint on PostgreSQL and SUCCEEDED in memory, storing a record
+            # attached to nobody.
+            #
+            # Nothing else in this file could see it: the method and path were
+            # right, so the drift gate passed; the body is an untyped `Value`,
+            # so the compiler saw nothing; and a unit test mocks `fetch`, so it
+            # never reached the handler.
+            - name: No handler reads a body key its callers never send
+              run: python scripts/check-untyped-body-keys.py
+
             # WCAG AA contrast, checked at the design tokens rather than at a
             # rendered pixel, so it holds for both themes.
             - name: Colour tokens meet WCAG AA contrast

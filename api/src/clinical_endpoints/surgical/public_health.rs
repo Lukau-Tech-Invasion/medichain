@@ -238,24 +238,117 @@ pub async fn assess_family_history(
 }
 
 /// Create blood type screen
+/// What the blood-bank screen actually submits.
+///
+/// `BloodBankPage.tsx` raises a **blood product order** — product, units,
+/// indication, priority, and the patient's blood type as already recorded. The
+/// handler wanted the clinical `BloodTypeScreen`, which models a laboratory
+/// type-and-screen: `test_id`, `abo_type`, `rh_type`, `antibody_screen`,
+/// `expiration`, `verified_by`. The two share a patient and nothing else, so
+/// every order was refused with `400 missing field 'test_id'` and the page's
+/// Save button had never worked.
+///
+/// The order is what the ward raises and the bank fills, so it is what this
+/// endpoint stores. The type-and-screen shape stays available for a laboratory
+/// caller through the `alias`es below.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateBloodOrderRequest {
+    #[serde(rename = "orderId", alias = "test_id", default)]
+    pub order_id: Option<String>,
+    #[serde(rename = "patientId", alias = "patient_id")]
+    pub patient_id: String,
+    #[serde(rename = "patientName", default)]
+    pub patient_name: Option<String>,
+    /// The patient's recorded ABO/Rh. `Unknown` is a real state and the reason
+    /// a type-and-screen has to happen before the crossmatch.
+    #[serde(rename = "bloodType", default)]
+    pub blood_type: Option<String>,
+    #[serde(rename = "orderDate", default)]
+    pub order_date: Option<String>,
+    #[serde(rename = "orderTime", default)]
+    pub order_time: Option<String>,
+    #[serde(rename = "orderedBy", alias = "performed_by", default)]
+    pub ordered_by: Option<String>,
+    /// packed_red_cells / platelets / fresh_frozen_plasma / cryoprecipitate.
+    pub product: String,
+    pub units: u32,
+    /// Why the patient needs blood. A product order without one cannot be
+    /// reviewed, and transfusion is the most-audited thing a ward does.
+    pub indication: String,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
 #[post("/api/surgical/blood-type")]
 pub async fn create_blood_type_screen(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<BloodTypeScreen>,
+    req: web::Json<CreateBloodOrderRequest>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
     let screen = req.into_inner();
-    let id = screen.test_id.clone();
+    if screen.patient_id.trim().is_empty()
+        || screen.product.trim().is_empty()
+        || screen.indication.trim().is_empty()
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id, product and indication are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if screen.units == 0 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "an order for zero units is not an order".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&screen.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", screen.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+
+    // Server-generated: a client-supplied id lets one order overwrite another.
+    let id = format!("BB-{}", uuid::Uuid::new_v4().simple());
     // Persisted through the repository, so it survives a restart.
     let now = chrono::Utc::now();
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
         owner_id: screen.patient_id.clone(),
-        data: serde_json::to_value(&screen).unwrap_or_default(),
+        data: serde_json::json!({
+            "order_id": id,
+            "client_order_id": screen.order_id,
+            "patient_id": screen.patient_id,
+            "patient_name": screen.patient_name,
+            "blood_type": screen.blood_type,
+            "product": screen.product,
+            "units": screen.units,
+            "indication": screen.indication,
+            "priority": screen.priority.clone().unwrap_or_else(|| "routine".to_string()),
+            "status": screen.status.clone().unwrap_or_else(|| "ordered".to_string()),
+            "order_date": screen.order_date,
+            "order_time": screen.order_time,
+            // The orderer is the authenticated caller. A blood product order is
+            // signed work, and a client-asserted name is not a signature.
+            "ordered_by": caller.wallet_address,
+            "created_at": now.to_rfc3339(),
+        }),
         created_at: now,
         updated_at: now,
     };
@@ -318,11 +411,78 @@ pub async fn get_blood_type_screen(
 }
 
 /// Create transfusion record
+/// One set of observations either side of a transfusion.
+///
+/// Pre- and post-transfusion observations are how a reaction is detected and,
+/// afterwards, how it is proven or excluded. They are the reason a transfusion
+/// record exists at all, and the page collects them.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct TransfusionVitalsInput {
+    #[serde(default)]
+    pub bp: Option<String>,
+    #[serde(default)]
+    pub hr: Option<i32>,
+    #[serde(default)]
+    pub temp: Option<f64>,
+    #[serde(default)]
+    pub rr: Option<i32>,
+}
+
+/// What the ward records when a unit is given.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct TransfusionInfoInput {
+    #[serde(rename = "startTime", default)]
+    pub start_time: Option<String>,
+    #[serde(rename = "endTime", default)]
+    pub end_time: Option<String>,
+    #[serde(rename = "administeredBy", default)]
+    pub administered_by: Option<String>,
+    /// The second person on the bedside check. A two-person check with one name
+    /// recorded is a one-person check.
+    #[serde(rename = "witnessedBy", default)]
+    pub witnessed_by: Option<String>,
+    #[serde(rename = "preVitals", default)]
+    pub pre_vitals: Option<TransfusionVitalsInput>,
+    #[serde(rename = "postVitals", default)]
+    pub post_vitals: Option<TransfusionVitalsInput>,
+    #[serde(default)]
+    pub reactions: Vec<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// What the transfusion form actually submits.
+///
+/// `BloodBankPage.tsx` posts the order it is completing plus a nested
+/// `transfusionInfo`. The handler wanted the clinical `TransfusionRecord`,
+/// which requires `transfusion_id`, `unit_number`, `abo_rh`,
+/// `consent_obtained`, `patient_verified`, `volume_ml` and `rate` — none of
+/// which the ward screen collects. Every submission was refused.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateTransfusionRequest {
+    #[serde(rename = "orderId", alias = "transfusion_id", default)]
+    pub order_id: Option<String>,
+    #[serde(rename = "patientId", alias = "patient_id")]
+    pub patient_id: String,
+    #[serde(rename = "bloodType", alias = "abo_rh", default)]
+    pub blood_type: Option<String>,
+    #[serde(default)]
+    pub product: Option<String>,
+    #[serde(default)]
+    pub units: Option<u32>,
+    #[serde(rename = "unitNumber", alias = "unit_number", default)]
+    pub unit_number: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "transfusionInfo", default)]
+    pub transfusion_info: Option<TransfusionInfoInput>,
+}
+
 #[post("/api/surgical/transfusion")]
 pub async fn create_transfusion(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<TransfusionRecord>,
+    req: web::Json<CreateTransfusionRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -330,7 +490,27 @@ pub async fn create_transfusion(
     };
 
     let record = req.into_inner();
-    let id = record.transfusion_id.clone();
+    if record.patient_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id is required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    let info = record.transfusion_info.as_ref();
+    // A completed transfusion with no pre-transfusion observations cannot
+    // answer the one question asked after a reaction, so it is refused rather
+    // than stored incomplete.
+    let completed = record.status.as_deref() == Some("completed");
+    if completed && info.and_then(|i| i.pre_vitals.as_ref()).is_none() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "pre-transfusion observations are required to complete a transfusion"
+                .to_string(),
+            code: "MISSING_PRE_VITALS".to_string(),
+        });
+    }
+    let id = format!("TX-{}", uuid::Uuid::new_v4().simple());
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -338,7 +518,7 @@ pub async fn create_transfusion(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: record.patient_id.clone(),
-            accessor_id: current_user_id,
+            accessor_id: current_user_id.clone(),
             accessor_role: "nurse".to_string(),
             access_type: "create_transfusion".to_string(),
             location: None,
@@ -357,7 +537,17 @@ pub async fn create_transfusion(
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
         owner_id: record.patient_id.clone(),
-        data: serde_json::to_value(&record).unwrap_or_default(),
+        // The record plus the two things it cannot assert about itself: the id
+        // it was filed under, and who filed it.
+        data: {
+            let mut blob = serde_json::to_value(&record).unwrap_or_default();
+            if let Some(object) = blob.as_object_mut() {
+                object.insert("transfusion_id".into(), serde_json::json!(id));
+                object.insert("recorded_by".into(), serde_json::json!(current_user_id));
+                object.insert("recorded_at".into(), serde_json::json!(now.to_rfc3339()));
+            }
+            blob
+        },
         created_at: now,
         updated_at: now,
     };
@@ -590,11 +780,58 @@ pub async fn get_surgical_appointment(
 }
 
 /// Create death certificate
+/// What the death-certificate wizard actually submits.
+///
+/// `DeathCertificatePage.tsx` sends a **flat** certificate: `place_of_death` is
+/// the free text a certifier types ("Ward 3", "Memorial General Hospital"),
+/// `cause_of_death` is the immediate cause as a string, and `other_conditions`
+/// is a list of underlying causes. The handler wanted the clinical
+/// `DeathCertificate`, whose `place_of_death` is a `PlaceOfDeath` struct with a
+/// facility type, address, city, state and country, and whose `cause_of_death`
+/// is a `CauseOfDeath` structure. Every submission was refused with
+/// `400 invalid type: string "Ward 3", expected struct PlaceOfDeath`, so no
+/// certificate could ever be filed.
+///
+/// A death certificate is a legal instrument, so the fields it does carry are
+/// required rather than defaulted: an unnamed decedent, an unstated cause or an
+/// uncertified certifier makes the document void, and storing a void one is
+/// worse than refusing it.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateDeathCertificateRequest {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub patient_id: String,
+    pub deceased_name: String,
+    #[serde(default)]
+    pub date_of_birth: Option<String>,
+    pub date_of_death: String,
+    #[serde(default)]
+    pub time_of_death: Option<String>,
+    /// Free text, as the form collects it.
+    pub place_of_death: String,
+    /// natural / accident / suicide / homicide / undetermined / pending.
+    pub manner_of_death: String,
+    /// The immediate cause. Part I(a) of the certificate.
+    pub cause_of_death: String,
+    /// The underlying conditions leading to it, Part I(b) onward.
+    #[serde(default)]
+    pub other_conditions: Vec<String>,
+    pub certifier_name: String,
+    #[serde(default)]
+    pub certifier_license: Option<String>,
+    #[serde(default)]
+    pub certifier_type: Option<String>,
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
 #[post("/api/surgical/death-certificate")]
 pub async fn create_death_certificate(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<DeathCertificate>,
+    req: web::Json<CreateDeathCertificateRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -602,7 +839,43 @@ pub async fn create_death_certificate(
     };
 
     let certificate = req.into_inner();
-    let id = certificate.certificate_id.clone();
+
+    // The certificate has to name a real person. The page used to post the
+    // literal string "DEMO_PATIENT" here, which is exactly the mistake this
+    // check makes impossible: a certificate filed against an id that does not
+    // resolve is a certificate for nobody.
+    if data
+        .repositories
+        .patients
+        .get_by_id(&certificate.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", certificate.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+    for (field, value) in [
+        ("deceased_name", certificate.deceased_name.trim()),
+        ("date_of_death", certificate.date_of_death.trim()),
+        ("place_of_death", certificate.place_of_death.trim()),
+        ("cause_of_death", certificate.cause_of_death.trim()),
+        ("certifier_name", certificate.certifier_name.trim()),
+    ] {
+        if value.is_empty() {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!("{field} is required on a death certificate"),
+                code: "VALIDATION_ERROR".to_string(),
+            });
+        }
+    }
+
+    // Server-generated: a client-supplied id lets one certificate overwrite
+    // another, and this is a document a registrar relies on being unique.
+    let id = format!("DC-{}", uuid::Uuid::new_v4().simple());
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -610,7 +883,7 @@ pub async fn create_death_certificate(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: certificate.patient_id.clone(),
-            accessor_id: current_user_id,
+            accessor_id: current_user_id.clone(),
             accessor_role: "doctor".to_string(),
             access_type: "create_death_certificate".to_string(),
             location: None,
@@ -629,7 +902,17 @@ pub async fn create_death_certificate(
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
         owner_id: certificate.patient_id.clone(),
-        data: serde_json::to_value(&certificate).unwrap_or_default(),
+        // The certificate plus the two things it cannot assert about itself:
+        // the id it was filed under, and who filed it.
+        data: {
+            let mut blob = serde_json::to_value(&certificate).unwrap_or_default();
+            if let Some(object) = blob.as_object_mut() {
+                object.insert("certificate_id".into(), serde_json::json!(id));
+                object.insert("filed_by".into(), serde_json::json!(current_user_id));
+                object.insert("filed_at".into(), serde_json::json!(now.to_rfc3339()));
+            }
+            blob
+        },
         created_at: now,
         updated_at: now,
     };

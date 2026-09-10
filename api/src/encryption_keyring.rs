@@ -62,7 +62,12 @@ impl EncryptionKeyring {
         }
     }
 
-    fn ephemeral() -> Self {
+    /// A single random key at version 1.
+    ///
+    /// `pub(crate)` so tests elsewhere in the crate can build a keyring without
+    /// setting `ENCRYPTION_KEYS`, which is process-global and would make those
+    /// tests order-dependent on every other test in the binary.
+    pub(crate) fn ephemeral() -> Self {
         let key = EncryptionKey::generate().expect("Failed to generate encryption key");
         let mut keys = BTreeMap::new();
         keys.insert(1, key);

@@ -147,6 +147,23 @@ const AMAPage: React.FC = () => {
       return;
     }
 
+    // Capacity is the precondition, not a later step.
+    //
+    // A patient who lacks decision-making capacity cannot validly refuse
+    // treatment, so an AMA discharge filed without a capacity determination is
+    // not a lawful AMA. `readyForSignatures` already gated the SIGNATURES on
+    // capacity, but the record itself could be created without it — and the
+    // server now refuses that with CAPACITY_DETERMINATION_REQUIRED. Asking here
+    // means the clinician is told what is missing before they lose the form.
+    if (!hasCapacity) {
+      showError(t('docAMA.errorCapacityRequired'));
+      return;
+    }
+    if (!capacityBasis.trim()) {
+      showError(t('docAMA.errorCapacityBasisRequired'));
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const newRecord = {

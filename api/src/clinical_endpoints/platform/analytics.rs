@@ -100,7 +100,7 @@ pub async fn get_patient_analytics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
@@ -144,7 +144,7 @@ pub async fn get_appointment_analytics(
     http_req: HttpRequest,
     query: web::Query<AnalyticsQueryRequest>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
@@ -219,7 +219,7 @@ pub async fn get_operational_metrics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
@@ -327,7 +327,7 @@ pub async fn get_quality_metrics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 

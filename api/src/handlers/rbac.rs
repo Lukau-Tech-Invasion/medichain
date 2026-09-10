@@ -79,22 +79,48 @@ pub async fn assign_role(
         });
     }
 
-    // Create new user with wallet address
-    let user = User {
-        wallet_address: body.wallet_address.clone(),
-        username: body.username.clone(),
-        name: body.name.clone(),
-        role: role.clone(),
-        created_at: Utc::now(),
-        created_by: Some(current_user_id.clone()),
-        linked_patient_id: None,
-        email: None,
-        phone: None,
-        department: None,
-        specialty: None,
-        license_number: None,
-        status: "active".to_string(),
-        last_login: None,
+    // Change the role of the person who is already there, if they are.
+    //
+    // This used to build a whole new `User` from the request body and persist
+    // it, and `persist_user` upserts every column — so assigning a role to an
+    // existing account overwrote their username, email, department, specialty,
+    // licence number, linked patient and creation date with NULL. The role
+    // changed and the person was erased around it. Verified on 2026-09-10: a
+    // lab technician promoted through this endpoint came back with
+    // `username = NULL`, which is the column staff sign-in resolves against.
+    //
+    // `UserManagementPage` calls this immediately after `updateUserProfile`
+    // whenever the role changed, so the profile edit a moment earlier was
+    // undone by the role change that followed it.
+    let existing = get_user(&data, &body.wallet_address);
+    let user = match existing {
+        Some(mut current) => {
+            current.role = role.clone();
+            // A name may accompany a role change; everything else is theirs.
+            if !body.name.trim().is_empty() {
+                current.name = body.name.clone();
+            }
+            if body.username.as_ref().is_some_and(|u| !u.trim().is_empty()) {
+                current.username = body.username.clone();
+            }
+            current
+        }
+        None => User {
+            wallet_address: body.wallet_address.clone(),
+            username: body.username.clone(),
+            name: body.name.clone(),
+            role: role.clone(),
+            created_at: Utc::now(),
+            created_by: Some(current_user_id.clone()),
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        },
     };
 
     if let Err(e) = data.persist_then_cache_user(user).await {

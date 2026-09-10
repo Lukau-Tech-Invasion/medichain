@@ -405,7 +405,7 @@ impl LabQcRecordRepository for PgLabQcRecordRepository {
                 expected_value, measured_value, unit, acceptable_range_low,
                 acceptable_range_high, passed, deviation_percent, corrective_action,
                 performed_by, reviewed_by, performed_at, reviewed_at, lot_number,
-                expiration_date
+                expiration_date, data
             ) ",
         );
 
@@ -429,7 +429,12 @@ impl LabQcRecordRepository for PgLabQcRecordRepository {
                 .push_bind(r.performed_at)
                 .push_bind(r.reviewed_at)
                 .push_bind(&r.lot_number)
-                .push_bind(r.expiration_date);
+                .push_bind(r.expiration_date)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -742,7 +747,7 @@ impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
                 id, patient_id, submission_id, specimen_type, collection_site,
                 collection_method, collector_id, collected_at, received_at,
                 received_by, container_type, volume_ml, temperature_c, condition,
-                barcode, storage_location, chain_of_custody, notes
+                barcode, storage_location, chain_of_custody, notes, data
             ) ",
         );
 
@@ -764,7 +769,12 @@ impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
                 .push_bind(&s.barcode)
                 .push_bind(&s.storage_location)
                 .push_bind(&s.chain_of_custody)
-                .push_bind(&s.notes);
+                .push_bind(&s.notes)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&s.data);
         });
 
         qb.push(" RETURNING *");

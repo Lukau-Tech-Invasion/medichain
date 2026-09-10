@@ -52,10 +52,12 @@ pub struct DbUser {
 /// A user joined to the professional half of their profile.
 ///
 /// H1 (issue #7): the logical user spans `users` and `user_profiles`, so
-/// reloading it needs both. Only the professional attributes are carried —
-/// `phone` and the other HZ-014 plaintext-PII columns are deliberately not
-/// read into the runtime model, because nothing writes them and surfacing
-/// them would imply a round trip that does not occur.
+/// reloading it needs both.
+///
+/// The plaintext HZ-014 columns (`phone`, `first_name`, `address_*`) are still
+/// deliberately not read — nothing writes them. Contact details come instead
+/// from `contact_encrypted`, added by migration `20260910000007`, which is the
+/// staff equivalent of `patients.profile_extras_encrypted`.
 #[derive(Debug, Clone, FromRow)]
 pub struct DbUserWithProfile {
     #[sqlx(flatten)]
@@ -63,6 +65,17 @@ pub struct DbUserWithProfile {
     pub department: Option<String>,
     pub specialty: Option<String>,
     pub license_number: Option<String>,
+    /// The staff member's contact details, sealed.
+    ///
+    /// A blob rather than the plaintext `phone` column: a staff mobile number
+    /// is personal information POPIA requires be protected. Until there was
+    /// somewhere safe to put it, both write paths refused a phone number
+    /// outright, so an administrator could not record a way to contact the
+    /// clinician they had just onboarded.
+    pub contact_encrypted: Option<Vec<u8>>,
+    /// Which keyring version sealed `contact_encrypted`. `None` for a user with
+    /// no `user_profiles` row at all; meaningless when the blob is absent.
+    pub contact_key_version: Option<i32>,
 }
 
 /// User profile with extended information.

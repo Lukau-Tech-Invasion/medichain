@@ -405,17 +405,22 @@ pub async fn create_io(
             "night".to_string()
         }
     });
-    // Categories are stored prefixed by direction so intake and output cannot be
-    // confused when the totals are recomputed.
-    let category = format!("{}:{}", entry.direction, entry.category);
-
+    // Direction travels as its own field. Prefixing it onto the category
+    // produced `"output:urine"`, which matched no arm of the routing table and
+    // was therefore counted as intake — the fluid balance moved the wrong way
+    // for every output this page ever charted.
     match crate::clinical_endpoints::append_io_event(
         &data,
-        &entry.patient_id,
-        &shift,
-        &caller.wallet_address,
-        &category,
-        amount_ml,
+        crate::clinical_endpoints::FluidEvent {
+            patient_id: &entry.patient_id,
+            shift: &shift,
+            recorded_by: &caller.wallet_address,
+            category: &entry.category,
+            direction: Some(&entry.direction),
+            label: Some(&entry.category),
+            notes: Some(entry.notes.as_str()).filter(|n| !n.is_empty()),
+            amount_ml,
+        },
     )
     .await
     {
@@ -528,11 +533,16 @@ pub async fn record_fluid(
 
     match super::append_io_event(
         &data,
-        &patient_id,
-        &shift,
-        &current_user_id,
-        &category,
-        amount_ml,
+        super::FluidEvent {
+            patient_id: &patient_id,
+            shift: &shift,
+            recorded_by: &current_user_id,
+            category: &category,
+            direction: body.get("direction").and_then(|v| v.as_str()),
+            label: body.get("fluid_type").and_then(|v| v.as_str()),
+            notes: body.get("notes").and_then(|v| v.as_str()),
+            amount_ml,
+        },
     )
     .await
     {
@@ -555,20 +565,90 @@ pub async fn record_fluid(
 /// Create nursing care plan
 /// What the nursing care-plan form submits.
 ///
-/// The clinical `NursingCarePlan` type models goals, outcomes and interventions
-/// as structures the create form does not collect; it captures a patient, a
-/// nursing diagnosis and a priority. Requiring the full structure is why the
-/// form was never wired up to anything.
+/// `CarePlanPage.tsx` builds a plan out of three cross-referenced lists —
+/// `NursingDiagnosis[]`, `Goal[]` and `Intervention[]`, each an object with an
+/// id, camelCase — and this struct wanted a single `diagnosis: String` with
+/// `Vec<String>` goals. Every save was
+/// `400 invalid type: map, expected a string`, so the page's Save button had
+/// never once worked; the only care plan in the database was written by a
+/// seeder.
+///
+/// A nursing care plan without its goals and interventions is a diagnosis list,
+/// not a plan, so accepting the diagnoses alone would not have been a fix.
+///
+/// Both shapes are accepted. `Vec<String>` is what the synthetic harness and
+/// the earlier API contract send, and breaking those to fix the page would
+/// trade one silent mismatch for another.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum CarePlanItem {
+    /// The page's shape: an object carrying its own text plus cross-references.
+    Structured(serde_json::Map<String, serde_json::Value>),
+    /// A bare line of text.
+    Text(String),
+}
+
+impl CarePlanItem {
+    /// The human-readable line this item contributes.
+    ///
+    /// A structured item is searched for the field that carries its text —
+    /// `diagnosis`, `description` or `goal` depending on which list it came
+    /// from — because that is what a nurse reads on the plan. An item whose
+    /// text cannot be found is rendered as its JSON rather than dropped:
+    /// losing a documented intervention is worse than showing it awkwardly.
+    fn line(&self) -> String {
+        match self {
+            CarePlanItem::Text(t) => t.trim().to_string(),
+            CarePlanItem::Structured(map) => {
+                for key in ["diagnosis", "description", "goal", "intervention", "text"] {
+                    if let Some(v) = map.get(key).and_then(|v| v.as_str()) {
+                        if !v.trim().is_empty() {
+                            return v.trim().to_string();
+                        }
+                    }
+                }
+                serde_json::Value::Object(map.clone()).to_string()
+            }
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateCarePlanRequest {
+    #[serde(rename = "patientId", alias = "patient_id")]
     pub patient_id: String,
-    pub diagnosis: String,
+    /// The page's list. A single `diagnosis` string is still accepted, because
+    /// that is the shape the earlier contract and the synthetic harness use.
+    #[serde(default)]
+    pub diagnoses: Vec<CarePlanItem>,
+    #[serde(default)]
+    pub diagnosis: Option<String>,
     #[serde(default)]
     pub priority: String,
     #[serde(default)]
-    pub goals: Vec<String>,
+    pub goals: Vec<CarePlanItem>,
     #[serde(default)]
-    pub interventions: Vec<String>,
+    pub interventions: Vec<CarePlanItem>,
+    #[serde(rename = "carePlanId", alias = "care_plan_id", default)]
+    pub care_plan_id: Option<String>,
+}
+
+impl CreateCarePlanRequest {
+    /// Every nursing diagnosis on the plan, whichever shape it arrived in.
+    fn diagnosis_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .diagnoses
+            .iter()
+            .map(CarePlanItem::line)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if let Some(single) = self.diagnosis.as_deref().map(str::trim) {
+            if !single.is_empty() && !lines.iter().any(|l| l == single) {
+                lines.push(single.to_string());
+            }
+        }
+        lines
+    }
 }
 
 #[post("/api/emergency/care-plan")]
@@ -583,10 +663,11 @@ pub async fn create_care_plan(
     };
 
     let plan = req.into_inner();
-    if plan.patient_id.trim().is_empty() || plan.diagnosis.trim().is_empty() {
+    let diagnoses = plan.diagnosis_lines();
+    if plan.patient_id.trim().is_empty() || diagnoses.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
-            error: "patient_id and diagnosis are required".to_string(),
+            error: "patient_id and at least one nursing diagnosis are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
@@ -609,9 +690,15 @@ pub async fn create_care_plan(
     let entity = crate::repositories::traits::NursingCarePlanEntity {
         id: id.clone(),
         patient_id: plan.patient_id.clone(),
-        plan_name: plan.diagnosis.trim().to_string(),
+        // The plan is named for its first diagnosis, which is the one the
+        // nurse listed as the priority problem.
+        plan_name: diagnoses[0].clone(),
         care_level: Some(plan.priority.clone()).filter(|p| !p.is_empty()),
-        nursing_diagnoses: serde_json::json!([plan.diagnosis.trim()]),
+        nursing_diagnoses: serde_json::json!(diagnoses),
+        // The structured items are stored whole, not flattened to their text:
+        // a goal carries its target date and measurable outcome, and an
+        // intervention carries its frequency and who is responsible. Those are
+        // the parts a nurse acts on.
         goals: serde_json::json!(plan.goals),
         interventions: serde_json::json!(plan.interventions),
         evaluation_notes: None,
@@ -890,8 +977,16 @@ pub struct IvAssessmentInput {
     pub blood_return: Option<bool>,
     #[serde(default)]
     pub infusing: Option<String>,
+    /// Free text, not a number.
+    ///
+    /// `IVAssessment.infusionRate` is `string` in the page and the field invites
+    /// "80 mL/hr" — a rate is a quantity *and* a unit, and nurses write both.
+    /// Typing it `f64` here meant serde refused the body outright, so a nurse
+    /// who filled the field lost the entire cannula record to
+    /// `400 invalid type: string "80 mL/hr", expected f64`, with no indication
+    /// which field caused it.
     #[serde(rename = "infusionRate", default)]
-    pub infusion_rate: Option<f64>,
+    pub infusion_rate: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
     #[serde(rename = "infiltrationGrade", default)]
@@ -1341,9 +1436,39 @@ pub async fn get_shift_handoff(
         return resp;
     }
     let id = path.into_inner();
-    match data.repositories.shift_handoffs.get_by_id(&id).await {
-        Ok(record) => HttpResponse::Ok().json(record),
-        Err(_) => HttpResponse::NotFound().finish(),
+    // A handoff covers a ward, and storage is one row per patient keyed
+    // `{batch}-{patient_id}` — so `create_shift_handoff` returns the batch id
+    // and this endpoint could not resolve it. Every client that followed the id
+    // it had just been handed got a 404, which is not a handle to anything.
+    //
+    // A batch resolves to the handoff it names; a single row still resolves to
+    // itself, so the existing per-row callers are unaffected.
+    if let Ok(record) = data.repositories.shift_handoffs.get_by_id(&id).await {
+        return HttpResponse::Ok().json(record);
+    }
+    match data.repositories.shift_handoffs.get_by_batch(&id).await {
+        Ok(rows) => {
+            if rows.is_empty() {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    success: false,
+                    error: format!("No handoff found for '{id}'"),
+                    code: "NOT_FOUND".to_string(),
+                });
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "handoff_id": id,
+                "patients": rows,
+            }))
+        }
+        Err(e) => {
+            log::error!("handoff lookup failed for {id}: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The handoff could not be read".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -1405,6 +1530,22 @@ pub struct CreateIncidentRequest {
     pub immediate_actions: String,
 }
 
+/// A vocabulary term as the database CHECK spells it.
+///
+/// The safety-report form writes `medication-error` and `near-miss`; the
+/// constraints spell them `medication_error` and `near_miss`. Two spellings of
+/// one word meant four of seven incident types and one of five severities could
+/// not be filed at all — the insert failed the CHECK and the handler returned
+/// `500 REPO_ERROR`, on PostgreSQL only, because the in-memory backend enforces
+/// no constraints.
+///
+/// Normalising here rather than renaming the form's values keeps every stored
+/// row and every existing caller working, and it is the separator that differs,
+/// not the meaning.
+fn canonical_term(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
 #[post("/api/emergency/incident")]
 pub async fn create_incident(
     data: web::Data<AppState>,
@@ -1458,8 +1599,8 @@ pub async fn create_incident(
         reporter_id: caller.wallet_address.clone(),
         incident_datetime: incident_at,
         discovery_datetime: now,
-        incident_type: report.incident_type.clone(),
-        severity: report.severity.clone(),
+        incident_type: canonical_term(&report.incident_type),
+        severity: canonical_term(&report.severity),
         location: report.location.trim().to_string(),
         department: Some(report.department.clone()).filter(|d| !d.is_empty()),
         description: report.description.trim().to_string(),

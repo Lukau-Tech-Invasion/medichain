@@ -18,6 +18,11 @@ import {
   Activity,
   FlaskConical,
   Stethoscope,
+  Video,
+  MessageSquare,
+  Microscope,
+  Syringe,
+  Network,
   Heart,
   Pill,
   Scissors,
@@ -296,6 +301,18 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'stroke', to: '/stroke', label: 'Stroke', icon: Brain },
       { id: 'cardiac', to: '/cardiac', label: 'Cardiac', icon: Heart },
       { id: 'sepsis', to: '/sepsis', label: 'Sepsis', icon: Thermometer },
+      { id: 'protocols', to: '/emergency-protocols', label: 'Emergency Protocols', icon: Siren },
+    ],
+  },
+  {
+    // Consults, messages and video are how a clinician reaches another person.
+    // All three existed; only the consult had a way in.
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
+      { id: 'telehealth', to: '/telehealth', label: 'Telehealth', icon: Video },
     ],
   },
   {
@@ -308,6 +325,9 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'psych', to: '/psych', label: 'Psychiatry', icon: Brain },
       { id: 'burn', to: '/burn', label: 'Burn', icon: Flame },
       { id: 'toxicology', to: '/toxicology', label: 'Toxicology', icon: FlaskConical },
+      // A pedigree over three generations is a specialty assessment, and the
+      // page has been built and unreachable.
+      { id: 'family-history', to: '/family-history', label: 'Family History', icon: Network },
     ],
   },
   {
@@ -337,6 +357,9 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'critical', to: '/critical-value', label: 'Critical Values', icon: AlertTriangle, priority: 'high' },
       { id: 'imaging', to: '/imaging', label: 'Imaging', icon: Image },
       { id: 'radiology', to: '/radiology', label: 'Radiology', icon: Image },
+      // Histology sits with the other diagnostics a clinician reads, not with
+      // the laboratory's own bench work.
+      { id: 'pathology', to: '/pathology', label: 'Pathology', icon: Microscope },
     ],
   },
   {
@@ -376,6 +399,11 @@ export const NURSE_NAV: NavSection[] = [
       { id: 'vitals', to: '/vitals', label: 'Vital Signs', icon: Activity, priority: 'high' },
       { id: 'mar', to: '/mar', label: 'MAR', icon: Pill, priority: 'high' },
       { id: 'care-plan', to: '/care-plan', label: 'Care Plan', icon: ClipboardList },
+      // The multi-patient view of the same care plans. Distinct from
+      // `/care-plan`, which writes one.
+      { id: 'nursing-care-plans', to: '/nursing-care-plan', label: 'Care Plan Board', icon: ClipboardList },
+      // Immunisations are a nursing task at the bedside and in the clinic.
+      { id: 'immunization', to: '/immunization', label: 'Immunisations', icon: Syringe },
       { id: 'io', to: '/intake-output', label: 'I/O Tracking', icon: Droplets },
       { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
     ],
@@ -405,6 +433,7 @@ export const NURSE_NAV: NavSection[] = [
     items: [
       { id: 'progress', to: '/progress-note', label: 'Progress Notes', icon: FileText },
       { id: 'nursing-hub', to: '/nursing', label: 'Nursing Hub', icon: Stethoscope },
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
     ],
   },
   {
@@ -414,6 +443,10 @@ export const NURSE_NAV: NavSection[] = [
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
+      // The protocol set itself — what to do, in order, when one of these is
+      // called. Reachable only by typing the URL until now, which is the worst
+      // possible property for a page nobody opens except in an emergency.
+      { id: 'protocols', to: '/emergency-protocols', label: 'Emergency Protocols', icon: Siren },
     ],
   },
   {
@@ -478,6 +511,22 @@ export const LAB_TECH_NAV: NavSection[] = [
     ],
   },
   {
+    id: 'histology',
+    label: 'Histology',
+    icon: Microscope,
+    items: [
+      { id: 'pathology', to: '/pathology', label: 'Pathology', icon: Microscope },
+    ],
+  },
+  {
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
+    ],
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: Settings,
@@ -520,6 +569,16 @@ export const PHARMACIST_NAV: NavSection[] = [
     icon: AlertTriangle,
     items: [
       { id: 'interactions', to: '/drug-interactions', label: 'Drug Interactions', icon: AlertTriangle, priority: 'high' },
+    ],
+  },
+  {
+    // A pharmacist queries a prescription by messaging the prescriber. The
+    // screen existed; the pharmacist had no way to it.
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
     ],
   },
   {

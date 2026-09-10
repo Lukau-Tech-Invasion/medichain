@@ -274,11 +274,18 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
         });
     }
 
+    // `get_by_patient("all", ...)` was a literal patient id.
+    //
+    // In memory that happened to behave like a wildcard; on PostgreSQL it is
+    // `WHERE patient_id = 'all'`, which matches nothing — so the discharge list
+    // was empty for every deployment that used a database, no matter how many
+    // summaries had been written. A summary that is stored and cannot be listed
+    // is a summary nobody signs.
     let pagination = Pagination::new(0, 100);
     match data
         .repositories
         .discharge_summaries
-        .get_by_patient("all", pagination)
+        .list_all(pagination)
         .await
     {
         Ok(result) => {

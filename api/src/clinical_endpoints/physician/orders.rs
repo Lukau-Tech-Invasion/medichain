@@ -282,12 +282,29 @@ pub async fn update_order_status(
             })
         }
     };
+    // The COLUMN is what every reader uses.
+    //
+    // This used to write the new status only into the `data` blob, and
+    // `list_orders` reads `entity.status` — with a comment right there saying
+    // `data` is always null on PostgreSQL. So the endpoint answered
+    // `{"success": true, "status": "completed"}` and the order stayed
+    // `pending` on the ward list forever, which is how two clinicians action
+    // one order twice.
+    //
+    // Normalised to the vocabulary the CHECK permits (`pending`, `active`,
+    // `completed`, `discontinued`, `cancelled`, `on_hold`): `OrdersPage` sends
+    // "Completed" with a capital, and the constraint is lowercase.
+    let canonical_status = new_status
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_");
+    entity.status = canonical_status.clone();
     if let Some(obj) = entity.data.as_object_mut() {
         obj.insert(
             "status".to_string(),
-            serde_json::Value::String(new_status.clone()),
+            serde_json::Value::String(canonical_status.clone()),
         );
-        if new_status == "completed" {
+        if canonical_status == "completed" {
             obj.insert(
                 "completed_at".to_string(),
                 serde_json::json!(Utc::now().timestamp_millis()),
@@ -299,7 +316,7 @@ pub async fn update_order_status(
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "order_id": order_id,
-            "status": new_status
+            "status": canonical_status
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,

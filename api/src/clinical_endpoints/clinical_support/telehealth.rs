@@ -978,6 +978,73 @@ pub async fn submit_device_check(
 }
 
 /// Get patient's telehealth sessions
+/// The signed-in caller's telehealth sessions.
+///
+/// `TelehealthPage` fetches `GET /api/telehealth/sessions` on load and there was
+/// no such route — only `/sessions/{id}` and
+/// `/patient/{patient_id}/sessions`. So the clinician's telehealth screen
+/// answered 404 and listed nothing, which is part of why that page sat in no
+/// role's navigation until 2026-09-10: nobody could open it and find anything.
+///
+/// Scoped to the caller in the query rather than filtered in Rust after a bulk
+/// read. A clinician sees the sessions they are the provider for; a patient
+/// sees their own. Neither sees anyone else's.
+#[get("/api/telehealth/sessions")]
+pub async fn list_my_telehealth_sessions(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    query: web::Query<crate::pagination::CursorQuery>,
+) -> impl Responder {
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    // A patient's sessions are stored against their patient id; a provider's
+    // against their wallet. The owner key differs by who is asking, which is
+    // why this is one endpoint and not two.
+    let owner = caller
+        .linked_patient_id
+        .clone()
+        .unwrap_or_else(|| caller.wallet_address.clone());
+
+    let mut records = data
+        .repositories
+        .telehealth_session_records
+        .get_by_owner(&owner)
+        .await
+        .unwrap_or_default();
+
+    // A clinician is rarely the owner of the record — the patient is — so also
+    // take the sessions naming them as the provider. Deduplicated by id: a
+    // clinician who is also the owner must not see the session twice.
+    if caller.role.is_healthcare_provider() {
+        let as_provider = data
+            .repositories
+            .telehealth_session_records
+            .get_by_owner(&caller.wallet_address)
+            .await
+            .unwrap_or_default();
+        let known: std::collections::HashSet<String> =
+            records.iter().map(|r| r.id.clone()).collect();
+        records.extend(as_provider.into_iter().filter(|r| !known.contains(&r.id)));
+    }
+
+    let (page, next_cursor) =
+        crate::pagination::paginate_cursor(&records, query.cursor.as_deref(), query.limit);
+    let sessions: Vec<crate::clinical::TelehealthSession> = page
+        .into_iter()
+        .filter_map(|r| serde_json::from_value::<crate::clinical::TelehealthSession>(r.data).ok())
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "sessions": sessions,
+        "count": sessions.len(),
+        "next_cursor": next_cursor
+    }))
+}
+
 #[get("/api/telehealth/patient/{patient_id}/sessions")]
 pub async fn get_patient_telehealth_sessions(
     data: web::Data<crate::AppState>,

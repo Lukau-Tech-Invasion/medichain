@@ -88,6 +88,61 @@ pub(crate) async fn append_mar_administration(
     }
 }
 
+/// One fluid a nurse charted.
+///
+/// A struct rather than seven positional arguments, and the reason is the bug
+/// this replaced. Three screens post fluids and each named the field
+/// differently, so every caller did its own normalising before calling in —
+/// `IntakeOutputPage` sent `"output:urine"` because a comment here said
+/// categories were "stored prefixed by direction so intake and output cannot be
+/// confused", while the routing table below matched bare names and understood
+/// no prefix at all. Both prefixed categories and unrecognised fluid names fell
+/// through to the same `_` arm and were counted as **intake**.
+///
+/// The consequence is not a display detail. Charting 800 mL of urine moved the
+/// running balance by +800 instead of −800: a 1600 mL error, in the wrong
+/// direction, on the number a clinician titrates fluids and diuretics against.
+///
+/// So direction is now an explicit field that this function resolves, once,
+/// instead of a convention each caller re-invents.
+pub(crate) struct FluidEvent<'a> {
+    pub patient_id: &'a str,
+    pub shift: &'a str,
+    pub recorded_by: &'a str,
+    /// The fluid, as a bare canonical name (`oral`, `iv`, `urine`, `emesis`,
+    /// `drainage`, `stool`). Never direction-prefixed.
+    pub category: &'a str,
+    /// `intake` or `output`, for a fluid whose name does not imply one. Ignored
+    /// when the category is recognised, because `urine` is an output no matter
+    /// what a caller claims.
+    pub direction: Option<&'a str>,
+    /// What the nurse actually called it, kept for the chart even when the
+    /// totals had to bucket it as "other": "wound drain" and "chest drain" are
+    /// both drainage to the arithmetic and different things to the reader.
+    pub label: Option<&'a str>,
+    pub notes: Option<&'a str>,
+    pub amount_ml: i32,
+}
+
+/// Which column a fluid belongs in, and whether it is an output.
+///
+/// Returns `None` for a fluid this table does not recognise, so the caller can
+/// fall back to the stated direction rather than silently choosing intake.
+fn fluid_bucket(category: &str) -> Option<(&'static str, bool)> {
+    match category {
+        "oral" | "oral_intake" => Some(("oral_intake", false)),
+        "iv" | "iv_intake" => Some(("iv_intake", false)),
+        "tube" | "tube_feeding" => Some(("tube_feeding", false)),
+        "urine" | "urine_output" => Some(("urine_output", true)),
+        "emesis" => Some(("emesis", true)),
+        "drainage" => Some(("drainage", true)),
+        "stool" => Some(("stool", true)),
+        "output" | "other_output" => Some(("other_output", true)),
+        "other" | "other_intake" => Some(("other_intake", false)),
+        _ => None,
+    }
+}
+
 /// Add a fluid event to the patient's intake/output record for today's shift,
 /// creating it if absent, and keep the stored totals consistent with it.
 ///
@@ -97,16 +152,34 @@ pub(crate) async fn append_mar_administration(
 /// are recomputed here rather than left to the caller.
 pub(crate) async fn append_io_event(
     data: &web::Data<AppState>,
-    patient_id: &str,
-    shift: &str,
-    recorded_by: &str,
-    category: &str,
-    amount_ml: i32,
+    fluid: FluidEvent<'_>,
 ) -> Result<String, crate::repositories::traits::RepositoryError> {
+    let FluidEvent {
+        patient_id,
+        shift,
+        recorded_by,
+        category,
+        direction,
+        label,
+        notes,
+        amount_ml,
+    } = fluid;
+
+    // Strip a legacy `intake:`/`output:` prefix rather than failing to match it.
+    // Stored records and older callers use that form, and treating it as an
+    // unknown fluid is exactly the bug this function is being fixed for.
+    let (prefix, bare) = match category.split_once(':') {
+        Some((d, c)) if matches!(d, "intake" | "output") => (Some(d), c),
+        _ => (None, category),
+    };
+    let stated = direction.or(prefix);
+
     let today = Utc::now().date_naive();
     let now = Utc::now();
     let event = serde_json::json!({
-        "category": category,
+        "category": bare,
+        "label": label,
+        "notes": notes,
         "amount_ml": amount_ml,
         "recorded_by": recorded_by,
         "recorded_at": now.to_rfc3339(),
@@ -152,48 +225,30 @@ pub(crate) async fn append_io_event(
         }
     };
 
-    // Route the amount to its column. Unknown categories are still recorded as
-    // an event and counted as "other" rather than silently dropped — losing a
-    // documented fluid volume is worse than filing it imprecisely.
+    // Route the amount to its column. An unrecognised fluid is still recorded
+    // and still counted — losing a documented volume is worse than filing it
+    // imprecisely — but it is counted in the direction the nurse stated, not
+    // assumed to be intake.
     let bump = |slot: &mut Option<i32>| *slot = Some(slot.unwrap_or(0) + amount_ml);
-    let is_output = match category {
-        "oral" | "oral_intake" => {
-            bump(&mut entity.oral_intake);
-            false
-        }
-        "iv" | "iv_intake" => {
-            bump(&mut entity.iv_intake);
-            false
-        }
-        "tube" | "tube_feeding" => {
-            bump(&mut entity.tube_feeding);
-            false
-        }
-        "urine" | "urine_output" => {
-            bump(&mut entity.urine_output);
-            true
-        }
-        "emesis" => {
-            bump(&mut entity.emesis);
-            true
-        }
-        "drainage" => {
-            bump(&mut entity.drainage);
-            true
-        }
-        "stool" => {
-            bump(&mut entity.stool);
-            true
-        }
-        "output" | "other_output" => {
-            bump(&mut entity.other_output);
-            true
-        }
-        _ => {
-            bump(&mut entity.other_intake);
-            false
-        }
+    let (column, is_output) = match fluid_bucket(bare) {
+        Some(known) => known,
+        // The fluid is not in the table. The direction the caller stated is
+        // then the only thing that decides the sign of the balance, and
+        // defaulting it to intake is how urine came to be counted as intake.
+        None if stated == Some("output") => ("other_output", true),
+        None => ("other_intake", false),
     };
+    match column {
+        "oral_intake" => bump(&mut entity.oral_intake),
+        "iv_intake" => bump(&mut entity.iv_intake),
+        "tube_feeding" => bump(&mut entity.tube_feeding),
+        "urine_output" => bump(&mut entity.urine_output),
+        "emesis" => bump(&mut entity.emesis),
+        "drainage" => bump(&mut entity.drainage),
+        "stool" => bump(&mut entity.stool),
+        "other_output" => bump(&mut entity.other_output),
+        _ => bump(&mut entity.other_intake),
+    }
 
     entity.total_intake = entity.oral_intake.unwrap_or(0)
         + entity.iv_intake.unwrap_or(0)

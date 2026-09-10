@@ -21,10 +21,24 @@ pub async fn start_symptom_check(
     http_req: HttpRequest,
     req: web::Json<StartSymptomCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    // The session belongs to the PATIENT, under the id their own history is
+    // read by.
+    //
+    // This used to key the session on the caller's wallet address, while
+    // `GET /api/symptoms/history/{patient_id}` looks it up by health id
+    // (`PAT-…`) — the id every patient-app screen holds. The two namespaces
+    // never met, so a patient's symptom-check history was permanently empty
+    // and the triage that told them to go to an emergency department left no
+    // record anyone could find. The wallet remains the fallback for a caller
+    // with no linked patient record.
+    let current_user_id = caller
+        .linked_patient_id
+        .clone()
+        .unwrap_or_else(|| caller.wallet_address.clone());
 
     // Generate initial follow-up questions based on primary symptom
     let follow_up_questions = generate_symptom_questions(&req.primary_symptom);

@@ -623,11 +623,15 @@ pub async fn emergency_access(
         }
     };
 
-    // Only healthcare providers can request emergency access
-    if !current_user.role.is_healthcare_provider() {
+    // Break-glass is for the people forming a treating relationship.
+    //
+    // `is_healthcare_provider()` admits Pharmacist and LabTechnician, neither of
+    // whom treats a patient at the bedside, and both could open a capsule that
+    // bypasses the patient's consent. See `Role::may_break_glass`.
+    if !current_user.role.may_break_glass() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only healthcare providers can request emergency access".to_string(),
+            error: "Emergency access is restricted to treating clinicians".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }

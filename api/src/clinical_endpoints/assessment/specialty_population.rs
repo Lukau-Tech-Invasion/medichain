@@ -37,7 +37,18 @@ pub async fn create_peds(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("PED-{}", uuid::Uuid::new_v4().simple());
@@ -281,7 +292,18 @@ pub async fn create_ob(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("OBE-{}", uuid::Uuid::new_v4().simple());
@@ -336,7 +358,11 @@ pub async fn create_ob(
             .get("prenatal_care_provider")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        pregnancy_complications: body.get("pregnancy_complications").cloned(),
+        pregnancy_complications: body
+            .get("pregnancy_complications")
+            // The page calls the list simply `complications`; losing it drops eclampsia, abruption and cord prolapse from the record.
+            .or_else(|| body.get("complications"))
+            .cloned(),
         chief_complaint: body
             .get("chief_complaint")
             .and_then(|v| v.as_str())

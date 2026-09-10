@@ -81,14 +81,19 @@ interface IVAssessment {
   assessedBy: string;
   conditions: SiteCondition[];
   dressingType: DressingType;
-  dressingIntact: boolean;
-  flushPatent: boolean;
-  bloodReturn: boolean;
+  // Optional, because "not assessed" is a real state and is not the same as
+  // "assessed and normal". The controls are already three-state radios; only
+  // the initial value was asserting a finding.
+  dressingIntact?: boolean;
+  flushPatent?: boolean;
+  bloodReturn?: boolean;
   infusing: string;
   infusionRate?: string;
   notes: string;
   phlebitisScore: number;
-  infiltrationGrade: number;
+  /// INS infiltration grade 0-4. Optional: grade 0 means "no symptoms", which
+  /// is a finding, and a site nobody graded must not assert it.
+  infiltrationGrade?: number;
 }
 
 export default function IVSitePage() {
@@ -121,9 +126,11 @@ export default function IVSitePage() {
   const [newAssessment, setNewAssessment] = useState<Partial<IVAssessment>>({
     conditions: ['clean-dry-intact'],
     dressingType: 'transparent',
-    dressingIntact: true,
-    flushPatent: true,
-    bloodReturn: true,
+    // Deliberately unset. These three were pre-selected as `true`, so a nurse
+    // who opened the form and saved without touching them recorded three normal
+    // findings they had never checked — and the radios below already offer a
+    // yes and a no, so leaving both unselected is what "not assessed" looks
+    // like.
     infusing: '',
     notes: ''
   });
@@ -313,16 +320,30 @@ export default function IVSitePage() {
       id: `ASSESS-${Date.now()}`,
       assessedAt: new Date().toISOString(),
       assessedBy: user?.userId || 'Unknown',
+      // Nothing here is defaulted to a reassuring value.
+      //
+      // `dressingIntact ?? true`, `flushPatent ?? true` and `bloodReturn ?? true`
+      // asserted three normal findings nobody had checked, and
+      // `infiltrationGrade ?? 0` asserted INS grade 0 — "no symptoms" — for a
+      // site nobody had graded. On a cannula record those are not blanks, they
+      // are the observations that decide whether the line stays in.
+      //
+      // A field nobody entered is absent (CLAUDE.md rules 9 and 10). The
+      // renderer already distinguishes an absent finding from a negative one.
       conditions: newAssessment.conditions || ['clean-dry-intact'],
       dressingType: newAssessment.dressingType || 'transparent',
-      dressingIntact: newAssessment.dressingIntact ?? true,
-      flushPatent: newAssessment.flushPatent ?? true,
-      bloodReturn: newAssessment.bloodReturn ?? true,
+      dressingIntact: newAssessment.dressingIntact,
+      flushPatent: newAssessment.flushPatent,
+      bloodReturn: newAssessment.bloodReturn,
       infusing: newAssessment.infusing || '',
       infusionRate: newAssessment.infusionRate,
       notes: newAssessment.notes || '',
+      // Sent for the page's own optimistic render only; the server recomputes
+      // the VIP score from `conditions` and ignores whatever arrives here,
+      // because a score that decides whether a cannula is resited is not a
+      // number a browser gets to assert (CLAUDE.md rule 8).
       phlebitisScore: calculatePhlebitisScore(newAssessment.conditions || []),
-      infiltrationGrade: newAssessment.infiltrationGrade ?? 0
+      infiltrationGrade: newAssessment.infiltrationGrade
     };
 
     setIvSites(prev => prev.map(site => 
@@ -335,9 +356,7 @@ export default function IVSitePage() {
     setNewAssessment({
       conditions: ['clean-dry-intact'],
       dressingType: 'transparent',
-      dressingIntact: true,
-      flushPatent: true,
-      bloodReturn: true,
+      // Reset to unassessed, same reason as the initial state above.
       infusing: '',
       notes: ''
     });

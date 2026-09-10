@@ -303,12 +303,23 @@ pub async fn get_all_lab_submissions(
         }
     };
 
-    // Only Doctor, Nurse, or Admin can view all submissions
-    if !current_user.role.can_edit_medical_records() {
+    // Viewing the submission list is laboratory work, not record editing.
+    //
+    // This was gated on `can_edit_medical_records()`, which is Doctor and Nurse
+    // — so the LAB TECHNICIAN who submits these results could not see the list
+    // of them, including their own. `/lab-results` is in `LAB_TECH_NAV` and
+    // `LabResultsPage` calls exactly this endpoint, so the technician's own
+    // worklist answered 403: the navigation and the authorization disagreed and
+    // the permissive-looking screen was the one that was wrong.
+    //
+    // APPROVING stays where it was. `review_lab_submission` is a separate
+    // endpoint with its own guard and its own maker-checker rule — a technician
+    // still cannot approve any result, their own least of all.
+    if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: format!(
-                "Role '{}' cannot view lab submissions. Required: Doctor, Nurse, or Admin",
+                "Role '{}' cannot view lab submissions. Required: Doctor, Nurse, or Lab Technician",
                 current_user.role
             ),
             code: "INSUFFICIENT_ROLE".to_string(),

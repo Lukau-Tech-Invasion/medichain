@@ -73,12 +73,25 @@ pub async fn generate_nfc_card(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() {
+    if !current_user.role.may_issue_identity_credentials() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only healthcare providers can generate NFC cards".to_string(),
+            error: "Only a doctor, nurse or administrator can issue a health ID card"
+                .to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
+    }
+
+    // A card must name a patient who exists.
+    //
+    // Nothing checked, so a typo minted a real, tappable credential bound to an
+    // id no chart will ever match: the tap resolves, the capsule lookup finds
+    // nothing, and the card is indistinguishable from a revoked one at exactly
+    // the moment it matters.
+    if let Err(response) =
+        crate::clinical_endpoints::require_known_patient(&data, &body.patient_id).await
+    {
+        return response;
     }
 
     // Parse national ID type

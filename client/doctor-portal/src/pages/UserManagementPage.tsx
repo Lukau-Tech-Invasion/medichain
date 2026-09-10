@@ -148,7 +148,14 @@ const UserManagementPage: React.FC = () => {
   }, [fetchUsers, isAdministrator]);
 
   const handleCreateUser = async () => {
-    if (!newUser.walletAddress || !newUser.name || !newUser.email || !newUser.phone) {
+    // Phone is deliberately NOT required.
+    //
+    // It is now stored — sealed into `user_profiles.contact_encrypted` — but an
+    // administrator onboarding a clinician does not always have the number to
+    // hand, and blocking the account on it is how account creation became
+    // impossible in the first place: the form would not submit without a phone,
+    // and the API of the day would not accept one.
+    if (!newUser.walletAddress || !newUser.name || !newUser.email) {
       showError(t('docUserManagement.errorRequiredFields'));
       return;
     }
@@ -160,7 +167,9 @@ const UserManagementPage: React.FC = () => {
         username: newUser.username.trim() || undefined,
         role: newUser.role,
         email: newUser.email.trim(),
-        phone: newUser.phone.trim(),
+        // Omitted when empty rather than sent as '': a field left blank is
+        // absent, not a contact number that happens to be the empty string.
+        phone: newUser.phone.trim() || undefined,
         department: newUser.department.trim() || undefined,
         specialty: newUser.specialization.trim() || undefined,
         license_number: newUser.licenseNumber.trim() || undefined,
@@ -181,7 +190,11 @@ const UserManagementPage: React.FC = () => {
       await updateUserProfile(selectedUser.userId, {
         name: selectedUser.name,
         email: selectedUser.email || undefined,
-        phone: selectedUser.phone || undefined,
+        // Sent even when empty, unlike the create form: this field is
+        // pre-filled with the stored number, so clearing it is a deliberate
+        // instruction to remove it. `undefined` would mean "leave it alone" and
+        // make a wrong number impossible to delete.
+        phone: selectedUser.phone,
         department: selectedUser.department,
         specialty: selectedUser.specialization,
         license_number: selectedUser.licenseNumber,
@@ -693,8 +706,11 @@ const UserManagementPage: React.FC = () => {
               </div>
               <div>
                 <label htmlFor="new-user-phone" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docUserManagement.phoneLabel')} <span className="text-critical-subtle-fg">*</span>
+                  {t('docUserManagement.phoneLabel')}
                 </label>
+                {/* Not marked required, because `handleCreateUser` does not
+                    require it. An asterisk over a field the form will happily
+                    submit without is a lie about what the screen will do. */}
                 <input
                   id="new-user-phone"
                   type="tel"
@@ -702,7 +718,6 @@ const UserManagementPage: React.FC = () => {
                   onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
                   placeholder={t('docUserManagement.phonePlaceholder')}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  required
                 />
               </div>
             </div>

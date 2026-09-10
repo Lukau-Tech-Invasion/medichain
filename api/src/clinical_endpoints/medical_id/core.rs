@@ -88,13 +88,15 @@ pub async fn get_medical_id(
         }
     };
 
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
-        .unwrap_or_default();
+    // Every allergy known for this patient, from the allergies repository AND
+    // the patient's own encrypted profile.
+    //
+    // Registration writes allergies into `emergency_info` and never into the
+    // repository, so reading the repository alone showed an empty allergy list
+    // on the one card whose whole purpose is to stop a responder giving
+    // something that will harm the patient. `merged_allergies` already existed
+    // in `emergency_views` and this handler did not call it.
+    let allergies = super::emergency_views::merged_allergies(&data, &patient, &patient_id).await;
 
     // Pre-compute values that need sorting or complex logic
     let blood_type_color = match patient.blood_type.as_deref() {

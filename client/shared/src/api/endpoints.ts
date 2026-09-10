@@ -2147,25 +2147,63 @@ export interface SymptomAnalysisRequest {
   current_medications?: string[];
 }
 
-export interface SymptomAnalysisResult {
+/**
+ * What `POST /api/symptoms/analyze` actually answers.
+ *
+ * The previous declaration described a flat object with `triage_message`,
+ * `recommendations`, `self_care_advice` and `when_to_seek_care`. The endpoint
+ * sends none of those: everything is nested under `assessment`, and the fields
+ * are `recommendation`, `specific_advice`, `next_steps` and `self_care`.
+ *
+ * TypeScript could not catch it because the API client's response is generic —
+ * the declared type was simply a fiction, and `SymptomCheckerPage` read
+ * `apiResult.triage_level` off the top level, got `undefined`, and fell to the
+ * `default:` arm of its severity map. A patient reporting chest pain **with**
+ * shortness of breath — which this endpoint correctly triages as `emergency`
+ * and answers with "Call 911 or your local emergency number immediately" — was
+ * shown **"mild"**.
+ */
+export interface SymptomAssessment {
   possible_conditions: Array<{
     condition_name: string;
     probability: number;
-    severity: 'low' | 'medium' | 'high' | 'critical';
+    severity: string;
     description: string;
     icd10_code?: string;
   }>;
-  triage_level: 'self_care' | 'schedule_appointment' | 'urgent_care' | 'emergency';
-  triage_message: string;
-  recommendations: string[];
+  triage_level: 'self_care' | 'schedule_appointment' | 'urgent_care' | 'emergency' | 'low';
+  /** The headline advice, e.g. "Seek emergency care immediately". */
+  recommendation: string;
   red_flags: string[];
-  self_care_advice: string[];
-  when_to_seek_care: string[];
+  specific_advice: string[];
+  next_steps: string[];
+  self_care: string[];
+  context_notes: {
+    age_considerations: string[];
+    gender_considerations: string[];
+    condition_interactions: string[];
+    medication_notes: string[];
+  };
+}
+
+export interface SymptomAnalysisResult extends SymptomAssessment {
   disclaimer: string;
 }
 
+/**
+ * The assessment, flattened.
+ *
+ * Unwrapped here rather than at each call site so there is one place that knows
+ * the envelope's shape. `disclaimer` sits outside `assessment` on the wire and
+ * is folded back in, because every caller that shows the advice must also show
+ * the disclaimer that qualifies it.
+ */
 export async function analyzeSymptoms(data: SymptomAnalysisRequest): Promise<SymptomAnalysisResult> {
-  return getApiClient().post('/api/symptoms/analyze', data);
+  const response = await getApiClient().post<{
+    assessment: SymptomAssessment;
+    disclaimer: string;
+  }>('/api/symptoms/analyze', data);
+  return { ...response.assessment, disclaimer: response.disclaimer };
 }
 
 export async function startSymptomCheck(data: unknown): Promise<SymptomCheckCreateResult> {

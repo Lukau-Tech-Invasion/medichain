@@ -1012,6 +1012,27 @@ impl DischargeSummaryRepository for MemoryDischargeSummaryRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<_> = data.values().cloned().collect();
+        items.sort_by_key(|b| std::cmp::Reverse(b.discharge_datetime));
+        let total = items.len() as u64;
+        let start = pagination.offset() as usize;
+        let end = (start + pagination.limit() as usize).min(items.len());
+        let items = if start < items.len() {
+            items[start..end].to_vec()
+        } else {
+            vec![]
+        };
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
     async fn update(
         &self,
         summary: DischargeSummaryEntity,
@@ -1350,6 +1371,21 @@ impl ShiftHandoffRepository for MemoryShiftHandoffRepository {
             })
             .cloned()
             .collect())
+    }
+
+    async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let prefix = format!("{batch_id}-");
+        let mut items: Vec<_> = data
+            .values()
+            .filter(|h| h.id.starts_with(&prefix))
+            .cloned()
+            .collect();
+        items.sort_by_key(|h| std::cmp::Reverse(h.handoff_datetime));
+        Ok(items)
     }
 
     async fn acknowledge(&self, id: &str) -> RepositoryResult<ShiftHandoffEntity> {

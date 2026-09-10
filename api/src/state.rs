@@ -515,7 +515,8 @@ impl AppState {
         };
 
         let users_result = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-            "SELECT u.*, p.department, p.specialty, p.license_number
+            "SELECT u.*, p.department, p.specialty, p.license_number,
+                    p.contact_encrypted, p.contact_key_version
              FROM users u
              LEFT JOIN user_profiles p ON p.user_id = u.id
              WHERE u.is_active = true AND u.status = 'active'",
@@ -550,7 +551,17 @@ impl AppState {
                         created_by: db_user.created_by.clone(),
                         linked_patient_id: db_user.linked_patient_id.clone(),
                         email: db_user.email.clone(),
-                        phone: None,
+                        // Decrypted, not read from the plaintext `phone`
+                        // column, which the API never writes. `None` covers
+                        // three cases that must stay indistinguishable to a
+                        // caller: no contact recorded, a key version this
+                        // process does not hold, and a blob that will not open.
+                        phone: open_staff_contact(
+                            row.contact_encrypted.as_ref(),
+                            row.contact_key_version,
+                            &self.encryption_keyring,
+                        )
+                        .and_then(|contact| contact.phone),
                         department: row.department.clone(),
                         specialty: row.specialty.clone(),
                         license_number: row.license_number.clone(),
@@ -620,23 +631,39 @@ impl AppState {
         .await
         .map_err(|e| e.to_string())?;
 
-        // Always upsert the professional profile, including three NULL values.
+        // Contact details are sealed here and never written to the plaintext
+        // `user_profiles.phone` column, which stays deprecated. A cleared phone
+        // number seals to NULL, so clearing one is durable rather than a value
+        // that resurrects on the next restart.
+        let contact = StaffContact {
+            phone: user.phone.clone(),
+        };
+        let contact_encrypted = seal_staff_contact(&contact, &self.encryption_keyring);
+
+        // Always upsert the professional profile, including NULL values.
         // Skipping the write when every field is None would make a "clear all"
         // profile edit survive only in memory and resurrect stale values after a
         // restart.
         sqlx::query(
-            "INSERT INTO user_profiles (user_id, department, specialty, license_number)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO user_profiles (
+                 user_id, department, specialty, license_number,
+                 contact_encrypted, contact_key_version
+             )
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (user_id) DO UPDATE SET
                  department = EXCLUDED.department,
                  specialty = EXCLUDED.specialty,
                  license_number = EXCLUDED.license_number,
+                 contact_encrypted = EXCLUDED.contact_encrypted,
+                 contact_key_version = EXCLUDED.contact_key_version,
                  updated_at = NOW()",
         )
         .bind(user_id)
         .bind(&user.department)
         .bind(&user.specialty)
         .bind(&user.license_number)
+        .bind(contact_encrypted)
+        .bind(self.encryption_keyring.current_version() as i32)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;

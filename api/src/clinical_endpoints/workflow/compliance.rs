@@ -872,7 +872,14 @@ pub async fn scan_barcode(
         });
     }
 
-    let barcode_value = match body.get("barcode_value").and_then(|b| b.as_str()) {
+    let barcode_value = match body
+        .get("barcode_value")
+        // `BarcodePage` posts `barcode`; this read `barcode_value` and
+        // defaulted, so every scan was recorded with an empty barcode —
+        // a scan record that cannot say what was scanned.
+        .or_else(|| body.get("barcode"))
+        .and_then(|b| b.as_str())
+    {
         Some(b) => b,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {

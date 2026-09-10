@@ -99,6 +99,22 @@ services:
       # all, so the doctor-portal Playwright suites clicked a demo button that
       # never rendered and reported a bare 30-second timeout.
       MEDICHAIN_DEV_MODE: ${MEDICHAIN_DEV_MODE:-}
+      # The dispensing policy is deployment-supplied on purpose: the API ships
+      # no built-in drug schedule (`api/src/dispensing_policy.rs`), so a
+      # deployment that does not provide one cannot dispense a policy-governed
+      # medication at all — every attempt answers
+      # `503 DISPENSING_POLICY_UNAVAILABLE`. That was this stack's state, and
+      # nothing in this file said so.
+      #
+      # Overridable, and it should be overridden: the file mounted below is the
+      # **example**. A real deployment mounts its own approved policy at the
+      # same path, and the version string in it is what ends up recorded against
+      # every secondary-verification decision.
+      DISPENSING_POLICY_PATH: ${DISPENSING_POLICY_PATH:-/app/policy/dispensing_policy.json}
+    volumes:
+      # Read-only, and a single file rather than a directory, so the container
+      # cannot rewrite the policy it is being governed by.
+      - ${DISPENSING_POLICY_FILE:-./api/data/dispensing_policy.example.json}:/app/policy/dispensing_policy.json:ro
     depends_on:
       postgres:
         condition: service_healthy

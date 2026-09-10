@@ -38,7 +38,18 @@ pub async fn create_intubation(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let record_id = format!("INT-{}", uuid::Uuid::new_v4().simple());
@@ -75,6 +86,9 @@ pub async fn create_intubation(
             .unwrap_or(false),
         pre_oxygenation_method: body
             .get("pre_oxygenation_method")
+            // The page calls it `preOxygenation`.
+            .or_else(|| body.get("preOxygenation"))
+            .or_else(|| body.get("pre_oxygenation"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
         induction_agents: body.get("induction_agents").cloned(),
@@ -105,6 +119,9 @@ pub async fn create_intubation(
             .and_then(rust_decimal::Decimal::from_f64_retain),
         cuff_pressure_cmh2o: body
             .get("cuff_pressure_cmh2o")
+            // The page calls it `cuffPressure`. An unrecorded cuff pressure is how a tube ends up over-inflated against the trachea.
+            .or_else(|| body.get("cuffPressure"))
+            .or_else(|| body.get("cuff_pressure"))
             .and_then(|v| v.as_f64())
             .and_then(rust_decimal::Decimal::from_f64_retain),
         attempts: body.get("attempts").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
@@ -498,7 +515,18 @@ pub async fn create_splint(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let record_id = format!("SPL-{}", uuid::Uuid::new_v4().simple());

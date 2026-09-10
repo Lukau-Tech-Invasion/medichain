@@ -270,10 +270,112 @@ pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) ->
 }
 
 /// Create chain of custody
+/// What the chain-of-custody form actually submits.
+///
+/// `ChainOfCustodyPage.tsx` posts camelCase throughout; this handler read
+/// snake_case out of an untyped `Value`, so `collected_by`, `seal_number`,
+/// `collection_location` and the rest all defaulted. The seal number is the
+/// point of a chain of custody, and it was being dropped.
+///
+/// The page and the table also disagree about what `status` means. The page
+/// tracks a **specimen** lifecycle (`collected` -> `in-transit` -> `received`
+/// -> `analyzed` -> `stored` -> `released` -> `destroyed`); the column tracks
+/// **custody** (`in_custody` / `transferred` / `released` / `destroyed` /
+/// `lost`) and its CHECK constraint refused `collected` outright, so every
+/// submission was a 500 on PostgreSQL. Both are real and neither is wrong, so
+/// the specimen state is mapped onto the custody state for the column and kept
+/// verbatim in the blob — the same treatment `create_shift_handoff` gives
+/// `shift_direction`.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateChainOfCustodyRequest {
+    #[serde(rename = "custodyId", alias = "custody_id", default)]
+    pub custody_id: Option<String>,
+    #[serde(rename = "patientId", alias = "patient_id", default)]
+    pub patient_id: Option<String>,
+    #[serde(rename = "patientName", default)]
+    pub patient_name: Option<String>,
+    #[serde(rename = "specimenType", alias = "evidence_type")]
+    pub specimen_type: String,
+    #[serde(
+        rename = "specimenDescription",
+        alias = "evidence_description",
+        default
+    )]
+    pub specimen_description: String,
+    #[serde(rename = "collectionDate", default)]
+    pub collection_date: Option<String>,
+    #[serde(rename = "collectionTime", default)]
+    pub collection_time: Option<String>,
+    #[serde(rename = "collectedBy", alias = "collected_by", default)]
+    pub collected_by: Option<String>,
+    #[serde(rename = "collectionLocation", alias = "collection_location", default)]
+    pub collection_location: Option<String>,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(rename = "caseNumber", alias = "case_number", default)]
+    pub case_number: Option<String>,
+    #[serde(
+        rename = "investigatingAgency",
+        alias = "law_enforcement_agency",
+        default
+    )]
+    pub investigating_agency: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "sealNumber", alias = "seal_number", default)]
+    pub seal_number: Option<String>,
+    #[serde(rename = "containerType", alias = "packaging_description", default)]
+    pub container_type: Option<String>,
+    /// Free text on the form ("2 x 4 mL"), an integer in the column.
+    #[serde(default)]
+    pub quantity: Option<String>,
+    #[serde(rename = "currentCustodian", alias = "current_custodian_id", default)]
+    pub current_custodian: Option<String>,
+    #[serde(rename = "currentLocation", alias = "storage_location", default)]
+    pub current_location: Option<String>,
+    #[serde(rename = "storageConditions", alias = "storage_requirements", default)]
+    pub storage_conditions: Option<String>,
+    #[serde(rename = "integrityVerified", default)]
+    pub integrity_verified: bool,
+    #[serde(default)]
+    pub transfers: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// The specimen lifecycle state the page tracks, as a custody state the column
+/// permits. Anything the page can produce maps to something the CHECK accepts.
+fn custody_status_for(specimen_status: &str) -> &'static str {
+    match specimen_status {
+        "in-transit" | "in_transit" | "transferred" => "transferred",
+        "released" => "released",
+        "destroyed" => "destroyed",
+        "lost" => "lost",
+        // `collected`, `received`, `analyzed`, `stored` and anything unknown:
+        // the laboratory still holds it.
+        _ => "in_custody",
+    }
+}
+
+/// The specimen type the page offers, as an evidence type the column permits.
+fn evidence_type_for(specimen_type: &str) -> &'static str {
+    match specimen_type {
+        "blood" | "blood_sample" => "blood_sample",
+        "urine" | "urine_sample" => "urine_sample",
+        "other-fluid" | "tissue" | "swab" | "biological" => "biological",
+        "clothing" => "clothing",
+        "personal_effects" => "personal_effects",
+        "weapon" => "weapon",
+        "document" => "document",
+        "electronic_device" => "electronic_device",
+        _ => "other",
+    }
+}
+
 #[post("/api/clinical/chain-of-custody")]
 pub async fn create_chain_of_custody(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateChainOfCustodyRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -296,155 +398,127 @@ pub async fn create_chain_of_custody(
     }
 
     let body = req.into_inner();
-    let now = chrono::Utc::now();
+    let now = Utc::now();
+
+    // A chain of custody with no seal number cannot demonstrate an unbroken
+    // chain, which is the only thing it is for.
+    if body
+        .seal_number
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .is_empty()
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "seal_number is required: a custody record without one cannot show the seal was unbroken".to_string(),
+            code: "MISSING_SEAL_NUMBER".to_string(),
+        });
+    }
+
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let form_id = format!("COC-{}", uuid::Uuid::new_v4().simple());
+
+    // The wall-clock the collector wrote, not the instant the request arrived.
+    let collected_at = match (
+        body.collection_date.as_deref(),
+        body.collection_time.as_deref(),
+    ) {
+        (Some(d), Some(t)) if !d.is_empty() => crate::types::appt_to_datetime(d, t),
+        (Some(d), None) if !d.is_empty() => crate::types::appt_to_datetime(d, "00:00"),
+        _ => now,
+    };
+
+    // `quantity` is free text on the form ("2 x 4 mL") and an integer in the
+    // column. Take the leading count and keep the text; losing "4 mL" would
+    // leave a row claiming two of something unspecified.
+    let quantity_count = body
+        .quantity
+        .as_deref()
+        .and_then(|q| {
+            q.trim()
+                .split(|c: char| !c.is_ascii_digit())
+                .find(|p| !p.is_empty())
+        })
+        .and_then(|n| n.parse::<i32>().ok())
+        .unwrap_or(1);
+
+    let specimen_status = body
+        .status
+        .clone()
+        .unwrap_or_else(|| "collected".to_string());
+
     let entity = ChainOfCustodyEntity {
         id: form_id.clone(),
-        patient_id: body
-            .get("patient_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        case_number: body
-            .get("case_number")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        evidence_type: body
-            .get("evidence_type")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("blood_sample")
-            .to_string(),
-        evidence_description: body
-            .get("evidence_description")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        quantity: body.get("quantity").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        unit_of_measure: body
-            .get("unit_of_measure")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        collection_datetime: body
-            .get("collection_datetime")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or(now),
-        collection_location: body
-            .get("collection_location")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        patient_id: body.patient_id.clone().filter(|p| !p.is_empty()),
+        case_number: body.case_number.clone().filter(|c| !c.is_empty()),
+        evidence_type: evidence_type_for(&body.specimen_type).to_string(),
+        evidence_description: body.specimen_description.clone(),
+        quantity: quantity_count,
+        unit_of_measure: body.quantity.clone(),
+        collection_datetime: collected_at,
+        collection_location: body.collection_location.clone().filter(|l| !l.is_empty()),
+        // The collector is the authenticated caller unless one was named.
         collected_by: body
-            .get("collected_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        collection_witnessed_by: body
-            .get("collection_witnessed_by")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        collection_method: body
-            .get("collection_method")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        packaging_description: body
-            .get("packaging_description")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        seal_number: body
-            .get("seal_number")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        storage_location: body
-            .get("storage_location")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        storage_requirements: body
-            .get("storage_requirements")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+            .collected_by
+            .clone()
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| current_user.wallet_address.clone()),
+        collection_witnessed_by: None,
+        collection_method: None,
+        packaging_description: body.container_type.clone().filter(|c| !c.is_empty()),
+        seal_number: body.seal_number.clone(),
+        storage_location: body.current_location.clone().filter(|l| !l.is_empty()),
+        storage_requirements: body.storage_conditions.clone().filter(|c| !c.is_empty()),
         current_custodian_id: body
-            .get("current_custodian_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        transfers: body
-            .get("transfers")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-        law_enforcement_agency: body
-            .get("law_enforcement_agency")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        law_enforcement_officer: body
-            .get("law_enforcement_officer")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        law_enforcement_badge: body
-            .get("law_enforcement_badge")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        warrant_number: body
-            .get("warrant_number")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        court_order_number: body
-            .get("court_order_number")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        released_to: body
-            .get("released_to")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        release_datetime: body
-            .get("release_datetime")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        release_authorized_by: body
-            .get("release_authorized_by")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        release_documentation: body
-            .get("release_documentation")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        destruction_authorized: body
-            .get("destruction_authorized")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        destruction_datetime: body
-            .get("destruction_datetime")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        destruction_method: body
-            .get("destruction_method")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        destruction_witnessed_by: body
-            .get("destruction_witnessed_by")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        status: body
-            .get("status")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("in_custody")
-            .to_string(),
-        photos_taken: body
-            .get("photos_taken")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        photo_references: body.get("photo_references").cloned(),
-        notes: body
-            .get("notes")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+            .current_custodian
+            .clone()
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| current_user.wallet_address.clone()),
+        transfers: serde_json::json!(body.transfers),
+        law_enforcement_agency: body.investigating_agency.clone().filter(|a| !a.is_empty()),
+        law_enforcement_officer: None,
+        law_enforcement_badge: None,
+        warrant_number: None,
+        court_order_number: None,
+        released_to: None,
+        release_datetime: None,
+        release_authorized_by: None,
+        release_documentation: None,
+        destruction_authorized: false,
+        destruction_datetime: None,
+        destruction_method: None,
+        destruction_witnessed_by: None,
+        status: custody_status_for(&specimen_status).to_string(),
+        photos_taken: false,
+        photo_references: None,
+        notes: body.notes.clone().filter(|n| !n.is_empty()),
         created_at: now,
         updated_at: now,
-        data: body.clone(),
+        data: serde_json::json!({
+            "custody_id": form_id,
+            "client_custody_id": body.custody_id,
+            "patient_id": body.patient_id,
+            "patient_name": body.patient_name,
+            "specimen_type": body.specimen_type,
+            "specimen_description": body.specimen_description,
+            // The specimen lifecycle state the page tracks, kept beside the
+            // custody state the column stores. They are different axes.
+            "specimen_status": specimen_status,
+            "purpose": body.purpose,
+            "seal_number": body.seal_number,
+            "container_type": body.container_type,
+            "quantity": body.quantity,
+            "current_custodian": body.current_custodian,
+            "current_location": body.current_location,
+            "storage_conditions": body.storage_conditions,
+            "integrity_verified": body.integrity_verified,
+            "case_number": body.case_number,
+            "investigating_agency": body.investigating_agency,
+            "collected_by": body.collected_by,
+            "collection_datetime": collected_at.to_rfc3339(),
+            "notes": body.notes,
+        }),
     };
 
     match data.repositories.chain_of_custody.create(entity).await {
@@ -457,11 +531,14 @@ pub async fn create_chain_of_custody(
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("chain of custody could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The chain-of-custody record could not be saved".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -513,11 +590,91 @@ pub async fn get_chain_of_custody(
     }
 }
 
+/// What the QC form actually submits.
+///
+/// `LabQCPage.tsx` posts `instrument`, `analyte`, `observedValue`,
+/// `expectedMean`, `expectedSD` and the Westgard rules that failed. This
+/// handler read `instrument_id`, `test_name`, `measured_value`,
+/// `expected_value` and `acceptable_range_low/high` from an untyped `Value`,
+/// so every one of them fell through to its default. A run recorded on
+/// 2026-09-10 read back as `instrument_id: ""`, `test_name: ""`,
+/// `expected_value: "0"`, `measured_value: "0"` — a QC record that says the
+/// control measured zero on an unnamed analyser.
+///
+/// That is worse than losing the record. Quality control exists so that patient
+/// results are held when a control fails, and a stored run that passes by
+/// arithmetic accident (0 within a range of 0 to 0) releases them.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateLabQcRequest {
+    #[serde(rename = "testId", alias = "test_id", default)]
+    pub test_id: Option<String>,
+    /// The analyser. `instrument` on the form.
+    #[serde(rename = "instrument", alias = "instrument_name", default)]
+    pub instrument: String,
+    /// What was measured. `analyte` on the form, `test_name` in the column.
+    #[serde(rename = "analyte", alias = "test_name")]
+    pub analyte: String,
+    #[serde(rename = "level", alias = "qc_level", default)]
+    pub level: String,
+    #[serde(rename = "lotNumber", alias = "lot_number", default)]
+    pub lot_number: Option<String>,
+    #[serde(rename = "expiryDate", alias = "expiration_date", default)]
+    pub expiry_date: Option<String>,
+    /// What the control actually read.
+    #[serde(rename = "observedValue", alias = "measured_value")]
+    pub observed_value: f64,
+    /// The target, and the spread that defines the acceptable window.
+    #[serde(rename = "expectedMean", alias = "expected_value")]
+    pub expected_mean: f64,
+    #[serde(rename = "expectedSD", alias = "expected_sd", default)]
+    pub expected_sd: f64,
+    #[serde(default)]
+    pub unit: String,
+    /// `pass` / `fail` / `warning` from the page.
+    #[serde(default)]
+    pub result: Option<String>,
+    #[serde(rename = "violatedRules", default)]
+    pub violated_rules: Vec<String>,
+    #[serde(rename = "performedBy", alias = "performed_by", default)]
+    pub performed_by: Option<String>,
+    #[serde(rename = "correctiveAction", alias = "corrective_action", default)]
+    pub corrective_action: Option<String>,
+    #[serde(default)]
+    pub comments: Option<String>,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub time: Option<String>,
+}
+
+/// The control level as the `lab_qc_records` CHECK spells it.
+///
+/// `LabQCPage` offers "Level 1" / "Level 2" / "Level 3"; the constraint permits
+/// `level1` / `level2` / `level3`. A space and two capitals were enough to make
+/// every quality-control run a `500` on PostgreSQL — and QC is what decides
+/// whether patient results are released.
+fn canonical_qc_level(level: &str) -> String {
+    let compact: String = level
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '_' && *c != '-')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match compact.as_str() {
+        "level1" | "1" | "low" => "level1".to_string(),
+        "level2" | "2" | "normal" | "mid" => "level2".to_string(),
+        "level3" | "3" | "high" => "level3".to_string(),
+        // Unknown levels are refused by the constraint rather than silently
+        // filed as level 1, which would claim a control was run at a
+        // concentration it was not.
+        other => other.to_string(),
+    }
+}
+
 /// Create lab QC record
 #[post("/api/clinical/lab-qc")]
 pub async fn create_lab_qc(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateLabQcRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -540,121 +697,125 @@ pub async fn create_lab_qc(
     }
 
     let body = req.into_inner();
-    let now = chrono::Utc::now();
-    // Server-generated: a client-supplied id lets one submission overwrite another.
+    let now = Utc::now();
+
+    if body.analyte.trim().is_empty() || body.instrument.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "analyte and instrument are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     let qc_id = format!("QC-{}", uuid::Uuid::new_v4().simple());
+    let dec = |v: f64| rust_decimal::Decimal::from_f64_retain(v).unwrap_or_default();
+
+    // The acceptable window is mean +/- 2 SD, the conventional Westgard limit.
+    // Derived here rather than accepted from the client, for the same reason
+    // every other clinical threshold is server-side: the window decides whether
+    // patient results are released.
+    let low = body.expected_mean - 2.0 * body.expected_sd;
+    let high = body.expected_mean + 2.0 * body.expected_sd;
+
+    // `passed` is the server's conclusion, not the page's claim. A run the
+    // browser labelled `pass` while sitting outside the window would release
+    // results the control says are unreliable.
+    let within_window = body.observed_value >= low && body.observed_value <= high;
+    let passed = within_window && body.violated_rules.is_empty();
+
+    let deviation = if body.expected_mean.abs() > f64::EPSILON {
+        Some(dec((body.observed_value - body.expected_mean)
+            / body.expected_mean
+            * 100.0))
+    } else {
+        None
+    };
+
+    // A failed control with no corrective action is an audit finding rather
+    // than a QC record, so the two are refused together.
+    if !passed
+        && body
+            .corrective_action
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "a failed control requires a corrective action".to_string(),
+            code: "CORRECTIVE_ACTION_REQUIRED".to_string(),
+        });
+    }
+
     let entity = LabQcRecordEntity {
         id: qc_id.clone(),
-        instrument_id: body
-            .get("instrument_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        instrument_name: body
-            .get("instrument_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        qc_level: body
-            .get("qc_level")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("level1")
-            .to_string(),
-        test_code: body
-            .get("test_code")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        test_name: body
-            .get("test_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        expected_value: body
-            .get("expected_value")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain)
-            .unwrap_or_default(),
-        measured_value: body
-            .get("measured_value")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain)
-            .unwrap_or_default(),
-        unit: body
-            .get("unit")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        acceptable_range_low: body
-            .get("acceptable_range_low")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain)
-            .unwrap_or_default(),
-        acceptable_range_high: body
-            .get("acceptable_range_high")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain)
-            .unwrap_or_default(),
-        passed: body
-            .get("passed")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        deviation_percent: body
-            .get("deviation_percent")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain),
-        corrective_action: body
-            .get("corrective_action")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        performed_by: body
-            .get("performed_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        reviewed_by: body
-            .get("reviewed_by")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        performed_at: body
-            .get("performed_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or(now),
-        reviewed_at: body
-            .get("reviewed_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        lot_number: body
-            .get("lot_number")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        instrument_id: body.instrument.clone(),
+        instrument_name: body.instrument.clone(),
+        qc_level: canonical_qc_level(&body.level),
+        test_code: body.test_id.clone().unwrap_or_default(),
+        test_name: body.analyte.clone(),
+        expected_value: dec(body.expected_mean),
+        measured_value: dec(body.observed_value),
+        unit: body.unit.clone(),
+        acceptable_range_low: dec(low),
+        acceptable_range_high: dec(high),
+        passed,
+        deviation_percent: deviation,
+        corrective_action: body.corrective_action.clone(),
+        performed_by: current_user.wallet_address.clone(),
+        reviewed_by: None,
+        performed_at: now,
+        reviewed_at: None,
+        lot_number: body.lot_number.clone(),
         expiration_date: body
-            .get("expiration_date")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
+            .expiry_date
+            .as_deref()
+            .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
         created_at: now,
-        data: body.clone(),
+        data: serde_json::json!({
+            "qc_id": qc_id,
+            "instrument": body.instrument,
+            "analyte": body.analyte,
+            "level": body.level,
+            "observed_value": body.observed_value,
+            "expected_mean": body.expected_mean,
+            "expected_sd": body.expected_sd,
+            "acceptable_range_low": low,
+            "acceptable_range_high": high,
+            "unit": body.unit,
+            "passed": passed,
+            // The rules the run broke, kept verbatim: "1_3s" and "2_2s" mean
+            // different things about the analyser and lead to different actions.
+            "violated_rules": body.violated_rules,
+            "corrective_action": body.corrective_action,
+            "comments": body.comments,
+            "performed_by": current_user.wallet_address,
+            "performed_at": now.to_rfc3339(),
+        }),
     };
 
     match data.repositories.lab_qc_records.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "success": true,
-            "qc_id": qc_id
+            "qc_id": qc_id,
+            "passed": passed,
+            "acceptable_range_low": low,
+            "acceptable_range_high": high
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
             success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("QC run could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The quality-control run could not be saved".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -706,11 +867,60 @@ pub async fn get_lab_qc(
     }
 }
 
+/// What the critical-value form actually submits.
+///
+/// `CriticalValuePage.tsx` posts camelCase and names the measurement `analyte`;
+/// this handler used to read `patient_id`, `test_name` and `test_code` out of an
+/// untyped `Value` with `unwrap_or_default()` behind each lookup. Nothing
+/// matched. The stored row carried an empty patient, an empty test name and an
+/// empty reporter — and on PostgreSQL the empty patient violated
+/// `critical_values_patient_id_fkey`, so raising a critical potassium answered
+/// `500`.
+///
+/// A critical value exists to be *communicated*. Storing one whose patient and
+/// analyte are blank is worse than refusing it, because the regulatory
+/// obligation attached to the notification is then recorded as discharged.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateCriticalValueRequest {
+    #[serde(rename = "patientId", alias = "patient_id")]
+    pub patient_id: String,
+    /// The measurement. `analyte` on the form, `test_name` in the column.
+    #[serde(rename = "analyte", alias = "test_name")]
+    pub analyte: String,
+    #[serde(rename = "testCode", alias = "test_code", default)]
+    pub test_code: Option<String>,
+    pub value: f64,
+    #[serde(default)]
+    pub unit: String,
+    /// `high` / `low` on the form; the column calls it severity.
+    #[serde(rename = "criticalLevel", alias = "severity", default)]
+    pub critical_level: Option<String>,
+    /// The threshold the value crossed, which is what makes it critical.
+    #[serde(rename = "thresholdExceeded", default)]
+    pub threshold_exceeded: Option<f64>,
+    #[serde(rename = "reportedBy", alias = "reported_by", default)]
+    pub reported_by: Option<String>,
+    #[serde(rename = "reportedAt", default)]
+    pub reported_at: Option<String>,
+    /// The clinician who must be told. Without it the notification has no
+    /// addressee and cannot be chased.
+    #[serde(rename = "orderingProvider", alias = "notified_provider_id", default)]
+    pub ordering_provider: Option<String>,
+    #[serde(rename = "notificationStatus", default)]
+    pub notification_status: Option<String>,
+    #[serde(rename = "labPanelId", alias = "lab_panel_id", default)]
+    pub lab_panel_id: Option<String>,
+    #[serde(rename = "patientName", default)]
+    pub patient_name: Option<String>,
+    #[serde(rename = "notificationId", default)]
+    pub notification_id: Option<String>,
+}
+
 /// Create critical value notification
 #[post("/api/clinical/critical-value")]
 pub async fn create_critical_value(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateCriticalValueRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -733,117 +943,102 @@ pub async fn create_critical_value(
     }
 
     let body = req.into_inner();
-    let now = chrono::Utc::now();
+    let now = Utc::now();
+
+    if body.patient_id.trim().is_empty() || body.analyte.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id and analyte are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&body.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", body.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let notification_id = format!("CRV-{}", uuid::Uuid::new_v4().simple());
-    // The SSE alert below needs these after the entity is moved into the
-    // repository, so read them from the body first.
-    let patient_id = body
-        .get("patient_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let test_name = body
-        .get("test_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let unit = body
-        .get("unit")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let critical_value_str = body
-        .get("value")
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "-".to_string());
+    let patient_id = body.patient_id.clone();
+    let test_name = body.analyte.clone();
+    let unit = body.unit.clone();
+    let critical_value_str = body.value.to_string();
+    let decimal = |v: f64| rust_decimal::Decimal::from_f64_retain(v);
+
+    // `high` and `low` say which side of the reference range was crossed, so
+    // the threshold goes into the matching bound rather than into whichever one
+    // happens to be first. A potassium of 6.9 recorded as a critical *low*
+    // reads as the opposite emergency.
+    let level = body
+        .critical_level
+        .as_deref()
+        .unwrap_or("high")
+        .to_ascii_lowercase();
+    // `critical-low`, `low`, or `critical_low` — the side, however the form
+    // spells it.
+    let is_low = level.contains("low");
+    let threshold = body.threshold_exceeded.and_then(decimal);
 
     let entity = CriticalValueEntity {
         id: notification_id.clone(),
-        patient_id: body
-            .get("patient_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        lab_panel_id: body
-            .get("lab_panel_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        test_code: body
-            .get("test_code")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        test_name: body
-            .get("test_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        value: body
-            .get("value")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain)
-            .unwrap_or_default(),
-        unit: body
-            .get("unit")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        reference_low: body
-            .get("reference_low")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain),
-        reference_high: body
-            .get("reference_high")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain),
-        critical_low: body
-            .get("critical_low")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain),
-        critical_high: body
-            .get("critical_high")
-            .and_then(|v| v.as_f64())
-            .and_then(rust_decimal::Decimal::from_f64_retain),
-        severity: body
-            .get("severity")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("critical")
-            .to_string(),
-        notified_provider_id: body
-            .get("notified_provider_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        notification_method: body
-            .get("notification_method")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        patient_id: patient_id.clone(),
+        lab_panel_id: body.lab_panel_id.clone(),
+        test_code: body.test_code.clone().unwrap_or_default(),
+        test_name: test_name.clone(),
+        value: decimal(body.value).unwrap_or_default(),
+        unit: unit.clone(),
+        reference_low: None,
+        reference_high: None,
+        critical_low: if is_low { threshold } else { None },
+        critical_high: if is_low { None } else { threshold },
+        // `critical_values.severity` permits `critical` / `panic` / `alert`.
+        // The form's `critical-high` and `critical-low` say which SIDE of the
+        // range was crossed, which is a different axis and is already recorded
+        // in `critical_low` / `critical_high` above. Sending the side as the
+        // severity made every critical value a 500 on PostgreSQL.
+        severity: match level.as_str() {
+            "panic" => "panic".to_string(),
+            "alert" | "warning" => "alert".to_string(),
+            _ => "critical".to_string(),
+        },
+        notified_provider_id: body.ordering_provider.clone(),
+        notification_method: body.notification_status.clone(),
         notified_at: body
-            .get("notified_at")
-            .and_then(|v| v.as_str())
+            .reported_at
+            .as_deref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        acknowledged_at: body
-            .get("acknowledged_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        acknowledged_by: body
-            .get("acknowledged_by")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        action_taken: body
-            .get("action_taken")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        reported_by: body
-            .get("reported_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+            .map(|d| d.with_timezone(&Utc)),
+        acknowledged_at: None,
+        acknowledged_by: None,
+        action_taken: None,
+        // The reporter is the authenticated caller. A client-asserted name on a
+        // notification that carries a legal duty to communicate is not evidence
+        // of who communicated it.
+        reported_by: current_user.wallet_address.clone(),
         created_at: now,
-        data: body.clone(),
+        data: serde_json::json!({
+            "notification_id": notification_id,
+            "patient_id": patient_id,
+            "patient_name": body.patient_name,
+            "analyte": test_name,
+            "value": body.value,
+            "unit": unit,
+            "critical_level": level,
+            "threshold_exceeded": body.threshold_exceeded,
+            "ordering_provider": body.ordering_provider,
+            "notification_status": body.notification_status.clone().unwrap_or_else(|| "pending".to_string()),
+            "reported_by": current_user.wallet_address,
+            "reported_at": now.to_rfc3339(),
+        }),
     };
 
     match data.repositories.critical_values.create(entity).await {
@@ -869,11 +1064,14 @@ pub async fn create_critical_value(
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("critical value could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The critical value could not be saved".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 

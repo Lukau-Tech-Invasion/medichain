@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { createDeathCertificate } from '../../../shared/src/api/endpoints';
 import { useTranslation, clickable } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * DeathCertificatePage
@@ -64,6 +65,14 @@ const DeathCertificatePage: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
 
   // Form state
+  // The person the certificate is for.
+  //
+  // The payload used to carry the literal string "DEMO_PATIENT" with the
+  // comment "In real app, get from context", and this page had no patient
+  // selector at all — so every death certificate the system could produce was
+  // filed against an id belonging to nobody, and none of them could be found
+  // from the deceased's own record.
+  const [patientId, setPatientId] = useState('');
   const [deceasedInfo, setDeceasedInfo] = useState({
     firstName: '',
     middleName: '',
@@ -210,6 +219,10 @@ const DeathCertificatePage: React.FC = () => {
 
   const handleSignAndSubmit = async () => {
     // Basic validation
+    if (!patientId) {
+      showError(t('docDeathCertificate.errorSelectPatient'));
+      return;
+    }
     if (!deceasedInfo.lastName || !deathInfo.dateOfDeath || !causeInfo.immediateCause || !certifierInfo.certifierName || !certifierInfo.licenseNumber) {
       showError(t('docDeathCertificate.errorRequiredFields'));
       return;
@@ -218,7 +231,7 @@ const DeathCertificatePage: React.FC = () => {
     try {
       const payload = {
         id: `DC-${Date.now()}`,
-        patient_id: "DEMO_PATIENT", // In real app, get from context
+        patient_id: patientId,
         deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`,
         date_of_birth: deceasedInfo.dateOfBirth,
         date_of_death: deathInfo.dateOfDeath,
@@ -450,6 +463,17 @@ const DeathCertificatePage: React.FC = () => {
                 {t('docDeathCertificate.decedentInfoTitle')}
               </h2>
 
+              <div className="mb-4">
+                <label htmlFor="death-patient" className="block text-sm font-medium text-content-secondary mb-1">
+                  {t('docDeathCertificate.patientLabel')}
+                </label>
+                <PatientSelect
+                  id="death-patient"
+                  value={patientId}
+                  onChange={setPatientId}
+                  placeholder={t('docDeathCertificate.patientPlaceholder')}
+                />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label htmlFor="death-first-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.firstNameLabel')}</label>

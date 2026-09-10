@@ -290,6 +290,15 @@ const en_US: TranslationRecord = {
     noReminders: 'No active reminders.',
     dosageColon: 'Dosage: {{dosage}}',
     addReminder: '+ Add Reminder',
+    remindersLoadFailed: 'Your reminders could not be loaded. Pull down to try again.',
+    reminderFieldsRequired: 'Enter the medicine, the dose and at least one time.',
+    reminderSaveFailed: 'The reminder could not be saved. Nothing was added.',
+    reminderMedicationLabel: 'Medicine',
+    reminderDosageLabel: 'Dose',
+    reminderFrequencyLabel: 'How often (optional)',
+    reminderTimesLabel: 'Times',
+    reminderTimesPh: 'One time per line, for example 08:00 then 20:00',
+    saveReminder: 'Save reminder',
   },
 
   // Appointments
@@ -479,6 +488,7 @@ const en_US: TranslationRecord = {
 
   // Symptom checker
   symptomChecker: {
+    sessionNotRecorded: 'The advice above stands, but this check could not be saved to your history.',
     title: 'Symptom Checker',
     subtitle: 'AI-assisted symptom assessment',
     introHeading: 'How are you feeling?',
@@ -800,6 +810,7 @@ const en_US: TranslationRecord = {
 
   // Symptom tracker
   symptomTracker: {
+    logFailed: 'That symptom was not saved. It has been removed from the list - please try again.',
     title: 'Symptom Tracker',
     subtitle: 'Monitor and log your symptoms',
     statToday: 'Today',
@@ -3402,6 +3413,8 @@ const en_US: TranslationRecord = {
     capacityLabel: 'Patient has capacity to refuse treatment',
     capacityBasisLabel: 'Basis for capacity assessment',
     capacityBasisPh: 'How was capacity assessed? (e.g. alert and oriented x4, understands diagnosis, risks and alternatives, able to state a reasoned choice)',
+    errorCapacityRequired: 'Record the capacity assessment first: an against-medical-advice discharge is only valid if the patient was assessed as able to refuse treatment.',
+    errorCapacityBasisRequired: 'Say how capacity was assessed, not only that it was.',
     patientStatementLabel: 'Patient Statement (optional)',
     patientStatementPh: 'Document any statement made by the patient',
     continueToSignatures: 'Continue to Signatures',
@@ -4664,6 +4677,9 @@ const en_US: TranslationRecord = {
     saveAsDraftBtn: 'Save as Draft',
     signAndSubmitBtn: 'Sign & Submit',
     errorRequiredFields: 'Please fill in all required fields marked with *',
+    errorSelectPatient: 'Select the deceased patient: a certificate must name a real person on file.',
+    patientLabel: 'Deceased patient',
+    patientPlaceholder: 'Search and select the deceased patient...',
     successSubmitted: 'Death certificate successfully signed and submitted to the national registry.',
     errorSubmitFailed: 'Failed to submit death certificate. Please try again.',
   },

@@ -34,7 +34,68 @@ pub async fn create_ama(
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // `AMAPage` posts camelCase (`patientStatement`, `recommendedTreatment`,
+    // `witnessName`); every lookup below is snake_case, so the discharge was
+    // stored with an empty statement, no named treatment and no witness — the
+    // three things the document exists to record.
+
+    // Capacity is the precondition, not a field.
+    //
+    // A patient who lacks decision-making capacity cannot validly refuse
+    // treatment, so an against-medical-advice discharge recorded without a
+    // capacity determination is not a lawful AMA — it is a patient leaving. It
+    // is also the first document a coroner or a malpractice review asks for.
+    //
+    // The column and this handler have always carried
+    // `decision_making_capacity` and `capacity_assessment`; nothing sent them,
+    // so every AMA discharge in the system recorded capacity as `false` with no
+    // assessment behind it, which reads as "we discharged someone we had
+    // decided could not consent".
+    //
+    // Enforced here rather than only in the form: the form is a client, and the
+    // record's lawfulness is not a client's decision.
+    // `AMAPage` calls these `hasCapacity` and `capacityBasis`, which
+    // `normalise_body_keys` turns into `has_capacity` / `capacity_basis` — a
+    // genuine name difference rather than a casing one, so both spellings are
+    // read here.
+    let has_capacity = body
+        .get("decision_making_capacity")
+        .or_else(|| body.get("has_capacity"))
+        .and_then(|v| v.as_bool());
+    let capacity_assessment = body
+        .get("capacity_assessment")
+        .or_else(|| body.get("capacity_basis"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    match (has_capacity, capacity_assessment) {
+        (Some(true), Some(_)) => {}
+        (Some(true), None) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "capacity_assessment is required: record how capacity was assessed,                         not only that it was"
+                    .to_string(),
+                code: "CAPACITY_ASSESSMENT_REQUIRED".to_string(),
+            })
+        }
+        (Some(false), _) => {
+            return HttpResponse::UnprocessableEntity().json(ErrorResponse {
+                success: false,
+                error: "A patient assessed as lacking decision-making capacity cannot be                         discharged against medical advice. Escalate rather than filing an                         AMA discharge."
+                    .to_string(),
+                code: "PATIENT_LACKS_CAPACITY".to_string(),
+            })
+        }
+        (None, _) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "decision_making_capacity is required: an AMA discharge is only valid                         if the patient was assessed as able to refuse treatment"
+                    .to_string(),
+                code: "CAPACITY_DETERMINATION_REQUIRED".to_string(),
+            })
+        }
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let ama_id = format!("AMA-{}", uuid::Uuid::new_v4().simple());
@@ -79,14 +140,10 @@ pub async fn create_ama(
             .get("patient_verbalized_understanding")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        decision_making_capacity: body
-            .get("decision_making_capacity")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        capacity_assessment: body
-            .get("capacity_assessment")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        // Resolved above, under either spelling, and already validated: the
+        // handler refuses the request outright when capacity was not assessed.
+        decision_making_capacity: has_capacity.unwrap_or(false),
+        capacity_assessment: capacity_assessment.map(str::to_string),
         alternatives_offered: body.get("alternatives_offered").cloned(),
         patient_refused_alternatives: body
             .get("patient_refused_alternatives")
@@ -636,11 +693,66 @@ pub async fn respond_to_consult(
     }
 }
 
+/// What the consult request form actually submits.
+///
+/// `ConsultPage.tsx` posts camelCase, and this handler used to read snake_case
+/// out of an untyped `serde_json::Value` with `unwrap_or_default()` behind every
+/// lookup. Nothing matched. `patient_id` therefore resolved to `""`, which on
+/// PostgreSQL violated `consultation_notes_patient_id_fkey` and returned a 500 —
+/// and on the in-memory backend *succeeded*, filing a consult attached to
+/// nobody, with an empty specialty, an empty question and an empty requester.
+///
+/// A typed struct is the fix rather than adding camelCase lookups beside the
+/// snake_case ones: serde then refuses a body it cannot read instead of
+/// silently substituting a default, so the next rename fails loudly on the
+/// first request rather than quietly for months.
+///
+/// `alias` keeps the snake_case spellings working. Several already exist in
+/// stored `data` blobs and in the synthetic harness, and breaking them to fix a
+/// different caller would trade one silent mismatch for another.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateConsultRequest {
+    #[serde(rename = "patientId", alias = "patient_id")]
+    pub patient_id: String,
+    /// The specialty being asked, which is what `consultation_type` means.
+    #[serde(rename = "specialty", alias = "consultation_type", default)]
+    pub specialty: String,
+    #[serde(rename = "requestedBy", alias = "requesting_provider", default)]
+    pub requested_by: String,
+    #[serde(rename = "consultingProvider", alias = "consulting_provider", default)]
+    pub consulting_provider: String,
+    #[serde(rename = "reason", alias = "reason_for_consultation", default)]
+    pub reason: String,
+    #[serde(rename = "clinicalQuestion", alias = "clinical_question", default)]
+    pub clinical_question: Option<String>,
+    #[serde(rename = "relevantHistory", alias = "pertinent_history", default)]
+    pub relevant_history: Option<String>,
+    #[serde(default)]
+    pub urgency: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "requestedAt", alias = "requested_at", default)]
+    pub requested_at: Option<String>,
+    /// Context the specialist reads and the columns have no home for. Kept in
+    /// the JSON blob rather than dropped: a consult answered without the
+    /// medication list or the results that prompted it is answered blind.
+    #[serde(rename = "currentMedications", default)]
+    pub current_medications: Option<String>,
+    #[serde(rename = "vitalSigns", default)]
+    pub vital_signs: Option<String>,
+    #[serde(rename = "labResults", default)]
+    pub lab_results: Option<String>,
+    #[serde(rename = "imagingResults", default)]
+    pub imaging_results: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
 /// Create consultation note
 #[post("/api/clinical/consult")]
 pub async fn create_consult(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateConsultRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -664,83 +776,110 @@ pub async fn create_consult(
 
     let body = req.into_inner();
     let now = chrono::Utc::now();
+
+    // A consult is a request *about a patient*. An empty or unknown patient id
+    // used to reach the database and fail there as a foreign-key error, which
+    // is a 500 for what is a client mistake.
+    if body.patient_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id is required".to_string(),
+            code: "MISSING_PATIENT_ID".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&body.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", body.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+    // The question is the consult. Filing one without it produces a request the
+    // specialist cannot answer and the requester cannot chase.
+    let question = body
+        .clinical_question
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty());
+    if question.is_none() && body.reason.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "a consult needs a reason or a clinical question".to_string(),
+            code: "MISSING_FIELD".to_string(),
+        });
+    }
+
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let consult_id = format!("CON-{}", uuid::Uuid::new_v4().simple());
+    // The requester is the authenticated caller, not a name the client asserts.
+    let requesting_provider = if body.requested_by.trim().is_empty() {
+        current_user.wallet_address.clone()
+    } else {
+        body.requested_by.clone()
+    };
+    let requested_at = body
+        .requested_at
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or(now);
+
+    // `get_consult` and the platform list both serve `data`, so the blob has to
+    // carry everything the columns do plus the context they have no home for.
+    // Two read paths disagreeing about whether a consult was answered is a bug
+    // this endpoint has already produced once.
+    let blob = serde_json::json!({
+        "consult_id": consult_id,
+        "patient_id": body.patient_id,
+        "specialty": body.specialty,
+        "consultation_type": body.specialty,
+        "urgency": body.urgency,
+        "status": body.status.clone().unwrap_or_else(|| "requested".to_string()),
+        "reason": body.reason,
+        "clinical_question": body.clinical_question,
+        "relevant_history": body.relevant_history,
+        "current_medications": body.current_medications,
+        "vital_signs": body.vital_signs,
+        "lab_results": body.lab_results,
+        "imaging_results": body.imaging_results,
+        "notes": body.notes,
+        "requested_by": requesting_provider,
+        "requested_at": requested_at.to_rfc3339(),
+    });
+
     let entity = ConsultationNoteEntity {
         id: consult_id.clone(),
-        patient_id: body
-            .get("patient_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        consultation_type: body
-            .get("consultation_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        requesting_provider: body
-            .get("requesting_provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        consulting_provider: body
-            .get("consulting_provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        reason_for_consultation: body
-            .get("reason_for_consultation")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        clinical_question: body
-            .get("clinical_question")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        pertinent_history: body
-            .get("pertinent_history")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        examination_findings: body
-            .get("examination_findings")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        recommendations: body
-            .get("recommendations")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        follow_up_plan: body
-            .get("follow_up_plan")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        urgency: body
-            .get("urgency")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        status: body
-            .get("status")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        requested_at: body
-            .get("requested_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or(now),
-        completed_at: body
-            .get("completed_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
+        patient_id: body.patient_id.clone(),
+        consultation_type: body.specialty.clone(),
+        requesting_provider,
+        consulting_provider: body.consulting_provider.clone(),
+        reason_for_consultation: body.reason.clone(),
+        clinical_question: body.clinical_question.clone(),
+        pertinent_history: body.relevant_history.clone(),
+        examination_findings: None,
+        recommendations: String::new(),
+        follow_up_plan: None,
+        urgency: body.urgency.clone(),
+        // `requested` is the state every new consult starts in, and the
+        // `consultation_notes` CHECK constraint permits it.
+        status: Some(
+            body.status
+                .clone()
+                .unwrap_or_else(|| "requested".to_string()),
+        ),
+        requested_at,
+        completed_at: None,
         created_at: now,
         updated_at: now,
-        facility_id: body
-            .get("facility_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        facility_id: None,
         is_active: true,
-        data: body.clone(),
+        data: blob,
     };
 
     match data.repositories.consultation_notes.create(entity).await {
@@ -753,11 +892,14 @@ pub async fn create_consult(
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("consult could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The consultation request could not be saved".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -965,6 +1107,53 @@ mod consult_response_tests {
         );
     }
 
+    /// Put a patient on the record so a consult can be filed about them.
+    ///
+    /// `create_consult` refuses a `patient_id` that does not resolve. Before it
+    /// did, these tests filed consults about `"PAT-CONSULT-1"` — an id nothing
+    /// had ever created — and passed, which is exactly the state the refusal
+    /// exists to prevent: a consult request attached to nobody, discoverable by
+    /// no query and belonging to no chart.
+    async fn seed_patient(state: &AppState, patient_id: &str) {
+        let now = chrono::Utc::now();
+        state
+            .repositories
+            .patients
+            .create(crate::repositories::traits::PatientEntity {
+                id: patient_id.to_string(),
+                health_id: format!("HID-{patient_id}"),
+                national_id_hash: format!("hash-{patient_id}"),
+                national_id_type: "FaydaID".to_string(),
+                first_name_encrypted: None,
+                last_name_encrypted: None,
+                date_of_birth_encrypted: None,
+                gender: Some("Female".to_string()),
+                blood_type: Some("O+".to_string()),
+                phone_encrypted: None,
+                email_encrypted: None,
+                address_encrypted: None,
+                emergency_contact_name_encrypted: None,
+                emergency_contact_phone_encrypted: None,
+                emergency_contact_relationship: None,
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                primary_provider_id: None,
+                wallet_address: None,
+                created_at: now,
+                updated_at: now,
+                registered_by: None,
+                is_verified: false,
+                is_active: true,
+                profile_extras_encrypted: None,
+                key_version: 1,
+            })
+            .await
+            .expect("seed patient");
+    }
+
     /// Files a consult and yields its id.
     ///
     /// A macro rather than a function: `test::init_service` returns an opaque
@@ -1019,6 +1208,7 @@ mod consult_response_tests {
         )
         .await;
 
+        seed_patient(&app_state, "PAT-CONSULT-1").await;
         let consult_id = create_consult_id!(&app, "PAT-CONSULT-1");
 
         let resp = test::call_service(
@@ -1075,6 +1265,7 @@ mod consult_response_tests {
         )
         .await;
 
+        seed_patient(&app_state, "PAT-CONSULT-2").await;
         let consult_id = create_consult_id!(&app, "PAT-CONSULT-2");
         let body = serde_json::json!({
             "assessment": "First opinion.",
@@ -1120,6 +1311,7 @@ mod consult_response_tests {
         )
         .await;
 
+        seed_patient(&app_state, "PAT-CONSULT-3").await;
         let consult_id = create_consult_id!(&app, "PAT-CONSULT-3");
 
         let resp = test::call_service(
