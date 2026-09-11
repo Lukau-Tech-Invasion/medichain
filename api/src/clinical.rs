@@ -8396,6 +8396,16 @@ pub enum SymptomCheckStatus {
 // ============================================================================
 
 /// Telehealth session
+/// Fallback session length for records written before `duration_minutes`
+/// existed on this struct.
+///
+/// A stored session with no duration is not a zero-minute session; 60 is what
+/// `provision_session` hardcoded at the time those records were written, so it
+/// is the true value for every one of them.
+fn default_session_duration_minutes() -> u32 {
+    60
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelehealthSession {
     /// Session ID
@@ -8410,6 +8420,16 @@ pub struct TelehealthSession {
     pub session_type: TelehealthType,
     /// Scheduled start
     pub scheduled_start: i64,
+    /// How long the session was booked for, in minutes.
+    ///
+    /// Not cosmetic: `telehealth::CreateSessionParams` derives the join token's
+    /// expiry from it, so a room booked for two hours whose duration is not
+    /// carried expires while the consultation is still running. It was
+    /// hardcoded to 60 in `provision_session` and absent from this struct
+    /// entirely, so the number the clinician chose on the form reached nothing
+    /// and the list rendered a `?? 30` fallback for every session ever created.
+    #[serde(default = "default_session_duration_minutes")]
+    pub duration_minutes: u32,
     /// Actual start
     pub actual_start: Option<i64>,
     /// Actual end

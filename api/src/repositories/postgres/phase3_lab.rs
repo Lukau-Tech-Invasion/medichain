@@ -587,7 +587,8 @@ impl CriticalValueRepository for PgCriticalValueRepository {
                 id, patient_id, lab_panel_id, test_code, test_name, value, unit,
                 reference_low, reference_high, critical_low, critical_high,
                 severity, notified_provider_id, notification_method, notified_at,
-                acknowledged_at, acknowledged_by, action_taken, reported_by
+                acknowledged_at, acknowledged_by, action_taken, reported_by,
+                data
             ) ",
         );
 
@@ -610,7 +611,8 @@ impl CriticalValueRepository for PgCriticalValueRepository {
                 .push_bind(v.acknowledged_at)
                 .push_bind(&v.acknowledged_by)
                 .push_bind(&v.action_taken)
-                .push_bind(&v.reported_by);
+                .push_bind(&v.reported_by)
+                .push_bind(&v.data);
         });
 
         qb.push(" RETURNING *");
@@ -901,7 +903,8 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
             "INSERT INTO specimen_rejections (
                 id, specimen_id, patient_id, rejection_reason, rejection_category,
                 detailed_notes, rejected_by, rejected_at, recollection_required,
-                recollection_scheduled, notified_ordering_provider, notification_sent_at
+                recollection_scheduled, notified_ordering_provider, notification_sent_at,
+                data
             ) ",
         );
 
@@ -917,7 +920,8 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
                 .push_bind(r.recollection_required)
                 .push_bind(r.recollection_scheduled)
                 .push_bind(r.notified_ordering_provider)
-                .push_bind(r.notification_sent_at);
+                .push_bind(r.notification_sent_at)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

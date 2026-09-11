@@ -539,4 +539,68 @@ export async function doctorJourney(
     body: { wallet_address: colleague.wallet, name: 'Dr Browser Test Two', role: 'Nurse' },
   });
   j.status('a doctor cannot assign roles', roles.status, [401, 403], roles.json);
+
+  // --- The card the whole product is named for ---------------------------
+  await runHealthIdCardSteps(j, doctor, patient);
+}
+
+/**
+ * The health ID card, end to end.
+ *
+ * MediChain's headline is a paramedic tapping a card. Four endpoints have
+ * backed it since the beginning and, until `HealthIdCardsPage` was built, no
+ * screen in either application called any of them -- so this path had never
+ * been exercised by anything but curl. Worse, `CardRegistry` had no storage
+ * behind it, so a card issued here and read back in the same process looked
+ * perfect and was gone at the next restart.
+ *
+ * Split out of `runDoctorJourney` so the function stays inside the 60-line
+ * branching budget; called at the end of it.
+ */
+export async function runHealthIdCardSteps(
+  j: Journal,
+  doctor: Session,
+  patient: string
+): Promise<void> {
+  // HealthIdCardsPage.tsx: generateNFCCard -> POST /api/nfc/generate
+  const issue = await http('POST', '/nfc/generate', {
+    token: doctor.token,
+    body: { patient_id: patient, national_id_type: 'ghana' },
+  });
+  const issued = j.status('a health ID card is issued', issue.status, [200, 201], issue.json);
+
+  if (!issued) {
+    j.skip('the issued card is findable by patient', 'the card was not issued');
+    j.skip('the card records the ID type the clinician chose', 'the card was not issued');
+    return;
+  }
+
+  const cardHash = String(issue.json.card_hash ?? '');
+  j.record(
+    'the issued card comes back with a hash to tap',
+    cardHash.length > 0,
+    'a card with no hash is a card no reader can match'
+  );
+
+  // getCardInfo -> GET /api/nfc/card/{patient_id}
+  const found = await http('GET', `/nfc/card/${patient}`, { token: doctor.token });
+  const card = (found.json.card ?? found.json) as Record<string, unknown>;
+  j.record(
+    'the issued card is findable by patient',
+    found.status === 200 && String(card.card_hash ?? '') === cardHash,
+    `lookup answered ${found.status} with ${JSON.stringify(found.json).slice(0, 200)}`
+  );
+  j.record(
+    'the card records the ID type the clinician chose',
+    String(card.national_id_type ?? '').includes('Ghana'),
+    `stored ID type was ${JSON.stringify(card.national_id_type)} — a Ghana Card issued as ` +
+      `"Other ID" is verified against no national ID system at all`
+  );
+
+  // An unknown ID type is refused rather than silently becoming `Other`.
+  const bogus = await http('POST', '/nfc/generate', {
+    token: doctor.token,
+    body: { patient_id: patient, national_id_type: 'ghanacrd' },
+  });
+  j.status('a misspelt national ID type is refused', bogus.status, [400], bogus.json);
 }

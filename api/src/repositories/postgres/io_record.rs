@@ -25,7 +25,8 @@ impl IORecordRepository for PgIORecordRepository {
             "INSERT INTO io_records (
                 id, patient_id, record_date, shift, oral_intake, iv_intake, tube_feeding,
                 other_intake, urine_output, emesis, drainage, stool, other_output,
-                intake_items, output_items, notes, recorded_by, verified_by, facility_id
+                intake_items, output_items, notes, recorded_by, verified_by, facility_id,
+                data
             ) ",
         );
 
@@ -48,7 +49,8 @@ impl IORecordRepository for PgIORecordRepository {
                 .push_bind(&e.notes)
                 .push_bind(&e.recorded_by)
                 .push_bind(&e.verified_by)
-                .push_bind(&e.facility_id);
+                .push_bind(&e.facility_id)
+                .push_bind(&e.data);
         });
 
         qb.push(" RETURNING *");

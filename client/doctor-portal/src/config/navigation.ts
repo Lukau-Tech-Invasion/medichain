@@ -29,6 +29,7 @@ import {
   TestTube,
   Image,
   UserCog,
+  CreditCard,
   Calendar,
   ClipboardList,
   Siren,
@@ -200,7 +201,10 @@ export const ADMIN_NAV: NavSection[] = [
     icon: ShieldAlert,
     items: [
       { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText, priority: 'high' },
-      { id: 'barcode', to: '/barcode', label: 'NFC/Barcode Registry', icon: FileCheck },
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard, priority: 'high' },
+      // Renamed: this route is the barcode SCANNER. Calling it a registry
+      // is what hid the absence of an actual card registry for so long.
+      { id: 'barcode', to: '/barcode', label: 'Barcode Scanner', icon: FileCheck },
       { id: 'cds-alerts', to: '/cds-alerts', label: 'CDS Alerts', icon: Bell },
     ],
   },
@@ -264,6 +268,10 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'my-patients', to: '/patients', label: 'My Patients', icon: Users, priority: 'high' },
       { id: 'register', to: '/register', label: 'Register Patient', icon: UserPlus },
+      // Issued at registration, by the clinician in front of the patient --
+      // which is why this sits beside Register Patient rather than in an
+      // administrative section.
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard },
       { id: 'appointments', to: '/appointments', label: 'Appointments', icon: Calendar },
     ],
   },
@@ -387,6 +395,7 @@ export const NURSE_NAV: NavSection[] = [
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'my-patients', to: '/patients', label: 'My Patients', icon: Users, priority: 'high' },
       { id: 'register', to: '/register', label: 'Register Patient', icon: UserPlus },
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard },
       { id: 'handoff', to: '/shift-handoff', label: 'Shift Handoff', icon: Clock, priority: 'high' },
     ],
   },

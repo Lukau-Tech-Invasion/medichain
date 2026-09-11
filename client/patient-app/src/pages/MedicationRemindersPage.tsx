@@ -32,7 +32,17 @@ export function MedicationRemindersPage() {
   const [error, setError] = useState<string | null>(null);
   const [medication, setMedication] = useState('');
   const [dosage, setDosage] = useState('');
-  const [frequency, setFrequency] = useState('');
+  // The API's own vocabulary, not free text. This was an open input, so
+  // anything the patient typed that the backend did not recognise was stored as
+  // "daily" -- "twice a day" became one reminder a day -- and a blank one failed
+  // deserialization with a bare 400 the form rendered as a generic save error.
+  const [frequency, setFrequency] = useState('daily');
+  // Which channels to remind on. The scheduler reads all three; nothing sent
+  // them, so `sms` and `email` were false on every reminder ever created and
+  // the SMS branch was unreachable from the only screen that creates one.
+  const [notifyPush, setNotifyPush] = useState(true);
+  const [notifySms, setNotifySms] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState(false);
   // Times as the patient types them, one per line. Not defaulted to a plausible
   // schedule: a reminder nobody set a time for is not a reminder.
   const [times, setTimes] = useState('');
@@ -81,16 +91,20 @@ export function MedicationRemindersPage() {
         patient_id: patient.healthId,
         medication_name: medication.trim(),
         dosage: dosage.trim(),
-        // Sent only when the patient typed one. An absent frequency is absent,
-        // not "daily".
-        frequency: frequency.trim() || undefined,
+        frequency,
         reminder_times: reminderTimes,
         start_date: new Date().toISOString().slice(0, 10),
+        push_notification: notifyPush,
+        sms: notifySms,
+        email: notifyEmail,
       });
       setMedication('');
       setDosage('');
-      setFrequency('');
+      setFrequency('daily');
       setTimes('');
+      setNotifyPush(true);
+      setNotifySms(false);
+      setNotifyEmail(false);
       setShowForm(false);
       await load(patient.healthId);
     } catch (err) {
@@ -165,14 +179,48 @@ export function MedicationRemindersPage() {
             <label htmlFor="reminder-frequency" className="block text-sm font-medium mb-1">
               {t('medications.reminderFrequencyLabel')}
             </label>
-            <input
+            <select
               id="reminder-frequency"
               className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
-              autoComplete="off"
-            />
+            >
+              <option value="once">{t('medications.freqOnce')}</option>
+              <option value="daily">{t('medications.freqDaily')}</option>
+              <option value="twice_daily">{t('medications.freqTwiceDaily')}</option>
+              <option value="three_times_daily">{t('medications.freqThreeTimesDaily')}</option>
+              <option value="weekly">{t('medications.freqWeekly')}</option>
+              <option value="as_needed">{t('medications.freqAsNeeded')}</option>
+            </select>
           </div>
+          <fieldset className="border border-border-interactive rounded-lg p-3">
+            <legend className="text-sm font-medium px-1">{t('medications.notifyLegend')}</legend>
+            <label className="flex items-center gap-2 text-sm py-1">
+              <input
+                type="checkbox"
+                checked={notifyPush}
+                onChange={(e) => setNotifyPush(e.target.checked)}
+              />
+              {t('medications.notifyPush')}
+            </label>
+            <label className="flex items-center gap-2 text-sm py-1">
+              <input
+                type="checkbox"
+                checked={notifySms}
+                onChange={(e) => setNotifySms(e.target.checked)}
+              />
+              {t('medications.notifySms')}
+            </label>
+            <label className="flex items-center gap-2 text-sm py-1">
+              <input
+                type="checkbox"
+                checked={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.checked)}
+              />
+              {t('medications.notifyEmail')}
+            </label>
+            <p className="text-xs text-content-muted mt-1">{t('medications.notifySmsNote')}</p>
+          </fieldset>
           <div>
             <label htmlFor="reminder-times" className="block text-sm font-medium mb-1">
               {t('medications.reminderTimesLabel')}

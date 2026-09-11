@@ -34,7 +34,8 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
                 ambulatory_aid, iv_therapy, gait_status, mental_status,
                 additional_factors, interventions, environmental_hazards, medications,
                 recent_fall, mobility, notes, assessed_by, assessed_at,
-                next_assessment_due, facility_id
+                next_assessment_due, facility_id,
+                data
             ) ",
         );
 
@@ -68,7 +69,8 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
                 .push_bind(&a.assessed_by)
                 .push_bind(a.assessed_at)
                 .push_bind(a.next_assessment_due)
-                .push_bind(&a.facility_id);
+                .push_bind(&a.facility_id)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");

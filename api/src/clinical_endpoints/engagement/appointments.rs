@@ -237,6 +237,11 @@ pub async fn book_appointment(
             scheduled_start,
             crate::clinical::TelehealthType::VideoVisit,
             false,
+            // The room is booked for as long as the appointment is. It used to
+            // be a fixed 60 regardless, so a 15-minute follow-up minted a link
+            // valid for 90 minutes and a 2-hour appointment's link expired
+            // halfway through the consultation.
+            u32::from(duration_minutes),
         )
         .await
         {
@@ -569,7 +574,16 @@ pub async fn check_in_appointment(
     // the patient. This previously allowed the patient only, so the doctor
     // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
     // WF-007).
-    let is_patient = current_user_id == appointment.patient_id;
+    // Resolved through `linked_patient_id`, not compared directly: the caller id
+    // is a wallet address and `appointment.patient_id` is a `PAT-` id, so a
+    // bare `==` is false for every patient who has ever tried to check
+    // themselves in. Clinical staff were unaffected, which is why the patient
+    // half of this went unnoticed after WF-007 fixed the clinician half.
+    let is_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user_id,
+        &appointment.patient_id,
+    );
     let is_clinical_staff =
         crate::get_user(&data, &current_user_id).is_some_and(|u| u.role.is_healthcare_provider());
     if !is_patient && !is_clinical_staff {
@@ -1059,6 +1073,23 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
             &appointment.patient_id,
             &format!("Appointment with {}", appointment.provider_name),
         );
+
+        // The patient's own setting, finally read by something. A reminder is
+        // suppressed rather than merely unsent: the difference matters to an
+        // operator looking at why a patient says they were never told.
+        if !crate::notifications::patient_wants(
+            data,
+            &appointment.patient_id,
+            &["appointmentReminders", "pushNotifications"],
+        )
+        .await
+        {
+            log::info!(
+                "APPOINTMENT_REMINDER_SUPPRESSED: patient={} opted out",
+                appointment.patient_id
+            );
+            continue;
+        }
 
         let patient_id = appointment.patient_id.clone();
         let provider_name = appointment.provider_name.clone();

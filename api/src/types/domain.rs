@@ -573,6 +573,28 @@ pub fn enc_patient_field(
         .map(|e| e.to_bytes())
 }
 
+/// Decrypt one stored `(nonce || ciphertext)` field back to its UTF-8 string.
+///
+/// The read half of [`enc_patient_field`], which had no counterpart. Without
+/// one, a caller needing a single field either decrypted the entire profile
+/// blob or — as the medication-reminder scheduler did — gave up and substituted
+/// a placeholder.
+///
+/// `None` for an absent field, a key version this process does not hold, a blob
+/// that will not decrypt, or bytes that are not UTF-8. A caller must not be able
+/// to mistake a decryption failure for a patient who has no phone number.
+pub fn dec_patient_field(
+    ciphertext: Option<&Vec<u8>>,
+    key_version: i32,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> Option<String> {
+    let blob = ciphertext?;
+    let key = keyring.get(key_version as u32)?;
+    let ed = medichain_crypto::EncryptedData::from_bytes(blob).ok()?;
+    let bytes = medichain_crypto::decrypt(key, &ed).ok()?;
+    String::from_utf8(bytes).ok()
+}
+
 /// Convert a rich `PatientProfile` into a database `PatientEntity`, encrypting PHI
 /// with the keyring's *current* version and stamping that version onto the row
 /// (Phase 6.3 — key rotation).

@@ -176,6 +176,25 @@ jobs:
             - name: No handler reads a body key its callers never send
               run: python scripts/check-untyped-body-keys.py
 
+            # An INSERT whose column list and bind chain have drifted apart.
+            #
+            # `QueryBuilder` joins a string literal to a sequence of method
+            # calls, so a column added without its bind compiles, lints clean,
+            # and passes every in-memory test -- the default backend for
+            # development -- while PostgreSQL rejects it at run time. Twenty-one
+            # of these statements gained a column by hand in 20260911000001.
+            - name: Every insert binds the columns it names
+              run: python scripts/check-insert-bind-arity.py
+
+            # A hand-rolled fetch that mutates but sends no Idempotency-Key.
+            #
+            # The middleware refuses an authenticated mutation without one, so
+            # such a call is a Save button that cannot work. Thirty-nine files
+            # still bypass the typed client that attaches it; this keeps the
+            # count from going up while they are migrated.
+            - name: Every mutating raw fetch sends what the API requires
+              run: python scripts/check-raw-fetch-mutations.py
+
             # WCAG AA contrast, checked at the design tokens rather than at a
             # rendered pixel, so it holds for both themes.
             - name: Colour tokens meet WCAG AA contrast

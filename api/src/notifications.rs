@@ -495,6 +495,62 @@ pub async fn dispatch_breach_notification(
 // Convenience helpers for clinical event types
 // ---------------------------------------------------------------------------
 
+/// Whether this patient has asked to receive notifications of this kind.
+///
+/// `SettingsPage` has saved a `notifications` block since it was written --
+/// `appointmentReminders`, `pushNotifications`, `emailNotifications` and the
+/// rest -- and until now nothing read it. Every dispatcher pushed regardless, so
+/// turning a toggle off changed a stored value and nothing else. A preference
+/// a system records and ignores is worse than one it does not offer: the
+/// patient believes they have opted out.
+///
+/// **Absent means yes.** A patient with no stored settings has not opted out of
+/// anything, and a reminder is the thing they came for; defaulting to silence
+/// would mean a deployment that had never shown the settings screen sent
+/// nobody anything. Only an explicit `false` suppresses.
+///
+/// Keyed by patient id because that is what a dispatcher has; settings are
+/// stored against the wallet, and `linked_patient_id` is the bridge.
+pub async fn patient_wants(
+    data: &crate::AppState,
+    patient_id: &str,
+    keys: &[&str],
+) -> bool {
+    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+        // No account is linked to this record, so there is no one to have
+        // expressed a preference. Send.
+        return true;
+    };
+    let Ok(settings) = crate::handlers::load_settings(data, &wallet).await else {
+        // Storage is unavailable. Failing loud (sending) beats failing silent
+        // (not sending): a missed appointment reminder has a cost and a
+        // duplicate one does not.
+        log::warn!("notification preferences for {patient_id} could not be read; sending anyway");
+        return true;
+    };
+    let Some(block) = settings.get("notifications") else {
+        return true;
+    };
+    // Every named key must be on for the message to go. `appointmentReminders`
+    // says what this message is; `pushNotifications` says whether this channel
+    // is wanted at all, and off means off.
+    keys.iter()
+        .all(|key| block.get(key).and_then(serde_json::Value::as_bool) != Some(false))
+}
+
+/// The wallet address of the account linked to this patient record.
+///
+/// Reads the authorization cache rather than the database: it is already in
+/// memory, it holds exactly the active accounts, and a dispatcher running every
+/// minute should not open a connection to answer this.
+fn wallet_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String> {
+    let users = data.users.read().ok()?;
+    users
+        .values()
+        .find(|user| user.linked_patient_id.as_deref() == Some(patient_id))
+        .map(|user| user.wallet_address.clone())
+}
+
 pub async fn notify_appointment(
     repos: &RepositoryContainer,
     patient_user_id: &str,
@@ -754,5 +810,79 @@ mod tests {
         assert_eq!(result.security_officers_notified, 0);
         assert_eq!(result.regulator_emails_notified, 2);
         std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
+    }
+}
+
+#[cfg(test)]
+mod preference_tests {
+    use super::*;
+    use crate::{AppState, Role, User};
+    use actix_web::web;
+
+    fn state_with_linked_patient(wallet: &str, patient_id: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        let user = User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Journey Patient".to_string(),
+            role: Role::Patient,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: Some(patient_id.to_string()),
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(wallet.to_string(), user);
+        web::Data::new(state)
+    }
+
+    /// A patient who has never opened the settings screen has not opted out.
+    #[actix_rt::test]
+    async fn absent_preferences_do_not_suppress() {
+        let data = state_with_linked_patient("5Wallet-A", "PAT-PREF-A");
+        assert!(patient_wants(&data, "PAT-PREF-A", &["appointmentReminders"]).await);
+    }
+
+    /// A record with no account linked to it has nobody to have expressed a
+    /// preference, so it must not be treated as an opt-out.
+    #[actix_rt::test]
+    async fn an_unlinked_patient_record_still_receives() {
+        let data = state_with_linked_patient("5Wallet-B", "PAT-PREF-B");
+        assert!(patient_wants(&data, "PAT-NOBODY", &["appointmentReminders"]).await);
+    }
+
+    /// An explicit `false` on any named key suppresses the message. This is the
+    /// behaviour the settings screen has been promising and nothing delivered.
+    #[actix_rt::test]
+    async fn an_explicit_opt_out_suppresses() {
+        let data = state_with_linked_patient("5Wallet-C", "PAT-PREF-C");
+        crate::handlers::persist_settings_for_test(
+            &data,
+            "5Wallet-C",
+            serde_json::json!({"notifications": {"appointmentReminders": false}}),
+        )
+        .await;
+
+        assert!(!patient_wants(&data, "PAT-PREF-C", &["appointmentReminders"]).await);
+        // A key that is not the one turned off still goes.
+        assert!(patient_wants(&data, "PAT-PREF-C", &["recordUpdates"]).await);
+        // Any `false` among the named keys is enough to suppress.
+        assert!(
+            !patient_wants(
+                &data,
+                "PAT-PREF-C",
+                &["pushNotifications", "appointmentReminders"]
+            )
+            .await
+        );
     }
 }

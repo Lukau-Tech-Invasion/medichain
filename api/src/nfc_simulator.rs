@@ -105,6 +105,28 @@ impl NationalIdType {
     }
 }
 
+impl std::str::FromStr for NationalIdType {
+    type Err = String;
+
+    /// Read back what [`Display`] wrote, i.e. a `display_name()`.
+    ///
+    /// Stored cards carry the display name because that is what the handler
+    /// writes into `nfc_tags.tag_type`. `Other` is a real variant rather than a
+    /// fallback, so an unrecognised string is an error: a Ghana Card that came
+    /// back as "Other ID" would be a quietly corrupted record.
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "Fayda ID (Ethiopia)" => Ok(NationalIdType::FaydaId),
+            "Ghana Card" => Ok(NationalIdType::GhanaCard),
+            "NIN (Nigeria)" => Ok(NationalIdType::NigeriaNIN),
+            "Smart ID (South Africa)" => Ok(NationalIdType::SouthAfricaSmartId),
+            "Huduma Namba (Kenya)" => Ok(NationalIdType::KenyaHuduma),
+            "Other ID" => Ok(NationalIdType::Other),
+            other => Err(format!("unknown national ID type '{other}'")),
+        }
+    }
+}
+
 impl std::fmt::Display for NationalIdType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.display_name())
@@ -122,6 +144,26 @@ pub enum CardStatus {
     Revoked,
     /// Card has expired
     Expired,
+}
+
+impl std::str::FromStr for CardStatus {
+    type Err = String;
+
+    /// Read back what [`Display`] wrote.
+    ///
+    /// Storage keeps the status as its own name rather than as a boolean, so
+    /// this is the other half of that round trip. An unrecognised value is an
+    /// error rather than a silent `Active`: a card whose status could not be
+    /// read must not become usable by default.
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "Active" => Ok(CardStatus::Active),
+            "Suspended" => Ok(CardStatus::Suspended),
+            "Revoked" => Ok(CardStatus::Revoked),
+            "Expired" => Ok(CardStatus::Expired),
+            other => Err(format!("unknown card status '{other}'")),
+        }
+    }
 }
 
 impl std::fmt::Display for CardStatus {
@@ -334,7 +376,17 @@ pub fn generate_qr_image(data: &QRCodeData) -> Result<String, String> {
 // CARD REGISTRY (In-Memory Storage for Demo)
 // ============================================================================
 
-/// In-memory registry of NFC cards for demo purposes
+/// The in-process index of issued health ID cards.
+///
+/// A cache, not the record. Every card is written to `nfc_tags` through
+/// `AppState::persist_card`, and [`CardRegistry::hydrate`] refills this from
+/// that table at startup -- the same active-cache-over-durable-store shape as
+/// `AppState::users`.
+///
+/// It was neither, until 2026-09-11: a pair of `RwLock<HashMap>` with nothing
+/// behind them, so every card issued was gone when the process stopped, while
+/// the physical card in the patient's wallet kept working right up to the tap
+/// that answered `CARD_NOT_FOUND`.
 pub struct CardRegistry {
     cards: RwLock<HashMap<String, NFCCard>>,
     patient_to_card: RwLock<HashMap<String, String>>,
@@ -347,6 +399,25 @@ impl CardRegistry {
             cards: RwLock::new(HashMap::new()),
             patient_to_card: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Refill the index from durable storage.
+    ///
+    /// Replaces the contents wholesale rather than merging: this runs at
+    /// startup, before anything can have issued a card, and a merge would make
+    /// the outcome depend on ordering that does not exist yet.
+    ///
+    /// Returns how many cards were loaded.
+    pub fn hydrate(&self, loaded: Vec<NFCCard>) -> Result<usize, String> {
+        let mut cards = self.cards.write().map_err(|_| "Lock poisoned")?;
+        let mut patient_to_card = self.patient_to_card.write().map_err(|_| "Lock poisoned")?;
+        cards.clear();
+        patient_to_card.clear();
+        for card in loaded {
+            patient_to_card.insert(card.patient_id.clone(), card.card_hash.clone());
+            cards.insert(card.card_hash.clone(), card);
+        }
+        Ok(cards.len())
     }
 
     /// Register a new card
@@ -365,6 +436,23 @@ impl CardRegistry {
         patient_to_card.insert(card.patient_id.clone(), card.card_hash.clone());
         cards.insert(card.card_hash.clone(), card);
 
+        Ok(())
+    }
+
+    /// Remove a card from the index.
+    ///
+    /// Exists for one caller: `POST /api/nfc/generate` registers into the index
+    /// before it stores, because the index is what enforces
+    /// one-card-per-patient, and it has to be able to undo that when storage
+    /// refuses. Without this, a failed issue would leave the patient
+    /// permanently unable to be issued a card -- the index would insist they
+    /// already had one that no storage had ever heard of.
+    pub fn forget_card(&self, card_hash: &str) -> Result<(), String> {
+        let mut cards = self.cards.write().map_err(|_| "Lock poisoned")?;
+        let mut patient_to_card = self.patient_to_card.write().map_err(|_| "Lock poisoned")?;
+        if let Some(card) = cards.remove(card_hash) {
+            patient_to_card.remove(&card.patient_id);
+        }
         Ok(())
     }
 

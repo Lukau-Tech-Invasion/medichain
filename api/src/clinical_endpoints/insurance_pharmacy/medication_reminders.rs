@@ -11,6 +11,36 @@ use super::*;
 // PHASE 20: MEDICATION REMINDERS
 // ============================================================================
 
+/// The reminder frequencies a caller may name.
+///
+/// Published in the refusal so a client that sends the wrong word is told which
+/// words are right. `ReminderFrequency` has five more variants than this
+/// (`FourTimesDaily`, `EveryOtherDay`, `Biweekly`, `Monthly`, `Custom`); they
+/// are deliberately absent because no screen offers them and accepting a value
+/// nothing can produce is how a vocabulary drifts out of step with its callers.
+pub(crate) const REMINDER_FREQUENCIES: [&str; 6] = [
+    "once",
+    "daily",
+    "twice_daily",
+    "three_times_daily",
+    "weekly",
+    "as_needed",
+];
+
+/// Resolve a reminder frequency, or `None` if it is not one.
+pub(crate) fn parse_reminder_frequency(raw: &str) -> Option<crate::clinical::ReminderFrequency> {
+    use crate::clinical::ReminderFrequency;
+    match raw.trim() {
+        "once" => Some(ReminderFrequency::Once),
+        "daily" => Some(ReminderFrequency::Daily),
+        "twice_daily" => Some(ReminderFrequency::TwiceDaily),
+        "three_times_daily" => Some(ReminderFrequency::ThreeTimesDaily),
+        "weekly" => Some(ReminderFrequency::Weekly),
+        "as_needed" => Some(ReminderFrequency::AsNeeded),
+        _ => None,
+    }
+}
+
 /// Create medication reminder request
 #[derive(Debug, Deserialize)]
 pub struct CreateMedicationReminderRequest {
@@ -45,7 +75,13 @@ pub async fn create_medication_reminder(
     };
 
     // Patient can create for self, provider can create for any patient
-    let is_own_reminder = current_user_id == req.patient_id;
+    // A wallet address is never equal to a `PAT-` id, so this comparison was
+    // `false` for every patient who has ever used it: nobody could set a
+    // reminder for themselves, and the only screen that creates one is in the
+    // patient app. `caller_owns_patient_record` resolves the caller's
+    // `linked_patient_id`, which is the link the two namespaces actually share.
+    let is_own_reminder =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &req.patient_id);
 
     if !is_own_reminder && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -56,14 +92,23 @@ pub async fn create_medication_reminder(
         });
     }
 
-    let frequency = match req.frequency.as_str() {
-        "once" => crate::clinical::ReminderFrequency::Once,
-        "daily" => crate::clinical::ReminderFrequency::Daily,
-        "twice_daily" => crate::clinical::ReminderFrequency::TwiceDaily,
-        "three_times_daily" => crate::clinical::ReminderFrequency::ThreeTimesDaily,
-        "weekly" => crate::clinical::ReminderFrequency::Weekly,
-        "as_needed" => crate::clinical::ReminderFrequency::AsNeeded,
-        _ => crate::clinical::ReminderFrequency::Daily,
+    // Refused, not defaulted. `_ => Daily` turned every frequency this match
+    // did not recognise into a daily reminder -- including the ones a patient
+    // typed into what was a free-text field -- so "twice a day" was stored, and
+    // reminded, once a day.
+    let frequency = match parse_reminder_frequency(&req.frequency) {
+        Some(frequency) => frequency,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "Unknown frequency '{}'. Expected one of: {}",
+                    req.frequency,
+                    REMINDER_FREQUENCIES.join(", ")
+                ),
+                code: "UNKNOWN_FREQUENCY".to_string(),
+            });
+        }
     };
 
     let reminder = crate::clinical::MedicationReminder {
@@ -376,28 +421,29 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
         }
 
         // Africa's Talking SMS integration (when SMS_ENABLED=true)
+        //
+        // The number is decrypted here. This branch used to resolve an
+        // encrypted phone to the literal string "Redacted" and then guard on
+        // `phone != "Redacted"`, so it could never be taken: a patient who
+        // opted into SMS medication reminders received nothing, silently and
+        // permanently, and the log line above still reported `sms=true`.
         if reminder.notification_prefs.sms {
-            // Get patient phone from repository
             let patient_phone = match data
                 .repositories
                 .patients
                 .get_by_id(&reminder.patient_id)
                 .await
             {
-                Ok(p) => {
-                    if p.phone_encrypted.is_some() {
-                        // Phone is encrypted in Phase 2, but for SMS we'd need to decrypt it.
-                        // For demo, we use a placeholder or check if a plain phone field exists.
-                        Some("Redacted".to_string())
-                    } else {
-                        None
-                    }
-                }
+                Ok(p) => crate::types::dec_patient_field(
+                    p.phone_encrypted.as_ref(),
+                    p.key_version,
+                    &data.encryption_keyring,
+                ),
                 Err(_) => None,
             };
 
-            if let Some(phone) = patient_phone {
-                if phone != "Redacted" {
+            match patient_phone {
+                Some(phone) => {
                     let body = crate::notifications::SmsTemplate::MedicationReminder {
                         medication: reminder.medication_name.clone(),
                     }
@@ -415,6 +461,13 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
                         log::info!("[sms] medication reminder delivery status: {:?}", status);
                     });
                 }
+                // Said out loud rather than dropped. A patient who asked for
+                // SMS and has no readable number is not being reminded, and an
+                // operator has to be able to find out that this is why.
+                None => log::warn!(
+                    "[sms] medication reminder for {} not sent: no readable phone number on file",
+                    reminder.patient_id
+                ),
             }
         }
     }

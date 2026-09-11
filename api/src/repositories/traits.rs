@@ -281,6 +281,13 @@ pub struct MedicalRecordEntity {
     pub is_active: bool,
     pub is_locked: bool,
 }
+/// The status a stored card carries when the row predates the `status` column.
+///
+/// Every such row was written by a code path that could only produce an active
+/// card, so this is the true value for all of them rather than a placeholder.
+fn default_tag_status() -> String {
+    "Active".to_string()
+}
 
 /// NFC tag entity (database model)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -290,6 +297,16 @@ pub struct NfcTagEntity {
     pub patient_id: String,
     pub tag_type: String,
     pub is_active: bool,
+    /// Why the card is or is not usable: `Active`, `Suspended`, `Revoked` or
+    /// `Expired`.
+    ///
+    /// `is_active` stays the predicate every existing reader asks, and this
+    /// narrows it to the reason. A boolean cannot tell a suspended card, which
+    /// an administrator can reinstate, from a revoked one, which nobody can --
+    /// and collapsing the two loses the difference permanently the first time a
+    /// card is read back from storage.
+    #[serde(default = "default_tag_status")]
+    pub status: String,
     #[serde(skip_serializing)]
     pub pin_hash: Option<String>,
     pub issued_at: DateTime<Utc>,
@@ -884,7 +901,14 @@ pub struct IORecordEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -914,7 +938,14 @@ pub struct WoundAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1000,7 +1031,14 @@ pub struct FallRiskAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1606,7 +1644,14 @@ pub struct CriticalValueEntity {
     pub action_taken: Option<String>,
     pub reported_by: String,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1660,7 +1705,14 @@ pub struct SpecimenRejectionEntity {
     pub notified_ordering_provider: bool,
     pub notification_sent_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1912,7 +1964,14 @@ pub struct IntubationRecordEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1953,7 +2012,14 @@ pub struct LacerationRepairEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1989,7 +2055,14 @@ pub struct SplintCastRecordEntity {
     pub applied_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2143,7 +2216,14 @@ pub struct BloodTypeScreenEntity {
     pub expiration_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2216,7 +2296,14 @@ pub struct TransfusionRecordEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2263,7 +2350,14 @@ pub struct EPrescriptionEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2998,7 +3092,14 @@ pub struct BurnAssessmentEntity {
     pub urine_output_ml_hr: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3047,7 +3148,14 @@ pub struct PsychiatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3092,7 +3200,14 @@ pub struct ToxicologyAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3140,7 +3255,14 @@ pub struct PediatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3202,7 +3324,14 @@ pub struct ObstetricEmergencyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3382,7 +3511,14 @@ pub struct DischargeInstructionsEntity {
     pub provided_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3424,7 +3560,14 @@ pub struct AmaDischargeEntity {
     pub nurse_notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3465,7 +3608,14 @@ pub struct ShiftHandoffEntity {
     pub handoff_tool_used: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3580,7 +3730,14 @@ pub struct EmsHandoffEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3674,7 +3831,14 @@ pub struct ChainOfCustodyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }

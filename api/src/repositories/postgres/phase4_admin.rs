@@ -732,7 +732,8 @@ impl DischargeInstructionsRepository for PgDischargeInstructionsRepository {
                 special_instructions, equipment_needed, home_health_arranged,
                 transportation_arranged, pharmacy_notified, printed_at, emailed_at,
                 patient_portal_posted, acknowledged_by_patient, acknowledged_at,
-                witness_signature, provided_by
+                witness_signature, provided_by,
+                data
             ) ",
         );
 
@@ -768,7 +769,8 @@ impl DischargeInstructionsRepository for PgDischargeInstructionsRepository {
                 .push_bind(i.acknowledged_by_patient)
                 .push_bind(i.acknowledged_at)
                 .push_bind(&i.witness_signature)
-                .push_bind(&i.provided_by);
+                .push_bind(&i.provided_by)
+                .push_bind(&i.data);
         });
 
         qb.push(" RETURNING *");
@@ -909,7 +911,8 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 follow_up_offered, follow_up_instructions, patient_contact_info_verified,
                 emergency_contact_notified, belongings_returned, security_escort,
                 police_notified, social_work_notified, documentation_complete,
-                physician_narrative, nurse_notes
+                physician_narrative, nurse_notes,
+                data
             ) ",
         );
 
@@ -944,7 +947,8 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 .push_bind(d.social_work_notified)
                 .push_bind(d.documentation_complete)
                 .push_bind(&d.physician_narrative)
-                .push_bind(&d.nurse_notes);
+                .push_bind(&d.nurse_notes)
+                .push_bind(&d.data);
         });
 
         qb.push(" RETURNING *");
@@ -1096,7 +1100,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
                 isolation_precautions, fall_risk_level, skin_integrity_issues,
                 iv_access, drains_tubes, family_concerns, anticipated_disposition,
                 contingency_plans, questions_asked, read_back_confirmed,
-                acknowledged_by_incoming, acknowledged_at, handoff_tool_used
+                acknowledged_by_incoming, acknowledged_at, handoff_tool_used,
+                data
             ) ",
         );
 
@@ -1130,7 +1135,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
                 .push_bind(h.read_back_confirmed)
                 .push_bind(h.acknowledged_by_incoming)
                 .push_bind(h.acknowledged_at)
-                .push_bind(&h.handoff_tool_used);
+                .push_bind(&h.handoff_tool_used)
+                .push_bind(&h.data);
         });
 
         qb.push(" RETURNING *");

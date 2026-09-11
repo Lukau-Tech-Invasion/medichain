@@ -727,7 +727,7 @@ impl RepositoryContainer {
 
         let mut nfc_q: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
             "INSERT INTO nfc_tags (id, tag_uid, patient_id, tag_type, is_active, pin_hash, \
-             issued_at, expires_at, last_used_at, use_count, issued_by) ",
+             issued_at, expires_at, last_used_at, use_count, issued_by, status) ",
         );
         nfc_q.push_values([&nfc], |mut b, t| {
             b.push_bind(&t.id)
@@ -740,7 +740,8 @@ impl RepositoryContainer {
                 .push_bind(t.expires_at)
                 .push_bind(t.last_used_at)
                 .push_bind(t.use_count)
-                .push_bind(&t.issued_by);
+                .push_bind(&t.issued_by)
+                .push_bind(&t.status);
         });
         nfc_q.build().execute(&mut *tx).await?;
 

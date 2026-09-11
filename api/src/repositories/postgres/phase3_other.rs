@@ -602,7 +602,8 @@ impl BloodTypeScreenRepository for PgBloodTypeScreenRepository {
                 antibodies_identified, antibody_titer, direct_antiglobulin_test,
                 dat_specificity, special_requirements, historical_records_reviewed,
                 discrepancy_notes, performed_by, verified_by, performed_at,
-                verified_at, expiration_date
+                verified_at, expiration_date,
+                data
             ) ",
         );
 
@@ -628,7 +629,8 @@ impl BloodTypeScreenRepository for PgBloodTypeScreenRepository {
                 .push_bind(&s.verified_by)
                 .push_bind(s.performed_at)
                 .push_bind(s.verified_at)
-                .push_bind(s.expiration_date);
+                .push_bind(s.expiration_date)
+                .push_bind(&s.data);
         });
 
         qb.push(" RETURNING *");
@@ -951,7 +953,8 @@ impl TransfusionRecordRepository for PgTransfusionRecordRepository {
                 patient_identification_method, vitals_15_min, vitals_1_hr, vitals_post,
                 reaction_occurred, reaction_type, reaction_severity, reaction_symptoms,
                 reaction_time, reaction_interventions, transfusion_completed,
-                volume_transfused_ml, reason_not_completed, post_transfusion_labs, notes
+                volume_transfused_ml, reason_not_completed, post_transfusion_labs, notes,
+                data
             ) ",
         );
 
@@ -986,7 +989,8 @@ impl TransfusionRecordRepository for PgTransfusionRecordRepository {
                 .push_bind(r.volume_transfused_ml)
                 .push_bind(&r.reason_not_completed)
                 .push_bind(&r.post_transfusion_labs)
-                .push_bind(&r.notes);
+                .push_bind(&r.notes)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -1152,7 +1156,8 @@ impl EPrescriptionRepository for PgEPrescriptionRepository {
                 refills_authorized, refills_remaining, daw_code, sig, diagnosis_codes,
                 indication, is_controlled, schedule, prior_authorization_required,
                 prior_authorization_number, pharmacy_id, pharmacy_name, pharmacy_npi,
-                status, sent_at, filled_at, fill_number, notes
+                status, sent_at, filled_at, fill_number, notes,
+                data
             ) ",
         );
 
@@ -1189,7 +1194,8 @@ impl EPrescriptionRepository for PgEPrescriptionRepository {
                 .push_bind(p.sent_at)
                 .push_bind(p.filled_at)
                 .push_bind(p.fill_number)
-                .push_bind(&p.notes);
+                .push_bind(&p.notes)
+                .push_bind(&p.data);
         });
 
         qb.push(" RETURNING *");

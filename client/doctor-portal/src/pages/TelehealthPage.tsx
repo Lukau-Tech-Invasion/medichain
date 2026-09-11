@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, getApiErrorMessage, joinTelehealthSession, useTranslation } from '@medichain/shared';
+import {
+  createTelehealthSession,
+  endTelehealthSession,
+  getApiErrorMessage,
+  getPatientTelehealthSessions,
+  joinTelehealthSession,
+  listMyTelehealthSessions,
+  useTranslation,
+} from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
 import { JitsiMeetComponent } from '@medichain/shared';
 
@@ -50,39 +58,37 @@ export default function TelehealthPage() {
 
   const [formData, setFormData] = useState({
     patient_id: '',
-    session_type: 'video_consultation',
+    session_type: 'VideoVisit',
     scheduled_start_date: '',
     scheduled_start_time: '',
     duration_minutes: 30,
   });
 
+  // No patient filter means "my sessions", not "no sessions". This screen
+  // used to render an empty list until a patient id was typed in, so a
+  // clinician opening their own telehealth list saw nothing and had no way to
+  // discover what they were seeing today.
   const fetchSessions = useCallback(async (pid: string) => {
-    if (!user || !pid) return;
+    if (!user) return;
     setLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/telehealth/patient/${pid}/sessions`), {
-        headers: {
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data.sessions || data || []);
-      }
+      const data = pid
+        ? await getPatientTelehealthSessions(pid)
+        : await listMyTelehealthSessions();
+      setSessions(data.sessions ?? []);
+      setError('');
     } catch (e) {
       console.error(e);
+      // Said out loud. A failed fetch used to leave the previous list on
+      // screen with no indication it was stale.
+      setError(getApiErrorMessage(e, t('docTelehealth.errLoad')));
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, t]);
 
   useEffect(() => {
-    if (patientId) {
-      fetchSessions(patientId);
-    } else {
-      setLoading(false);
-    }
+    void fetchSessions(patientId);
   }, [patientId, fetchSessions]);
 
   /**
@@ -108,35 +114,25 @@ export default function TelehealthPage() {
         ? Math.floor(new Date(`${formData.scheduled_start_date}T${formData.scheduled_start_time}`).getTime() / 1000)
         : Math.floor(Date.now() / 1000);
 
-      const res = await fetch(apiUrl('/api/telehealth/sessions'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          patient_id: formData.patient_id,
-          provider_id: user.walletAddress,
-          scheduled_start: scheduledStart,
-          duration_minutes: formData.duration_minutes,
-          session_type: formData.session_type,
-        }),
+      // Through the typed client rather than a hand-rolled fetch: the client
+      // is what attaches the session headers and the Idempotency-Key the
+      // middleware refuses an authenticated mutation without, and duplicating
+      // that here is how a header gets forgotten.
+      await createTelehealthSession({
+        patient_id: formData.patient_id,
+        scheduled_start: scheduledStart,
+        duration_minutes: formData.duration_minutes,
+        session_type: formData.session_type,
       });
 
-      if (res.ok) {
-        setSuccess(t('docTelehealth.created'));
-        setShowForm(false);
-        setFormData({ patient_id: '', session_type: 'video_consultation', scheduled_start_date: '', scheduled_start_time: '', duration_minutes: 30 });
-        if (formData.patient_id) {
-          fetchSessions(formData.patient_id);
-        }
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        const data = await res.json();
-        setError(getApiErrorMessage(data, t('docTelehealth.errCreate')));
-      }
+      setSuccess(t('docTelehealth.created'));
+      setShowForm(false);
+      setFormData({ patient_id: '', session_type: 'VideoVisit', scheduled_start_date: '', scheduled_start_time: '', duration_minutes: 30 });
+      // Re-read whichever list is on screen. Re-reading only when a patient
+      // filter was set meant a session booked from the unfiltered list did not
+      // appear until the page was reloaded.
+      await fetchSessions(patientId);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
       setError(t('docTelehealth.errConnect'));
     }
@@ -146,23 +142,16 @@ export default function TelehealthPage() {
     if (!user) return;
     setActionLoading(sessionId);
     try {
-      const res = await fetch(apiUrl(`/api/telehealth/sessions/${sessionId}/end`), {
-        method: 'POST',
-        headers: {
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (res.ok) {
-        setSuccess(t('docTelehealth.sessionEnded'));
-        setSessions(prev => prev.map(s => s.session_id === sessionId ? { ...s, status: 'ended' } : s));
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        setError(t('docTelehealth.errEnd'));
-      }
+      await endTelehealthSession(sessionId);
+      setSuccess(t('docTelehealth.sessionEnded'));
+      // Re-read instead of stamping `status: 'ended'` locally. That string is
+      // not a status this API has -- it serializes `Completed` -- so the badge
+      // the clinician was left looking at was a value no backend would ever
+      // send, and the recorded end time was invisible until a reload.
+      await fetchSessions(patientId);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      setError(t('docTelehealth.errEnding'));
+      setError(getApiErrorMessage(e, t('docTelehealth.errEnd')));
     } finally {
       setActionLoading(null);
     }
@@ -215,32 +204,57 @@ export default function TelehealthPage() {
     }
   };
 
+  // `TelehealthStatus` serializes as `Scheduled`, `InProgress`, `Completed`
+  // and so on. Every case here was lowercase, so no session ever matched: the
+  // badge fell to the default grey and the label rendered the raw enum name.
   const statusColor = (status: string) => {
     switch (status) {
-      case 'scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
-      case 'active': return 'bg-ok-subtle text-ok-subtle-fg';
-      case 'ended': return 'bg-surface-sunken text-content-secondary';
-      case 'cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'Scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
+      case 'WaitingRoom': return 'bg-notice-subtle text-notice-subtle-fg';
+      case 'InProgress': return 'bg-ok-subtle text-ok-subtle-fg';
+      case 'OnHold': return 'bg-warning-subtle text-warning-subtle-fg';
+      case 'Completed': return 'bg-surface-sunken text-content-secondary';
+      case 'Cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'NoShow': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'TechnicalIssue': return 'bg-critical-subtle text-critical-subtle-fg';
       default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const statusLabel = (status: string): string => {
     const map: Record<string, string> = {
-      scheduled: t('docTelehealth.statusScheduled'),
-      active: t('docTelehealth.statusActive'),
-      ended: t('docTelehealth.statusEnded'),
-      cancelled: t('docTelehealth.statusCancelled'),
+      Scheduled: t('docTelehealth.statusScheduled'),
+      WaitingRoom: t('docTelehealth.statusWaitingRoom'),
+      InProgress: t('docTelehealth.statusActive'),
+      OnHold: t('docTelehealth.statusOnHold'),
+      Completed: t('docTelehealth.statusEnded'),
+      Cancelled: t('docTelehealth.statusCancelled'),
+      NoShow: t('docTelehealth.statusNoShow'),
+      TechnicalIssue: t('docTelehealth.statusTechnicalIssue'),
     };
     return map[status] ?? status;
   };
 
+  // A session is over when the API says it is over. Compared against the same
+  // spellings the badge uses, so the Join button and the badge cannot disagree
+  // -- which they did: `'ended'` never matched `Completed`, so every finished
+  // session still offered a Join button.
+  const isOver = (status: string): boolean =>
+    ['Completed', 'Cancelled', 'NoShow'].includes(status);
+
+  // Keyed on the spellings the API stores and returns, not on a vocabulary
+  // this page invented. The four it used to offer -- video_consultation,
+  // follow_up, mental_health, urgent_care -- were in no backend match arm, so
+  // every one of them fell through to a video visit, and the list then rendered
+  // the stored `VideoVisit` as a raw enum name because that was in no map here.
   const sessionTypeLabel = (type: string): string => {
     const map: Record<string, string> = {
-      video_consultation: t('docTelehealth.typeVideo'),
-      follow_up: t('docTelehealth.typeFollowUp'),
-      mental_health: t('docTelehealth.typeMentalHealth'),
-      urgent_care: t('docTelehealth.typeUrgentCare'),
+      VideoVisit: t('docTelehealth.typeVideo'),
+      PhoneCall: t('docTelehealth.typePhone'),
+      SecureMessage: t('docTelehealth.typeMessage'),
+      AsyncVideo: t('docTelehealth.typeAsyncVideo'),
+      RemoteMonitoring: t('docTelehealth.typeMonitoring'),
+      VirtualGroupVisit: t('docTelehealth.typeGroup'),
     };
     return map[type] ?? type;
   };
@@ -335,12 +349,12 @@ export default function TelehealthPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock size={13} />
-                      {(session.duration_minutes ?? 30)} min
+                      {t('docTelehealth.durationMinutes', { minutes: session.duration_minutes })}
                     </span>
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
-                  {session.status !== 'ended' && session.status !== 'cancelled' && (
+                  {!isOver(session.status) && (
                     <button
                       onClick={() => handleJoin(session)}
                       className="flex items-center gap-1 px-3 py-1.5 bg-ok text-ok-fg text-sm rounded hover:bg-ok"
@@ -390,10 +404,12 @@ export default function TelehealthPage() {
                 onChange={e => setFormData({ ...formData, session_type: e.target.value })}
                 className="w-full border rounded-lg px-3 py-2"
               >
-                <option value="video_consultation">{t('docTelehealth.typeVideo')}</option>
-                <option value="follow_up">{t('docTelehealth.typeFollowUp')}</option>
-                <option value="mental_health">{t('docTelehealth.typeMentalHealth')}</option>
-                <option value="urgent_care">{t('docTelehealth.typeUrgentCare')}</option>
+                <option value="VideoVisit">{t('docTelehealth.typeVideo')}</option>
+                <option value="PhoneCall">{t('docTelehealth.typePhone')}</option>
+                <option value="SecureMessage">{t('docTelehealth.typeMessage')}</option>
+                <option value="AsyncVideo">{t('docTelehealth.typeAsyncVideo')}</option>
+                <option value="RemoteMonitoring">{t('docTelehealth.typeMonitoring')}</option>
+                <option value="VirtualGroupVisit">{t('docTelehealth.typeGroup')}</option>
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">

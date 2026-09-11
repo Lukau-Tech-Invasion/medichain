@@ -960,8 +960,8 @@ fn settings_storage_error(operation: &str) -> HttpResponse {
     })
 }
 
-async fn load_settings(
-    data: &web::Data<AppState>,
+pub(crate) async fn load_settings(
+    data: &AppState,
     wallet_address: &str,
 ) -> Result<serde_json::Value, HttpResponse> {
     if let Some(pool) = &data.db_pool {
@@ -995,7 +995,7 @@ async fn load_settings(
 }
 
 async fn persist_settings(
-    data: &web::Data<AppState>,
+    data: &AppState,
     wallet_address: &str,
     settings: serde_json::Value,
 ) -> Result<(), HttpResponse> {
@@ -1081,4 +1081,21 @@ pub async fn save_settings(
         "message": "Settings saved successfully",
         "user_id": user.wallet_address,
     }))
+}
+
+
+/// Store settings the way `POST /api/settings` does. Tests only.
+///
+/// Exists so `notifications::preference_tests` asserts against the real write
+/// path: a test that builds the JSON itself would keep passing if the shape
+/// this handler writes ever changed.
+#[cfg(test)]
+pub(crate) async fn persist_settings_for_test(
+    data: &AppState,
+    wallet_address: &str,
+    settings: serde_json::Value,
+) {
+    persist_settings(data, wallet_address, settings)
+        .await
+        .expect("settings should store on the memory backend");
 }

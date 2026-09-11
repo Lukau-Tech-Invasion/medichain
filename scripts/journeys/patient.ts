@@ -273,6 +273,72 @@ export async function patientJourney(
     j.skip('the symptom check leaves a record the patient can go back to', 'the checker did not answer');
   }
 
+  // --- Setting a reminder ---------------------------------------------------
+  // MedicationRemindersPage.tsx: createMedicationReminder ->
+  // POST /api/reminders/medication. The Add Reminder button had no onClick at
+  // all until 2026-09-10, so nothing in either application had ever called this.
+  const remStamp = Date.now().toString().slice(-6);
+  const medName = `Journey Metformin ${remStamp}`;
+  const setReminder = await http('POST', '/reminders/medication', {
+    token: patient.token,
+    body: {
+      patient_id: id,
+      medication_name: medName,
+      dosage: '500 mg',
+      frequency: 'twice_daily',
+      reminder_times: ['08:00', '20:00'],
+      start_date: iso().slice(0, 10),
+      // The channels the scheduler reads. Nothing sent these, so `sms` was
+      // false on every reminder ever created and the SMS branch -- which was
+      // separately unreachable -- had no way to be entered even if it worked.
+      push_notification: true,
+      sms: true,
+      email: false,
+    },
+  });
+  const reminderSet = j.status('the patient sets a medication reminder', setReminder.status, [200, 201], setReminder.json);
+
+  if (reminderSet) {
+    const back = await http('GET', `/reminders/medication/${id}`, { token: patient.token });
+    const rows = rowsOf(back.json, 'reminders', 'items');
+    const saved = JSON.stringify(rows ?? null);
+    j.record(
+      'the reminder is on their list with the schedule they chose',
+      saved.includes(medName) && saved.includes('08:00') && saved.includes('20:00'),
+      `a reminder that saves without its times reminds nobody. Stored: ${saved.slice(0, 300)}`
+    );
+    j.record(
+      'the frequency the patient chose survives, rather than becoming daily',
+      saved.includes('TwiceDaily'),
+      `the handler used to end in \`_ => Daily\`, so every frequency it did not ` +
+        `recognise became one dose a day. Stored: ${saved.slice(0, 300)}`
+    );
+    j.record(
+      'the notification channels the patient chose survive',
+      saved.includes('"sms":true') || saved.includes('"sms": true'),
+      `the scheduler reads these three flags to decide how to reach the patient; ` +
+        `stored: ${saved.slice(0, 300)}`
+    );
+  } else {
+    j.skip('the reminder is on their list with the schedule they chose', 'the reminder was refused');
+    j.skip('the frequency the patient chose survives, rather than becoming daily', 'the reminder was refused');
+    j.skip('the notification channels the patient chose survive', 'the reminder was refused');
+  }
+
+  // An unknown frequency is refused rather than silently stored as daily.
+  const badFrequency = await http('POST', '/reminders/medication', {
+    token: patient.token,
+    body: {
+      patient_id: id,
+      medication_name: `Journey Bad ${remStamp}`,
+      dosage: '1 tablet',
+      frequency: 'twice a day',
+      reminder_times: ['08:00'],
+      start_date: iso().slice(0, 10),
+    },
+  });
+  j.status('a frequency the API does not know is refused', badFrequency.status, [400], badFrequency.json);
+
   // --- Medication adherence -------------------------------------------------
   // MedicationsPage.tsx: logMedicationAdherence. Also swallowed on failure.
   // `getPatientReminders` reads `/api/reminders/medication/{id}`.
@@ -411,9 +477,53 @@ export async function patientJourney(
   const theirLogs = await http('GET', `/access-logs/${other}`, { token: patient.token });
   j.status("a patient cannot read another patient's access log", theirLogs.status, [403, 404], theirLogs.json);
 
+  // The arrival the patient does themselves, at the door, on their phone.
+  await runSelfCheckInSteps(j, patient, id);
+
   const chart = await http('POST', '/clinical/vitals', {
     token: patient.token,
     body: { patient_id: id, heart_rate: 70 },
   });
   j.status('a patient cannot write clinical observations, even on themselves', chart.status, [401, 403], chart.json);
+}
+
+/**
+ * The patient checks themselves in for their own appointment.
+ *
+ * `POST /api/appointments/{id}/check-in` compared the caller's wallet address
+ * to a `PAT-` id, so this was 403 for every patient who ever tried it. WF-007
+ * fixed the clinician half of that guard and left the patient half comparing
+ * two different namespaces -- the recurring wallet-vs-patient-id defect.
+ *
+ * Split out so `runPatientJourney` stays inside the 60-line branching budget.
+ */
+export async function runSelfCheckInSteps(
+  j: Journal,
+  patient: Session,
+  id: string
+): Promise<void> {
+  const booked = await http('POST', '/appointments', {
+    token: patient.token,
+    body: {
+      patient_id: id,
+      appointment_type: 'FollowUp',
+      reason: 'Journey self check-in',
+      preferred_date: iso().slice(0, 10),
+      preferred_time: '09:00',
+      duration_minutes: 15,
+    },
+  });
+  const bookedOk = j.status('the patient books an appointment', booked.status, [200, 201], booked.json);
+  const apptId = String(booked.json.appointment_id ?? booked.json.id ?? '');
+
+  if (!bookedOk || !apptId) {
+    j.skip('the patient checks themselves in', 'the appointment was not booked');
+    return;
+  }
+
+  const checkIn = await http('POST', `/appointments/${apptId}/check-in`, {
+    token: patient.token,
+    body: {},
+  });
+  j.status('the patient checks themselves in', checkIn.status, [200, 201], checkIn.json);
 }

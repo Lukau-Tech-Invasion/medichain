@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -205,6 +205,7 @@ const PsychPage: React.FC = () => {
   const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const [historyError, setHistoryError] = useState('');
 
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [hpi, setHpi] = useState('');
@@ -251,14 +252,25 @@ const PsychPage: React.FC = () => {
     loadData();
   }, []);
 
-  useEffect(() => {
+  const refreshAssessments = useCallback(async () => {
     if (!selectedPatient) return;
-    getPsychForPatient(selectedPatient)
-      .then(({ assessments: saved }) => {
-        setAssessments(saved.map(toStoredAssessment(patients)));
-      })
-      .catch((err) => console.error('Failed to load psychiatric assessments:', err));
-  }, [selectedPatient, patients]);
+    try {
+      const { assessments: saved } = await getPsychForPatient(selectedPatient);
+      setAssessments(saved.map(toStoredAssessment(patients)));
+      setHistoryError('');
+    } catch (err) {
+      console.error('Failed to load psychiatric assessments:', err);
+      // Said out loud rather than left as an empty tab. "No prior
+      // assessments" and "the history could not be loaded" are opposite
+      // findings for a patient being assessed for suicide risk, and an empty
+      // list asserts the first one.
+      setHistoryError(t('docPsych.historyLoadFailed'));
+    }
+  }, [selectedPatient, patients, t]);
+
+  useEffect(() => {
+    void refreshAssessments();
+  }, [refreshAssessments]);
 
   // Auto-calculate suicide risk
   useEffect(() => {
@@ -398,7 +410,12 @@ const PsychPage: React.FC = () => {
       if (result?.success === false) {
         throw new Error('Psychiatric assessment was not saved.');
       }
-      setAssessments([newAssessment, ...assessments]);
+      // Re-read rather than prepending the object this page just built.
+      // The optimistic entry showed the clinician their own input back, so a
+      // field the API dropped -- and this handler flattens a psychiatric
+      // history the form does not collect -- looked stored until the next
+      // reload, by which time nobody connects the loss to the save.
+      await refreshAssessments();
       showSuccess(t('docPsych.saved'));
     } catch (err) {
       console.error('Failed to save psychiatric assessment:', err);
@@ -788,8 +805,15 @@ const PsychPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
+            {historyError && (
+              <div className="bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg p-3 text-sm">
+                {historyError}
+              </div>
+            )}
             {assessments.length === 0 ? (
-              <div className="text-center py-8 text-content-muted">{t('docPsych.noAssessments')}</div>
+              <div className="text-center py-8 text-content-muted">
+                {historyError ? t('docPsych.historyUnknown') : t('docPsych.noAssessments')}
+              </div>
             ) : (
               assessments.map(a => (
                 <div key={a.id} className="bg-surface rounded-lg shadow p-4">

@@ -87,7 +87,11 @@ sign-ins; that is a control working and is reported as a SKIP, never a failure.
 
 ## Result
 
-**203/203 steps pass, 4 skipped.** The four skips are honest:
+**Every step passes, 4 skipped.** 203 steps on 2026-09-10; 209 after the
+health-ID-card steps were added on 2026-09-11, which is the last full run
+measured. The medication-reminder and self-check-in steps were added after that
+run and are pending a re-measure — the count in `CLAUDE.md` should be trusted
+over this line if the two disagree. The four skips are honest:
 
 * two sign-ins that hit the challenge limiter on a repeat run;
 * two second-pharmacist assertions, because the deployment's dispensing policy
@@ -327,19 +331,86 @@ their own.
 
 ---
 
+## What the second pass found (2026-09-11)
+
+The suite is now **218 steps** across the six roles plus the reachability pass,
+with the same four legitimate skips (all the challenge rate limiter, which is a
+control).
+
+
+The journeys were rerun after the first three "still open" items were closed,
+and closing them turned up five more defects of the same shapes.
+
+* **A health ID card did not survive a restart.** `CardRegistry` was a pair of
+  `RwLock<HashMap>` with no storage behind it, and it was the only home a card
+  had ever had. Every card issued by `POST /api/nfc/generate` was gone when the
+  process stopped — while the plastic in the patient's wallet still carried its
+  hash and tapped to `CARD_NOT_FOUND`, which reads exactly like a revoked card
+  at the roadside. A durable `nfc_tags` table with both backends had existed the
+  whole time and two other handlers already wrote to it.
+  (`dead-durable-variant-beside-live-volatile-one`, again.)
+* **Nothing could issue a card.** Four endpoints have backed the product's
+  headline feature since the beginning and no screen in either application
+  called any of them, so the path had never been exercised outside curl. The
+  admin sidebar even carried an "NFC/Barcode Registry" entry — pointing at the
+  barcode *scanner*, which is part of why the absence went unnoticed for so
+  long. `HealthIdCardsPage` now issues, looks up and (for an administrator)
+  suspends.
+* **SMS medication reminders could never send.** The dispatcher resolved an
+  encrypted phone number to the literal string `"Redacted"` and then guarded on
+  `phone != "Redacted"`, so the branch was dead by construction: a patient who
+  opted into SMS received nothing, permanently, while the log line above it
+  still reported `sms=true`. There was also no read half of
+  `enc_patient_field`; `dec_patient_field` is it.
+* **Three vocabularies that no caller spoke.** `TelehealthPage` offered four
+  session types (`video_consultation`, `follow_up`, `mental_health`,
+  `urgent_care`), none of which appeared in the handler's match — every one fell
+  through `_ => VideoVisit` — and then rendered the stored `VideoVisit` back as a
+  raw enum name because that was in no map on the page. Its status colours were
+  all lowercase against a `Scheduled`/`InProgress`/`Completed` enum, so no badge
+  ever matched and the Join button stayed on finished sessions. The medication
+  reminder form was a free-text frequency box over a match ending in
+  `_ => Daily`, so "twice a day" was stored and reminded once a day. All three
+  now refuse an unknown value and publish the vocabulary in the refusal.
+* **The notification settings screen was decorative.** `SettingsPage` has saved
+  a `notifications` block — `appointmentReminders`, `pushNotifications`,
+  `emailNotifications` and four more — since it was written, and nothing read
+  it. Every dispatcher pushed regardless, so turning a toggle off changed a
+  stored value and nothing else; a patient who opted out kept receiving. A
+  preference a system records and ignores is worse than one it never offers,
+  because the patient believes they have opted out.
+  `notifications::patient_wants` is the consumer, and the appointment reminder
+  now honours it. Absent preferences still send: a patient who has never opened
+  the screen has not opted out of anything.
+* **Two more wallet-vs-patient-id comparisons.** `POST /api/reminders/medication`
+  tested `current_user_id == req.patient_id`, and
+  `POST /api/appointments/{id}/check-in` tested
+  `current_user_id == appointment.patient_id`. A wallet address is never equal to
+  a `PAT-` id, so both were `false` for every patient who has ever tried: nobody
+  could set their own medication reminder, and nobody could check themselves in.
+  The reminder *read* path three lines away already used
+  `caller_owns_patient_record`, and WF-007 had fixed the clinician half of the
+  check-in guard and left the patient half comparing two namespaces. Both now
+  resolve through `linked_patient_id`, and both have journey steps.
+* **Telehealth duration reached nothing.** `provision_session` hardcoded
+  `duration_minutes: 60` and `TelehealthSession` had no such field, so the
+  number the clinician chose was dropped and the list rendered a `?? 30`
+  fallback. It is not cosmetic: the join token's expiry is
+  `scheduled_at + duration + 30`, so a two-hour appointment's link expired
+  mid-consultation.
+
 ## Still open
 
-* **Encrypted staff contact storage.** A staff phone number has no encrypted
-  field, so the API refuses to store one at all. Unblocked for account creation
-  by making the field optional; the capability itself is not built.
-* **`data` blobs on 21 further tables** remain `#[sqlx(skip)]` with no column.
-  None of them is the sole home of clinical content today, and the technical-debt
-  register records which and why — but the next handler that puts something
-  there will reproduce the whole class.
-* **`POST /api/nfc/generate`** — identity-credential issuance is still open to
-  any clinical role. That was the third of the three break-glass questions and
-  the only one not yet decided; the other two were narrowed to treating roles on
-  2026-09-10.
 * **Blood glucose is mg/dL only.** `Option<u16>` and a "70-140 mg/dL" label
   cannot represent 6.1 mmol/L, which is the reporting unit across this
   deployment's target market.
+* **Pathology slide viewing** needs a DICOM/WSI vendor integration. The reports
+  are stored and served; the images are not, and cannot be without an external
+  system.
+* **External emergency-notification recipients.** Emergency contacts are now
+  really texted, with each contact's true delivery status reported. Notifying an
+  external dispatch service is a different integration and is not built.
+* **`api/src/repositories/postgres/phase2.rs` is dead.** It is on disk, declared
+  by no `mod`, and contains a second `PgFallRiskAssessmentRepository` that
+  nothing compiles. Recorded rather than removed, per the standing rule that
+  cleanup is the last step.

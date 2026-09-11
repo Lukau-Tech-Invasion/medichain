@@ -109,6 +109,7 @@ const FamilyHistoryPage = lazy(() => import('./pages/FamilyHistoryPage'));
 
 // Administrative & Morgue
 const DeathCertificatePage = lazy(() => import('./pages/DeathCertificatePage'));
+const HealthIdCardsPage = lazy(() => import('./pages/HealthIdCardsPage'));
 const AutopsyPage = lazy(() => import('./pages/AutopsyPage'));
 
 // Admin Portal
@@ -309,6 +310,7 @@ function App() {
 
         {/* Administrative & Morgue */}
         <Route path="death-certificate" element={<LazyRoute element={<DeathCertificatePage />} />} />
+        <Route path="health-id-cards" element={<LazyRoute element={<HealthIdCardsPage />} />} />
         <Route path="autopsy" element={<LazyRoute element={<AutopsyPage />} />} />
 
         {/* Admin Portal */}

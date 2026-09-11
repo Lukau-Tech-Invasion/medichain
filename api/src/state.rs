@@ -672,6 +672,79 @@ impl AppState {
         Ok(())
     }
 
+    /// Write a health ID card to durable storage.
+    ///
+    /// The card registry is a cache; `nfc_tags` is the record. Until this
+    /// existed, `POST /api/nfc/generate` wrote only to the cache, so every card
+    /// ever issued stopped working at the next restart while the plastic in the
+    /// patient's wallet carried on looking exactly as valid as before.
+    ///
+    /// `create` for a new card, `update` for a status change: the caller knows
+    /// which, and an upsert here would let a suspend silently re-create a card
+    /// somebody had deliberately removed.
+    pub async fn persist_card(&self, card: &crate::nfc_simulator::NFCCard) -> Result<(), String> {
+        let entity = card_to_tag(card);
+        let exists = self
+            .repositories
+            .nfc_tags
+            .get_by_id(&entity.id)
+            .await
+            .is_ok();
+        let result = if exists {
+            self.repositories.nfc_tags.update(entity).await
+        } else {
+            self.repositories.nfc_tags.create(entity).await
+        };
+        result.map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// Refill the card registry from `nfc_tags`.
+    ///
+    /// Rows that will not convert are skipped and logged rather than failing
+    /// the whole load: one card with an unreadable status must not take every
+    /// other patient's card offline.
+    pub async fn hydrate_card_registry(&self) -> Result<usize, String> {
+        // Bounded, per NASA rule 2: `MAX_CARDS / MAX_PER_PAGE` pages is the
+        // most the registry can hold, so the loop cannot run away even if the
+        // repository were to keep reporting a full page.
+        let per_page = crate::repositories::Pagination::MAX_PER_PAGE;
+        let max_pages = (crate::nfc_simulator::MAX_CARDS as u32).div_ceil(per_page);
+        let mut cards = Vec::new();
+
+        for page_index in 0..max_pages {
+            let page = self
+                .repositories
+                .nfc_tags
+                .list(crate::repositories::Pagination::new(page_index, per_page))
+                .await
+                .map_err(|e| e.to_string())?;
+            let fetched = page.items.len();
+            for tag in page.items {
+                // `nfc_tags` also holds emergency tags, which are a different
+                // feature with a different `tag_type` vocabulary. Those are not
+                // health ID cards and their absence from this registry is
+                // correct, so they are skipped quietly; only a row that IS a
+                // card and still will not convert is worth warning about.
+                if !is_health_id_card(&tag) {
+                    continue;
+                }
+                match tag_to_card(&tag) {
+                    Some(card) => cards.push(card),
+                    None => log::warn!(
+                        "nfc_tags row {} names a health ID card that could not be read back                          (status {:?}) and was skipped",
+                        tag.id,
+                        tag.status
+                    ),
+                }
+            }
+            if fetched < per_page as usize {
+                break;
+            }
+        }
+
+        self.card_registry.hydrate(cards)
+    }
+
     /// Persist a user before publishing the change to the authorization cache.
     pub async fn persist_then_cache_user(&self, user: User) -> Result<(), String> {
         self.persist_user(&user).await?;
@@ -1042,4 +1115,68 @@ pub fn normalized_user_status(status: &str) -> &'static str {
         "pending" => "pending",
         _ => "inactive",
     }
+}
+
+/// Map an issued card onto its durable row.
+///
+/// `tag_uid` carries the card hash because that is the value a tap presents and
+/// the only one a reader has to match on.
+fn card_to_tag(card: &crate::nfc_simulator::NFCCard) -> crate::repositories::traits::NfcTagEntity {
+    crate::repositories::traits::NfcTagEntity {
+        id: card.card_id.clone(),
+        tag_uid: card.card_hash.clone(),
+        patient_id: card.patient_id.clone(),
+        tag_type: card.national_id_type.to_string(),
+        is_active: card.status == crate::nfc_simulator::CardStatus::Active,
+        pin_hash: None,
+        issued_at: seconds_to_datetime(card.created_at),
+        expires_at: None,
+        last_used_at: card.last_used_at.map(seconds_to_datetime),
+        use_count: 0,
+        issued_by: None,
+        status: card.status.to_string(),
+    }
+}
+
+/// Whether this row is a health ID card rather than some other kind of tag.
+///
+/// `nfc_tags` is shared with the emergency-tag feature, whose rows carry
+/// `tag_type = "emergency"`. The card registry is not their home and must not
+/// report them as unreadable cards on every startup.
+fn is_health_id_card(tag: &crate::repositories::traits::NfcTagEntity) -> bool {
+    tag.tag_type
+        .parse::<crate::nfc_simulator::NationalIdType>()
+        .is_ok()
+}
+
+/// Map a durable row back to a card.
+///
+/// `None` when the row carries a status or an ID type this build does not
+/// recognise. Failing closed is deliberate: a card whose status could not be
+/// read must not be hydrated as usable.
+fn tag_to_card(
+    tag: &crate::repositories::traits::NfcTagEntity,
+) -> Option<crate::nfc_simulator::NFCCard> {
+    let status: crate::nfc_simulator::CardStatus = tag.status.parse().ok()?;
+    let national_id_type: crate::nfc_simulator::NationalIdType = tag.tag_type.parse().ok()?;
+    Some(crate::nfc_simulator::NFCCard {
+        card_id: tag.id.clone(),
+        patient_id: tag.patient_id.clone(),
+        card_hash: tag.tag_uid.clone(),
+        national_id_type,
+        status,
+        created_at: datetime_to_seconds(tag.issued_at),
+        last_used_at: tag.last_used_at.map(datetime_to_seconds),
+    })
+}
+
+/// Seconds since the epoch as a timestamp, clamped rather than panicking.
+fn seconds_to_datetime(seconds: u64) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(seconds as i64, 0).unwrap_or_else(chrono::Utc::now)
+}
+
+/// A timestamp as seconds since the epoch. Negative timestamps clamp to zero:
+/// a card issued before 1970 is not a case this system has.
+fn datetime_to_seconds(value: chrono::DateTime<chrono::Utc>) -> u64 {
+    value.timestamp().max(0) as u64
 }

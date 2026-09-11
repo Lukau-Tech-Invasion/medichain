@@ -21,7 +21,84 @@ Last updated: 2026-09-10.
 
 ---
 
-## 2026-09-10 — OPEN: 21 entities carry a `data` blob with no column to live in
+## 2026-09-11 — OPEN: 39 doctor-portal files bypass the typed API client
+
+They call `fetch(apiUrl(...))` directly. The typed client in
+`client/shared/src/api/` is what attaches the session headers and the
+`Idempotency-Key` the middleware refuses an authenticated mutation without, so
+every hand-rolled call re-implements that from memory.
+
+**Not currently broken.** `scripts/check-raw-fetch-mutations.py` was written to
+find out, and all 27 authenticated mutating raw fetches do carry both headers.
+It is now a CI gate, so the number cannot go up while the migration is pending.
+
+**Why it is still debt:** this exact omission has bitten before. The durable
+idempotency guard landed requiring a header no caller sent, and four separate
+classes of caller were found days apart with CI red throughout. Twenty-seven
+independent copies of a requirement is twenty-seven chances to get the
+twenty-eighth wrong, and the gate only catches the shape it knows to look for —
+it says nothing about response envelopes, error handling or retries, which the
+client also standardises.
+
+**What closes it:** a typed function per endpoint in `endpoints.ts` and the
+call site rewritten to use it, file by file, each one re-verified. `TelehealthPage`
+was done on 2026-09-11 as the worked example — and doing it surfaced three
+separate vocabulary defects on that page alone, which is the real argument for
+the rest.
+
+**Deliberately not done in bulk.** Thirty-nine files of mechanical rewriting,
+none of them currently failing, against a change budget already spent on defects
+that were. Migrating them without re-verifying each page is how a working screen
+becomes a broken one.
+
+---
+
+## 2026-09-11 — OPEN: no browser-level specs for the role journeys
+
+`scripts/role-journeys.ts` exercises all six roles end to end — 218 assertions
+against a live server, every payload copied from the page that sends it, every
+write read back through the endpoint a clinician would use. What it does not
+exercise is the browser: a payload can be right while the button that builds it
+is unreachable, mislabelled, or disabled.
+
+The Playwright suites cover sign-in and a sample of screens (51 doctor-portal,
+72 patient-app) but not the journeys.
+
+**What closes it:** a spec per role that drives the real screens in the order
+the journey does. The journeys are the script; the work is the driving.
+
+**Why it is not done yet:** the two suites answer different questions and the
+HTTP one answers the more important half first — a Save button that discards its
+payload is invisible to a browser test that only checks a toast appeared, and
+that was the defect class that dominated this codebase. Browser specs are the
+right next layer, not a substitute for the one underneath.
+
+---
+
+## 2026-09-11 — OPEN: `postgres/phase2.rs` is compiled by nothing
+
+`api/src/repositories/postgres/phase2.rs` is on disk, is declared by no `mod`
+statement in `postgres/mod.rs`, and defines a second
+`impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository` with its
+own `INSERT INTO fall_risk_assessments`. The live implementation is
+`fall_risk_assessment.rs`, which is what `postgres/mod.rs` re-exports.
+
+Found while closing the `data`-blob class: a repo-wide search for the fall-risk
+insert returned two, and only one of them exists as far as the compiler is
+concerned.
+
+It is a hazard rather than merely dead weight — a future change made to the
+wrong copy will pass review, compile (because it is never compiled), and have no
+effect at all.
+
+**What closes it:** deleting the file, which needs the owner's say-so
+(CLAUDE.md rule 7), and a check on whether `gcs_assessments` and
+`sample_histories` — the other two tables it touches — have live
+implementations elsewhere or are orphaned with it.
+
+---
+
+## 2026-09-10 — CLOSED 2026-09-11: 21 entities carry a `data` blob with no column to live in
 
 `#[sqlx(skip)] pub data: serde_json::Value` appears on 28 repository entities,
 and **70 GET handlers** read or serve that blob. `sqlx(skip)` means the field is
@@ -58,15 +135,25 @@ The entities still skipping their blob:
 `ShiftHandoffEntity`, `EmsHandoffEntity`, `ChainOfCustodyEntity`,
 `IORecordEntity`.
 
-**What closes it:** the same three-step change, per table — a column, remove the
-skip, bind it on insert. Mechanical, but a `push_values` arity mismatch is a
-RUNTIME error rather than a compile error, so each one needs its insert located
-and edited deliberately and then proven by reading a record back. The six that
-were done are proven by `scripts/role-journeys.ts`.
+**How it was closed (2026-09-11).** All twenty-one, by the same three-step
+change per table: `20260911000001` adds the column, the `#[sqlx(skip)]` comes
+off, and the insert binds it. `grep -c '^\s*#\[sqlx(skip)\]$'` over
+`traits.rs` is now 0 — the class is closed rather than the painful part of it.
 
-**What would catch a regression today:** nothing automatically. A gate that
-flags an entity whose `data` is skipped while a read path serves it would be the
-right shape, and does not exist.
+The reason for doing the other fifteen, which were losing nothing today: the
+failure is not "a column is missing". It is that the same handler behaves one
+way in memory and another against a database, so the next person to put
+something in one of those blobs gets a green development run and a silent
+production loss. Documenting which tables can currently survive the gap does not
+help that person; giving every one of them the column does.
+
+**What catches a regression now:** `scripts/check-insert-bind-arity.py`, wired
+into CI. It counts the columns each `INSERT INTO ... (` names and the
+`push_bind` calls in the `push_values` closure that follows, and fails the build
+when they differ — which is exactly the mistake this change risked
+twenty-one times over, and one that compiles, lints clean and passes every
+in-memory test. 85 statements are checked; the 38 written in other forms are
+reported as skips rather than guessed at.
 
 ---
 

@@ -4,6 +4,31 @@ use super::*;
 // NFC Card Management Endpoints
 // ============================================================================
 
+/// The national ID types a caller may name when issuing a card.
+///
+/// Published in the refusal so a client that sends the wrong word is told which
+/// words are right. The short forms are what the existing callers send; the
+/// `display_name()` spellings are what a reader gets back from
+/// `GET /api/nfc/card/{patient_id}`, and a client that echoes what it read must
+/// not be refused for it.
+pub(crate) const NATIONAL_ID_TYPE_VOCABULARY: [&str; 6] =
+    ["fayda", "ghana", "nin", "smartid", "huduma", "other"];
+
+/// Resolve a national ID type, or `None` if it is not one.
+pub(crate) fn parse_national_id_type(raw: &str) -> Option<NationalIdType> {
+    match raw.trim().to_lowercase().as_str() {
+        "fayda" | "faydaid" | "ethiopia" | "fayda id (ethiopia)" => Some(NationalIdType::FaydaId),
+        "ghana" | "ghanacard" | "ghana card" => Some(NationalIdType::GhanaCard),
+        "nin" | "nigeria" | "nin (nigeria)" => Some(NationalIdType::NigeriaNIN),
+        "smartid" | "southafrica" | "smart id (south africa)" => {
+            Some(NationalIdType::SouthAfricaSmartId)
+        }
+        "huduma" | "kenya" | "huduma namba (kenya)" => Some(NationalIdType::KenyaHuduma),
+        "other" | "other id" => Some(NationalIdType::Other),
+        _ => None,
+    }
+}
+
 /// Request body for generating a new NFC card
 #[derive(Debug, Deserialize)]
 pub struct GenerateNFCCardRequest {
@@ -76,8 +101,7 @@ pub async fn generate_nfc_card(
     if !current_user.role.may_issue_identity_credentials() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only a doctor, nurse or administrator can issue a health ID card"
-                .to_string(),
+            error: "Only a doctor, nurse or administrator can issue a health ID card".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
@@ -94,14 +118,26 @@ pub async fn generate_nfc_card(
         return response;
     }
 
-    // Parse national ID type
-    let national_id_type = match body.national_id_type.to_lowercase().as_str() {
-        "fayda" | "faydaid" | "ethiopia" => NationalIdType::FaydaId,
-        "ghana" | "ghanacard" => NationalIdType::GhanaCard,
-        "nin" | "nigeria" => NationalIdType::NigeriaNIN,
-        "smartid" | "southafrica" => NationalIdType::SouthAfricaSmartId,
-        "huduma" | "kenya" => NationalIdType::KenyaHuduma,
-        _ => NationalIdType::Other,
+    // Refused, not defaulted.
+    //
+    // `_ => Other` turned every unrecognised value into a generic card,
+    // including a misspelt "ghanacrd" -- so a Ghana Card was issued as "Other
+    // ID", and the national ID system it should have been verified against was
+    // never consulted. `Other` is a real choice a clinician can make; it is not
+    // a place to put a typo.
+    let national_id_type = match parse_national_id_type(&body.national_id_type) {
+        Some(kind) => kind,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "Unknown national ID type '{}'. Expected one of: {}",
+                    body.national_id_type,
+                    NATIONAL_ID_TYPE_VOCABULARY.join(", ")
+                ),
+                code: "UNKNOWN_NATIONAL_ID_TYPE".to_string(),
+            });
+        }
     };
 
     // Create NFC card
@@ -113,12 +149,31 @@ pub async fn generate_nfc_card(
     let qr_data = card.generate_qr_data();
     let qr_base64 = crate::nfc_simulator::generate_qr_image(&qr_data).ok();
 
-    // Register the card
-    if let Err(e) = data.card_registry.register_card(card) {
+    // Register the card in the in-process index first: it is what enforces
+    // one-card-per-patient and a full registry, and both of those are refusals
+    // rather than storage failures.
+    if let Err(e) = data.card_registry.register_card(card.clone()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
             error: e,
             code: "CARD_REGISTRATION_FAILED".to_string(),
+        });
+    }
+
+    // Then durably, and refuse the whole request if that fails.
+    //
+    // A card is a physical object handed to a patient. Reporting one issued
+    // when nothing was stored produces a card that works until the next restart
+    // and then reads as revoked -- so the cache entry is rolled back and the
+    // caller is told to try again rather than being handed plastic that will
+    // stop working.
+    if let Err(e) = data.persist_card(&card).await {
+        log::error!("health ID card {card_id} could not be stored: {e}");
+        let _ = data.card_registry.forget_card(&card_hash);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The card could not be stored, so none was issued.".to_string(),
+            code: "CARD_STORAGE_UNAVAILABLE".to_string(),
         });
     }
 
@@ -588,6 +643,30 @@ pub async fn suspend_card(
             error: e,
             code: "CARD_NOT_FOUND".to_string(),
         });
+    }
+
+    // A suspension that lives only in memory is undone by the next restart,
+    // which is the worst possible direction for this particular failure: a card
+    // reported stolen would quietly start working again.
+    match data.card_registry.get_card(&card_hash) {
+        Some(card) => {
+            if let Err(e) = data.persist_card(&card).await {
+                log::error!("suspension of card {card_hash} was not stored: {e}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    success: false,
+                    error: "The suspension could not be stored and has not taken effect."
+                        .to_string(),
+                    code: "CARD_STORAGE_UNAVAILABLE".to_string(),
+                });
+            }
+        }
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Card not found".to_string(),
+                code: "CARD_NOT_FOUND".to_string(),
+            })
+        }
     }
 
     log::info!("NFC card suspended by an administrator");

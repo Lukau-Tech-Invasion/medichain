@@ -2019,7 +2019,33 @@ export async function getSatisfactionSurvey(surveyId: string): Promise<PatientSa
 // Medication Reminders (Phase 20)
 // ============================================================================
 
-export async function createMedicationReminder(data: unknown): Promise<MedicationReminderCreateResult> {
+/** The frequencies `POST /api/reminders/medication` accepts. Anything else is refused. */
+export type ReminderFrequency =
+  | 'once'
+  | 'daily'
+  | 'twice_daily'
+  | 'three_times_daily'
+  | 'weekly'
+  | 'as_needed';
+
+export interface CreateMedicationReminderInput {
+  patient_id: string;
+  medication_name: string;
+  dosage: string;
+  frequency: ReminderFrequency | string;
+  reminder_times: string[];
+  start_date: string;
+  end_date?: string;
+  instructions?: string;
+  /** The channels the scheduler will actually use. Omitted means push only. */
+  push_notification?: boolean;
+  sms?: boolean;
+  email?: boolean;
+}
+
+export async function createMedicationReminder(
+  data: CreateMedicationReminderInput
+): Promise<MedicationReminderCreateResult> {
   return getApiClient().post('/api/reminders/medication', data);
 }
 
@@ -2233,8 +2259,36 @@ export async function getSymptomCheckerHistory(
 // Telehealth (Phase 26)
 // ============================================================================
 
-export async function createTelehealthSession(data: unknown): Promise<TelehealthSessionCreateResult> {
+export interface CreateTelehealthSessionInput {
+  patient_id: string;
+  scheduled_start: number;
+  session_type: string;
+  /** Minutes. The join link's expiry is derived from it, so it is not cosmetic. */
+  duration_minutes: number;
+  appointment_id?: string;
+  recording_enabled?: boolean;
+}
+
+export async function createTelehealthSession(
+  data: CreateTelehealthSessionInput
+): Promise<TelehealthSessionCreateResult> {
   return getApiClient().post('/api/telehealth/sessions', data);
+}
+
+/**
+ * The signed-in caller's own telehealth sessions.
+ *
+ * A clinician's whole telehealth list, without having to name a patient first.
+ * `TelehealthPage` showed nothing at all until a patient id was typed in, which
+ * is the wrong shape for a screen whose job is "what am I seeing today".
+ */
+export async function listMyTelehealthSessions(): Promise<{
+  success: boolean;
+  sessions: TelehealthSession[];
+  count: number;
+  next_cursor?: string | null;
+}> {
+  return getApiClient().get('/api/telehealth/sessions');
 }
 
 export async function getTelehealthSession(

@@ -1396,6 +1396,8 @@ export interface TelehealthSession {
   provider_id: string;
   session_type: string;
   scheduled_start: number;
+  /** How long the room was booked for. The join link's expiry derives from it. */
+  duration_minutes: number;
   actual_start: number | null;
   actual_end: number | null;
   status: string;

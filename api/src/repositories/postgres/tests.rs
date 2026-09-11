@@ -5259,3 +5259,76 @@ async fn lab_review_guard_admits_exactly_one_concurrent_reviewer() {
     repo.delete(&id).await.ok();
     pool.close().await;
 }
+
+/// A health ID card must still exist after the process that issued it stops.
+///
+/// `CardRegistry` was a pair of `RwLock<HashMap>` with nothing behind it, so
+/// every card issued was gone at the next restart while the plastic in the
+/// patient's wallet kept its hash and started reading as `CARD_NOT_FOUND`.
+/// This asserts the durable half of the fix: the row survives, and it carries
+/// the status rather than collapsing it into `is_active`.
+#[tokio::test]
+async fn test_pg_health_id_card_survives_restart_with_its_status() {
+    use crate::repositories::postgres::PgNfcTagRepository;
+    use crate::repositories::traits::{NfcTagEntity, NfcTagRepository};
+
+    let pool = get_test_pool().await;
+    let patient = create_test_patient("PAT-CARD-RESTART");
+    PgPatientRepository::new(pool.clone())
+        .create(patient.clone())
+        .await
+        .expect("seed patient");
+
+    let id = format!("MC-{}", uuid::Uuid::new_v4());
+    let issued = NfcTagEntity {
+        id: id.clone(),
+        tag_uid: format!("hash-{id}"),
+        patient_id: patient.id.clone(),
+        tag_type: "Ghana Card".into(),
+        is_active: true,
+        pin_hash: None,
+        issued_at: Utc::now(),
+        expires_at: None,
+        last_used_at: None,
+        use_count: 0,
+        issued_by: None,
+        status: "Active".into(),
+    };
+    PgNfcTagRepository::new(pool.clone())
+        .create(issued.clone())
+        .await
+        .expect("card was not stored");
+
+    // A second repository over the same pool stands in for the restart: the
+    // in-process index is gone and only what was written remains.
+    let reader = PgNfcTagRepository::new(pool.clone());
+    let fetched = reader.get_by_id(&id).await.expect("card lost on restart");
+    assert_eq!(
+        fetched.tag_uid, issued.tag_uid,
+        "the tapped hash must survive"
+    );
+    assert_eq!(fetched.tag_type, "Ghana Card", "the ID type must survive");
+    assert_eq!(fetched.status, "Active");
+
+    // Suspension is the case that must not be lost: a card reported stolen
+    // would otherwise start working again after a restart.
+    let mut suspended = fetched.clone();
+    suspended.is_active = false;
+    suspended.status = "Suspended".into();
+    reader
+        .update(suspended)
+        .await
+        .expect("suspension not stored");
+
+    let after = reader
+        .get_by_id(&id)
+        .await
+        .expect("card lost after suspension");
+    assert!(!after.is_active);
+    assert_eq!(
+        after.status, "Suspended",
+        "a suspended card must not be indistinguishable from a revoked one"
+    );
+
+    pool.close().await;
+}

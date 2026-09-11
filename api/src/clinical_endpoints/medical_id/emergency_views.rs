@@ -791,6 +791,7 @@ mod hz_001_regression_tests {
                 last_used_at: None,
                 use_count: 0,
                 issued_by: None,
+                status: "Active".to_string(),
             })
             .await
             .unwrap();

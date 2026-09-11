@@ -54,7 +54,56 @@ pub struct CreateTelehealthSessionRequest {
     pub session_type: String,
     pub scheduled_start: i64,
     pub recording_enabled: Option<bool>,
+    /// How long to book the room for. `TelehealthPage` has always collected
+    /// this and has always sent it; nothing read it.
+    pub duration_minutes: Option<u32>,
 }
+
+/// The session types a caller may name, in the spelling this API stores them.
+///
+/// Published in the refusal below so a client that sends the wrong word is told
+/// which words are right, rather than being quietly given a video visit.
+pub(crate) const SESSION_TYPE_VOCABULARY: [&str; 6] = [
+    "VideoVisit",
+    "PhoneCall",
+    "SecureMessage",
+    "AsyncVideo",
+    "RemoteMonitoring",
+    "VirtualGroupVisit",
+];
+
+/// Resolve a session type, or `None` if it is not one.
+///
+/// This used to be a `match` ending in `_ => VideoVisit`, and
+/// `TelehealthPage` offered four values -- `video_consultation`, `follow_up`,
+/// `mental_health`, `urgent_care` -- none of which were in it. So every session
+/// booked from that screen became a video visit whatever the clinician chose,
+/// and the list then rendered the stored `VideoVisit` back, which was in
+/// neither vocabulary and displayed as the raw enum name.
+///
+/// The short forms are kept because existing callers send them; the canonical
+/// names are added because that is what a reader gets back and therefore what a
+/// client will naturally send. Anything else is refused.
+pub(crate) fn parse_session_type(raw: &str) -> Option<crate::clinical::TelehealthType> {
+    use crate::clinical::TelehealthType;
+    match raw.trim() {
+        "video" | "VideoVisit" => Some(TelehealthType::VideoVisit),
+        "phone" | "PhoneCall" => Some(TelehealthType::PhoneCall),
+        "message" | "SecureMessage" => Some(TelehealthType::SecureMessage),
+        "async_video" | "AsyncVideo" => Some(TelehealthType::AsyncVideo),
+        "monitoring" | "RemoteMonitoring" => Some(TelehealthType::RemoteMonitoring),
+        "group" | "VirtualGroupVisit" => Some(TelehealthType::VirtualGroupVisit),
+        _ => None,
+    }
+}
+
+/// Shortest and longest bookable session, in minutes.
+///
+/// The upper bound is not arbitrary: the join token's expiry is
+/// `scheduled_at + duration + 30`, so an unbounded duration mints a link that
+/// stays valid for as long as the caller asks for.
+pub(crate) const MIN_SESSION_MINUTES: u32 = 5;
+pub(crate) const MAX_SESSION_MINUTES: u32 = 480;
 
 /// How long before the scheduled start a session may be joined, and how long
 /// after it stays joinable.
@@ -101,6 +150,7 @@ pub(crate) async fn provision_session(
     scheduled_start: i64,
     session_type: crate::clinical::TelehealthType,
     recording_enabled: bool,
+    duration_minutes: u32,
 ) -> Result<ProvisionedSession, String> {
     let session_id = format!("TH-{}", uuid::Uuid::new_v4());
     let scheduled_at =
@@ -111,7 +161,7 @@ pub(crate) async fn provision_session(
         patient_id: patient_id.to_string(),
         provider_id: provider_id.to_string(),
         scheduled_at,
-        duration_minutes: 60,
+        duration_minutes,
     };
     let (provider_join_url, patient_join_url, platform) =
         match data.telehealth_service.create_session(service_params).await {
@@ -136,6 +186,7 @@ pub(crate) async fn provision_session(
         provider_id: provider_id.to_string(),
         session_type,
         scheduled_start,
+        duration_minutes,
         actual_start: None,
         actual_end: None,
         status: crate::clinical::TelehealthStatus::Scheduled,
@@ -203,15 +254,34 @@ pub async fn create_telehealth_session(
         });
     }
 
-    let session_type = match req.session_type.as_str() {
-        "video" => crate::clinical::TelehealthType::VideoVisit,
-        "phone" => crate::clinical::TelehealthType::PhoneCall,
-        "message" => crate::clinical::TelehealthType::SecureMessage,
-        "async_video" => crate::clinical::TelehealthType::AsyncVideo,
-        "monitoring" => crate::clinical::TelehealthType::RemoteMonitoring,
-        "group" => crate::clinical::TelehealthType::VirtualGroupVisit,
-        _ => crate::clinical::TelehealthType::VideoVisit,
+    let session_type = match parse_session_type(&req.session_type) {
+        Some(kind) => kind,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "Unknown session type '{}'. Expected one of: {}",
+                    req.session_type,
+                    SESSION_TYPE_VOCABULARY.join(", ")
+                ),
+                code: "UNKNOWN_SESSION_TYPE".to_string(),
+            });
+        }
     };
+
+    // Bounded rather than trusted. An out-of-range duration is refused, not
+    // clamped: silently booking 480 minutes for someone who asked for 4000
+    // gives them a room and a join link neither they nor the schedule expects.
+    let duration_minutes = req.duration_minutes.unwrap_or(60);
+    if !(MIN_SESSION_MINUTES..=MAX_SESSION_MINUTES).contains(&duration_minutes) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "A session must be between {MIN_SESSION_MINUTES} and {MAX_SESSION_MINUTES} minutes"
+            ),
+            code: "INVALID_DURATION".to_string(),
+        });
+    }
 
     // Same provisioning path the appointment booking uses, so a session
     // created here and one created by booking a telehealth appointment are the
@@ -224,6 +294,7 @@ pub async fn create_telehealth_session(
         req.scheduled_start,
         session_type,
         req.recording_enabled.unwrap_or(false),
+        duration_minutes,
     )
     .await
     {

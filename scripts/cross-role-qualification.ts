@@ -1457,7 +1457,11 @@ async function qualifyTelehealth(
     token: doctorA.token,
     body: {
       patient_id: m.patient.linked_patient_id,
-      session_type: 'consultation',
+      // `consultation` is not a session type this API has. It used to be
+      // accepted because the handler ended in `_ => VideoVisit`, so this
+      // suite proved the state machine worked on a session whose type had
+      // been silently replaced.
+      session_type: 'VideoVisit',
       scheduled_start: now,
       recording_enabled: false,
     },
@@ -1529,7 +1533,11 @@ async function qualifyTelehealth(
     token: doctorA.token,
     body: {
       patient_id: m.patient.linked_patient_id,
-      session_type: 'consultation',
+      // `consultation` is not a session type this API has. It used to be
+      // accepted because the handler ended in `_ => VideoVisit`, so this
+      // suite proved the state machine worked on a session whose type had
+      // been silently replaced.
+      session_type: 'VideoVisit',
       scheduled_start: now - 24 * 60 * 60,
       recording_enabled: false,
     },
@@ -1555,7 +1563,11 @@ async function qualifyTelehealth(
     token: doctorA.token,
     body: {
       patient_id: m.patient.linked_patient_id,
-      session_type: 'consultation',
+      // `consultation` is not a session type this API has. It used to be
+      // accepted because the handler ended in `_ => VideoVisit`, so this
+      // suite proved the state machine worked on a session whose type had
+      // been silently replaced.
+      session_type: 'VideoVisit',
       scheduled_start: now + 24 * 60 * 60,
       recording_enabled: false,
     },

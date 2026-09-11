@@ -340,6 +340,18 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
             Err(e) => log::warn!("failed to load demo users: {e}"),
         }
 
+        // Refill the health ID card registry.
+        //
+        // Not fatal outside demo mode the way the user cache is: a card that
+        // cannot be loaded fails a tap, and a tap has a documented fallback
+        // (search by name), whereas an empty user cache refuses every
+        // authenticated request while reporting healthy.
+        println!("  [INFO] Loading health ID cards from database...");
+        match app_state.hydrate_card_registry().await {
+            Ok(count) => println!("  [OK] Loaded {} health ID cards", count),
+            Err(e) => log::warn!("failed to load health ID cards: {e}"),
+        }
+
         // Load demo patients from database into in-memory cache
         println!("  [INFO] Loading demo patients from database...");
         match app_state.load_patients_from_db().await {

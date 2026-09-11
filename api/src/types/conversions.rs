@@ -50,6 +50,9 @@ impl From<NfcTagData> for crate::repositories::traits::NfcTagEntity {
             last_used_at: None,
             use_count: 0,
             issued_by: None,
+            // An emergency tag is created usable; there is no path that
+            // produces a suspended one here.
+            status: "Active".to_string(),
         }
     }
 }

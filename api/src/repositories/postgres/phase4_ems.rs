@@ -41,7 +41,8 @@ impl EmsHandoffRepository for PgEmsHandoffRepository {
                 bleeding_controlled, patient_belongings, family_at_scene, family_contact_info,
                 police_at_scene, police_report_number, trauma_alert, stroke_alert,
                 stemi_alert, sepsis_alert, report_received_by, report_received_time,
-                verbal_report_complete, ems_documentation_received, notes
+                verbal_report_complete, ems_documentation_received, notes,
+                data
             ) ",
         );
 
@@ -93,7 +94,8 @@ impl EmsHandoffRepository for PgEmsHandoffRepository {
                 .push_bind(h.report_received_time)
                 .push_bind(h.verbal_report_complete)
                 .push_bind(h.ems_documentation_received)
-                .push_bind(&h.notes);
+                .push_bind(&h.notes)
+                .push_bind(&h.data);
         });
 
         qb.push(" RETURNING *");
@@ -452,7 +454,8 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
                 court_order_number, released_to, release_datetime, release_authorized_by,
                 release_documentation, destruction_authorized, destruction_datetime,
                 destruction_method, destruction_witnessed_by, status, photos_taken,
-                photo_references, notes
+                photo_references, notes,
+                data
             ) ",
         );
 
@@ -491,7 +494,8 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
                 .push_bind(&r.status)
                 .push_bind(r.photos_taken)
                 .push_bind(&r.photo_references)
-                .push_bind(&r.notes);
+                .push_bind(&r.notes)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
