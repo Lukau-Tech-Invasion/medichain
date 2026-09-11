@@ -296,6 +296,7 @@ const en_US: TranslationRecord = {
     reminderMedicationLabel: 'Medicine',
     reminderDosageLabel: 'Dose',
     reminderFrequencyLabel: 'How often',
+    doseNotRecorded: 'That dose was not recorded. Try again — do not rely on this list until it saves.',
     freqOnce: 'Once',
     freqDaily: 'Once a day',
     freqTwiceDaily: 'Twice a day',

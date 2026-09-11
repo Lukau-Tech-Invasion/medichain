@@ -1,7 +1,14 @@
 # Role journeys — every user's story, end to end
 
-**Written 2026-09-10.** Six journeys, one per role, plus a reachability
-sweep, driven against a live PostgreSQL-backed API. `scripts/role-journeys.ts`.
+**Written 2026-09-10, second pass 2026-09-11.** Six journeys, one per role, plus
+a reachability sweep, driven against a live PostgreSQL-backed API.
+`scripts/role-journeys.ts`.
+
+Two passes, **56 defects**. The second pass ran after the first pass's findings
+were fixed and found sixteen more — several in code the first pass had read
+carefully — because each one is a disagreement between two places that are
+individually plausible, and only doing the work end to end puts both ends in the
+same sentence.
 
 ---
 
@@ -87,15 +94,16 @@ sign-ins; that is a control working and is reported as a SKIP, never a failure.
 
 ## Result
 
-**Every step passes, 4 skipped.** 203 steps on 2026-09-10; **209/209 on
-2026-09-11**, which is the last full run measured. Six further steps — the
-medication reminder a patient sets for themselves, and the appointment they
-check themselves into — were written after that run to cover two defects the run
-itself exposed, and are pending a re-measure. Both are covered by the unit
-tests; neither has been driven against a live server yet. The four skips are
-honest:
+**220/220 steps pass, 2 skipped** (2026-09-11). 203 on 2026-09-10; the second
+pass added 17, every one of them written to cover a defect this suite exposed.
 
-* two sign-ins that hit the challenge limiter on a repeat run;
+The two skips are the second-pharmacist assertions, because the deployment's
+dispensing policy does not require a second check for the drug involved — a
+control, not a gap. A repeat run inside the same minute adds two more, where a
+sign-in hits the challenge rate limiter — also a control.
+
+The detail on the pharmacist skips:
+
 * two second-pharmacist assertions, because the deployment's dispensing policy
   requires no second check for the medicine involved. The maker-checker path is
   exercised by `scripts/synthetic-e2e-test.sh` section 23 against a policy that
@@ -335,9 +343,11 @@ their own.
 
 ## What the second pass found (2026-09-11)
 
-The suite is now **218 steps** across the six roles plus the reachability pass,
-with the same four legitimate skips (all the challenge rate limiter, which is a
-control).
+The suite is now **220 steps** across the six roles plus the reachability pass.
+
+Every defect below was found by running it, and several were found only because
+fixing the one above exposed the one beneath — a guard that refused everyone
+hides whatever is broken behind it.
 
 
 The journeys were rerun after the first three "still open" items were closed,
@@ -384,16 +394,59 @@ and closing them turned up five more defects of the same shapes.
   `notifications::patient_wants` is the consumer, and the appointment reminder
   now honours it. Absent preferences still send: a patient who has never opened
   the screen has not opted out of anything.
-* **Two more wallet-vs-patient-id comparisons.** `POST /api/reminders/medication`
-  tested `current_user_id == req.patient_id`, and
-  `POST /api/appointments/{id}/check-in` tested
-  `current_user_id == appointment.patient_id`. A wallet address is never equal to
-  a `PAT-` id, so both were `false` for every patient who has ever tried: nobody
-  could set their own medication reminder, and nobody could check themselves in.
-  The reminder *read* path three lines away already used
-  `caller_owns_patient_record`, and WF-007 had fixed the clinician half of the
-  check-in guard and left the patient half comparing two namespaces. Both now
-  resolve through `linked_patient_id`, and both have journey steps.
+* **Six wallet-vs-`PAT-` comparisons.** A wallet address is never equal to a
+  `PAT-` id, so each was `false` for every patient who ever tried. The first two
+  were `create_medication_reminder` and `check_in_appointment` — nobody could set
+  their own medication reminder or check themselves in. Fixing those exposed a
+  third in `log_medication_adherence`, and a sweep of the same pattern found
+  three more: a patient could not cancel their own appointment, could not view
+  it, and could not read a SOAP note written about them.
+
+  Two details worth keeping. The reminder *read* path three lines above the
+  broken write used `caller_owns_patient_record` correctly, and WF-007 had
+  already fixed the clinician half of the check-in guard while leaving the
+  patient half comparing two namespaces — so in both cases the right code was
+  adjacent to the wrong code. And three of the six sat within 200 lines of each
+  other. When you find one, read every other guard in the same file before
+  moving on.
+* **Nothing could read an adherence log.** `POST /api/reminders/adherence` has
+  written to `adherence_logs` since it was built, and `create` was the only one
+  of the repository's five methods with a caller anywhere in the binary — the
+  four read methods, including an adherence-rate calculation, had none, and
+  there was no GET endpoint. So a patient ticking off doses filled a table no
+  screen, report or clinician could open. `GET /api/reminders/adherence/{patient_id}`
+  is the reader. The journey step that should have caught this was asking
+  `/patients/{id}/reminders`, which is not a route — it got `{}` and compared it
+  to nothing, which is how a read-back assertion can pass for years without
+  reading anything.
+* **`adherence_logs.reported_by` was being given a wallet address.** The column
+  means the KIND of reporter — its CHECK constraint allows exactly `patient`,
+  `caregiver`, `system` and `provider` — and the handler wrote the caller's
+  48-character SS58 account into it. Same shape as `reminder_type`: a column
+  whose name reads like an id, whose meaning is a category, in a table the
+  memory backend never validates. Worth recording how it was found: the first
+  reading of the error (`value too long for character varying(32)`) looked like
+  a too-narrow column and I widened it — which was wrong, and the next run's
+  CHECK violation said so. The width change was reverted.
+* **A dose marked as taken was recorded nowhere.** `MedicationsPage` sent
+  `{ patient_id, taken, taken_at }` to an endpoint whose DTO is
+  `{ reminder_id, action, notes? }`, so every call failed deserialization with a
+  400. The page caught that with `console.warn` and had already ticked the box
+  optimistically, so the patient saw a tick and the adherence log stayed empty.
+  Underneath it were two more: the same wallet-vs-`PAT-` comparison (a *third*
+  instance), and `_ => "taken"`, which recorded a dose as swallowed whenever the
+  action was a word the match did not know — an adherence log that says a
+  patient took a medicine they did not take is not a lost record, it is a false
+  one. All three fixed; `logMedicationAdherence` is typed now, so the shape
+  cannot drift again.
+* **No medication reminder could be stored on PostgreSQL at all.**
+  `medication_reminders.reminder_type` means *channel* — its CHECK constraint
+  allows exactly `push`, `sms`, `email`, `all` — and the conversion wrote
+  `format!("{:?}", frequency)` into it, so every insert carried `TwiceDaily` or
+  `Daily` and the database rejected the row. Two things hid it: the in-memory
+  backend enforces no CHECK constraint, so development never saw it, and the
+  handler's ownership check (below) refused every patient with a 403 before the
+  insert was reached. Fixing the 403 is what exposed this.
 * **Telehealth duration reached nothing.** `provision_session` hardcoded
   `duration_minutes: 60` and `TelehealthSession` had no such field, so the
   number the clinician chose was dropped and the list rendered a `?? 30`
@@ -416,3 +469,11 @@ and closing them turned up five more defects of the same shapes.
   by no `mod`, and contains a second `PgFallRiskAssessmentRepository` that
   nothing compiles. Recorded rather than removed, per the standing rule that
   cleanup is the last step.
+* **Other repository read methods with no callers.** `adherence_logs` was found
+  by accident — its four read methods had none, and a `get_adherence_rate` that
+  nothing calls is a compliance figure nobody can see. `get_by_reminder` still
+  has none. A sweep of every repository trait for read methods with no caller
+  outside `api/src/repositories/` would very likely find more; it has not been
+  done.
+* **39 files bypassing the typed API client** and **browser-level specs for the
+  journeys** — both recorded with reasons in `docs/TECHNICAL_DEBT_REGISTER.md`.

@@ -457,8 +457,17 @@ pub async fn cancel_appointment(
         }
     };
 
-    // Auth check: patient or provider
-    if current_user_id != appointment.patient_id && current_user_id != appointment.provider_id {
+    // Auth check: patient or provider.
+    //
+    // The patient half went through `caller_owns_patient_record`: a wallet
+    // address never equals a `PAT-` id, so a bare `!=` was always true and a
+    // patient could not cancel their own appointment.
+    let is_the_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user_id,
+        &appointment.patient_id,
+    );
+    if !is_the_patient && current_user_id != appointment.provider_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -523,10 +532,12 @@ pub async fn get_appointment(
     // view it. Never infer authorization from a user-ID prefix.
     let is_provider = crate::get_user(&data, &current_user_id)
         .is_some_and(|user| user.role.is_healthcare_provider());
-    if current_user_id != appointment.patient_id
-        && current_user_id != appointment.provider_id
-        && !is_provider
-    {
+    let is_the_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user_id,
+        &appointment.patient_id,
+    );
+    if !is_the_patient && current_user_id != appointment.provider_id && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

@@ -98,6 +98,9 @@ export function MedicationsPage() {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
   const [loading, setLoading] = useState(true);
+  // Said out loud when a dose could not be recorded. Silence plus a tick is the
+  // worst of both: the patient believes the record exists and it does not.
+  const [adherenceError, setAdherenceError] = useState('');
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'current' | 'reminders' | 'history'>('current');
 
@@ -247,25 +250,31 @@ export function MedicationsPage() {
   };
 
   const markAsTaken = async (reminderId: string) => {
+    if (!patient) return;
+
+    try {
+      // `{ reminder_id, action }` is what the endpoint reads. This used to send
+      // `{ patient_id, taken, taken_at }`, which the handler could not
+      // deserialize at all -- so every dose a patient marked as taken answered
+      // 400, was swallowed by a console.warn, and was recorded nowhere while
+      // the tick stayed on screen.
+      await logMedicationAdherence({ reminder_id: reminderId, action: 'taken' });
+    } catch (err) {
+      console.error('Failed to log adherence:', err);
+      setAdherenceError(t('medications.doseNotRecorded'));
+      return;
+    }
+
+    // Ticked only after the server has it. The tick used to go on first and
+    // stay on regardless, which is the difference between "we recorded your
+    // dose" and "we drew a tick".
     const takenAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setReminders(prev => prev.map(r =>
       r.id === reminderId
         ? { ...r, taken: true, takenAt }
         : r
     ));
-    
-    if (patient) {
-      try {
-        await logMedicationAdherence({
-          reminder_id: reminderId,
-          patient_id: patient.healthId,
-          taken: true,
-          taken_at: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn('Failed to log adherence:', err);
-      }
-    }
+    setAdherenceError('');
   };
 
   const pendingReminders = reminders.filter(r => !r.taken);
@@ -351,6 +360,11 @@ export function MedicationsPage() {
       {/* Tab Content */}
       {activeTab === 'reminders' && (
         <div className="space-y-4">
+          {adherenceError && (
+            <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+              {adherenceError}
+            </div>
+          )}
           {/* Pending */}
           {pendingReminders.length > 0 && (
             <div className="space-y-3">

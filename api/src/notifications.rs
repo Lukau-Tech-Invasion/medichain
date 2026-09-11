@@ -511,11 +511,7 @@ pub async fn dispatch_breach_notification(
 ///
 /// Keyed by patient id because that is what a dispatcher has; settings are
 /// stored against the wallet, and `linked_patient_id` is the bridge.
-pub async fn patient_wants(
-    data: &crate::AppState,
-    patient_id: &str,
-    keys: &[&str],
-) -> bool {
+pub async fn patient_wants(data: &crate::AppState, patient_id: &str, keys: &[&str]) -> bool {
     let Some(wallet) = wallet_for_patient(data, patient_id) else {
         // No account is linked to this record, so there is no one to have
         // expressed a preference. Send.

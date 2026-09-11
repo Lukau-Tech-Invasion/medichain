@@ -2055,8 +2055,52 @@ export async function getPatientReminders(
   return getApiClient().get(`/api/reminders/medication/${patientId}`);
 }
 
-export async function logMedicationAdherence(data: unknown): Promise<AdherenceLogCreateResult> {
+/** What the patient did with the dose. Anything else is refused by the API. */
+export type AdherenceAction = 'taken' | 'taken_late' | 'skipped' | 'snoozed' | 'missed';
+
+export interface LogAdherenceInput {
+  reminder_id: string;
+  action: AdherenceAction;
+  notes?: string;
+}
+
+/**
+ * Record what happened to one scheduled dose.
+ *
+ * Typed because it was `unknown`, and `MedicationsPage` was sending
+ * `{ patient_id, taken, taken_at }` — three fields the endpoint does not read
+ * and none of the two it requires. Every call 400'd and the page swallowed it.
+ */
+export async function logMedicationAdherence(
+  data: LogAdherenceInput
+): Promise<AdherenceLogCreateResult> {
   return getApiClient().post('/api/reminders/adherence', data);
+}
+
+/** One logged dose, as `GET /api/reminders/adherence/{patient_id}` returns it. */
+export interface AdherenceLog {
+  id: string;
+  patient_id: string;
+  reminder_id: string | null;
+  medication_name: string;
+  action_taken: AdherenceAction | string;
+  actual_time: string | null;
+  reported_by: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+/**
+ * The doses a patient has logged.
+ *
+ * The write half of this has existed since adherence logging was built and had
+ * no reader at all — the repository's four read methods had zero callers, so a
+ * patient ticking off doses filled a table nothing could open.
+ */
+export async function getPatientAdherence(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; logs: AdherenceLog[]; count: number }> {
+  return getApiClient().get(`/api/reminders/adherence/${patientId}`);
 }
 
 export async function deleteMedicationReminder(reminderId: string): Promise<{ success: boolean; message: string }> {

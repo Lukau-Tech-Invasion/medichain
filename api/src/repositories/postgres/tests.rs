@@ -894,16 +894,53 @@ async fn test_logical_user_round_trips_across_restart() {
         "H1: license_number must survive a restart"
     );
 
-    // --- the field KNOWN not to survive, asserted rather than left implicit ---
-    // HZ-014 forbids a write path to `user_profiles.phone` until it is
-    // encrypted the way patient fields already are. Pinning it here means that
-    // the day someone adds that write path, this fails and forces the
-    // encryption question to be answered rather than skipped.
+    // --- the contact number, and the column it must NOT be in ---
+    //
+    // This required `phone == None` until 2026-09-11: HZ-014 forbade any write
+    // path until staff contacts were encrypted the way patient fields are, and
+    // pinning the absence meant that the day someone added one, this would fail
+    // and force the encryption question to be answered rather than skipped.
+    // `20260910000007` answered it, so the assertion inverts.
+    //
+    // It now proves BOTH halves. A number that round-tripped through the
+    // plaintext `phone` column would satisfy "it survives" while being exactly
+    // what HZ-014 forbids, so the plaintext column is asserted empty and the
+    // blob is checked for the number appearing in the clear.
     assert_eq!(
-        reloaded.phone, None,
-        "phone must NOT round-trip: HZ-014 requires encryption before any write \
-         path to user_profiles.phone. If this fails, confirm the value is \
-         encrypted at rest before updating this assertion."
+        reloaded.phone, original.phone,
+        "the contact number must survive a restart: `persist_user` seals it into \
+         user_profiles.contact_encrypted"
+    );
+
+    let plaintext: Option<String> = sqlx::query_scalar(
+        "SELECT p.phone FROM user_profiles p
+         INNER JOIN users u ON u.id = p.user_id
+         WHERE u.wallet_address = $1",
+    )
+    .bind(&wallet)
+    .fetch_one(&pool)
+    .await
+    .expect("the profile row must exist");
+    assert_eq!(
+        plaintext, None,
+        "HZ-014: user_profiles.phone is plaintext and must never be written. The \
+         number belongs in contact_encrypted."
+    );
+
+    let sealed: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT p.contact_encrypted FROM user_profiles p
+         INNER JOIN users u ON u.id = p.user_id
+         WHERE u.wallet_address = $1",
+    )
+    .bind(&wallet)
+    .fetch_one(&pool)
+    .await
+    .expect("the profile row must exist");
+    let sealed = sealed.expect("a contact number was given, so a blob must exist");
+    let number = original.phone.as_deref().unwrap_or_default().as_bytes();
+    assert!(
+        !number.is_empty() && !sealed.windows(number.len()).any(|w| w == number),
+        "the number appears verbatim in the stored blob, so it is not encrypted"
     );
 
     pool.close().await;

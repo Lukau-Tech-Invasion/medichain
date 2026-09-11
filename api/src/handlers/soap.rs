@@ -244,8 +244,13 @@ pub async fn get_soap_note(
         }
     };
 
-    // Healthcare providers or patient viewing own records
-    if !current_user.role.is_healthcare_provider() && current_user_id != note.patient_id {
+    // Healthcare providers or the patient viewing their own record.
+    //
+    // The patient arm compared a wallet address to a `PAT-` id and was
+    // therefore dead: a patient could not read a note written about them.
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &note.patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

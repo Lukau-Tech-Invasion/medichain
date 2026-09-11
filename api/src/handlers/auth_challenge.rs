@@ -1083,7 +1083,6 @@ pub async fn save_settings(
     }))
 }
 
-
 /// Store settings the way `POST /api/settings` does. Tests only.
 ///
 /// Exists so `notifications::preference_tests` asserts against the real write

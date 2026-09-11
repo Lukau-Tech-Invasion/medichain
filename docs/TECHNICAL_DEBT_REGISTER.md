@@ -75,6 +75,31 @@ right next layer, not a substitute for the one underneath.
 
 ---
 
+## 2026-09-11 — OPEN: repository read methods that nothing calls
+
+`AdherenceLogRepository` has five methods. Exactly one — `create` — had a caller
+anywhere in the binary. `get_by_patient`, `get_by_reminder`, `get_by_id` and
+`get_adherence_rate` had none, and no GET endpoint existed, so a patient ticking
+off their doses filled a table nothing could open. Found by accident while
+chasing an unrelated 500.
+
+`get_by_patient` now has an endpoint. `get_by_reminder` and `get_adherence_rate`
+still have no caller — and an adherence rate nobody can read is a
+medication-compliance figure that exists only in principle.
+
+**Why this is a class, not an incident.** A write path with no reader is
+indistinguishable from a working feature: the POST returns 201, the row is
+really there, and every test that checks the write passes. It is the same shape
+as the `#[sqlx(skip)] data` blobs and the `dead-durable-variant-beside-live-volatile-one`
+pattern, arriving through a different door.
+
+**What closes it:** for each repository trait, grep its read methods for callers
+outside `api/src/repositories/`. Every method with none is either an unfinished
+feature or dead weight, and the difference matters. Mechanisable as a gate, and
+the gate is the better answer — `check-state-durability.py` is the precedent.
+
+---
+
 ## 2026-09-11 — OPEN: `postgres/phase2.rs` is compiled by nothing
 
 `api/src/repositories/postgres/phase2.rs` is on disk, is declared by no `mod`

@@ -445,6 +445,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_medication_reminder)
         .service(clinical_endpoints::get_patient_reminders)
         .service(clinical_endpoints::log_medication_adherence)
+        .service(clinical_endpoints::get_patient_adherence)
         .service(clinical_endpoints::delete_medication_reminder)
         // Phase 21: Drug Interaction Checking endpoints
         .service(clinical_endpoints::get_drug_database)

@@ -351,28 +351,46 @@ export async function patientJourney(
     if (reminderId) {
       const adherence = await http('POST', '/reminders/adherence', {
         token: patient.token,
-        body: { reminder_id: reminderId, patient_id: id, taken: true, taken_at: iso() },
+        // What `MedicationsPage` sends. It used to send
+        // `{ patient_id, taken, taken_at }` and this step copied that, so both
+        // were wrong together -- which is why the endpoint's 400 went unseen
+        // for as long as it did.
+        body: { reminder_id: reminderId, action: 'taken' },
       });
       const marked = j.status('the patient marks a dose as taken', adherence.status, [200, 201], adherence.json);
       if (marked) {
-        const after = await http('GET', `/patients/${id}/reminders`, { token: patient.token });
+        // Read back through the endpoint that exists. This used to ask
+        // `/patients/{id}/reminders`, which is not a route -- so the step
+        // proved nothing, and the fact that NOTHING could read an adherence
+        // log went unnoticed behind it.
+        const after = await http('GET', `/reminders/adherence/${id}`, { token: patient.token });
+        const logs = rowsOf(after.json, 'logs', 'items');
         j.record(
           'the dose stays marked when the screen is reopened',
-          JSON.stringify(after.json ?? null).includes(reminderId),
-          `MedicationsPage sets the tick optimistically and catches the failure with ` +
-            `console.warn, so an unrecorded dose still reads as taken. ` +
+          JSON.stringify(logs ?? null).includes(reminderId),
+          `MedicationsPage used to set the tick optimistically and swallow the failure, ` +
+            `so an unrecorded dose still read as taken. ` +
             `Reloaded: ${JSON.stringify(after.json).slice(0, 300)}`
+        );
+        j.record(
+          'the log says the patient reported it, not who they are',
+          JSON.stringify(logs ?? null).includes('"reported_by":"patient"'),
+          `reported_by is a category (patient/caregiver/system/provider); a wallet ` +
+            `address there is rejected by the database. Stored: ${JSON.stringify(logs).slice(0, 200)}`
         );
       } else {
         j.skip('the dose stays marked when the screen is reopened', 'the adherence log was refused');
+        j.skip('the log says the patient reported it, not who they are', 'the adherence log was refused');
       }
     } else {
       j.skip('the patient marks a dose as taken', 'the patient has no reminders to mark');
       j.skip('the dose stays marked when the screen is reopened', 'the patient has no reminders to mark');
+      j.skip('the log says the patient reported it, not who they are', 'the patient has no reminders to mark');
     }
   } else {
     j.skip('the patient marks a dose as taken', 'reminders did not load');
     j.skip('the dose stays marked when the screen is reopened', 'reminders did not load');
+    j.skip('the log says the patient reported it, not who they are', 'reminders did not load');
   }
 
   // --- The emergency card ---------------------------------------------------
@@ -502,22 +520,50 @@ export async function runSelfCheckInSteps(
   patient: Session,
   id: string
 ): Promise<void> {
+  // A random slot in the working day. A fixed time -- and a time derived from
+  // the current minute -- collides with the same booking from an earlier run
+  // and answers SLOT_UNAVAILABLE, which is the overlap guard working correctly
+  // and a test that cannot be run twice.
+  const hour = String(8 + Math.floor(Math.random() * 9)).padStart(2, '0');
+  const minute = String(Math.floor(Math.random() * 60)).padStart(2, '0');
   const booked = await http('POST', '/appointments', {
     token: patient.token,
     body: {
       patient_id: id,
       appointment_type: 'FollowUp',
-      reason: 'Journey self check-in',
+      reason: `Journey self check-in ${Date.now()}`,
       preferred_date: iso().slice(0, 10),
-      preferred_time: '09:00',
+      preferred_time: `${hour}:${minute}`,
       duration_minutes: 15,
     },
   });
-  const bookedOk = j.status('the patient books an appointment', booked.status, [200, 201], booked.json);
+  const bookedOk = j.status(
+    'the patient books the appointment they will check in to',
+    booked.status,
+    [200, 201],
+    booked.json
+  );
   const apptId = String(booked.json.appointment_id ?? booked.json.id ?? '');
 
   if (!bookedOk || !apptId) {
+    j.skip('the patient confirms the time they were offered', 'the appointment was not booked');
     j.skip('the patient checks themselves in', 'the appointment was not booked');
+    return;
+  }
+
+  // Confirm first. `is_valid_transition` deliberately refuses
+  // `Scheduled -> CheckedIn`: a booking is a proposal until the party who did
+  // not make it agrees, and allowing check-in straight from Scheduled would
+  // make confirmation decorative. The journey follows the real path rather
+  // than asking for the shortcut.
+  const confirm = await http('POST', `/appointments/${apptId}/status`, {
+    token: patient.token,
+    body: { status: 'Confirmed' },
+  });
+  const confirmed = j.status('the patient confirms the time they were offered', confirm.status, [200, 201], confirm.json);
+
+  if (!confirmed) {
+    j.skip('the patient checks themselves in', 'the appointment was not confirmed');
     return;
   }
 
