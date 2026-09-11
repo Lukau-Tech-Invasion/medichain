@@ -247,21 +247,23 @@ pub async fn submit_wearable_reading(
     }
 
     let reading_id = format!("READ-{}", uuid::Uuid::new_v4());
-    let (is_abnormal, alert_message) = check_reading_for_abnormality(&req.data_type, req.value);
+
+    // Parsed ONCE, and everything downstream works from the enum.
+    //
+    // There used to be two vocabularies in this function: the reading was
+    // parsed from `"HeartRate"`/`"SpO2"` while the abnormality check matched
+    // `"heart_rate"`/`"spo2"`. Whichever spelling a client sent, one of the two
+    // matched nothing -- so either the reading stored as `Other("heart_rate")`
+    // or no alert could ever fire. Strings do not travel past this line.
+    let data_type = parse_wearable_data_type(&req.data_type);
+    let builtin = check_reading_for_abnormality(&data_type, req.value);
+    let is_abnormal = builtin.is_some();
 
     let reading = crate::clinical::WearableReading {
         reading_id: reading_id.clone(),
         device_id: req.device_id.clone(),
         patient_id: current_user_id.clone(),
-        data_type: match req.data_type.as_str() {
-            "HeartRate" => crate::clinical::WearableDataType::HeartRate,
-            "BloodPressure" => crate::clinical::WearableDataType::BloodPressure,
-            "BloodGlucose" => crate::clinical::WearableDataType::BloodGlucose,
-            "SpO2" => crate::clinical::WearableDataType::SpO2,
-            "Weight" => crate::clinical::WearableDataType::Weight,
-            "Steps" => crate::clinical::WearableDataType::Steps,
-            _ => crate::clinical::WearableDataType::Other(req.data_type.clone()),
-        },
+        data_type: data_type.clone(),
         value: req.value,
         unit: req.unit.clone(),
         secondary_value: None,
@@ -272,7 +274,7 @@ pub async fn submit_wearable_reading(
         context: None,
         quality: crate::clinical::DataQuality::High,
         flagged: is_abnormal,
-        flag_reason: alert_message.clone(),
+        flag_reason: builtin.as_ref().map(|(_, reason)| reason.clone()),
     };
 
     {
@@ -302,20 +304,45 @@ pub async fn submit_wearable_reading(
         }
     }
 
-    // If abnormal, create an alert
-    if is_abnormal {
+    // The patient's own rules first; the built-in safety net only if none fired.
+    let triggered = evaluate_alert_rules(&data, &current_user_id, &data_type, req.value).await;
+
+    if triggered.is_some() || is_abnormal {
         let alert_id = format!("WALT-{}", uuid::Uuid::new_v4());
+        // A rule that fired supplies its own id, threshold and severity. With
+        // no rule, the alert says so: `BUILT-IN` is a real answer to "under
+        // what rule?", where `AD-HOC` with a threshold of 0.0 was not.
+        let (rule_id, threshold, severity, message) = match triggered {
+            Some(t) => (t.rule_id, t.threshold, t.severity, t.message),
+            // The built-in threshold that was actually crossed, not a
+            // placeholder. `0.0` used to go here with a comment admitting it
+            // should have come from a rule, so the alert asserted that a
+            // threshold of zero had been passed; `f64::NAN` would have been
+            // worse still, because `serde_json` cannot represent it and the
+            // surrounding `unwrap_or_default()` would have stored the whole
+            // alert as null.
+            None => {
+                let (threshold, reason) = builtin
+                    .clone()
+                    .expect("is_abnormal is true only when builtin is Some");
+                (
+                    "BUILT-IN".to_string(),
+                    threshold,
+                    crate::clinical::AlertSeverity::Urgent,
+                    reason,
+                )
+            }
+        };
         let alert = crate::clinical::WearableAlert {
             alert_id: alert_id.clone(),
-            rule_id: "AD-HOC".to_string(),
+            rule_id,
             patient_id: current_user_id.clone(),
             reading_id: reading_id.clone(),
             data_type: reading.data_type.clone(),
             trigger_value: req.value,
-            threshold: 0.0, // Should be fetched from rule
-            severity: crate::clinical::AlertSeverity::Urgent,
-            message: alert_message
-                .unwrap_or_else(|| format!("Abnormal {:?} reading detected", reading.data_type)),
+            threshold,
+            severity,
+            message,
             created_at: chrono::Utc::now().timestamp(),
             acknowledged: false,
             acknowledged_by: None,
@@ -357,41 +384,185 @@ pub async fn submit_wearable_reading(
 }
 
 /// Helper: Check reading for abnormality
-fn check_reading_for_abnormality(data_type: &str, value: f64) -> (bool, Option<String>) {
-    match data_type {
-        "heart_rate" => {
-            if value > 120.0 {
-                (true, Some("High heart rate detected".to_string()))
-            } else if value < 40.0 {
-                (true, Some("Low heart rate detected".to_string()))
-            } else {
-                (false, None)
-            }
-        }
-        "blood_glucose" => {
-            if value > 180.0 {
-                (
-                    true,
-                    Some("Hyperglycemia (high blood sugar) detected".to_string()),
-                )
-            } else if value < 70.0 {
-                (
-                    true,
-                    Some("Hypoglycemia (low blood sugar) detected".to_string()),
-                )
-            } else {
-                (false, None)
-            }
-        }
-        "spo2" => {
-            if value < 92.0 {
-                (true, Some("Low blood oxygen levels detected".to_string()))
-            } else {
-                (false, None)
-            }
-        }
-        _ => (false, None),
+/// Resolve the data type a client named.
+///
+/// `Other` carries the original string rather than discarding it: an unknown
+/// wearable metric is a real thing to record, and losing its name would make
+/// the reading unreadable. It is the only variant that keeps a string.
+fn parse_wearable_data_type(raw: &str) -> crate::clinical::WearableDataType {
+    use crate::clinical::WearableDataType as T;
+    // Case- and separator-insensitive, because three different clients spell
+    // these three different ways and none of them is wrong.
+    let key: String = raw
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    match key.as_str() {
+        "heartrate" => T::HeartRate,
+        "bloodpressure" => T::BloodPressure,
+        "bloodglucose" => T::BloodGlucose,
+        "spo2" | "oxygensaturation" => T::SpO2,
+        "weight" => T::Weight,
+        "steps" => T::Steps,
+        "distance" => T::Distance,
+        "calories" => T::Calories,
+        "sleep" => T::Sleep,
+        "ecg" => T::ECG,
+        "temperature" => T::Temperature,
+        "respiratoryrate" => T::RespiratoryRate,
+        "stress" => T::Stress,
+        _ => T::Other(raw.to_string()),
     }
+}
+
+/// The built-in safety net, applied when the patient has set no rule.
+///
+/// These are not the patient's thresholds -- they are the values at which a
+/// reading is worth flagging regardless of what anybody configured, so that a
+/// patient who has never opened the alerts screen is still told about a blood
+/// glucose of 30. A rule the patient DID set takes precedence; see
+/// `evaluate_alert_rules`.
+fn check_reading_for_abnormality(
+    data_type: &crate::clinical::WearableDataType,
+    value: f64,
+) -> Option<(f64, String)> {
+    use crate::clinical::WearableDataType as T;
+    match data_type {
+        T::HeartRate if value > 120.0 => Some((120.0, "High heart rate detected".to_string())),
+        T::HeartRate if value < 40.0 => Some((40.0, "Low heart rate detected".to_string())),
+        T::BloodGlucose if value > 180.0 => Some((
+            180.0,
+            "Hyperglycemia (high blood sugar) detected".to_string(),
+        )),
+        T::BloodGlucose if value < 70.0 => {
+            Some((70.0, "Hypoglycemia (low blood sugar) detected".to_string()))
+        }
+        T::SpO2 if value < 92.0 => Some((92.0, "Low blood oxygen levels detected".to_string())),
+        _ => None,
+    }
+}
+
+/// What a reading triggered, and under whose rule.
+///
+/// `rule_id`, `threshold` and `severity` all come from the rule that fired.
+/// They used to be the literal `"AD-HOC"`, `0.0` with a `// Should be fetched
+/// from rule` comment, and a hardcoded `Urgent` -- so an alert told the
+/// clinician that a threshold of zero had been crossed under a rule with no id,
+/// at a severity nobody chose.
+pub(crate) struct TriggeredAlert {
+    pub rule_id: String,
+    pub threshold: f64,
+    pub severity: crate::clinical::AlertSeverity,
+    pub message: String,
+}
+
+/// Does this rule fire on this value?
+///
+/// `ChangeRate` and `AbsenceOfData` are deliberately never triggered here: both
+/// need history this function does not have, and firing them off a single
+/// reading would be an alert about something nobody measured.
+fn rule_fires(rule: &crate::clinical::WearableAlertRule, value: f64) -> bool {
+    use crate::clinical::ThresholdType as K;
+    match rule.threshold_type {
+        K::Above => value > rule.threshold_value,
+        K::Below => value < rule.threshold_value,
+        K::OutsideRange => match rule.secondary_threshold {
+            Some(low) => value > rule.threshold_value || value < low,
+            None => value > rule.threshold_value,
+        },
+        K::ChangeRate | K::AbsenceOfData => false,
+    }
+}
+
+/// The patient's own alert rules for this metric, most severe first.
+///
+/// These were stored and never read by anything: a patient could configure
+/// "tell me when my heart rate goes above 150 and treat it as Critical", and
+/// the rule sat in the table while every alert fired at `Urgent` off a built-in
+/// threshold. Inactive rules are skipped -- switching one off has to mean
+/// something.
+async fn evaluate_alert_rules(
+    data: &web::Data<crate::AppState>,
+    owner_id: &str,
+    data_type: &crate::clinical::WearableDataType,
+    value: f64,
+) -> Option<TriggeredAlert> {
+    let records = data
+        .repositories
+        .wearable_alert_rules
+        .get_by_owner(owner_id)
+        .await
+        .unwrap_or_default();
+
+    let mut fired: Vec<crate::clinical::WearableAlertRule> = records
+        .into_iter()
+        .filter_map(|record| {
+            serde_json::from_value::<crate::clinical::WearableAlertRule>(record.data).ok()
+        })
+        .filter(|rule| rule.active && &rule.data_type == data_type && rule_fires(rule, value))
+        .collect();
+
+    // Most severe wins. Two rules can cover the same reading, and the patient
+    // who set a Critical one is not served by being told Info.
+    fired.sort_by_key(|rule| std::cmp::Reverse(severity_rank(&rule.severity)));
+    let rule = fired.into_iter().next()?;
+
+    Some(TriggeredAlert {
+        message: format!(
+            "{:?} of {} crossed your alert threshold of {}",
+            rule.data_type, value, rule.threshold_value
+        ),
+        rule_id: rule.rule_id,
+        threshold: rule.threshold_value,
+        severity: rule.severity,
+    })
+}
+
+/// Order severities so the worst sorts first.
+fn severity_rank(severity: &crate::clinical::AlertSeverity) -> u8 {
+    use crate::clinical::AlertSeverity as S;
+    match severity {
+        S::Critical => 3,
+        S::Urgent => 2,
+        S::Warning => 1,
+        S::Info => 0,
+    }
+}
+
+/// The alert rules this caller has set.
+///
+/// `POST` has stored them since the feature was built and nothing could read
+/// them back: a patient could not see, check or correct a rule once it was
+/// saved, and no code consulted them when a reading arrived.
+#[get("/api/wearables/alert-rules")]
+pub async fn list_wearable_alert_rules(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+
+    let records = data
+        .repositories
+        .wearable_alert_rules
+        .get_by_owner(&current_user_id)
+        .await
+        .unwrap_or_default();
+    let rules: Vec<crate::clinical::WearableAlertRule> = records
+        .into_iter()
+        .filter_map(|record| {
+            serde_json::from_value::<crate::clinical::WearableAlertRule>(record.data).ok()
+        })
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "count": rules.len(),
+        "rules": rules,
+    }))
 }
 
 /// Get wearable readings

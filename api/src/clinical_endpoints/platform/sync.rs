@@ -70,6 +70,37 @@ async fn device_queue_items(
 }
 
 /// Get current sync status for a device
+/// The devices this caller has registered for offline sync.
+///
+/// Registration has stored a record since the feature was built and nothing
+/// could list them back. That is not only an inconvenience: a device is a copy
+/// of clinical data walking around in someone's pocket, and a patient who loses
+/// a phone could not see that it was still registered, let alone say so.
+#[get("/api/sync/devices")]
+pub async fn list_sync_devices(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+
+    let records = data
+        .repositories
+        .sync_devices
+        .get_by_owner(&current_user_id)
+        .await
+        .unwrap_or_default();
+    let devices: Vec<serde_json::Value> = records.into_iter().map(|record| record.data).collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "count": devices.len(),
+        "devices": devices,
+    }))
+}
+
 #[get("/api/sync/status/{device_id}")]
 pub async fn get_sync_status(
     data: web::Data<crate::AppState>,

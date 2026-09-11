@@ -428,6 +428,32 @@ and closing them turned up five more defects of the same shapes.
   reading of the error (`value too long for character varying(32)`) looked like
   a too-narrow column and I widened it — which was wrong, and the next run's
   CHECK violation said so. The width change was reverted.
+* **A patient's wearable alert rules were never consulted.** A patient could
+  configure "alert me above 150, treat it as Critical"; the rule was stored and
+  nothing read it. Every alert fired at a hardcoded `Urgent` under
+  `rule_id: "AD-HOC"` with `threshold: 0.0` — beside a comment reading
+  `// Should be fetched from rule`, which is a TODO shipped as a clinical
+  record. Two more defects sat under it: `check_reading_for_abnormality` matched
+  `"heart_rate"`/`"spo2"` while the reading parser matched `"HeartRate"`/`"SpO2"`,
+  so one of the two vocabularies never matched and no alert could fire at all.
+  The data type is now parsed once into the enum, rules are evaluated
+  most-severe-first, and an alert carries the rule that fired or says `BUILT-IN`
+  with the threshold actually crossed.
+* **Four Save paths could not tell a refusal from a success.** `fetch` resolves
+  on a 403 exactly as it does on a 201, so a call site that never checks
+  `res.ok` treats a refused write as a completed one. `MARPage.handleAdminister`
+  showed `Documented: <drug>` for doses the server had rejected — and the next
+  nurse reads that screen and does not give the dose.
+  `OrdersPage.handleUpdateStatus` updated the board unconditionally under a
+  comment reading `// Update locally`. `DischargePage.approveDischarge` reported
+  success on *both* paths, so second-clinician approval — the control that stops
+  one clinician discharging a patient alone — could not fail.
+  `SymptomTrackerPage` rolled back only on a transport failure.
+  `scripts/check-unchecked-fetch.py` now gates all 94 awaited raw fetches.
+* **A patient was shown "nobody has access to my records" when the list failed
+  to load.** `ConsentManagementPage` set `setGrants([])` on a failed fetch.
+  Empty and unknown are opposite answers to the question that screen exists to
+  answer.
 * **A dose marked as taken was recorded nowhere.** `MedicationsPage` sent
   `{ patient_id, taken, taken_at }` to an endpoint whose DTO is
   `{ reminder_id, action, notes? }`, so every call failed deserialization with a
@@ -469,11 +495,16 @@ and closing them turned up five more defects of the same shapes.
   by no `mod`, and contains a second `PgFallRiskAssessmentRepository` that
   nothing compiles. Recorded rather than removed, per the standing rule that
   cleanup is the last step.
-* **Other repository read methods with no callers.** `adherence_logs` was found
-  by accident — its four read methods had none, and a `get_adherence_rate` that
-  nothing calls is a compliance figure nobody can see. `get_by_reminder` still
-  has none. A sweep of every repository trait for read methods with no caller
-  outside `api/src/repositories/` would very likely find more; it has not been
-  done.
-* **39 files bypassing the typed API client** and **browser-level specs for the
-  journeys** — both recorded with reasons in `docs/TECHNICAL_DEBT_REGISTER.md`.
+* **23 typed repositories with no caller at all**, superseded by
+  `JsonRecordRepository` equivalents the handlers actually use — so
+  `transfusion_records` and friends are empty tables that a reader of the schema
+  would reasonably take for the real thing. Recorded in the debt register; it
+  needs a decision (migrate the handlers, or remove the traits) rather than a
+  deletion.
+* **The administrator has no browser coverage.** `bt.admin` is in the server's
+  demo-fixture list and carries no keystore, so `GET /api/auth/demo-credentials`
+  does not offer it and no browser test can sign in as an administrator — 14
+  screens unreachable by the Playwright suites.
+* **39 files still bypassing the typed API client.** Two CI gates now hold the
+  correctness floor (headers, and the response being examined); the migration
+  itself is recorded in the debt register.

@@ -177,7 +177,7 @@ export function SymptomTrackerPage() {
     // Log symptom to API
     if (patient) {
       try {
-        await fetch(apiUrl('/api/symptoms/log'), {
+        const response = await fetch(apiUrl('/api/symptoms/log'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -192,6 +192,12 @@ export function SymptomTrackerPage() {
             notes: entry.notes,
           }),
         });
+        if (!response.ok) {
+          // A 4xx resolves like a 201, so the rollback below only ever ran on
+          // a transport failure. A symptom the server refused stayed on the
+          // patient's screen looking recorded.
+          throw new Error('symptom log refused');
+        }
       } catch (err) {
         // Surfaced, not warned about in a console the patient cannot see.
         //

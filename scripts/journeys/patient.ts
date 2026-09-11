@@ -520,23 +520,32 @@ export async function runSelfCheckInSteps(
   patient: Session,
   id: string
 ): Promise<void> {
-  // A random slot in the working day. A fixed time -- and a time derived from
-  // the current minute -- collides with the same booking from an earlier run
-  // and answers SLOT_UNAVAILABLE, which is the overlap guard working correctly
-  // and a test that cannot be run twice.
-  const hour = String(8 + Math.floor(Math.random() * 9)).padStart(2, '0');
-  const minute = String(Math.floor(Math.random() * 60)).padStart(2, '0');
-  const booked = await http('POST', '/appointments', {
-    token: patient.token,
-    body: {
-      patient_id: id,
-      appointment_type: 'FollowUp',
-      reason: `Journey self check-in ${Date.now()}`,
-      preferred_date: iso().slice(0, 10),
-      preferred_time: `${hour}:${minute}`,
-      duration_minutes: 15,
-    },
-  });
+  // Every run books against the same provider, so a slot is only free once.
+  // A fixed time collides immediately and a random one collides eventually --
+  // both leave a test that fails for a reason having nothing to do with the
+  // thing under test. So: try successive slots until one is free, bounded.
+  //
+  // The 409 itself is the overlap guard working correctly, which is why this
+  // retries rather than treating it as a failure.
+  let booked = { status: 0, json: {} as Record<string, unknown> };
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const hour = String(8 + Math.floor(attempt / 2)).padStart(2, '0');
+    const minute = attempt % 2 === 0 ? '05' : '35';
+    booked = await http('POST', '/appointments', {
+      token: patient.token,
+      body: {
+        patient_id: id,
+        appointment_type: 'FollowUp',
+        reason: `Journey self check-in ${Date.now()}`,
+        // Tomorrow, not today: a slot in the past behaves differently and the
+        // point here is the transition, not the scheduling window.
+        preferred_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+        preferred_time: `${hour}:${minute}`,
+        duration_minutes: 15,
+      },
+    });
+    if (booked.status !== 409) break;
+  }
   const bookedOk = j.status(
     'the patient books the appointment they will check in to',
     booked.status,

@@ -44,6 +44,47 @@ fn require_admin(data: &web::Data<AppState>, req: &HttpRequest) -> Result<String
 /// GET /api/admin/retention/report
 ///
 /// Runs a retention assessment on demand and returns it. Read-only: the
+/// The retention assessments that have already run.
+///
+/// `run_retention_assessment` has written a `retention_job_runs` row on every
+/// run since it was built, and nothing read one back. For a POPIA obligation
+/// that is the wrong way round: the point of recording a run is to be able to
+/// show, later, that the policy was applied on a given date. A record nobody
+/// can retrieve proves nothing.
+///
+/// Admin-only, like every other route in this file: a retention run names
+/// policies and record counts across the whole deployment.
+#[get("/api/admin/retention/runs")]
+pub async fn list_retention_job_runs(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<crate::types::PaginationQuery>,
+) -> impl Responder {
+    if let Err(resp) = require_admin(&data, &req) {
+        return resp;
+    }
+
+    // `get_recent` had no caller anywhere in the binary until this handler.
+    let limit = query.limit.clamp(1, 200) as i32;
+    match data.repositories.retention_job_runs.get_recent(limit).await {
+        Ok(runs) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": runs.len(),
+            "runs": runs,
+        })),
+        Err(error) => {
+            log::error!("retention job runs could not be read: {error}");
+            // Not an empty list. "No assessment has ever run" and "the record
+            // of them could not be read" are opposite answers to an auditor.
+            HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                "success": false,
+                "error": "The record of retention runs could not be read",
+                "code": "RETENTION_RUNS_UNAVAILABLE",
+            }))
+        }
+    }
+}
+
 /// assessment evaluates and reports, and has no code path that disposes of a
 /// record.
 #[get("/api/admin/retention/report")]

@@ -136,6 +136,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_cds_audit) // GET /api/admin/cds/audit
         // Data retention: report-only assessment + legal holds (POPIA gate §4)
         .service(get_retention_report) // GET  /api/admin/retention/report
+        .service(list_retention_job_runs) // GET  /api/admin/retention/runs
         .service(list_active_legal_holds) // GET  /api/admin/retention/holds
         .service(create_legal_hold) // POST /api/admin/retention/holds
         .service(release_legal_hold) // POST /api/admin/retention/holds/{id}/release
@@ -474,6 +475,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::submit_wearable_reading)
         .service(clinical_endpoints::get_wearable_readings)
         .service(clinical_endpoints::create_wearable_alert_rule)
+        .service(clinical_endpoints::list_wearable_alert_rules)
         .service(clinical_endpoints::get_wearable_alerts)
         // Phase 25: AI Symptom Checker
         .service(clinical_endpoints::start_symptom_check)
@@ -526,6 +528,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_insurance_claim)
         .service(clinical_endpoints::get_patient_insurance_claims)
         .service(clinical_endpoints::check_insurance_eligibility)
+        .service(clinical_endpoints::get_eligibility_checks)
         // Phase 31: Analytics Dashboard endpoints
         .service(clinical_endpoints::get_dashboard_metrics)
         .service(clinical_endpoints::get_patient_analytics)
@@ -540,6 +543,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 33: Offline Mode Sync endpoints
         .service(clinical_endpoints::get_sync_status)
         .service(clinical_endpoints::register_sync_device)
+        .service(clinical_endpoints::list_sync_devices)
         .service(clinical_endpoints::perform_sync)
         .service(clinical_endpoints::get_sync_conflicts)
         .service(clinical_endpoints::resolve_sync_conflict)

@@ -227,6 +227,61 @@ async fn persist_eligibility_check(
     Ok(())
 }
 
+/// The eligibility checks run for a patient.
+///
+/// Every check has been stored since this endpoint was written and nothing
+/// could read one back: a clinic that ran a check on Monday had to run it again
+/// on Tuesday to see the answer, and a denied claim could not be traced to the
+/// check that preceded it.
+///
+/// Scoped to the patient themselves or a healthcare provider. An eligibility
+/// response carries plan and coverage detail and is not public to other
+/// patients.
+#[get("/api/insurance/eligibility/{patient_id}")]
+pub async fn get_eligibility_checks(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let current_user = match require_known_user(&data, &current_user_id) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    let patient_id = path.into_inner();
+
+    let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the patient or a healthcare provider can read eligibility checks"
+                .to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let records = data
+        .repositories
+        .eligibility_checks
+        .get_by_owner(&patient_id)
+        .await
+        .unwrap_or_default();
+    let checks: Vec<crate::clinical::EligibilityCheckResponse> = records
+        .into_iter()
+        .filter_map(|record| serde_json::from_value(record.data).ok())
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "count": checks.len(),
+        "checks": checks,
+    }))
+}
+
 /// Check insurance eligibility
 #[post("/api/insurance/eligibility")]
 pub async fn check_insurance_eligibility(

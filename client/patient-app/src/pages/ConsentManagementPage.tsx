@@ -85,6 +85,10 @@ export function ConsentManagementPage() {
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // "Nobody has access to my records" and "the list could not be loaded" are
+  // opposite answers to the question this screen exists to answer, and an empty
+  // array asserts the first one.
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGrant, setSelectedGrant] = useState<AccessGrant | null>(null);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
@@ -122,8 +126,10 @@ export function ConsentManagementPage() {
       if (grantsResponse.ok) {
         const data = await grantsResponse.json();
         setGrants(data.grants || []);
+        setLoadError('');
       } else {
         setGrants([]);
+        setLoadError(t('consent.loadFailed'));
       }
 
       // Fetch pending access requests from API
@@ -135,6 +141,7 @@ export function ConsentManagementPage() {
         setRequests(data.requests || []);
       } else {
         setRequests([]);
+        setLoadError(t('consent.loadFailed'));
       }
 
       // Fetch signed consents and consent types
@@ -348,6 +355,12 @@ export function ConsentManagementPage() {
         <h1 className="text-2xl font-bold text-content">{t('consent.accessControl')}</h1>
         <p className="text-content-muted">{t('consent.subtitle')}</p>
       </div>
+
+      {loadError && (
+        <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+          {loadError}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">

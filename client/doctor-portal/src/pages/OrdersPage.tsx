@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation, getApiErrorMessage } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -169,7 +169,7 @@ function OrdersPage() {
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
     if (!user) return;
     try {
-      await fetch(apiUrl(`/api/clinical/orders/${orderId}/status`), {
+      const response = await fetch(apiUrl(`/api/clinical/orders/${orderId}/status`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -179,8 +179,18 @@ function OrdersPage() {
         },
         body: JSON.stringify({ status: newStatus }),
       });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        setError(getApiErrorMessage(detail, t('docOrders.failUpdateStatus')));
+        return;
+      }
     } catch {
-      // Update locally
+      // The local update below used to happen regardless, with a comment
+      // saying "Update locally" -- so an order the server refused to advance
+      // showed as advanced, and the next person to read the board acted on a
+      // status that exists only in this browser tab.
+      setError(t('docOrders.failUpdateStatus'));
+      return;
     }
     
     setOrders(prev => prev.map(o => 

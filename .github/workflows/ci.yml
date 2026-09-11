@@ -195,6 +195,25 @@ jobs:
             - name: Every mutating raw fetch sends what the API requires
               run: python scripts/check-raw-fetch-mutations.py
 
+            # A repository read method nothing calls.
+            #
+            # `adherence_logs` had five methods and one caller -- `create` --
+            # so a patient ticking off doses filled a table no screen could
+            # open. The POST returned 201 and every test of the write passed.
+            # Ratcheted against a baseline rather than failing outright: most
+            # of the count is speculative surface, and the subset that loses
+            # data (written by a live handler, read by nothing) is zero.
+            - name: No new repository reads without callers
+              run: python scripts/check-unread-repositories.py
+
+            # A fetch whose response nobody looks at.
+            #
+            # `fetch` rejects only on a transport failure, so a 403 resolves
+            # like a 201. Four live call sites reported success for writes the
+            # server had refused, including a nurse marking a dose as given.
+            - name: Every fetch examines its response
+              run: python scripts/check-unchecked-fetch.py
+
             # WCAG AA contrast, checked at the design tokens rather than at a
             # rendered pixel, so it holds for both themes.
             - name: Colour tokens meet WCAG AA contrast

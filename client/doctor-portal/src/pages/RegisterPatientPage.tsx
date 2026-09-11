@@ -112,7 +112,12 @@ function RegisterPatientPage() {
           national_id: formData.nationalId,
           // Omit rather than send '' so the server records "not stated" as absent.
           gender: formData.gender || undefined,
-          phone: '',
+          // Absent, not empty. This form collects an EMERGENCY contact number
+          // (sent below) and no personal one, so `''` asserted that the
+          // clinician had been asked for the patient's own phone and left it
+          // blank -- which the backend stores faithfully as a known-empty
+          // value (CLAUDE.md rule 9).
+          phone: undefined,
           blood_type: formData.bloodType,
           allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
           current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),

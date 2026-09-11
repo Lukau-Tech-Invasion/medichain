@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, createMar, getApiClient, getPatients, IS_DEMO, listMar, useTranslation } from '@medichain/shared';
+import { apiUrl, createMar, getApiClient, getPatients, IS_DEMO, listMar, useTranslation, getApiErrorMessage } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -360,7 +360,7 @@ export default function MARPage() {
     // Call the API to mark medication as administered
     if (user && selectedPatient) {
       try {
-        await fetch(apiUrl('/api/nursing/mar/administer'), {
+        const response = await fetch(apiUrl('/api/nursing/mar/administer'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -383,8 +383,20 @@ export default function MARPage() {
             date: new Date().toISOString().split('T')[0],
           }),
         });
+        if (!response.ok) {
+          // A medication administration record the server refused must never
+          // be shown as documented. `fetch` resolves on a 403 or a 500 just as
+          // it does on a 201, so without this check a nurse saw
+          // "Documented: Metformin" for a dose no record exists of -- and the
+          // next nurse reads that screen and does not give it again.
+          const detail = await response.json().catch(() => ({}));
+          setError(getApiErrorMessage(detail, t('docMAR.administerFailed')));
+          return;
+        }
       } catch (e) {
         console.error('Failed to post MAR administration:', e);
+        setError(t('docMAR.administerFailed'));
+        return;
       }
     }
 

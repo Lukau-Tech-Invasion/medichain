@@ -898,6 +898,7 @@ const en_US: TranslationRecord = {
 
   // Consent
   consent: {
+    loadFailed: 'Who has access could not be loaded. This list is not empty — it is unknown.',
     title: 'Consent Management',
     activeConsents: 'Active Consents',
     pendingRequests: 'Pending Requests',
@@ -2216,6 +2217,7 @@ const en_US: TranslationRecord = {
   },
 
   docOrders: {
+    failUpdateStatus: 'The order status was not changed. The board still shows the previous status.',
     title: 'Physician Orders',
     subtitle: 'Manage and track clinical orders',
     newOrder: 'New Order',
@@ -4749,6 +4751,7 @@ const en_US: TranslationRecord = {
     errorSubmitFailed: 'Failed to submit death certificate. Please try again.',
   },
   docDischarge: {
+    failApprove: 'The discharge was not approved. Approval is a second-clinician check and it has not been recorded.',
     defaultEmergencyInstructions: 'If you experience any warning signs, call {{emergencyNumber}} or go to the nearest emergency room immediately.',
     title: 'Discharge Planning',
     subtitle: 'Create and manage patient discharge documentation',
@@ -5839,6 +5842,7 @@ const en_US: TranslationRecord = {
     recordCalibrationButton: 'Record Calibration',
   },
   docMAR: {
+    administerFailed: 'That administration was not recorded. Do not treat this dose as documented.',
     title: 'Medication Administration Record',
     subtitle: 'Document and track medication administrations',
     documentedSuccess: '{{name}} documented successfully',

@@ -19,7 +19,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation } from '@medichain/shared';
+import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation, getApiErrorMessage } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -328,7 +328,7 @@ function DischargePage() {
   const approveDischarge = async (id: string) => {
     if (!user) return;
     try {
-      await fetch(apiUrl(`/api/clinical/discharges/${id}/approve`), {
+      const response = await fetch(apiUrl(`/api/clinical/discharges/${id}/approve`), {
         method: 'POST',
         headers: { 
           ...getApiClient().getSessionHeaders(user.walletAddress),
@@ -336,10 +336,20 @@ function DischargePage() {
           'X-Provider-Role': user.role,
         },
       });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        setError(getApiErrorMessage(detail, t('docDischarge.failApprove')));
+        return;
+      }
       setSuccess(t('docDischarge.successApproved'));
       fetchDischarges();
     } catch {
-      setSuccess(t('docDischarge.successApprovedDemo'));
+      // This used to report success on BOTH paths -- the unchecked response
+      // above and a "demo" message here -- so a second-clinician discharge
+      // approval could not fail. Approval is the control that stops one
+      // clinician discharging a patient alone; a control that always reports
+      // success is not a control.
+      setError(t('docDischarge.failApprove'));
     }
   };
 

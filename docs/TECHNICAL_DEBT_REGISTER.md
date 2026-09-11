@@ -21,86 +21,176 @@ Last updated: 2026-09-10.
 
 ---
 
-## 2026-09-11 — OPEN: 39 doctor-portal files bypass the typed API client
+## 2026-09-11 — OPEN, but the defects in it are fixed: 39 files bypass the typed client
 
-They call `fetch(apiUrl(...))` directly. The typed client in
-`client/shared/src/api/` is what attaches the session headers and the
-`Idempotency-Key` the middleware refuses an authenticated mutation without, so
-every hand-rolled call re-implements that from memory.
+They call `fetch(apiUrl(...))` directly — 78 call sites across 40 files, 63
+distinct endpoints, 23 of them mutations. The typed client in
+`client/shared/src/api/` attaches the session headers and the
+`Idempotency-Key` the middleware refuses an authenticated mutation without, and
+throws on a non-2xx, so every hand-rolled call re-implements three things from
+memory.
 
-**Not currently broken.** `scripts/check-raw-fetch-mutations.py` was written to
-find out, and all 27 authenticated mutating raw fetches do carry both headers.
-It is now a CI gate, so the number cannot go up while the migration is pending.
+**The entry used to say "not currently broken." That was wrong**, and it was
+wrong because the only question asked was about headers. Auditing the same 78
+sites for whether they LOOK at the response found four that could not tell a
+refusal from a success:
 
-**Why it is still debt:** this exact omission has bitten before. The durable
-idempotency guard landed requiring a header no caller sent, and four separate
-classes of caller were found days apart with CI red throughout. Twenty-seven
-independent copies of a requirement is twenty-seven chances to get the
-twenty-eighth wrong, and the gate only catches the shape it knows to look for —
-it says nothing about response envelopes, error handling or retries, which the
-client also standardises.
+| Call site | What it did |
+| --- | --- |
+| `MARPage.handleAdminister` | A nurse marks a dose given, the server refuses, the MAR shows `Documented: <drug>`. The next nurse reads that screen and does not give the dose. |
+| `OrdersPage.handleUpdateStatus` | Updated local state unconditionally under a comment reading `// Update locally`, so an order the server refused to advance showed as advanced on everyone's board. |
+| `DischargePage.approveDischarge` | Reported success on BOTH paths — the unchecked response and the catch. Second-clinician approval is the control that stops one clinician discharging a patient alone, and it could not fail. |
+| `SymptomTrackerPage` | The rollback ran only on a transport failure, so a refused symptom stayed on the patient's screen looking recorded. |
 
-**What closes it:** a typed function per endpoint in `endpoints.ts` and the
-call site rewritten to use it, file by file, each one re-verified. `TelehealthPage`
-was done on 2026-09-11 as the worked example — and doing it surfaced three
-separate vocabulary defects on that page alone, which is the real argument for
-the rest.
+All four are fixed, and `scripts/check-unchecked-fetch.py` is now a CI gate over
+all 94 awaited raw fetches in both applications. `ConsentManagementPage` was
+also corrected while there: a failed load set `setGrants([])`, so a patient was
+shown "nobody has access to my records" when the list had merely failed.
 
-**Deliberately not done in bulk.** Thirty-nine files of mechanical rewriting,
-none of them currently failing, against a change budget already spent on defects
-that were. Migrating them without re-verifying each page is how a working screen
-becomes a broken one.
+**Two gates now hold the line:** `check-raw-fetch-mutations.py` (headers) and
+`check-unchecked-fetch.py` (response examined). Both pass.
+
+**What closes the entry itself:** a typed function per endpoint and the call
+site rewritten, file by file, each re-verified. `TelehealthPage` was done on
+2026-09-11 as the worked example, and doing it surfaced three separate
+vocabulary defects on that page alone.
+
+**Still deliberately not done in bulk.** 78 mechanical rewrites across 40 pages,
+none now failing, each needing its own re-verification. The gates make the
+remaining risk a style question rather than a correctness one — which is the
+right order to do this in, not a reason to skip it.
 
 ---
 
-## 2026-09-11 — OPEN: no browser-level specs for the role journeys
+## 2026-09-11 — PARTLY CLOSED same day: no browser-level specs for the role journeys
 
-`scripts/role-journeys.ts` exercises all six roles end to end — 218 assertions
+`scripts/role-journeys.ts` exercises all six roles end to end — 220 assertions
 against a live server, every payload copied from the page that sends it, every
-write read back through the endpoint a clinician would use. What it does not
-exercise is the browser: a payload can be right while the button that builds it
-is unreachable, mislabelled, or disabled.
+write read back through the endpoint a clinician would use. What it cannot
+exercise is the browser: it sends the payload itself, so it proves nothing about
+whether the page can produce one, whether the button is reachable, or whether
+what the screen says afterwards matches what the server did.
 
-The Playwright suites cover sign-in and a sample of screens (51 doctor-portal,
-72 patient-app) but not the journeys.
+That last gap is not hypothetical — four Save paths were found the same day
+reporting success for writes the server had refused.
 
-**What closes it:** a spec per role that drives the real screens in the order
-the journey does. The journeys are the script; the work is the driving.
+**`client/doctor-portal/e2e/journeys.spec.ts`** now covers, per role:
 
-**Why it is not done yet:** the two suites answer different questions and the
-HTTP one answers the more important half first — a Save button that discards its
-payload is invisible to a browser test that only checks a toast appeared, and
-that was the defect class that dominated this codebase. Browser specs are the
-right next layer, not a substitute for the one underneath.
+* all five accounts sign in and render a real landing page — `/dashboard` is
+  one URL and five different components via `SmartDashboardRouter`;
+* a nurse reaches the MAR and a doctor reaches the order board, the two screens
+  whose unchecked writes were the worst of the four;
+* the health ID card screen offers no default ID type, because a card issued
+  against a blank one is a credential verified against no national ID system;
+* telehealth offers only session types the API accepts — the page used to offer
+  four that appeared in no backend match arm;
+* registration still does not collect a personal phone, so it is right to omit
+  rather than send `''`.
 
----
+**9 passed, 1 skipped.** The skip is the administrator: `bt.admin` is in the
+server's demo-fixture list but carries no keystore, so
+`GET /api/auth/demo-credentials` does not offer it and the account cannot be
+signed in from a browser at all. The spec names that out loud rather than
+asserting it as a product failure — it is a seeding gap.
 
-## 2026-09-11 — OPEN: repository read methods that nothing calls
+**What remains open:**
 
-`AdherenceLogRepository` has five methods. Exactly one — `create` — had a caller
-anywhere in the binary. `get_by_patient`, `get_by_reminder`, `get_by_id` and
-`get_adherence_rate` had none, and no GET endpoint existed, so a patient ticking
-off their doses filled a table nothing could open. Found by accident while
-chasing an unrelated 500.
+* the administrator fixture needs a keystore before any browser test can cover
+  the 14 screens in its navigation;
+* these specs reach screens and assert their controls; they do not yet drive a
+  full write and read it back through the UI, which is the step that would
+  subsume the HTTP journeys rather than complement them.
 
-`get_by_patient` now has an endpoint. `get_by_reminder` and `get_adherence_rate`
-still have no caller — and an adherence rate nobody can read is a
-medication-compliance figure that exists only in principle.
-
-**Why this is a class, not an incident.** A write path with no reader is
-indistinguishable from a working feature: the POST returns 201, the row is
-really there, and every test that checks the write passes. It is the same shape
-as the `#[sqlx(skip)] data` blobs and the `dead-durable-variant-beside-live-volatile-one`
-pattern, arriving through a different door.
-
-**What closes it:** for each repository trait, grep its read methods for callers
-outside `api/src/repositories/`. Every method with none is either an unfinished
-feature or dead weight, and the difference matters. Mechanisable as a gate, and
-the gate is the better answer — `check-state-durability.py` is the precedent.
+The two suites answer different questions and the HTTP one answers the more
+important half first: a Save that discards its payload is invisible to a browser
+test that only checks a toast appeared.
 
 ---
 
-## 2026-09-11 — OPEN: `postgres/phase2.rs` is compiled by nothing
+## 2026-09-11 — CLOSED for the half that loses data: repository reads nothing calls
+
+`AdherenceLogRepository` had five methods and exactly one caller — `create`. No
+GET endpoint existed, so a patient ticking off their doses filled a table
+nothing could open. Found by accident while chasing an unrelated 500.
+
+`scripts/check-unread-repositories.py` was written to find out how much of that
+there was. **161 of 497 declared read methods have no caller** outside the
+repository layer.
+
+That number on its own is not a defect list, and treating it as one would be
+wrong: most of it is a single unused read on a trait whose other reads ARE wired
+up — speculative surface, written ahead of demand. So the sweep was narrowed to
+the shape that actually loses data: **a repository WRITTEN by a live handler and
+read by nothing at all.** There were four.
+
+| Repository | What was being lost |
+| --- | --- |
+| `wearable_alert_rules` | A patient configured "alert me above 150, treat it as Critical". Nothing read the rules, so every alert fired at a hardcoded `Urgent` under `rule_id: "AD-HOC"` with `threshold: 0.0` — a comment in the code said `// Should be fetched from rule`. |
+| `eligibility_checks` | Every insurance eligibility check stored and unreadable; a clinic had to re-run Monday's check on Tuesday to see the answer, and a denied claim could not be traced to the check before it. |
+| `sync_devices` | A device registers for offline sync and nothing could list them — so a patient who lost a phone could not see it was still registered, let alone say so. |
+| `retention_job_runs` | A POPIA artefact recorded on every assessment run and retrievable by nobody, which is exactly backwards for a record whose purpose is proving later that the policy ran. |
+
+All four now have readers: `GET /api/wearables/alert-rules`,
+`GET /api/insurance/eligibility/{patient_id}`, `GET /api/sync/devices`,
+`GET /api/admin/retention/runs`. **Written-but-never-read is now zero.**
+
+The `wearable_alert_rules` one was the worst of the four and had two more
+defects under it, both found on the way: `check_reading_for_abnormality` matched
+`"heart_rate"`/`"spo2"` while the reading parser matched `"HeartRate"`/`"SpO2"`,
+so one of the two vocabularies never matched and no alert could fire at all; and
+the built-in threshold was reported as `0.0`. The data type is now parsed once
+into the enum and nothing downstream sees a string.
+
+**What remains open** is recorded in the entry below. The gate is wired into CI
+with a baseline of 161: it may fall freely, and raising it needs a deliberate
+edit to the script, which is the point.
+
+---
+
+## 2026-09-11 — OPEN: 23 typed repositories superseded by JSON-blob ones
+
+Found by `scripts/check-unread-repositories.py`. These have **no caller at
+all** — not a read, not a write:
+
+`billing_codes`, `compliance_reports`, `crossmatch_records`, `death_records`,
+`e_prescriptions`, `external_id_mappings`, `family_medical_histories`,
+`genetic_test_results`, `immunization_schedules`, `lab_panels`, `lab_trends`,
+`organ_donation_records`, `remote_patient_monitoring`, `rpm_readings`,
+`sync_operations`, `telehealth_notes`, `telehealth_sessions`,
+`transfusion_records`, `vaccine_inventory`, `wearable_alerts`, `wearable_data`,
+`wearable_devices`, `wearable_integration_logs`.
+
+They are not merely unused — they were **superseded**. The handlers write to a
+`JsonRecordRepository` beside each one:
+
+| Typed, unused | What the handlers actually use |
+| --- | --- |
+| `telehealth_sessions` | `telehealth_session_records` |
+| `transfusion_records` | `transfusion_event_records` |
+| `death_records` | `death_certificate_records` |
+| `family_medical_histories` | `family_history_records` |
+| `e_prescriptions` | `e_prescriptions_v2`, `e_prescription_records` |
+
+**Why this matters beyond tidiness.** Each typed repository has a real
+PostgreSQL table behind it, and that table is empty while its JSON counterpart
+holds the data. Anyone reading the schema — or writing a report against it, or
+migrating it — will find `transfusion_records` and reasonably conclude that is
+where transfusions live. It is not. That is the same trap as
+`postgres/phase2.rs`, one level up.
+
+**What closes it:** a decision, not a deletion. Either the typed repositories
+are the intended shape and the handlers should migrate onto them, or the JSON
+ones are and roughly 23 traits, 46 backend implementations and their tables
+should go. Both are large; picking one is the work, and it needs the owner.
+
+**Not done here** because removing 23 repositories plus two backends each, while
+their tables may hold rows from earlier runs, is not something to do on a
+general instruction (CLAUDE.md rule 7). The gate now holds the count so it
+cannot quietly grow.
+
+---
+
+## 2026-09-11 — CLOSED same day: `postgres/phase2.rs` was compiled by nothing
 
 `api/src/repositories/postgres/phase2.rs` is on disk, is declared by no `mod`
 statement in `postgres/mod.rs`, and defines a second
@@ -116,10 +206,19 @@ It is a hazard rather than merely dead weight — a future change made to the
 wrong copy will pass review, compile (because it is never compiled), and have no
 effect at all.
 
-**What closes it:** deleting the file, which needs the owner's say-so
-(CLAUDE.md rule 7), and a check on whether `gcs_assessments` and
-`sample_histories` — the other two tables it touches — have live
-implementations elsewhere or are orphaned with it.
+**How it was closed.** All three of its repositories —
+`PgSampleHistoryRepository`, `PgGcsAssessmentRepository` and
+`PgFallRiskAssessmentRepository` — have live equivalents in dedicated files,
+and `postgres/mod.rs` re-exports those. The dead copy was also **stale**: its
+`fall_risk_assessments` insert named sixteen columns where the live one names
+twenty-one, missing `environmental_hazards`, `medications`, `recent_fall`,
+`mobility` and `data`.
+
+That is the hazard made concrete. Anyone who had "fixed" fall-risk persistence
+in this file would have written correct code, passed review, compiled clean —
+because it is never compiled — and changed nothing at all.
+
+Deleted 2026-09-11 with the owner's say-so. 478 lines.
 
 ---
 
