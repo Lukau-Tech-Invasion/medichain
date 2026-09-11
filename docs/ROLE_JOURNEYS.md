@@ -87,11 +87,13 @@ sign-ins; that is a control working and is reported as a SKIP, never a failure.
 
 ## Result
 
-**Every step passes, 4 skipped.** 203 steps on 2026-09-10; 209 after the
-health-ID-card steps were added on 2026-09-11, which is the last full run
-measured. The medication-reminder and self-check-in steps were added after that
-run and are pending a re-measure — the count in `CLAUDE.md` should be trusted
-over this line if the two disagree. The four skips are honest:
+**Every step passes, 4 skipped.** 203 steps on 2026-09-10; **209/209 on
+2026-09-11**, which is the last full run measured. Six further steps — the
+medication reminder a patient sets for themselves, and the appointment they
+check themselves into — were written after that run to cover two defects the run
+itself exposed, and are pending a re-measure. Both are covered by the unit
+tests; neither has been driven against a live server yet. The four skips are
+honest:
 
 * two sign-ins that hit the challenge limiter on a repeat run;
 * two second-pharmacist assertions, because the deployment's dispensing policy
