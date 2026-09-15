@@ -247,6 +247,38 @@ pub async fn create_laceration(
     }
 
     let body = req.into_inner();
+
+    // `patient_id`, `location` and `length_cm` are NOT NULL in the schema, and
+    // every one of them was read with `unwrap_or_default()` -- so a submission
+    // missing all three stored a repair on patient "" at site "" of length 0.
+    // In memory that succeeds silently; on PostgreSQL `patient_id` is a foreign
+    // key, so it fails as an opaque 500 for what is a client mistake.
+    //
+    // Length 0 is refused rather than stored: an unmeasured wound is not a
+    // zero-centimetre wound, and a repair record whose length reads 0 is worse
+    // than one that was never filed.
+    let required_text = |key: &str| -> bool {
+        body.get(key)
+            .and_then(|v| v.as_str())
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+    };
+    let length = body.get("length_cm").and_then(|v| v.as_f64());
+    if !required_text("patient_id") || !required_text("location") {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id and location are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if !matches!(length, Some(l) if l > 0.0) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "length_cm is required and must be greater than zero".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let record_id = format!("LAC-{}", uuid::Uuid::new_v4().simple());
@@ -357,11 +389,12 @@ pub async fn create_laceration(
             .get("suture_removal_date")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
-        performed_by: body
-            .get("performed_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        // Stamped from the session, not read from the body. Repairing a wound
+        // is an accountable clinical act, and `performed_by` was previously
+        // whatever the caller claimed -- or an empty string when they claimed
+        // nothing. The same reasoning as `create_radiology_order`'s
+        // `require_actor_is_caller`.
+        performed_by: current_user.wallet_address.clone(),
         performed_at: body
             .get("performed_at")
             .and_then(|v| v.as_str())
@@ -416,17 +449,23 @@ pub async fn list_laceration_repairs(
         });
     }
 
-    let pagination = Pagination::new(0, 100);
-    match data
-        .repositories
-        .laceration_repairs
-        .get_by_patient("all", pagination)
-        .await
-    {
-        Ok(result) => {
-            let repairs: Vec<serde_json::Value> =
-                result.items.into_iter().map(|e| e.data).collect();
-            HttpResponse::Ok().json(repairs)
+    // `get_by_patient("all", ...)` was a literal patient id.
+    //
+    // In memory that happened to behave like a wildcard; on PostgreSQL it is
+    // `WHERE patient_id = 'all'`, which matches nothing -- so this list was
+    // empty for every deployment that used a database, no matter how many
+    // repairs had been documented. `list_discharges` carried the identical bug
+    // and the identical comment; this one was missed.
+    //
+    // Verified 2026-09-15: a repair filed through `POST /api/clinical/laceration`
+    // returned 201 and then did not appear here at all.
+    match data.repositories.laceration_repairs.list_all().await {
+        Ok(items) => {
+            // The stored records, not `e.data`. `data` is the payload the
+            // screen composed, and the screen does not know the id -- that is
+            // server-assigned -- so every row came back without one, and the
+            // detail view had nothing to open.
+            HttpResponse::Ok().json(items)
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
@@ -693,5 +732,157 @@ pub async fn get_splint(
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+/// A laceration repair has to reach the list a clinician actually opens.
+///
+/// Two bugs made this page look finished while doing nothing. The Save button
+/// had no handler at all, and `list_laceration_repairs` asked the repository
+/// for `get_by_patient("all", ...)` -- a literal patient id, which is a
+/// wildcard in memory and matches nothing on PostgreSQL. So even once the
+/// button worked, the repair would have been stored and then invisible.
+///
+/// These tests run the write and the read in one process, because testing the
+/// read alone passes against a store the producer never reaches.
+#[cfg(test)]
+mod laceration_round_trip_tests {
+    use crate::{AppState, Role, User};
+    use actix_web::{test, web, App};
+
+    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        let user = User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Test".to_string(),
+            role,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(wallet.to_string(), user);
+        web::Data::new(state)
+    }
+
+    /// `LacerationRepairPage`'s payload, field for field.
+    fn repair(patient_id: &str, location: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": patient_id,
+            "location": location,
+            "length_cm": 3.5,
+            "closure_technique": "sutures",
+            "wound_type": "laceration",
+            "depth_category": "partial thickness",
+            "tetanus_given": true,
+            "antibiotics_prescribed": false,
+            "suture_size": "4-0",
+            "suture_material": "Nylon",
+            "number_of_sutures": 6,
+            "anesthetic_agent": "1% Lidocaine with epinephrine",
+            "notes": "Irrigated with saline.",
+            "performed_at": "2026-09-15T09:00:00Z",
+        })
+    }
+
+    async fn post_then_list(
+        data: web::Data<AppState>,
+        wallet: &str,
+        body: serde_json::Value,
+    ) -> (u16, u16, String) {
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::create_laceration)
+                .service(super::list_laceration_repairs),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/clinical/laceration")
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .set_json(body)
+            .to_request();
+        let created = test::call_service(&app, req).await.status().as_u16();
+
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/laceration-repairs")
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let listed = resp.status().as_u16();
+        let body = test::read_body(resp).await;
+        (created, listed, String::from_utf8_lossy(&body).to_string())
+    }
+
+    /// The assertion the page needed: what the doctor saves, the list shows.
+    #[actix_rt::test]
+    async fn a_repair_appears_on_the_list_that_documented_it() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, listed, body) =
+            post_then_list(data, "5Doctor", repair("PAT-1", "Right forearm")).await;
+        assert_eq!(created, 201, "the repair was not stored");
+        assert_eq!(listed, 200);
+        assert!(
+            body.contains("Right forearm"),
+            "a repair that is stored and cannot be listed is a repair nobody signs: {body}"
+        );
+        // The server-assigned id, which `.map(|e| e.data)` used to drop -- the
+        // detail view has nothing to open without it.
+        assert!(
+            body.contains("\"id\":\"LAC-"),
+            "no record id in the list: {body}"
+        );
+        // `performed_by` is stamped from the session, not taken from the body.
+        assert!(
+            body.contains("5Doctor"),
+            "the performer was not recorded: {body}"
+        );
+    }
+
+    /// An unmeasured wound is not a zero-centimetre wound.
+    #[actix_rt::test]
+    async fn a_repair_with_no_length_is_refused() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let mut body = repair("PAT-1", "Right forearm");
+        body["length_cm"] = serde_json::json!(0);
+        let (created, _, _) = post_then_list(data, "5Doctor", body).await;
+        assert_eq!(created, 400);
+    }
+
+    /// `patient_id` and `location` are NOT NULL in the schema, and both were
+    /// read with `unwrap_or_default()` -- a repair on patient "" at site "".
+    #[actix_rt::test]
+    async fn a_repair_with_no_patient_is_refused() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, _, _) = post_then_list(data, "5Doctor", repair("", "Right forearm")).await;
+        assert_eq!(created, 400);
+    }
+
+    #[actix_rt::test]
+    async fn a_repair_with_no_site_is_refused() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, _, _) = post_then_list(data, "5Doctor", repair("PAT-1", "   ")).await;
+        assert_eq!(created, 400);
+    }
+
+    /// Documenting a procedure is editing the medical record.
+    #[actix_rt::test]
+    async fn a_patient_cannot_document_a_repair() {
+        let data = state_with(Role::Patient, "5Patient");
+        let (created, _, _) =
+            post_then_list(data, "5Patient", repair("PAT-1", "Right forearm")).await;
+        assert_eq!(created, 403);
     }
 }

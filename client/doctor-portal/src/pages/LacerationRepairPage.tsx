@@ -15,7 +15,14 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, getApiClient, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  createLaceration,
+  getApiClient,
+  getApiErrorMessage,
+  useTranslation,
+  clickable,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -82,6 +89,71 @@ const SUTURE_TYPES = [
   '4-0 PDS',
 ] as const;
 
+/**
+ * The API's laceration repair, as this screen needs it.
+ *
+ * `GET /api/clinical/laceration-repairs` returns `LacerationRepairEntity`, and
+ * this screen's `LacerationRepair` above is not that shape: `length_cm` vs
+ * `length`, `closure_technique` vs `closureMethod`, `performed_at` vs
+ * `repairDate`, `anesthetic_agent` vs `anesthesia`. The rows were previously
+ * handed to `setRepairs` raw, so every card rendered `undefined`.
+ *
+ * Fields this screen collects that the typed columns have no home for -- the
+ * wound type, the depth *category* (the column is `depth_cm`, a number) and
+ * whether antibiotics were prescribed -- are carried in the record's `data`
+ * blob, which is where the handler puts the whole submission.
+ */
+function toLacerationRepair(raw: Record<string, unknown>): LacerationRepair {
+  const blob = (raw.data ?? {}) as Record<string, unknown>;
+  const pick = (...keys: string[]): unknown => {
+    for (const key of keys) {
+      if (raw[key] !== undefined && raw[key] !== null) return raw[key];
+      if (blob[key] !== undefined && blob[key] !== null) return blob[key];
+    }
+    return undefined;
+  };
+  const str = (...keys: string[]): string => {
+    const v = pick(...keys);
+    return typeof v === 'string' ? v : v === undefined ? '' : String(v);
+  };
+  const num = (...keys: string[]): number => {
+    const v = pick(...keys);
+    const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  // `performed_at` is the only timestamp the record carries. The injury time is
+  // not collected anywhere on this form, so it is shown as the repair time
+  // rather than invented: see `formatRepairDate` for what an unparseable one
+  // renders as.
+  const performedAt = str('performed_at', 'created_at');
+
+  return {
+    id: str('id', 'record_id'),
+    patientId: str('patient_id'),
+    patientName: str('patient_name'),
+    mrn: str('mrn', 'patient_id'),
+    injuryDate: new Date(performedAt),
+    repairDate: new Date(performedAt),
+    location: str('location'),
+    woundType: (str('wound_type') || 'laceration') as WoundType,
+    length: num('length_cm'),
+    depth: str('depth_category'),
+    closureMethod: (str('closure_technique') || 'sutures') as ClosureMethod,
+    sutureType: [str('suture_size'), str('suture_material')].filter(Boolean).join(' ') || undefined,
+    sutureCount: (pick('number_of_sutures') as number | undefined) ?? undefined,
+    anesthesia: str('anesthetic_agent', 'anesthesia_type'),
+    tetanusGiven: pick('tetanus_given') === true,
+    antibioticsPrescribed: pick('antibiotics_prescribed') === true,
+    // The form has no status control and the record carries no status column,
+    // so every repair documented here is a completed one. Claiming any other
+    // status would be asserting something nobody recorded.
+    status: 'completed',
+    performedBy: str('performed_by'),
+    followUpDate: str('follow_up_date') ? new Date(str('follow_up_date')) : undefined,
+    notes: str('notes') || undefined,
+  };
+}
+
 const LacerationRepairPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'repairs' | 'new' | 'follow-up'>('repairs');
@@ -107,6 +179,9 @@ const LacerationRepairPage: React.FC = () => {
     antibioticsPrescribed: false,
     notes: ''
   });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
 
   // Fetch patients for dropdown
   useEffect(() => {
@@ -153,22 +228,18 @@ const LacerationRepairPage: React.FC = () => {
         setError(null);
         
         const result = await getApiClient().get<
-        { data?: LacerationRepair[]; repairs?: LacerationRepair[] } | LacerationRepair[]
-      >('/api/clinical/laceration-repairs');
+          { data?: Record<string, unknown>[]; repairs?: Record<string, unknown>[] }
+          | Record<string, unknown>[]
+        >('/api/clinical/laceration-repairs');
         // Handle PaginatedResponse or direct array
         // The union has to be narrowed now; it used to be `any`, which is how an
-      // enveloped response and a bare array could be conflated in one expression.
-      const repairData = Array.isArray(result)
-        ? result
-        : (result.data ?? result.repairs ?? []);
-        // Convert date strings to Date objects
-        const repairsWithDates = repairData.map((repair: LacerationRepair) => ({
-          ...repair,
-          injuryDate: new Date(repair.injuryDate),
-          repairDate: new Date(repair.repairDate),
-          followUpDate: repair.followUpDate ? new Date(repair.followUpDate) : undefined
-        }));
-        setRepairs(repairsWithDates);
+        // enveloped response and a bare array could be conflated in one expression.
+        const repairData = Array.isArray(result)
+          ? result
+          : (result.data ?? result.repairs ?? []);
+        // Mapped, not spread. The API's field names are not this screen's, so
+        // spreading produced a card of `undefined`s.
+        setRepairs(repairData.map(toLacerationRepair));
       } catch (err) {
         console.error('Error fetching repairs:', err);
         setError(err instanceof Error ? err.message : t('docLaceration.errLoad'));
@@ -180,6 +251,116 @@ const LacerationRepairPage: React.FC = () => {
     
     fetchRepairs();
   }, [user, t]);
+
+  /**
+   * File the repair.
+   *
+   * The Save button had no `onClick` at all: the form collected everything and
+   * then dropped it. `createLaceration` and the handler behind it have existed
+   * the whole time -- `POST /api/clinical/laceration` -- with no caller
+   * anywhere in either application.
+   *
+   * # What this sends, and what it deliberately does not
+   *
+   * Only what the clinician actually entered. The form pre-fills a suture
+   * gauge, an anaesthetic agent and a depth category, and those are visible
+   * controls the clinician can see and change, so sending them is honest. The
+   * two numbers are not: `length` and `sutureCount` both initialise to 0, and
+   * **an unmeasured wound is not a zero-centimetre wound**. A length of zero is
+   * refused before sending, and a suture count of zero is omitted rather than
+   * asserted.
+   *
+   * # Names
+   *
+   * The screen's names are not the API's. `sutureType` is one control holding
+   * both gauge and material ('4-0 Nylon'), which the record stores as
+   * `suture_size` and `suture_material` -- removal timing depends on both. The
+   * wound type, the depth *category* and the antibiotics flag have no typed
+   * column at all (the column is `depth_cm`, a number), so they travel under
+   * their own names and land in the record's `data` blob, which is what
+   * `toLacerationRepair` reads them back out of.
+   */
+  const handleSaveRepair = async () => {
+    if (!user) return;
+    setSaveError(null);
+    setSaved(null);
+
+    if (!newRepair.patientId || !newRepair.location.trim()) {
+      setSaveError(t('docLaceration.errPatientAndSiteRequired'));
+      return;
+    }
+    if (!(newRepair.length > 0)) {
+      setSaveError(t('docLaceration.errLengthRequired'));
+      return;
+    }
+
+    // '4-0 Nylon' -> size '4-0', material 'Nylon'.
+    const usesSutures =
+      newRepair.closureMethod === 'sutures' || newRepair.closureMethod === 'combination';
+    const [sutureSize, ...materialWords] = (newRepair.sutureType || '').split(' ');
+    const sutureMaterial = materialWords.join(' ');
+
+    const payload: Record<string, unknown> = {
+      patient_id: newRepair.patientId,
+      location: newRepair.location.trim(),
+      length_cm: newRepair.length,
+      closure_technique: newRepair.closureMethod,
+      wound_type: newRepair.woundType,
+      depth_category: newRepair.depth,
+      tetanus_given: newRepair.tetanusGiven,
+      antibiotics_prescribed: newRepair.antibioticsPrescribed,
+      performed_at: new Date().toISOString(),
+    };
+    if (usesSutures && sutureSize && sutureMaterial) {
+      payload.suture_size = sutureSize;
+      payload.suture_material = sutureMaterial;
+    }
+    if (newRepair.sutureCount > 0) payload.number_of_sutures = newRepair.sutureCount;
+    if (newRepair.anesthesia.trim()) payload.anesthetic_agent = newRepair.anesthesia.trim();
+    if (newRepair.notes.trim()) payload.notes = newRepair.notes.trim();
+
+    try {
+      setSaving(true);
+      const result = await createLaceration(payload);
+      const recordId = (result as { record_id?: string })?.record_id;
+      setSaved(recordId || t('docLaceration.savedFallback'));
+
+      // Read it back through the endpoint the list uses, rather than pushing
+      // the local object onto the list. A card assembled from what this screen
+      // just typed proves nothing about what was stored -- which is the whole
+      // reason this page looked finished while saving nothing.
+      const refreshed = await getApiClient().get<
+        { data?: Record<string, unknown>[]; repairs?: Record<string, unknown>[] }
+        | Record<string, unknown>[]
+      >('/api/clinical/laceration-repairs');
+      const rows = Array.isArray(refreshed)
+        ? refreshed
+        : (refreshed.data ?? refreshed.repairs ?? []);
+      setRepairs(rows.map(toLacerationRepair));
+
+      setNewRepair({
+        patientId: '',
+        location: '',
+        woundType: 'laceration',
+        length: 0,
+        depth: 'superficial',
+        closureMethod: 'sutures',
+        sutureType: '4-0 Nylon',
+        sutureCount: 0,
+        anesthesia: '1% Lidocaine',
+        tetanusGiven: false,
+        antibioticsPrescribed: false,
+        notes: '',
+      });
+      setActiveTab('repairs');
+    } catch (err) {
+      // Stop here, and say so. Falling through to a cleared form would
+      // announce success for a write that never happened.
+      setSaveError(getApiErrorMessage(err, t('docLaceration.errSaveFailed')));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const getStatusBadge = (status: RepairStatus) => {
     const styles: Record<RepairStatus, { bg: string; text: string; icon: React.ReactNode }> = {
@@ -531,9 +712,27 @@ const LacerationRepairPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{t('docLaceration.uploadPhoto')}</p>
               </div>
 
-              <button className="w-full py-3 bg-pink-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
-                <Plus className="w-5 h-5" />
-                {t('docLaceration.saveRepair')}
+              {saveError && (
+                <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
+                  <p className="text-sm text-critical-subtle-fg">{saveError}</p>
+                </div>
+              )}
+              {saved && (
+                <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3">
+                  <p className="text-sm text-ok-subtle-fg">
+                    {t('docLaceration.savedAs', { id: saved })}
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveRepair}
+                disabled={saving}
+                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed min-h-[24px]"
+              >
+                {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                {saving ? t('docLaceration.saving') : t('docLaceration.saveRepair')}
               </button>
             </div>
           </div>
