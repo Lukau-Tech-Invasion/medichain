@@ -5,11 +5,71 @@ use super::*;
 // ============================================================================
 
 /// Create anesthesia record
+/// What the anaesthesia page actually submits.
+///
+/// The typed `AnesthesiaRecord` in `clinical.rs` is a **complete** anaesthetic
+/// record: 38 required fields including `pre_assessment`, `airway`,
+/// `induction`, `maintenance`, `emergence` and `pacu_handoff` as nested
+/// structs. `AnesthesiaPage` collects a summary -- about twenty flat camelCase
+/// fields -- so every submission failed deserialization with
+/// "missing field `record_id`", which the page surfaced as a generic save
+/// failure. The feature could not be used at all.
+///
+/// Verified against a live server 2026-09-15: `POST /api/surgical/anesthesia`
+/// answered 400 for the page's own payload.
+///
+/// Both shapes are accepted here. The screen's fields map onto the entity's
+/// typed columns where one exists, and the whole submission is kept in the
+/// record blob, so nothing the clinician entered is dropped -- the same
+/// approach as `CreatePathologyRequest`.
+#[derive(Debug, serde::Deserialize)]
+pub struct CreateAnesthesiaRequest {
+    #[serde(alias = "record_id", alias = "recordId")]
+    pub id: Option<String>,
+    #[serde(alias = "patientId")]
+    pub patient_id: String,
+    #[serde(default, alias = "anesthesiaType")]
+    pub anesthesia_type: Option<String>,
+    #[serde(default, alias = "asaClass", alias = "asa_classification")]
+    pub asa_class: Option<String>,
+    #[serde(default, alias = "airwayType", alias = "airway_management")]
+    pub airway_type: Option<serde_json::Value>,
+    #[serde(default, alias = "inductionAgents")]
+    pub induction_agents: Option<serde_json::Value>,
+    #[serde(default, alias = "maintenanceAgents")]
+    pub maintenance_agents: Option<serde_json::Value>,
+    #[serde(default, alias = "relaxants", alias = "neuromuscular_blockers")]
+    pub neuromuscular_blockers: Option<serde_json::Value>,
+    #[serde(default, alias = "reversals", alias = "reversal_agents")]
+    pub reversal_agents: Option<serde_json::Value>,
+    #[serde(default, alias = "vasoactives", alias = "vasopressors")]
+    pub vasopressors: Option<serde_json::Value>,
+    #[serde(default, alias = "fluidsGiven", alias = "intraop_fluids")]
+    pub fluids: Option<serde_json::Value>,
+    #[serde(default, alias = "bloodProducts")]
+    pub blood_products: Option<serde_json::Value>,
+    #[serde(default, alias = "vitals", alias = "vital_signs_timeline")]
+    pub vital_signs: Option<serde_json::Value>,
+    #[serde(default)]
+    pub complications: Option<serde_json::Value>,
+    // No `anesthesiologist_id` field here on purpose. The column is stamped
+    // from the session below, so capturing the body's claim in a typed field
+    // would only invite someone to trust it. The screen's `documentedBy` flows
+    // into `rest` instead, where it is preserved as what the client asserted
+    // rather than as who actually signed in.
+    /// Everything else the screen sends -- the procedure, the analgesics and
+    /// antiemetics, estimated blood loss, urine output, the timings and the
+    /// notes. Kept rather than dropped: a record without the blood loss is not
+    /// an anaesthetic record.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
 #[post("/api/surgical/anesthesia")]
 pub async fn create_anesthesia(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<AnesthesiaRecord>,
+    req: web::Json<CreateAnesthesiaRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -18,6 +78,13 @@ pub async fn create_anesthesia(
 
     let record = req.into_inner();
     let owner_id = record.patient_id.clone();
+    if owner_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id is required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -25,7 +92,7 @@ pub async fn create_anesthesia(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
-            accessor_id: current_user_id,
+            accessor_id: current_user_id.clone(),
             accessor_role: "anesthesiologist".to_string(),
             access_type: "create_anesthesia".to_string(),
             location: None,
@@ -40,12 +107,64 @@ pub async fn create_anesthesia(
     }
 
     // Persisted through the repository, so the record survives a restart.
-    match data
-        .repositories
-        .anesthesia_records
-        .create(record.into())
-        .await
-    {
+    let now = chrono::Utc::now();
+    // Server-assigned when the screen does not supply one: the id is the
+    // primary key, and a blank one collides on the second record.
+    let record_id = record
+        .id
+        .clone()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| format!("ANES-{}", uuid::Uuid::new_v4().simple()));
+
+    // The whole submission, so the screen reads back the fields the typed
+    // columns have no home for.
+    let mut payload = serde_json::to_value(&record.rest).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("id".into(), serde_json::json!(record_id));
+        object.insert("patient_id".into(), serde_json::json!(owner_id));
+    }
+
+    let entity = crate::repositories::traits::AnesthesiaRecordEntity {
+        id: record_id.clone(),
+        patient_id: owner_id.clone(),
+        operative_note_id: None,
+        // Stamped from the session. Administering an anaesthetic is an
+        // accountable clinical act, so the anaesthetist is whoever is signed
+        // in -- not whoever the body names.
+        anesthesiologist_id: current_user_id.clone(),
+        crna_id: None,
+        anesthesia_type: record.anesthesia_type.clone().unwrap_or_default(),
+        asa_classification: record.asa_class.clone(),
+        airway_management: record.airway_type.clone(),
+        induction_agents: record.induction_agents.clone(),
+        maintenance_agents: record.maintenance_agents.clone(),
+        neuromuscular_blockers: record.neuromuscular_blockers.clone(),
+        reversal_agents: record.reversal_agents.clone(),
+        vasopressors: record.vasopressors.clone(),
+        intraop_fluids: record.fluids.clone(),
+        blood_products: record.blood_products.clone(),
+        monitoring: None,
+        vital_signs_timeline: record.vital_signs.clone(),
+        events: None,
+        // A list of complications is stored as text here; the structured list
+        // survives in the payload above.
+        complications: record
+            .complications
+            .as_ref()
+            .and_then(|c| serde_json::to_string(c).ok()),
+        emergence_time: None,
+        extubation_time: None,
+        pacu_arrival_time: None,
+        pacu_discharge_time: None,
+        aldrete_score_arrival: None,
+        aldrete_score_discharge: None,
+        post_anesthesia_orders: None,
+        created_at: now,
+        updated_at: now,
+        data: payload,
+    };
+
+    match data.repositories.anesthesia_records.create(entity).await {
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
@@ -75,18 +194,15 @@ pub async fn get_anesthesia(
     }
     let id = path.into_inner();
     match data.repositories.anesthesia_records.get_by_id(&id).await {
-        Ok(entity) => match AnesthesiaRecord::try_from(entity) {
-            Ok(record) => HttpResponse::Ok().json(record),
-            Err(e) => {
-                // Half an anesthesia record is more dangerous than none.
-                log::error!("anesthesia record stored payload is unreadable: {e}");
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Stored anesthesia record could not be read".to_string(),
-                    code: "RECORD_UNREADABLE".to_string(),
-                })
-            }
-        },
+        // The stored record, not a `AnesthesiaRecord` rebuilt from the blob.
+        //
+        // `AnesthesiaRecord` is the COMPLETE anaesthetic record -- 38 required
+        // fields -- and `AnesthesiaPage` documents a summary. Rebuilding it on
+        // read meant every record the portal wrote was "unreadable": the
+        // reconstruction failed on `missing field record_id` and the endpoint
+        // answered 500. The typed columns are the record; the payload carries
+        // the rest.
+        Ok(entity) => HttpResponse::Ok().json(entity),
         Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
         Err(e) => {
             log::error!("anesthesia-record lookup failed: {e}");
@@ -123,24 +239,14 @@ pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -
     };
 
     match entities {
-        Ok(entities) => {
-            let mut items = Vec::with_capacity(entities.len());
-            for entity in entities {
-                match AnesthesiaRecord::try_from(entity) {
-                    Ok(record) => items.push(record),
-                    Err(e) => {
-                        log::error!("anesthesia record stored payload is unreadable: {e}");
-                        return HttpResponse::InternalServerError().json(ErrorResponse {
-                            success: false,
-                            error: "One or more stored anesthesia records could not be read"
-                                .to_string(),
-                            code: "RECORD_UNREADABLE".to_string(),
-                        });
-                    }
-                }
-            }
-            HttpResponse::Ok().json(items)
-        }
+        // Same reasoning as `get_anesthesia`, plus one more: rebuilding the
+        // strict type per row made a SINGLE unreadable record 500 the entire
+        // worklist. One bad row must not hide every good one from the
+        // anaesthetist who has to work the list.
+        Ok(entities) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "records": entities,
+        })),
         Err(e) => {
             log::error!("anesthesia record list failed: {e}");
             HttpResponse::InternalServerError().finish()
@@ -563,5 +669,171 @@ pub async fn get_pathology(
             log::error!("pathology-report lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
         }
+    }
+}
+
+/// The anaesthesia record the portal actually writes.
+///
+/// `create_anesthesia` took `web::Json<AnesthesiaRecord>` -- the COMPLETE
+/// anaesthetic record, 38 required fields including five nested structs --
+/// while `AnesthesiaPage` documents a summary of about twenty flat camelCase
+/// fields. So every submission the portal made failed deserialization with
+/// "missing field `record_id`", which the page surfaced as a generic save
+/// failure. The feature could not be used at all, on either backend.
+///
+/// The read half had the mirror of it: both reads rebuilt the strict type from
+/// the stored blob, so a record the portal had written came back 500
+/// "unreadable" -- and in the list, a single such row failed the whole
+/// worklist.
+#[cfg(test)]
+mod anesthesia_round_trip_tests {
+    use crate::{AppState, Role, User};
+    use actix_web::{test, web, App};
+
+    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        let user = User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Test".to_string(),
+            role,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(wallet.to_string(), user);
+        web::Data::new(state)
+    }
+
+    /// `AnesthesiaPage`'s payload, field for field -- camelCase, flat, and
+    /// carrying no `record_id`.
+    fn page_payload(patient_id: &str, procedure: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": format!("ANES-{}", 1_700_000_000_000u64),
+            "patientId": patient_id,
+            "patientName": "Journey Patient",
+            "documentedBy": "someone-the-body-claims",
+            "documentedAt": "2026-09-15T09:00:00Z",
+            "procedure": procedure,
+            "asaClass": "II",
+            "anesthesiaType": "general",
+            "airwayType": "ETT",
+            "inductionAgents": ["Propofol"],
+            "maintenanceAgents": ["Sevoflurane"],
+            "analgesics": ["Fentanyl"],
+            "relaxants": ["Rocuronium"],
+            "reversals": [],
+            "vasoactives": [],
+            "antiemetics": ["Ondansetron"],
+            "fluidsGiven": [{ "type": "Crystalloid", "volume": 1000 }],
+            "bloodProducts": [],
+            "ebl": 150,
+            "urineOutput": 250,
+            "vitals": [],
+            "complications": [],
+            "notes": "Uneventful.",
+        })
+    }
+
+    async fn post_then_list(
+        data: web::Data<AppState>,
+        wallet: &str,
+        body: serde_json::Value,
+    ) -> (u16, u16, String) {
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::create_anesthesia)
+                // Registered in the same order as `routes.rs`: `/list` must
+                // come before `/{id}`, or the literal path is captured as an id.
+                .service(super::list_anesthesia)
+                .service(super::get_anesthesia),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/surgical/anesthesia")
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .set_json(body)
+            .to_request();
+        let created = test::call_service(&app, req).await.status().as_u16();
+
+        let req = test::TestRequest::get()
+            .uri("/api/surgical/anesthesia/list")
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let listed = resp.status().as_u16();
+        let body = test::read_body(resp).await;
+        (created, listed, String::from_utf8_lossy(&body).to_string())
+    }
+
+    /// The assertion the page needed: its own payload is accepted, and the
+    /// record it wrote can be read back.
+    #[actix_rt::test]
+    async fn the_portals_payload_is_accepted_and_readable() {
+        let data = state_with(Role::Admin, "5Anaesthetist");
+        let (created, listed, body) = post_then_list(
+            data,
+            "5Anaesthetist",
+            page_payload("PAT-1", "Open reduction and internal fixation"),
+        )
+        .await;
+        assert_eq!(created, 201, "the portal's own payload was refused");
+        assert_eq!(listed, 200, "the stored record could not be read back");
+        assert!(
+            body.contains("Open reduction and internal fixation"),
+            "the procedure did not survive the round trip: {body}"
+        );
+    }
+
+    /// `/list` is a literal path, not an id. Registered after `/{id}` it was
+    /// captured as one and answered 404 -- which reads as "no such record"
+    /// rather than "this route is shadowed".
+    #[actix_rt::test]
+    async fn the_list_path_is_not_captured_as_a_record_id() {
+        let data = state_with(Role::Admin, "5Anaesthetist");
+        let (_, listed, _) =
+            post_then_list(data, "5Anaesthetist", page_payload("PAT-1", "Laparotomy")).await;
+        assert_ne!(listed, 404, "/list was matched as /{{id}}");
+    }
+
+    /// The anaesthetist is whoever is signed in, not whoever the body names.
+    #[actix_rt::test]
+    async fn the_anaesthetist_is_stamped_from_the_session() {
+        let data = state_with(Role::Admin, "5Anaesthetist");
+        let (_, _, body) =
+            post_then_list(data, "5Anaesthetist", page_payload("PAT-1", "Laparotomy")).await;
+        assert!(
+            body.contains("5Anaesthetist"),
+            "the signed-in anaesthetist was not recorded: {body}"
+        );
+    }
+
+    #[actix_rt::test]
+    async fn a_record_with_no_patient_is_refused() {
+        let data = state_with(Role::Admin, "5Anaesthetist");
+        let (created, _, _) =
+            post_then_list(data, "5Anaesthetist", page_payload("", "Laparotomy")).await;
+        assert_eq!(created, 400);
+    }
+
+    #[actix_rt::test]
+    async fn a_patient_cannot_document_an_anaesthetic() {
+        let data = state_with(Role::Patient, "5Patient");
+        let (created, _, _) =
+            post_then_list(data, "5Patient", page_payload("PAT-1", "Laparotomy")).await;
+        assert_eq!(created, 403);
     }
 }

@@ -298,6 +298,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_laceration)
         .service(clinical_endpoints::get_laceration)
         .service(clinical_endpoints::list_laceration_repairs)
+        .service(clinical_endpoints::list_intubation_records)
+        .service(clinical_endpoints::list_splint_records)
         .service(clinical_endpoints::create_splint)
         .service(clinical_endpoints::get_splint)
         // Specialty population endpoints (Phase 6)
@@ -355,8 +357,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_patient_post_op)
         // Phase 10: Anesthesia endpoints
         .service(clinical_endpoints::create_anesthesia)
-        .service(clinical_endpoints::get_anesthesia)
+        // `list_anesthesia` BEFORE `get_anesthesia`: actix matches in
+        // registration order, and `/api/surgical/anesthesia/{id}` happily
+        // matches the literal path `/api/surgical/anesthesia/list` with
+        // id="list". So the list endpoint was unreachable -- it answered 404,
+        // looking exactly like "no such record" rather than "this route is
+        // shadowed". Verified 2026-09-15.
         .service(clinical_endpoints::list_anesthesia)
+        .service(clinical_endpoints::get_anesthesia)
         // Phase 11: Radiology endpoints
         .service(clinical_endpoints::create_radiology_order)
         .service(clinical_endpoints::get_radiology_order)

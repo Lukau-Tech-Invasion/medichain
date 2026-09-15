@@ -1175,6 +1175,15 @@ impl PgSplintCastRecordRepository {
 
 #[async_trait]
 impl SplintCastRecordRepository for PgSplintCastRecordRepository {
+    async fn list_all(&self) -> RepositoryResult<Vec<SplintCastRecordEntity>> {
+        let rows = sqlx::query_as::<_, SplintCastRecordEntity>(
+            "SELECT * FROM splint_cast_records ORDER BY applied_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: SplintCastRecordEntity,

@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createSplint, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  createSplint,
+  fromStoredRecord,
+  getApiClient,
+  rowsOfResponse,
+  useTranslation,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -63,6 +70,37 @@ const SplintPage: React.FC = () => {
   }[v] ?? v);
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<SplintRecord[]>([]);
+
+  /**
+   * Read the ward's records back from the API.
+   *
+   * This screen had no read path at all: it posted, then did
+   * `setRecords([...])` with its own local object. What it displayed was
+   * this session's typing, and a reload emptied it -- while every record was
+   * safely in the database, reachable only by an id the screen never showed.
+   *
+   * The stored rows carry the whole submission in `data`, so they come back
+   * in this screen's own shape; `fromStoredRecord` overlays the
+   * server-assigned id and the column the server stamped rather than
+   * accepted.
+   */
+  const loadSplintRecords = useCallback(async () => {
+    try {
+      const body = await getApiClient().get<unknown>('/api/clinical/splint-records');
+      setRecords(
+        rowsOfResponse(body).map((row) =>
+          fromStoredRecord<SplintRecord>(row, { appliedBy: 'applied_by' })
+        )
+      );
+    } catch (err) {
+      // A failed read must not look like an empty ward.
+      console.error('Failed to load records:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSplintRecords();
+  }, [loadSplintRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
 
@@ -126,7 +164,10 @@ const SplintPage: React.FC = () => {
       showError(t('common.saveFailed'));
       return;
     }
-    setRecords([record, ...records]);
+    // Re-read through the endpoint rather than pushing the local object:
+    // this list used to be local state only, so it emptied on reload while
+    // the record sat in the database.
+    await loadSplintRecords();
     showSuccess(t('docSplint.saved'));
   };
 
@@ -470,12 +511,12 @@ const SplintPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(r.appliedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{r.appliedAt ? new Date(r.appliedAt).toLocaleString() : ""}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className="px-2 py-1 text-xs rounded bg-notice-subtle text-notice-subtle-fg capitalize">{typeLabel(r.type)}</span>
-                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV.intact ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
-                        {t('docSplint.nvLabel')} {r.postApplicationNV.intact ? t('docSplint.intact') : t('docSplint.compromised')}
+                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV?.intact ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
+                        {t('docSplint.nvLabel')} {r.postApplicationNV?.intact ? t('docSplint.intact') : t('docSplint.compromised')}
                       </span>
                     </div>
                   </div>

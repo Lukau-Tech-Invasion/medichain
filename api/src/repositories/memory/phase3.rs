@@ -1653,6 +1653,17 @@ impl MemorySplintCastRecordRepository {
 
 #[async_trait]
 impl SplintCastRecordRepository for MemorySplintCastRecordRepository {
+    async fn list_all(&self) -> RepositoryResult<Vec<SplintCastRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<SplintCastRecordEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.applied_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(
         &self,
         record: SplintCastRecordEntity,

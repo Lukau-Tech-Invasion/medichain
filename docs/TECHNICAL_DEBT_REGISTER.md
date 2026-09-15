@@ -3041,6 +3041,40 @@ the comment "The stored record, not `entity.data`"; the list was missed.
 **Assert a screen renders with data in it, not merely that it opens.** The
 route-reachability gates were green throughout: every one of these pages
 resolved, authenticated and returned 200. What none of them had was a row.
+## Write endpoints with no producer screen (recorded 2026-09-15, WITHDRAWN 2026-09-15)
+
+**This entry was wrong, and the way it was wrong is the point.**
+
+It claimed six endpoints had no caller. The search behind it looked for literal
+URL strings (`'/api/clinical/burn'`) in the page sources -- but pages call the
+**shared endpoint functions** (`createBurn`, `createIntubation`, ...), which is
+the correct pattern, so the URL only ever appears in `endpoints.ts`. Every one
+of the six had a producer screen all along.
+
+Probing each against a live PostgreSQL instead of grepping found what was
+actually broken, which was different and worse in one case:
+
+* **Anaesthesia could not be saved at all.** `create_anesthesia` took
+  `web::Json<AnesthesiaRecord>` -- the complete record, 38 required fields
+  including five nested structs -- while `AnesthesiaPage` documents a flat
+  summary. Every submission failed with `missing field record_id` and surfaced
+  as a generic save failure.
+* **`GET /api/surgical/anesthesia/list` was unreachable**, registered after
+  `/{id}` so the literal path `list` was captured as a record id and answered
+  404 -- indistinguishable from "no such record".
+* **Both anaesthesia reads rebuilt the strict type from the blob**, so a record
+  the portal wrote came back 500 "unreadable", and in the list a single such row
+  failed the whole worklist.
+* **Intubation, splint and anaesthesia never read their records back**: each
+  posted and then did `setRecords([newRecord, ...records])`, so the worklist
+  showed this session's typing and emptied on reload.
+
+All fixed; see the commit. The lesson for the register: **grep cannot answer
+"does this feature work".** An indirection as ordinary as a shared API module
+defeats it. Probe the endpoint.
+
+## (superseded entry retained below for the record)
+
 ## Write endpoints with no producer screen (recorded 2026-09-15, STILL OPEN)
 
 Found while closing the patient-visibility workflows

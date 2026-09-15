@@ -167,6 +167,60 @@ pub async fn create_intubation(
     }
 }
 
+/// Every intubation record in the deployment, for the ward worklist.
+///
+/// # Why this exists
+///
+/// `IntubationPage` kept its list in local React state: it posted the record, then did
+/// `setRecords([newRecord, ...records])` and never read anything back. The
+/// screen therefore showed what you typed **this session** and emptied on
+/// reload, while the record sat in the database the whole time. There was no
+/// read path to wire it to -- only `GET /api/clinical/intubation/{record_id}`,
+/// keyed by an id the screen never displays.
+///
+/// Returns the stored records, not the submitted payload: the id is
+/// server-assigned, so a screen that echoes its own submission has no id to
+/// open a detail view with.
+#[get("/api/clinical/intubation-records")]
+pub async fn list_intubation_records(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view intubation records".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data.repositories.intubation_records.list_all().await {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "records": items,
+        })),
+        Err(e) => {
+            log::error!("intubation record list failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[get("/api/clinical/intubation/{record_id}")]
 pub async fn get_intubation(
     data: web::Data<AppState>,
@@ -682,6 +736,60 @@ pub async fn create_splint(
     }
 }
 
+/// Every splint or cast record in the deployment, for the ward worklist.
+///
+/// # Why this exists
+///
+/// `SplintPage` kept its list in local React state: it posted the record, then did
+/// `setRecords([newRecord, ...records])` and never read anything back. The
+/// screen therefore showed what you typed **this session** and emptied on
+/// reload, while the record sat in the database the whole time. There was no
+/// read path to wire it to -- only `GET /api/clinical/splint/{record_id}`,
+/// keyed by an id the screen never displays.
+///
+/// Returns the stored records, not the submitted payload: the id is
+/// server-assigned, so a screen that echoes its own submission has no id to
+/// open a detail view with.
+#[get("/api/clinical/splint-records")]
+pub async fn list_splint_records(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view splint or cast records".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data.repositories.splint_cast_records.list_all().await {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "records": items,
+        })),
+        Err(e) => {
+            log::error!("splint or cast record list failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[get("/api/clinical/splint/{record_id}")]
 pub async fn get_splint(
     data: web::Data<AppState>,
@@ -884,5 +992,213 @@ mod laceration_round_trip_tests {
         let (created, _, _) =
             post_then_list(data, "5Patient", repair("PAT-1", "Right forearm")).await;
         assert_eq!(created, 403);
+    }
+}
+
+/// The ward worklists these pages render.
+///
+/// `IntubationPage` and `SplintPage` both posted their record and then did
+/// `setRecords([newRecord, ...records])` -- local React state, never read back.
+/// The screen showed this session's typing and emptied on reload, while every
+/// record sat in the database reachable only by an id the screen never showed.
+/// There was no list route to wire them to; these are it.
+#[cfg(test)]
+mod procedure_worklist_tests {
+    use crate::{AppState, Role, User};
+    use actix_web::{test, web, App};
+
+    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        let user = User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Test".to_string(),
+            role,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(wallet.to_string(), user);
+        web::Data::new(state)
+    }
+
+    /// `IntubationPage`'s payload: camelCase and flat, as the screen sends it.
+    fn intubation(patient_id: &str, indication: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patientId": patient_id,
+            "indication": indication,
+            "airwayAssessment": { "mallampati": "II" },
+            "preOxygenation": true,
+            "rsiUsed": true,
+            "medications": [{ "name": "Ketamine", "dose": "2mg/kg" }],
+            "complications": [],
+            "verification": { "etco2": true },
+            "notes": "Grade 1 view.",
+        })
+    }
+
+    /// `SplintPage`'s payload.
+    fn splint(patient_id: &str, indication: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patientId": patient_id,
+            "type": "posterior",
+            "material": "plaster",
+            "bodyPart": "ankle",
+            "side": "left",
+            "indication": indication,
+            "paddingAdequate": true,
+            "edgesSmooth": true,
+            "notes": "Neurovascularly intact after application.",
+        })
+    }
+
+    /// Both handlers refuse an unknown patient with 404 `PATIENT_NOT_FOUND`,
+    /// which is correct -- documenting a procedure on a patient who does not
+    /// exist is a client mistake, not a database error -- so the worklist tests
+    /// have to seed one.
+    async fn seed_patient(data: &web::Data<AppState>, id: &str) {
+        let patient = crate::repositories::traits::PatientEntity {
+            id: id.to_string(),
+            health_id: format!("HID-{id}"),
+            national_id_hash: format!("hash-{id}"),
+            national_id_type: "FaydaID".to_string(),
+            first_name_encrypted: None,
+            last_name_encrypted: None,
+            date_of_birth_encrypted: None,
+            gender: Some("Male".to_string()),
+            blood_type: Some("O+".to_string()),
+            phone_encrypted: None,
+            email_encrypted: None,
+            address_encrypted: None,
+            emergency_contact_name_encrypted: None,
+            emergency_contact_phone_encrypted: None,
+            emergency_contact_relationship: None,
+            organ_donor: false,
+            dnr_status: false,
+            dnr_verified_by: None,
+            dnr_verified_at: None,
+            dnr_document_ref: None,
+            primary_provider_id: None,
+            wallet_address: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            registered_by: None,
+            is_verified: false,
+            is_active: true,
+            profile_extras_encrypted: None,
+            key_version: 1,
+        };
+        let _ = data.repositories.patients.create(patient).await;
+    }
+
+    async fn post_then_list(
+        data: web::Data<AppState>,
+        wallet: &str,
+        post_uri: &str,
+        list_uri: &str,
+        body: serde_json::Value,
+    ) -> (u16, u16, String) {
+        seed_patient(&data, "PAT-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::create_intubation)
+                .service(super::create_splint)
+                .service(super::list_intubation_records)
+                .service(super::list_splint_records),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri(post_uri)
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .set_json(body)
+            .to_request();
+        let created = test::call_service(&app, req).await.status().as_u16();
+
+        let req = test::TestRequest::get()
+            .uri(list_uri)
+            .insert_header(("X-User-Id", wallet.to_string()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let listed = resp.status().as_u16();
+        let body = test::read_body(resp).await;
+        (created, listed, String::from_utf8_lossy(&body).to_string())
+    }
+
+    #[actix_rt::test]
+    async fn an_intubation_appears_on_the_worklist_that_documented_it() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, listed, body) = post_then_list(
+            data,
+            "5Doctor",
+            "/api/clinical/intubation",
+            "/api/clinical/intubation-records",
+            intubation("PAT-1", "Airway protection after overdose"),
+        )
+        .await;
+        assert_eq!(created, 201);
+        assert_eq!(listed, 200);
+        assert!(
+            body.contains("Airway protection after overdose"),
+            "the record did not come back: {body}"
+        );
+        // The server-assigned id: a screen echoing its own submission has
+        // nothing to open a detail view with.
+        assert!(body.contains("\"id\":\"INT-"), "no record id: {body}");
+    }
+
+    #[actix_rt::test]
+    async fn a_splint_appears_on_the_worklist_that_documented_it() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, listed, body) = post_then_list(
+            data,
+            "5Doctor",
+            "/api/clinical/splint",
+            "/api/clinical/splint-records",
+            splint("PAT-1", "Distal fibula fracture"),
+        )
+        .await;
+        assert_eq!(created, 201);
+        assert_eq!(listed, 200);
+        assert!(
+            body.contains("Distal fibula fracture"),
+            "not returned: {body}"
+        );
+        assert!(body.contains("\"id\":\"SPL-"), "no record id: {body}");
+    }
+
+    /// A patient must not be able to enumerate the ward's procedures.
+    #[actix_rt::test]
+    async fn a_patient_cannot_read_the_worklists() {
+        for (post_uri, list_uri) in [
+            (
+                "/api/clinical/intubation",
+                "/api/clinical/intubation-records",
+            ),
+            ("/api/clinical/splint", "/api/clinical/splint-records"),
+        ] {
+            let data = state_with(Role::Patient, "5Patient");
+            let (_, listed, _) = post_then_list(
+                data,
+                "5Patient",
+                post_uri,
+                list_uri,
+                intubation("PAT-1", "x"),
+            )
+            .await;
+            assert_eq!(listed, 403, "{list_uri} was readable by a patient");
+        }
     }
 }

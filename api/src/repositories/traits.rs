@@ -2790,6 +2790,15 @@ pub trait SplintCastRecordRepository: Send + Sync + fmt::Debug {
         &self,
         record: SplintCastRecordEntity,
     ) -> RepositoryResult<SplintCastRecordEntity>;
+    /// Every record in the deployment, for the ward worklist.
+    ///
+    /// Required, not defaulted. The page that documents these kept its list in
+    /// local React state -- `setRecords([newRecord, ...records])` -- so the
+    /// screen showed what you typed this session and emptied on reload, while
+    /// the record sat in the database. There was no read path at all to wire
+    /// it to. A defaulted body returning `NotImplemented` would reproduce that
+    /// silently on one backend, which is why trait methods here are required.
+    async fn list_all(&self) -> RepositoryResult<Vec<SplintCastRecordEntity>>;
 }
 
 /// Radiology order repository trait
