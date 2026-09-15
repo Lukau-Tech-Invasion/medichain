@@ -11,6 +11,8 @@ import {
   getGuardiansForWard,
   revokeGuardian,
   verifyGuardian,
+  useStepUp,
+  StepUpDialog,
   useTranslation,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
@@ -74,6 +76,13 @@ function PatientDetailPage() {
   const [guardiansLoaded, setGuardiansLoaded] = useState(false);
   const [guardianError, setGuardianError] = useState<string | null>(null);
   const [guardianBusy, setGuardianBusy] = useState(false);
+  // Recording and ending a guardianship both run through
+  // `require_privileged_assurance`, which outside demo mode refuses a session
+  // that is not freshly MFA-verified. Without this the page showed the server's
+  // "Call /api/auth/mfa/challenge" and there was nothing anyone could do with
+  // it -- which is how delegated authority over a minor's records became
+  // unmanageable in production while working perfectly in the demo.
+  const stepUp = useStepUp();
   const [newGuardianWallet, setNewGuardianWallet] = useState('');
   const [newGuardianType, setNewGuardianType] = useState('parent_or_guardian');
   const [newGuardianPermissions, setNewGuardianPermissions] = useState<string[]>([]);
@@ -223,12 +232,14 @@ function PatientDetailPage() {
     }
     try {
       setGuardianBusy(true);
-      await verifyGuardian({
-        guardian_wallet: newGuardianWallet.trim(),
-        ward_patient_id: patientId,
-        relationship_type: newGuardianType,
-        permissions: newGuardianPermissions,
-      });
+      await stepUp.run(() =>
+        verifyGuardian({
+          guardian_wallet: newGuardianWallet.trim(),
+          ward_patient_id: patientId,
+          relationship_type: newGuardianType,
+          permissions: newGuardianPermissions,
+        })
+      );
       setNewGuardianWallet('');
       setNewGuardianPermissions([]);
       await loadGuardians();
@@ -243,7 +254,7 @@ function PatientDetailPage() {
     setGuardianError(null);
     try {
       setGuardianBusy(true);
-      await revokeGuardian(relationshipId);
+      await stepUp.run(() => revokeGuardian(relationshipId));
       await loadGuardians();
     } catch (err) {
       setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardianRevokeFailed')));
@@ -785,6 +796,8 @@ function PatientDetailPage() {
           </div>
         </div>
       )}
+
+      <StepUpDialog state={stepUp} />
     </div>
   );
 }

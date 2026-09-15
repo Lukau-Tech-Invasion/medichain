@@ -3445,3 +3445,68 @@ The interface now matches what is written and read, and the form's literal is
 typed with it, so they cannot drift apart again. This sat directly behind two
 crashes that were live — `patientName` and `vitalSigns`, both fixed in the same
 pass — and is the same drift.
+
+
+### Two e-prescription systems, writing to two different stores — OPEN
+
+`POST /api/surgical/e-prescription` and `GET /api/surgical/e-prescription/{id}`
+persist through `repositories.e_prescription_records`, a generic JSON blob
+store. The live prescription system — the one the doctor portal and the
+pharmacy actually use — is `/api/e-prescriptions/*`, which persists through
+`repositories.e_prescriptions_v` and carries the whole lifecycle: create, sign,
+transmit, receive, verification request/decide, dispense, reverse, and
+`GET /api/e-prescriptions/patient/{id}`.
+
+A prescription written through the surgical pair is therefore invisible to the
+pharmacy. `GET /api/e-prescriptions/patient/{id}` reads the other table and
+would never return it.
+
+**Do not resolve this by building a screen for the surgical pair.** It would
+create prescriptions nobody can dispense, which is worse than the endpoints
+having no caller. The two candidate resolutions are to delete the surgical pair
+or to make it an alias of the live one; both need a decision, and deletion needs
+explicit authorisation.
+
+Found 2026-09-15 while triaging uncalled endpoints. Verified by reading both
+handlers' repository fields rather than inferring from the route names.
+
+### `POST /api/surgical/appointment` lets a caller overwrite an existing one — OPEN
+
+It takes `appointment.appointment_id` from the request body verbatim and calls
+`repositories.appointments.create(entity)` — the same repository the live
+`POST /api/appointments` uses, which derives `APT-{uuid}` server-side
+(`clinical_endpoints/engagement/appointments.rs:170`).
+
+So the surgical route is both a duplicate of an endpoint that is already in use
+AND a way to write to an arbitrary appointment id. This is the identical defect
+that `create_e_prescription`'s own comment records having fixed for `rx_id`
+("the client chose its own `rx_id`, letting one call overwrite an existing
+prescription", WF-020) — the appointment twin was missed.
+
+It currently has no caller, so nothing is exploiting it today. The fix is the
+same decision as the entry above: remove it, or derive the id and fold it into
+the live handler.
+
+### The wearables Settings tab is decoration — OPEN
+
+`WearablesPage`'s settings tab renders six sync toggles, two data-sharing
+toggles and a "Disconnect all" button. Every toggle's `enabled` is a literal in
+a `.map()` array, none has an `onChange`, and the button has no handler. They
+render, they look settable, and nothing anywhere records or reads them.
+
+The alerting section added alongside them on 2026-09-15 is wired end to end; the
+toggles above it are not, and a patient cannot tell the two apart by looking.
+
+Left in place rather than removed: deletion needs authorisation, and the right
+resolution may be to implement them against `saveUserSettings`, which already
+exists and already persists the patient's other preferences.
+
+### `scripts/unused-endpoints.py` reports a call it cannot parse — OPEN
+
+`GET /api/insurance/claims/patient/{patient_id}` is reported as uncalled. It is
+called, at `client/shared/src/api/endpoints.ts`, which builds the URL as
+`` `/api/insurance/claims/patient/${patientId}${query ? `?${query}` : ''}` `` —
+a conditional query-string suffix the script's path matcher does not recognise.
+
+Worth fixing in the script, because a false positive in an audit of what is
+unbuilt costs a real investigation each time somebody works the list.

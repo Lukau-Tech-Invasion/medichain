@@ -18,3 +18,4 @@ export { QRCodeDisplay } from './QRCodeDisplay';
 export { WalletAddress, copyTextToClipboard } from './WalletAddress';
 export type { WalletAddressProps } from './WalletAddress';
 export * from './Toast';
+export { StepUpDialog } from './StepUpDialog';

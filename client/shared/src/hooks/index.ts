@@ -17,3 +17,4 @@ export * from './useApiStatus';
 export * from './useOfflineCache';
 export * from './useProviderDirectory';
 export * from './useScoringCatalog';
+export * from './useStepUp';

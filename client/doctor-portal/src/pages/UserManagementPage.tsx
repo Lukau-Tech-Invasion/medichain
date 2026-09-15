@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation, RestrictedSection, Alert, LoadingSpinner } from '@medichain/shared';
+import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation, useStepUp, StepUpDialog, RestrictedSection, Alert, LoadingSpinner } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
@@ -63,6 +63,11 @@ const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Assigning and revoking a role both run through
+  // `require_privileged_assurance`, which outside demo mode refuses a session
+  // that is not freshly MFA-verified. This holds the refused action, asks for a
+  // code, and retries it -- the page used to render the refusal and stop.
+  const stepUp = useStepUp();
   const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'permissions' | 'new-user'>('users');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
@@ -201,11 +206,13 @@ const UserManagementPage: React.FC = () => {
       });
       const persistedRole = users.find((user) => user.userId === selectedUser.userId)?.role;
       if (persistedRole !== selectedUser.role) {
-        await assignRole({
-          wallet_address: selectedUser.userId,
-          name: selectedUser.name,
-          role: selectedUser.role,
-        });
+        await stepUp.run(() =>
+          assignRole({
+            wallet_address: selectedUser.userId,
+            name: selectedUser.name,
+            role: selectedUser.role,
+          })
+        );
       }
       await fetchUsers();
       setShowEditModal(false);
@@ -219,7 +226,7 @@ const UserManagementPage: React.FC = () => {
   const handleDeleteUser = async (userId: string) => {
     if (confirm(t('docUserManagement.confirmDeleteUser'))) {
       try {
-        await revokeRole({ wallet_address: userId });
+        await stepUp.run(() => revokeRole({ wallet_address: userId }));
         await fetchUsers();
         showSuccess(t('docUserManagement.userDeletedSuccess'));
       } catch (err) {
@@ -1091,6 +1098,8 @@ const UserManagementPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <StepUpDialog state={stepUp} />
     </div>
   );
 };

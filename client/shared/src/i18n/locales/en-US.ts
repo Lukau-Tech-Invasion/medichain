@@ -6,6 +6,16 @@ import type { TranslationRecord } from '../index';
 
 const en_US: TranslationRecord = {
   // Common UI elements
+  stepUp: {
+    title: 'Confirm it is you',
+    body: 'This action needs a fresh check. Enter the six-digit code from your authenticator app.',
+    enrollBody: 'This action needs two-factor authentication, and none is set up on this account. Set it up in Settings, then try again.',
+    codeLabel: 'Authentication code',
+    confirm: 'Confirm',
+    verifying: 'Checking...',
+    cancel: 'Cancel',
+    close: 'Close',
+  },
   common: {
     saving: 'Saving...',
     // Overridden per locale: see zu-ZA (10177), sw-KE (999), ha-NG (112),
