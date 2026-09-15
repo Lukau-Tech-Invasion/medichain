@@ -17,7 +17,18 @@ import {
   Zap,
   Loader2
 } from 'lucide-react';
-import { getWearableDevices, getWearableReadings, registerWearableDevice, IS_DEMO, useTranslation } from '@medichain/shared';
+import {
+  createWearableAlertRule,
+  getApiErrorMessage,
+  getWearableAlerts,
+  getWearableDevices,
+  getWearableReadings,
+  listWearableAlertRules,
+  registerWearableDevice,
+  IS_DEMO,
+  useTranslation,
+} from '@medichain/shared';
+import type { WearableAlert, WearableAlertRule } from '@medichain/shared';
 import type { WearableDevice, WearableReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -96,6 +107,98 @@ const mapLatestMetrics = (readings: WearableReading[]): HealthMetric[] => {
 const WearablesPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'settings'>('dashboard');
+
+  // --- Alerting ---------------------------------------------------------------
+  //
+  // A patient could connect a device and stream readings, and nothing could
+  // ever alert them: no screen called `createWearableAlertRule`, nothing read
+  // the saved rules back, and nothing showed the alerts they raised. The whole
+  // alerting half of the feature existed only in Rust.
+  //
+  // That a rule could never be read back is also why nobody noticed the server
+  // stored every rule as "above 0.0" -- true of every reading a wearable sends.
+  const [alertRules, setAlertRules] = useState<WearableAlertRule[]>([]);
+  const [alerts, setAlerts] = useState<WearableAlert[]>([]);
+  const [alertsLoaded, setAlertsLoaded] = useState(false);
+  // An empty rule list and a failed read are opposite answers to "am I being
+  // watched for this", and the first is the dangerous one to assert.
+  const [alertsUnknown, setAlertsUnknown] = useState(false);
+  const [ruleError, setRuleError] = useState('');
+  const [ruleNotice, setRuleNotice] = useState('');
+  const [ruleBusy, setRuleBusy] = useState(false);
+  const [ruleDataType, setRuleDataType] = useState('HeartRate');
+  const [ruleLow, setRuleLow] = useState('');
+  const [ruleHigh, setRuleHigh] = useState('');
+  const [ruleSeverity, setRuleSeverity] = useState('Warning');
+
+  const loadAlerting = useCallback(async () => {
+    const [rules, raised] = await Promise.allSettled([
+      listWearableAlertRules(),
+      getWearableAlerts(),
+    ]);
+    if (rules.status === 'fulfilled') {
+      setAlertRules(rules.value.rules ?? []);
+      setAlertsUnknown(false);
+    } else {
+      setAlertsUnknown(true);
+    }
+    if (raised.status === 'fulfilled') setAlerts(raised.value.alerts ?? []);
+    setAlertsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    void loadAlerting();
+  }, [loadAlerting]);
+
+  const submitRule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setRuleError('');
+    setRuleNotice('');
+    // A rule with neither bound is refused by the server too. Saying so here
+    // names the missing field instead of returning a generic failure.
+    if (!ruleLow.trim() && !ruleHigh.trim()) {
+      setRuleError(t('wearables.ruleNeedsABound'));
+      return;
+    }
+    setRuleBusy(true);
+    try {
+      await createWearableAlertRule({
+        device_id: devices[0]?.id ?? '',
+        data_type: ruleDataType,
+        // A field nobody filled is absent, not zero: `threshold_low: 0` would
+        // mean "alert me below zero", which is a different rule entirely.
+        threshold_low: ruleLow.trim() ? Number(ruleLow) : null,
+        threshold_high: ruleHigh.trim() ? Number(ruleHigh) : null,
+        severity: ruleSeverity,
+      });
+      setRuleNotice(t('wearables.ruleSaved'));
+      setRuleLow('');
+      setRuleHigh('');
+      await loadAlerting();
+    } catch (err) {
+      setRuleError(getApiErrorMessage(err, t('wearables.ruleFailed')));
+    } finally {
+      setRuleBusy(false);
+    }
+  };
+
+  /** What a stored rule actually watches, in the patient's words. */
+  const describeRule = (rule: WearableAlertRule): string => {
+    const dataType =
+      typeof rule.data_type === 'string' ? rule.data_type : Object.values(rule.data_type)[0];
+    if (rule.threshold_type === 'OutsideRange') {
+      return t('wearables.ruleOutside', {
+        type: dataType,
+        low: String(rule.secondary_threshold ?? ''),
+        high: String(rule.threshold_value),
+      });
+    }
+    if (rule.threshold_type === 'Below') {
+      return t('wearables.ruleBelow', { type: dataType, value: String(rule.threshold_value) });
+    }
+    return t('wearables.ruleAbove', { type: dataType, value: String(rule.threshold_value) });
+  };
+
   const [devices, setDevices] = useState<Device[]>([]);
   const [metrics, setMetrics] = useState<HealthMetric[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -533,6 +636,134 @@ const WearablesPage: React.FC = () => {
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <div className="space-y-4">
+            {/* Alerting */}
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h3 className="font-semibold text-content mb-1">{t('wearables.alertsHeading')}</h3>
+              <p className="text-sm text-content-muted mb-4">{t('wearables.alertsSubtitle')}</p>
+
+              {ruleError && (
+                <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+                  <p className="text-sm text-critical-subtle-fg">{ruleError}</p>
+                </div>
+              )}
+              {ruleNotice && (
+                <div role="status" className="mb-4 bg-ok-subtle border border-ok rounded-lg p-3">
+                  <p className="text-sm text-ok-subtle-fg">{ruleNotice}</p>
+                </div>
+              )}
+
+              <form onSubmit={submitRule} className="grid gap-3 sm:grid-cols-2 mb-4">
+                <div>
+                  <label htmlFor="rule-type" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('wearables.ruleType')}
+                  </label>
+                  <select
+                    id="rule-type"
+                    value={ruleDataType}
+                    onChange={(e) => setRuleDataType(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                  >
+                    <option value="HeartRate">{t('wearables.typeHeartRate')}</option>
+                    <option value="BloodPressure">{t('wearables.typeBloodPressure')}</option>
+                    <option value="BloodGlucose">{t('wearables.typeBloodGlucose')}</option>
+                    <option value="SpO2">{t('wearables.typeSpO2')}</option>
+                    <option value="Weight">{t('wearables.typeWeight')}</option>
+                    <option value="Steps">{t('wearables.typeSteps')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="rule-severity" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('wearables.ruleSeverity')}
+                  </label>
+                  <select
+                    id="rule-severity"
+                    value={ruleSeverity}
+                    onChange={(e) => setRuleSeverity(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                  >
+                    <option value="Info">{t('wearables.severityInfo')}</option>
+                    <option value="Warning">{t('wearables.severityWarning')}</option>
+                    <option value="Urgent">{t('wearables.severityUrgent')}</option>
+                    <option value="Critical">{t('wearables.severityCritical')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="rule-low" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('wearables.ruleLow')}
+                  </label>
+                  <input
+                    id="rule-low"
+                    type="number"
+                    inputMode="decimal"
+                    value={ruleLow}
+                    onChange={(e) => setRuleLow(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="rule-high" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('wearables.ruleHigh')}
+                  </label>
+                  <input
+                    id="rule-high"
+                    type="number"
+                    inputMode="decimal"
+                    value={ruleHigh}
+                    onChange={(e) => setRuleHigh(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <button
+                    type="submit"
+                    disabled={ruleBusy}
+                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                  >
+                    {ruleBusy ? t('wearables.ruleSaving') : t('wearables.ruleSave')}
+                  </button>
+                </div>
+              </form>
+
+              <h4 className="text-sm font-medium text-content mb-2">{t('wearables.rulesHeading')}</h4>
+              {!alertsLoaded ? (
+                <p className="text-sm text-content-muted">{t('wearables.alertsLoading')}</p>
+              ) : alertsUnknown ? (
+                <p className="text-sm text-content-muted">{t('wearables.rulesUnknown')}</p>
+              ) : alertRules.length === 0 ? (
+                <p className="text-sm text-content-muted">{t('wearables.rulesNone')}</p>
+              ) : (
+                <ul className="space-y-2 mb-4" data-testid="alert-rule-list">
+                  {alertRules.map((rule) => (
+                    <li key={rule.rule_id} className="border border-border rounded-lg p-3">
+                      {/* Says which direction it watches. The stored rule used
+                          to read "above 0.0" no matter what was asked for, and
+                          nothing displayed it so nobody could tell. */}
+                      <p className="text-sm text-content">{describeRule(rule)}</p>
+                      <p className="text-xs text-content-muted">{rule.severity}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <h4 className="text-sm font-medium text-content mb-2">{t('wearables.raisedHeading')}</h4>
+              {alerts.length === 0 ? (
+                <p className="text-sm text-content-muted">{t('wearables.raisedNone')}</p>
+              ) : (
+                <ul className="space-y-2" data-testid="wearable-alert-list">
+                  {alerts.map((alert, index) => (
+                    <li
+                      key={(alert as { alert_id?: string }).alert_id ?? index}
+                      className="border border-border rounded-lg p-3"
+                    >
+                      <p className="text-sm text-content">
+                        {(alert as { message?: string }).message ?? t('wearables.raisedUnnamed')}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             {/* Sync Settings */}
             <div className="bg-surface rounded-lg shadow divide-y">
               <div className="p-4">

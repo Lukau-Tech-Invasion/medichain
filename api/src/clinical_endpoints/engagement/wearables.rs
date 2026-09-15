@@ -634,6 +634,50 @@ pub struct CreateAlertRuleRequest {
     pub severity: String,
 }
 
+/// Which bound a rule actually watches.
+///
+/// # Why this is not inline
+///
+/// `threshold_type` used to be hardcoded to `Above` and `threshold_value` was
+/// `threshold_high.unwrap_or(0.0)`. So a patient asking to be told when their
+/// heart rate fell **below 50** had a rule stored as "above 0.0", which is true
+/// of every reading a wearable will ever send — the alert they set to catch a
+/// dangerous drop would instead fire continuously and be muted.
+///
+/// `unwrap_or(0.0)` is the specific mistake: an absent upper bound is not an
+/// upper bound of zero. A rule with neither bound is refused rather than
+/// defaulted, because there is no safe reading of "alert me when nothing".
+struct AlertBounds {
+    threshold_type: crate::clinical::ThresholdType,
+    value: f64,
+    secondary: Option<f64>,
+}
+
+fn alert_bounds(low: Option<f64>, high: Option<f64>) -> Result<AlertBounds, &'static str> {
+    match (low, high) {
+        // Both: alert outside the band. `value` carries the high bound and
+        // `secondary` the low one, matching how `WearableAlertRule` documents
+        // its own pair.
+        (Some(low), Some(high)) if low < high => Ok(AlertBounds {
+            threshold_type: crate::clinical::ThresholdType::OutsideRange,
+            value: high,
+            secondary: Some(low),
+        }),
+        (Some(_), Some(_)) => Err("The low threshold must be below the high threshold"),
+        (None, Some(high)) => Ok(AlertBounds {
+            threshold_type: crate::clinical::ThresholdType::Above,
+            value: high,
+            secondary: None,
+        }),
+        (Some(low), None) => Ok(AlertBounds {
+            threshold_type: crate::clinical::ThresholdType::Below,
+            value: low,
+            secondary: None,
+        }),
+        (None, None) => Err("An alert rule needs a low threshold, a high threshold, or both"),
+    }
+}
+
 /// Create a wearable alert rule
 #[post("/api/wearables/alerts/rules")]
 pub async fn create_wearable_alert_rule(
@@ -644,6 +688,17 @@ pub async fn create_wearable_alert_rule(
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
+    };
+
+    let bounds = match alert_bounds(req.threshold_low, req.threshold_high) {
+        Ok(value) => value,
+        Err(message) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: message.to_string(),
+                code: "WEARABLE_ALERT_RULE_REJECTED".to_string(),
+            })
+        }
     };
 
     let rule_id = format!("RULE-{}", uuid::Uuid::new_v4());
@@ -659,9 +714,9 @@ pub async fn create_wearable_alert_rule(
             "Steps" => crate::clinical::WearableDataType::Steps,
             _ => crate::clinical::WearableDataType::Other(req.data_type.clone()),
         },
-        threshold_type: crate::clinical::ThresholdType::Above,
-        threshold_value: req.threshold_high.unwrap_or(0.0),
-        secondary_threshold: req.threshold_low,
+        threshold_type: bounds.threshold_type,
+        threshold_value: bounds.value,
+        secondary_threshold: bounds.secondary,
         severity: match req.severity.as_str() {
             "Critical" => crate::clinical::AlertSeverity::Critical,
             "Urgent" => crate::clinical::AlertSeverity::Urgent,
@@ -744,4 +799,57 @@ pub async fn get_wearable_alerts(
         "alerts": user_alerts,
         "count": user_alerts.len()
     }))
+}
+
+/// What a wearable alert rule actually watches.
+///
+/// # Why this exists
+///
+/// `threshold_type` was hardcoded to `Above` and `threshold_value` was
+/// `threshold_high.unwrap_or(0.0)`. A patient asking to be alerted when their
+/// heart rate fell **below 50** got a rule meaning "above 0.0" — true of every
+/// reading a wearable will ever produce. The alert set to catch a dangerous
+/// drop would fire on everything, and the patient would mute it.
+///
+/// These assert the direction, because the direction is the whole rule.
+#[cfg(test)]
+mod alert_bounds_tests {
+    use super::alert_bounds;
+    use crate::clinical::ThresholdType;
+
+    #[test]
+    fn a_low_bound_alone_watches_below_it() {
+        let bounds = alert_bounds(Some(50.0), None).unwrap();
+        assert!(matches!(bounds.threshold_type, ThresholdType::Below));
+        assert_eq!(bounds.value, 50.0);
+        assert_eq!(bounds.secondary, None);
+    }
+
+    #[test]
+    fn a_high_bound_alone_watches_above_it() {
+        let bounds = alert_bounds(None, Some(120.0)).unwrap();
+        assert!(matches!(bounds.threshold_type, ThresholdType::Above));
+        assert_eq!(bounds.value, 120.0);
+    }
+
+    #[test]
+    fn both_bounds_watch_outside_the_band() {
+        let bounds = alert_bounds(Some(50.0), Some(120.0)).unwrap();
+        assert!(matches!(bounds.threshold_type, ThresholdType::OutsideRange));
+        assert_eq!(bounds.value, 120.0);
+        assert_eq!(bounds.secondary, Some(50.0));
+    }
+
+    /// An absent bound is not a bound of zero. Refusing is the only safe
+    /// reading of "alert me when nothing".
+    #[test]
+    fn a_rule_with_no_bound_is_refused() {
+        assert!(alert_bounds(None, None).is_err());
+    }
+
+    /// An inverted band would be outside itself for every possible reading.
+    #[test]
+    fn an_inverted_band_is_refused() {
+        assert!(alert_bounds(Some(120.0), Some(50.0)).is_err());
+    }
 }

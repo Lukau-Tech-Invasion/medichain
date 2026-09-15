@@ -4093,3 +4093,70 @@ export async function authoriseMobileRecord(payload: {
 }): Promise<Record<string, unknown>> {
   return getApiClient().post('/api/mobile/records/authorise', payload);
 }
+
+// ============================================================================
+// Wearable alerting
+// ============================================================================
+//
+// A patient could connect a device and stream readings, and nothing could ever
+// alert them: `createWearableAlertRule` had no caller anywhere, `getWearableAlerts`
+// had none either, and the endpoint that lists saved rules had no client
+// function at all. So a rule could be stored and never seen, checked or
+// corrected — which is why the threshold direction being wrong server-side went
+// unnoticed.
+
+/** One threshold rule, as the server stores it. */
+export interface WearableAlertRule {
+  rule_id: string;
+  patient_id: string;
+  /** A tagged enum server-side: a plain string for the known types. */
+  data_type: string | Record<string, string>;
+  /** `Above` | `Below` | `OutsideRange` | `ChangeRate` | `AbsenceOfData` */
+  threshold_type: string;
+  /** For a band this is the HIGH bound; `secondary_threshold` is the low one. */
+  threshold_value: number;
+  secondary_threshold?: number | null;
+  severity: string;
+  notify_patient: boolean;
+  notify_provider: boolean;
+  provider_id?: string | null;
+  active: boolean;
+  /** Unix seconds. */
+  created_at: number;
+}
+
+/**
+ * The alert rules this caller has set.
+ *
+ * `POST` has stored them since the feature was built and nothing read them
+ * back, so a patient could not see, check or correct a rule once saved.
+ */
+export async function listWearableAlertRules(): Promise<{
+  success: boolean;
+  count: number;
+  rules: WearableAlertRule[];
+}> {
+  return getApiClient().get('/api/wearables/alert-rules');
+}
+
+/** A wearable model the deployment knows how to take readings from. */
+export interface SupportedWearable {
+  manufacturer: string;
+  models: string[];
+  data_types: string[];
+}
+
+/**
+ * Which wearables this deployment supports.
+ *
+ * Reference data, served rather than hardcoded in a component — the same reason
+ * clinical thresholds come from the scoring catalogue. The page and the server
+ * each carried their own list and the two disagreed.
+ */
+export async function getSupportedWearables(): Promise<{
+  success: boolean;
+  /** The server's own key. Checked against a live response, not guessed. */
+  supported_manufacturers: SupportedWearable[];
+}> {
+  return getApiClient().get('/api/wearables/supported');
+}

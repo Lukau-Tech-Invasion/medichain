@@ -14,6 +14,9 @@ vi.mock('../store/authStore', () => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getWearableDevices: vi.fn(),
+  listWearableAlertRules: vi.fn(),
+  getWearableAlerts: vi.fn(),
+  createWearableAlertRule: vi.fn(),
   getWearableReadings: vi.fn(),
   registerWearableDevice: vi.fn(),
 }));
@@ -28,6 +31,16 @@ describe('WearablesPage (Patient)', () => {
   };
 
   beforeEach(() => {
+    vi.mocked(shared.listWearableAlertRules).mockResolvedValue({
+      success: true,
+      count: 0,
+      rules: [],
+    } as never);
+    vi.mocked(shared.getWearableAlerts).mockResolvedValue({
+      success: true,
+      count: 0,
+      alerts: [],
+    } as never);
     vi.clearAllMocks();
     (usePatientAuthStore as unknown as Mock).mockReturnValue({
       patient: mockPatient,
@@ -99,4 +112,111 @@ describe('WearablesPage (Patient)', () => {
       expect(screen.getAllByText(/Steps/i).length).toBeGreaterThan(0);
     });
   });
+
+  // --- Alerting ---------------------------------------------------------------
+  //
+  // Nothing in either client created an alert rule, read the saved rules back,
+  // or showed the alerts they raised. Because no screen ever displayed a stored
+  // rule, nobody noticed the server wrote every one of them as "above 0.0" --
+  // true of every reading a wearable sends.
+
+  async function openSettings() {
+    render(<WearablesPage />);
+    const tab = await screen.findByRole('button', { name: /settings/i });
+    fireEvent.click(tab);
+  }
+
+  it('says which direction a saved rule watches', async () => {
+    vi.mocked(shared.listWearableAlertRules).mockResolvedValue({
+      success: true,
+      count: 1,
+      rules: [
+        {
+          rule_id: 'RULE-1',
+          patient_id: 'PAT-1',
+          data_type: 'HeartRate',
+          threshold_type: 'Below',
+          threshold_value: 50,
+          secondary_threshold: null,
+          severity: 'Urgent',
+          notify_patient: true,
+          notify_provider: true,
+          provider_id: null,
+          active: true,
+          created_at: 1789000000,
+        },
+      ],
+    } as never);
+    await openSettings();
+
+    // The direction is the whole rule: "below 50" and "above 50" are opposite
+    // instructions, and the old code stored both as the latter.
+    await waitFor(() =>
+      expect(screen.getByText(/drops below 50/i)).toBeInTheDocument()
+    );
+  });
+
+  it('shows a band rule as a band', async () => {
+    vi.mocked(shared.listWearableAlertRules).mockResolvedValue({
+      success: true,
+      count: 1,
+      rules: [
+        {
+          rule_id: 'RULE-2',
+          patient_id: 'PAT-1',
+          data_type: 'SpO2',
+          threshold_type: 'OutsideRange',
+          threshold_value: 100,
+          secondary_threshold: 92,
+          severity: 'Critical',
+          notify_patient: true,
+          notify_provider: true,
+          provider_id: null,
+          active: true,
+          created_at: 1789000000,
+        },
+      ],
+    } as never);
+    await openSettings();
+
+    await waitFor(() => expect(screen.getByText(/leaves 92 to 100/i)).toBeInTheDocument());
+  });
+
+  it('refuses a rule with neither bound before sending it', async () => {
+    await openSettings();
+
+    fireEvent.click(await screen.findByRole('button', { name: /save alert/i }));
+
+    // A rule with no bound has nothing to watch for. The server refuses it too;
+    // saying so here names the missing field instead of a generic failure.
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(shared.createWearableAlertRule).not.toHaveBeenCalled();
+  });
+
+  it('sends an unfilled bound as absent, not as zero', async () => {
+    vi.mocked(shared.createWearableAlertRule).mockResolvedValue({ success: true } as never);
+    await openSettings();
+
+    fireEvent.change(await screen.findByLabelText(/tell me below/i), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /save alert/i }));
+
+    await waitFor(() => expect(shared.createWearableAlertRule).toHaveBeenCalled());
+    // `threshold_high: 0` would mean "alert me above zero" — a different rule,
+    // and one that is true of every reading.
+    expect(vi.mocked(shared.createWearableAlertRule).mock.calls[0][0]).toMatchObject({
+      threshold_low: 50,
+      threshold_high: null,
+    });
+  });
+
+  it('does not claim no alerts are set when the read failed', async () => {
+    vi.mocked(shared.listWearableAlertRules).mockRejectedValue(new Error('boom'));
+    await openSettings();
+
+    await waitFor(() =>
+      expect(screen.getByText(/not a confirmation that none are set/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/You have not set any alerts/i)).not.toBeInTheDocument();
+  });
+
 });
