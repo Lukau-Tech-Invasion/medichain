@@ -1,6 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  getApiErrorMessage,
+  getGuardiansForWard,
+  revokeGuardian,
+  verifyGuardian,
+  useTranslation,
+} from '@medichain/shared';
+import type { GuardianRelationship } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
   ArrowLeft, 
@@ -44,6 +53,96 @@ function PatientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'access'>('overview');
+
+  // --- Who may act for this patient ------------------------------------------
+  //
+  // Three guardianship endpoints existed -- verify, amend permissions, revoke
+  // -- and all three WRITE. Nothing could read: `get_by_ward` is documented in
+  // the repository trait as backing exactly this view and had no HTTP route, so
+  // delegated authority over a minor's records could be created and then never
+  // shown. `GET /api/guardians/ward/{id}` is new; so is `/api/guardians/mine`.
+  //
+  // Relationships are listed whether active or not. A revoked or expired
+  // guardianship is part of the answer to "who may act for this patient" --
+  // leaving it out would hide that someone once could.
+  const [guardians, setGuardians] = useState<GuardianRelationship[]>([]);
+  const [guardiansLoaded, setGuardiansLoaded] = useState(false);
+  const [guardianError, setGuardianError] = useState<string | null>(null);
+  const [guardianBusy, setGuardianBusy] = useState(false);
+  const [newGuardianWallet, setNewGuardianWallet] = useState('');
+  const [newGuardianType, setNewGuardianType] = useState('parent_or_guardian');
+  const [newGuardianPermissions, setNewGuardianPermissions] = useState<string[]>([]);
+
+  const loadGuardians = useCallback(async () => {
+    if (!patientId) return;
+    try {
+      const body = await getGuardiansForWard(patientId);
+      setGuardians(body.relationships ?? []);
+      setGuardianError(null);
+    } catch (err) {
+      // "Nobody may act for this patient" and "the list could not be loaded"
+      // are opposite answers; an empty list must not stand in for a failure.
+      setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardiansLoadFailed')));
+    } finally {
+      setGuardiansLoaded(true);
+    }
+  }, [patientId, t]);
+
+  useEffect(() => {
+    if (activeTab === 'access') void loadGuardians();
+  }, [activeTab, loadGuardians]);
+
+  const togglePermission = (permission: string) => {
+    setNewGuardianPermissions((current) =>
+      current.includes(permission)
+        ? current.filter((p) => p !== permission)
+        : [...current, permission]
+    );
+  };
+
+  const recordGuardian = async () => {
+    if (!patientId) return;
+    setGuardianError(null);
+    if (!newGuardianWallet.trim()) {
+      setGuardianError(t('docPatientDetail.guardianWalletRequired'));
+      return;
+    }
+    // Authority with no permissions is not authority. An empty set would record
+    // a relationship that permits nothing while reading as though it does.
+    if (newGuardianPermissions.length === 0) {
+      setGuardianError(t('docPatientDetail.guardianPermissionsRequired'));
+      return;
+    }
+    try {
+      setGuardianBusy(true);
+      await verifyGuardian({
+        guardian_wallet: newGuardianWallet.trim(),
+        ward_patient_id: patientId,
+        relationship_type: newGuardianType,
+        permissions: newGuardianPermissions,
+      });
+      setNewGuardianWallet('');
+      setNewGuardianPermissions([]);
+      await loadGuardians();
+    } catch (err) {
+      setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardianRecordFailed')));
+    } finally {
+      setGuardianBusy(false);
+    }
+  };
+
+  const endGuardianship = async (relationshipId: string) => {
+    setGuardianError(null);
+    try {
+      setGuardianBusy(true);
+      await revokeGuardian(relationshipId);
+      await loadGuardians();
+    } catch (err) {
+      setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardianRevokeFailed')));
+    } finally {
+      setGuardianBusy(false);
+    }
+  };
 
   // Auth redirect
   useEffect(() => {
@@ -321,15 +420,135 @@ function PatientDetailPage() {
       )}
 
       {activeTab === 'access' && (
-        <div className="bg-surface rounded-xl shadow p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="text-content-muted" size={20} />
-            <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
+        <div className="space-y-6">
+          <div className="bg-surface rounded-xl shadow p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="text-content-muted" size={20} />
+              <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
+            </div>
+            <p className="text-content-muted text-center py-8">
+              {t('docPatientDetail.accessLine1')}<br />
+              {t('docPatientDetail.accessLine2')}
+            </p>
           </div>
-          <p className="text-content-muted text-center py-8">
-            {t('docPatientDetail.accessLine1')}<br />
-            {t('docPatientDetail.accessLine2')}
-          </p>
+
+          <div className="bg-surface rounded-xl shadow p-6">
+            <h3 className="font-semibold text-content mb-1">{t('docPatientDetail.guardiansHeading')}</h3>
+            <p className="text-sm text-content-muted mb-4">{t('docPatientDetail.guardiansSubtitle')}</p>
+
+            {guardianError && (
+              <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">{guardianError}</p>
+              </div>
+            )}
+
+            {!guardiansLoaded ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.guardiansLoading')}</p>
+            ) : guardians.length === 0 ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.guardiansNone')}</p>
+            ) : (
+              <ul className="space-y-2 mb-6" data-testid="guardian-list">
+                {guardians.map((relationship) => (
+                  <li
+                    key={relationship.id}
+                    className="flex items-start justify-between gap-3 border border-border rounded-lg p-3"
+                  >
+                    <div>
+                      <p className="font-medium text-content break-all">{relationship.guardian_wallet}</p>
+                      <p className="text-sm text-content-muted">
+                        {relationship.relationship_type} — {relationship.permissions.join(', ')}
+                      </p>
+                      {/* An ended relationship still shows, and says so. */}
+                      {!relationship.active && (
+                        <p className="text-xs text-content-muted mt-1">
+                          {relationship.revoked_at
+                            ? t('docPatientDetail.guardianRevoked')
+                            : t('docPatientDetail.guardianInactive')}
+                        </p>
+                      )}
+                    </div>
+                    {relationship.active && (
+                      <button
+                        type="button"
+                        onClick={() => void endGuardianship(relationship.id)}
+                        disabled={guardianBusy}
+                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px] whitespace-nowrap"
+                      >
+                        {t('docPatientDetail.guardianEnd')}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="border-t border-border pt-4 space-y-3">
+              <h4 className="font-medium text-content">{t('docPatientDetail.guardianAddHeading')}</h4>
+              <div>
+                <label htmlFor="guardian-wallet" className="block text-sm font-medium mb-1">
+                  {t('docPatientDetail.guardianWalletLabel')}
+                </label>
+                <input
+                  id="guardian-wallet"
+                  type="text"
+                  value={newGuardianWallet}
+                  onChange={(e) => setNewGuardianWallet(e.target.value)}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label htmlFor="guardian-type" className="block text-sm font-medium mb-1">
+                  {t('docPatientDetail.guardianTypeLabel')}
+                </label>
+                <select
+                  id="guardian-type"
+                  value={newGuardianType}
+                  onChange={(e) => setNewGuardianType(e.target.value)}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                >
+                  <option value="parent_or_guardian">{t('docPatientDetail.guardianTypeParent')}</option>
+                  <option value="legal_proxy">{t('docPatientDetail.guardianTypeProxy')}</option>
+                  <option value="power_of_attorney">{t('docPatientDetail.guardianTypePoa')}</option>
+                </select>
+              </div>
+              <fieldset>
+                <legend className="block text-sm font-medium mb-1">
+                  {t('docPatientDetail.guardianPermissionsLabel')}
+                </legend>
+                {/* Consenting to treatment and consenting to data processing are
+                    separate decisions in South African law (Children's Act §129
+                    vs POPIA §35) and the server keeps them apart, so this offers
+                    them separately rather than as one "give consent" box. */}
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    ['view_records', t('docPatientDetail.permViewRecords')],
+                    ['book_appointments', t('docPatientDetail.permBookAppointments')],
+                    ['consent_to_treatment', t('docPatientDetail.permConsentTreatment')],
+                    ['consent_to_data_processing', t('docPatientDetail.permConsentData')],
+                    ['upload_vaccinations', t('docPatientDetail.permUploadVaccinations')],
+                  ].map(([value, label]) => (
+                    <label key={value} className="flex items-center gap-2 text-sm min-h-[24px]">
+                      <input
+                        type="checkbox"
+                        checked={newGuardianPermissions.includes(value)}
+                        onChange={() => togglePermission(value)}
+                        className="w-4 h-4"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button
+                type="button"
+                onClick={recordGuardian}
+                disabled={guardianBusy}
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+              >
+                {guardianBusy ? t('docPatientDetail.guardianWorking') : t('docPatientDetail.guardianRecord')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

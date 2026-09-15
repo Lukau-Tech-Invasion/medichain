@@ -53,6 +53,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(revoke_role)
         // Guardian relationships (Horizon HZ-008; extended with granular
         // permissions + expiry for the pediatric/guardian identity architecture)
+        .service(list_my_wards)
+        .service(list_guardians_for_ward)
         .service(verify_guardian_relationship)
         .service(update_guardian_permissions)
         .service(revoke_guardian_relationship)

@@ -280,6 +280,108 @@ pub struct VerifyGuardianRequest {
     pub supersedes_relationship_id: Option<String>,
 }
 
+/// Who may act for this patient.
+///
+/// # Why this exists
+///
+/// `GuardianRelationshipRepository::get_by_ward` is documented as backing
+/// exactly this view -- "who may act for this patient (emergency contact
+/// surfacing, admin review)" -- and had no HTTP route, so nothing could ask.
+/// The three guardianship endpoints that did exist all *write*: verify, amend
+/// permissions, revoke. A screen could create delegated authority over a
+/// minor's records and then had no way to show what authority existed.
+///
+/// Returns relationships whether active or not. A revoked or expired
+/// guardianship is part of the answer to "who may act for this patient" --
+/// leaving it out would hide the fact that someone once could.
+#[get("/api/guardians/ward/{ward_patient_id}")]
+pub async fn list_guardians_for_ward(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let ward_patient_id = path.into_inner();
+
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    // The ward themselves, anyone acting for them, or a clinician who may read
+    // medical records. Delegated authority over a person's record is part of
+    // that record.
+    let is_own = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user.wallet_address,
+        &ward_patient_id,
+    );
+    if !is_own && !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the patient or a clinician may see who acts for them".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data
+        .repositories
+        .guardian_relationships
+        .get_by_ward(&ward_patient_id)
+        .await
+    {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "ward_patient_id": ward_patient_id,
+            "relationships": items,
+            "count": items.len(),
+        })),
+        Err(e) => {
+            log::error!("guardian lookup by ward failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// The wards this caller may act for.
+///
+/// `get_by_guardian` is documented as driving the "my children" /
+/// profile-switcher list, and likewise had no route. Caller-scoped: it answers
+/// only for whoever is asking, so it needs no id and cannot be pointed at
+/// somebody else's family.
+#[get("/api/guardians/mine")]
+pub async fn list_my_wards(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    match data
+        .repositories
+        .guardian_relationships
+        .get_by_guardian(&current_user.wallet_address)
+        .await
+    {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "guardian_wallet": current_user.wallet_address,
+            "relationships": items,
+            "count": items.len(),
+        })),
+        Err(e) => {
+            log::error!("guardian lookup by guardian failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[post("/api/guardians/verify")]
 pub async fn verify_guardian_relationship(
     data: web::Data<AppState>,

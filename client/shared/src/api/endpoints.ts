@@ -655,6 +655,88 @@ export async function switchIdentityContext(
 }
 
 // ============================================================================
+// Guardianship — who may act for a patient
+// ============================================================================
+
+/** A recorded guardian relationship, as the server stores it. */
+export interface GuardianRelationship {
+  id: string;
+  guardian_wallet: string;
+  ward_patient_id: string;
+  relationship_type: string;
+  permissions: string[];
+  verified_by: string;
+  verified_at: string;
+  active: boolean;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  revoked_reason?: string | null;
+  authority_evidence_type?: string | null;
+  authority_evidence_reference?: string | null;
+}
+
+/**
+ * Who may act for this patient.
+ *
+ * Returns relationships whether active or not: a revoked or expired
+ * guardianship is part of the answer, and omitting it would hide that someone
+ * once could act for this person.
+ */
+export async function getGuardiansForWard(
+  wardPatientId: string
+): Promise<{ success: boolean; relationships: GuardianRelationship[]; count: number }> {
+  return getApiClient().get(`/api/guardians/ward/${wardPatientId}`);
+}
+
+/** The wards the signed-in caller may act for. Caller-scoped: it takes no id. */
+export async function getMyWards(): Promise<{
+  success: boolean;
+  relationships: GuardianRelationship[];
+  count: number;
+}> {
+  return getApiClient().get('/api/guardians/mine');
+}
+
+/**
+ * Record a verified guardian relationship.
+ *
+ * Privileged: `require_privileged_assurance` gates this, so outside demo mode
+ * the caller must be MFA-enrolled and stepped up.
+ */
+export async function verifyGuardian(data: {
+  guardian_wallet: string;
+  ward_patient_id: string;
+  relationship_type: string;
+  permissions: string[];
+  expires_at?: string | null;
+  authority_evidence_type?: string | null;
+  authority_evidence_reference?: string | null;
+  authority_issuing_authority?: string | null;
+  authority_verified_by_role?: string | null;
+}): Promise<{ success: boolean; relationship_id?: string; message?: string }> {
+  return getApiClient().post('/api/guardians/verify', data);
+}
+
+/** Amend what an existing guardian may do. */
+export async function updateGuardianPermissions(
+  relationshipId: string,
+  permissions: string[]
+): Promise<{ success: boolean; message?: string }> {
+  return getApiClient().put(`/api/guardians/${relationshipId}/permissions`, { permissions });
+}
+
+/** End a guardian relationship. */
+export async function revokeGuardian(
+  relationshipId: string,
+  reason?: string
+): Promise<{ success: boolean; message?: string }> {
+  return getApiClient().post('/api/guardians/revoke', {
+    relationship_id: relationshipId,
+    reason: reason || null,
+  });
+}
+
+// ============================================================================
 // Multi-factor authentication — TOTP (Phase 11.3)
 // ============================================================================
 

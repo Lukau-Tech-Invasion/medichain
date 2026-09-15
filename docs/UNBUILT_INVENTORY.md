@@ -280,3 +280,45 @@ the UI, including the refusal.
 re-elevate the session. Enrolment is the precondition and is done; the retry
 path is not, and it cannot be exercised locally because demo mode never asks for
 it.
+
+
+### Guardianship — who may act for a patient (2026-09-15)
+
+Verified before building: three endpoints existed — `POST /api/guardians/verify`,
+`PUT /api/guardians/{id}/permissions`, `POST /api/guardians/revoke` — and **all
+three write**. Nothing could read. There was no page, no shared client function,
+and not one reference to guardianship anywhere in either client.
+
+`GuardianRelationshipRepository::get_by_ward` is documented in the trait as
+backing exactly this view — *"who may act for this patient (emergency contact
+surfacing, admin review)"* — and `get_by_guardian` as driving the *"my children
+/ profile-switcher list"*. Both had HTTP routes missing, so delegated authority
+over a minor's records could be created and then shown to nobody.
+
+Added `GET /api/guardians/ward/{ward_patient_id}` and
+`GET /api/guardians/mine` (caller-scoped, so it takes no id and cannot be
+pointed at somebody else's family), plus the five shared client functions and a
+management panel on the patient's Access tab.
+
+Two things the UI gets right because the domain demanded it:
+
+* **Ended relationships stay listed and say so.** A revoked or expired
+  guardianship is part of the answer to "who may act for this patient";
+  dropping it would hide that somebody once could. Verified: after revoke the
+  row is still returned with `active: false`.
+* **Consent to treatment and consent to data processing are offered
+  separately.** South African law treats them as distinct decisions
+  (Children's Act §129 vs POPIA §35), the server keeps them apart, and the old
+  combined `GiveConsent` permission is marked deprecated for that reason. The
+  form does not collapse them.
+
+Authority with no permissions is refused before sending: an empty permission set
+would record a relationship that permits nothing while reading as though it
+grants something.
+
+Verified live: ward read 0 → verify 201 → ward read 1 containing the guardian →
+revoke 200 → still listed, `active: false`. The browser test does the same
+through the Access tab, including the refusal.
+
+**Still open, recorded:** the patient-side "my children" view. `/api/guardians/mine`
+exists and is tested, but `FamilyGroupPage` does not yet call it.
