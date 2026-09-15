@@ -132,6 +132,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // NFC-hash-to-token exchange (Horizon HZ-001)
         .service(exchange_nfc_hash_for_token)
         // Phase 6 encrypted patient mobile-record capabilities.
+        .service(list_patient_mobile_devices)
         .service(register_patient_mobile_device)
         .service(authorise_mobile_record)
         .service(issue_mobile_lockscreen_token)

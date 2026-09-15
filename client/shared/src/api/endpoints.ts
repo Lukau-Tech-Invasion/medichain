@@ -3996,3 +3996,100 @@ export async function getEmergencyCapsuleAccessLog(patientId: string): Promise<{
     `/api/patients/${encodeURIComponent(patientId)}/emergency-capsule/access-log`
   );
 }
+
+// ============================================================================
+// Patient-owned mobile devices
+// ============================================================================
+//
+// Four endpoints, all of which write, and none with a client function. A device
+// id is returned exactly once — in the response to the registration that
+// created it — so a patient who lost a phone had no way to name the device they
+// wanted revoked. `GET /api/mobile/devices` is new.
+
+/** A device this patient has registered against their records. */
+export interface PatientMobileDevice {
+  id: string;
+  patient_id: string;
+  device_label: string;
+  platform: string;
+  /** The device's public half. The private key never leaves the device. */
+  public_key: string;
+  status: string;
+  last_synchronised_at?: string | null;
+  revoked_at?: string | null;
+  revocation_reason?: string | null;
+}
+
+/**
+ * The devices the signed-in patient has registered.
+ *
+ * Scoped to the caller: the screen asking this is "my devices", and there is no
+ * id for it to send. Revoked devices are included and marked, because someone
+ * who has just lost a phone needs to see the revocation took effect.
+ */
+export async function listMyMobileDevices(): Promise<{
+  success: boolean;
+  count: number;
+  devices: PatientMobileDevice[];
+}> {
+  return getApiClient().get('/api/mobile/devices');
+}
+
+/**
+ * Register a device's public key. The private half stays on the device — this
+ * call carries the public key only, and the server never sees a secret.
+ */
+export async function registerMobileDevice(payload: {
+  device_label: string;
+  platform: string;
+  public_key: string;
+}): Promise<PatientMobileDevice> {
+  return getApiClient().post('/api/mobile/devices/register', payload);
+}
+
+/**
+ * Revoke a device and invalidate the content capabilities it holds.
+ *
+ * The row is kept and marked revoked rather than removed: a patient needs to
+ * see that the phone they lost can no longer open anything.
+ */
+export async function revokeMobileDevice(
+  deviceId: string,
+  reason: string
+): Promise<PatientMobileDevice> {
+  return getApiClient().post(`/api/mobile/devices/${encodeURIComponent(deviceId)}/revoke`, {
+    reason,
+  });
+}
+
+/**
+ * A short-lived token letting one active device show the medical ID on a locked
+ * screen. Expires in minutes and is scoped to reading that one thing.
+ */
+export async function issueLockscreenToken(deviceId: string): Promise<{
+  token: string;
+  token_type: string;
+  expires_in: number;
+  device_id: string;
+}> {
+  return getApiClient().post(
+    `/api/mobile/devices/${encodeURIComponent(deviceId)}/lockscreen-token`,
+    {}
+  );
+}
+
+/**
+ * Authorise one device to open one record.
+ *
+ * Returns a capability over a ciphertext reference — never a plaintext
+ * download. The record stays encrypted; the device is handed permission to
+ * fetch and decrypt it, and that permission expires.
+ */
+export async function authoriseMobileRecord(payload: {
+  device_id: string;
+  record_id: string;
+  encrypted_content_reference: string;
+  watermark_text?: string | null;
+}): Promise<Record<string, unknown>> {
+  return getApiClient().post('/api/mobile/records/authorise', payload);
+}

@@ -1018,6 +1018,16 @@ const en_US: TranslationRecord = {
 
   // Settings
   settings: {
+    devicesHeading: 'Devices that can open my records',
+    devicesSubtitle: 'Each of these has been given permission to open your records on this account. Revoke one you no longer have.',
+    devicesLoading: 'Loading your devices...',
+    devicesUnknown: 'Your devices could not be listed. This is not a confirmation that none are registered.',
+    devicesNone: 'No device has been registered.',
+    deviceRevoke: 'Revoke',
+    deviceRevoking: 'Revoking...',
+    deviceRevoked: '{{label}} can no longer open your records.',
+    deviceRevokedOn: 'Revoked {{date}}',
+    deviceRevokeFailed: 'That device could not be revoked.',
     title: 'Settings',
     account: 'Account Settings',
     notifications: 'Notifications',

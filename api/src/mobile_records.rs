@@ -206,6 +206,48 @@ impl MobileRecordStore {
         Ok(device)
     }
 
+    /// Every device this patient has registered, newest registration last.
+    ///
+    /// # Why this exists
+    ///
+    /// The store could register a device, fetch one by id, and revoke one, and
+    /// had no way to ask "which devices has this patient registered". A device
+    /// id is returned exactly once, in the response to the call that created
+    /// it, so revoking a lost phone meant having kept that response — which
+    /// nobody does. The revoke endpoint was unreachable in practice.
+    ///
+    /// Revoked devices are included and say so. "Which devices can open my
+    /// records" and "which ones could" are the same question to somebody who
+    /// has just lost a phone.
+    pub async fn list_devices_durable(
+        &self,
+        patient_id: &str,
+    ) -> Result<Vec<PatientMobileDevice>, &'static str> {
+        let Some(pool) = &self.pool else {
+            let devices = self
+                .devices
+                .read()
+                .map_err(|_| "Mobile device store is unavailable")?;
+            let mut items: Vec<PatientMobileDevice> = devices
+                .values()
+                .filter(|device| device.patient_id == patient_id)
+                .cloned()
+                .collect();
+            items.sort_by(|a, b| a.device_label.cmp(&b.device_label).then(a.id.cmp(&b.id)));
+            return Ok(items);
+        };
+        let rows: Vec<MobileDeviceRow> = sqlx::query_as(
+            "SELECT id, patient_id, device_label, platform, public_key, status, \
+             last_synchronised_at, revoked_at, revocation_reason \
+             FROM patient_mobile_devices WHERE patient_id = $1 ORDER BY device_label, id",
+        )
+        .bind(patient_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| "Mobile device store is unavailable")?;
+        rows.into_iter().map(row_to_device).collect()
+    }
+
     pub async fn get_device_durable(
         &self,
         device_id: &str,

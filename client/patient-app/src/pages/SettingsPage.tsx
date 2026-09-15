@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   debugLog,
+  getApiErrorMessage,
+  listMyMobileDevices,
+  revokeMobileDevice,
   getUserSettings,
   saveUserSettings,
   updateMedicalIdPreferences,
   useTranslation,
 } from '@medichain/shared';
+import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Settings,
@@ -233,6 +237,54 @@ export function SettingsPage() {
     );
   };
 
+
+  // --- Devices that can open my records --------------------------------------
+  //
+  // Four mobile endpoints existed and every one of them writes. A device id is
+  // returned exactly once, in the response to the registration that created it,
+  // so a patient who lost a phone had no way to name the device they wanted
+  // revoked and the revoke endpoint was unreachable in practice.
+  // `GET /api/mobile/devices` is new.
+  const [devices, setDevices] = useState<PatientMobileDevice[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  // An empty list and a failed read are opposite answers to "can my lost phone
+  // still open my records", and the first is the dangerous one to guess.
+  const [devicesUnknown, setDevicesUnknown] = useState(false);
+  const [deviceError, setDeviceError] = useState('');
+  const [deviceNotice, setDeviceNotice] = useState('');
+  const [deviceBusy, setDeviceBusy] = useState<string | null>(null);
+
+  const loadDevices = useCallback(async () => {
+    try {
+      const body = await listMyMobileDevices();
+      setDevices(body.devices ?? []);
+      setDevicesUnknown(false);
+    } catch {
+      setDevicesUnknown(true);
+    } finally {
+      setDevicesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDevices();
+  }, [loadDevices]);
+
+  const revokeDevice = async (device: PatientMobileDevice) => {
+    setDeviceError('');
+    setDeviceNotice('');
+    setDeviceBusy(device.id);
+    try {
+      await revokeMobileDevice(device.id, 'Revoked by the patient from Settings');
+      setDeviceNotice(t('settings.deviceRevoked', { label: device.device_label }));
+      await loadDevices();
+    } catch (err) {
+      setDeviceError(getApiErrorMessage(err, t('settings.deviceRevokeFailed')));
+    } finally {
+      setDeviceBusy(null);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
@@ -446,6 +498,73 @@ export function SettingsPage() {
             />
           </SettingRow>
         </div>
+      </div>
+
+      {/* Devices that can open my records */}
+      <div className="patient-card">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
+          <Smartphone className="w-5 h-5 text-brand" />
+          {t('settings.devicesHeading')}
+        </h2>
+        <p className="text-sm text-content-muted mb-4">{t('settings.devicesSubtitle')}</p>
+
+        {deviceError && (
+          <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+            <p className="text-sm text-critical-subtle-fg">{deviceError}</p>
+          </div>
+        )}
+        {deviceNotice && (
+          <div role="status" className="mb-4 bg-ok-subtle border border-ok rounded-lg p-3">
+            <p className="text-sm text-ok-subtle-fg">{deviceNotice}</p>
+          </div>
+        )}
+
+        {!devicesLoaded ? (
+          <p className="text-sm text-content-muted">{t('settings.devicesLoading')}</p>
+        ) : devicesUnknown ? (
+          <p className="text-sm text-content-muted">{t('settings.devicesUnknown')}</p>
+        ) : devices.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('settings.devicesNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="mobile-device-list">
+            {devices.map((device) => {
+              const revoked = Boolean(device.revoked_at);
+              return (
+                <li
+                  key={device.id}
+                  className="flex items-start justify-between gap-3 border border-border rounded-lg p-3"
+                >
+                  <div>
+                    <p className="text-sm text-content">{device.device_label}</p>
+                    <p className="text-xs text-content-muted">{device.platform}</p>
+                    {/* A revoked device stays listed and says so: seeing that
+                        the lost phone can no longer open anything is the whole
+                        reason to come here. */}
+                    {revoked && (
+                      <p className="text-xs text-content-muted mt-1">
+                        {t('settings.deviceRevokedOn', {
+                          date: new Date(device.revoked_at as string).toLocaleDateString(),
+                        })}
+                      </p>
+                    )}
+                  </div>
+                  {!revoked && (
+                    <button
+                      type="button"
+                      onClick={() => void revokeDevice(device)}
+                      disabled={deviceBusy === device.id}
+                      className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                    >
+                      {deviceBusy === device.id
+                        ? t('settings.deviceRevoking')
+                        : t('settings.deviceRevoke')}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {/* App Preferences */}
