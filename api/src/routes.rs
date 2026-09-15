@@ -497,6 +497,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_supported_wearables)
         .service(clinical_endpoints::register_wearable_device)
         .service(clinical_endpoints::get_wearable_devices)
+        .service(clinical_endpoints::disconnect_wearable_device)
         .service(clinical_endpoints::submit_wearable_reading)
         .service(clinical_endpoints::get_wearable_readings)
         .service(clinical_endpoints::create_wearable_alert_rule)

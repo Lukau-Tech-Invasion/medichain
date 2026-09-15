@@ -19,7 +19,11 @@ import {
 } from 'lucide-react';
 import {
   createWearableAlertRule,
+  disconnectWearableDevice,
+  getUserSettings,
+  saveUserSettings,
   getApiErrorMessage,
+  getSupportedWearables,
   getWearableAlerts,
   getWearableDevices,
   getWearableReadings,
@@ -28,7 +32,11 @@ import {
   IS_DEMO,
   useTranslation,
 } from '@medichain/shared';
-import type { WearableAlert, WearableAlertRule } from '@medichain/shared';
+import type {
+  SupportedWearable,
+  WearableAlert,
+  WearableAlertRule,
+} from '@medichain/shared';
 import type { WearableDevice, WearableReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -104,9 +112,159 @@ const mapLatestMetrics = (readings: WearableReading[]): HealthMetric[] => {
   }));
 };
 
+/**
+ * The platforms a patient can connect, and the manufacturer the API stores.
+ *
+ * `manufacturer` is separate from the label on purpose: "Apple Health" is what
+ * a patient recognises, "Apple" is what `/api/wearables/supported` lists models
+ * under, and the registration endpoint wants the latter.
+ */
+const ADD_DEVICE_PLATFORMS = [
+  { name: 'Apple Health', manufacturer: 'Apple', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
+  { name: 'Google Fit', manufacturer: 'Google', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
+  { name: 'Fitbit', manufacturer: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'fitbit' },
+  { name: 'Garmin', manufacturer: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'garmin' },
+  { name: 'Samsung Health', manufacturer: 'Samsung', icon: <Heart className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'samsung' },
+  { name: 'Oura Ring', manufacturer: 'Oura', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' },
+];
+
 const WearablesPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'settings'>('dashboard');
+
+  // --- Adding a device has never worked --------------------------------------
+  //
+  // The buttons below sent `{device_type, device_name, patient_id}`.
+  // `RegisterWearableRequest` requires `{device_type, manufacturer, model}`, so
+  // every click was refused with
+  // `400 missing field \`manufacturer\`` -- and the handler swallowed it into a
+  // `console.warn`, so the button did nothing and said nothing. Connecting a
+  // wearable was impossible from the product.
+  //
+  // The model is asked for rather than invented. It is not decoration: the
+  // supported-wearables catalogue lists different data types per model, so
+  // "Fitbit" alone does not say what this device can report. `/api/wearables/supported`
+  // is the server's own list, which is why the models offered here are real
+  // ones rather than a second copy that can drift.
+  const [catalogue, setCatalogue] = useState<SupportedWearable[]>([]);
+  const [pendingManufacturer, setPendingManufacturer] = useState<string | null>(null);
+  const [pendingModel, setPendingModel] = useState('');
+  const [registerError, setRegisterError] = useState('');
+  const [registerBusy, setRegisterBusy] = useState(false);
+
+  useEffect(() => {
+    getSupportedWearables()
+      .then((body) => setCatalogue(body.supported_manufacturers ?? []))
+      .catch(() => setCatalogue([]));
+  }, []);
+
+  const modelsFor = (manufacturer: string): string[] =>
+    catalogue.find((entry) => entry.manufacturer.toLowerCase() === manufacturer.toLowerCase())
+      ?.models ?? [];
+
+  const registerDevice = async (deviceType: string, manufacturer: string) => {
+    if (!pendingModel) {
+      setRegisterError(t('wearables.registerNeedsModel'));
+      return;
+    }
+    setRegisterError('');
+    setRegisterBusy(true);
+    try {
+      await registerWearableDevice({
+        device_type: deviceType,
+        manufacturer,
+        model: pendingModel,
+      });
+      setPendingManufacturer(null);
+      setPendingModel('');
+      loadWearableData();
+    } catch (err) {
+      // Said out loud. A button that fails silently is why this went unnoticed.
+      setRegisterError(getApiErrorMessage(err, t('wearables.registerFailed')));
+    } finally {
+      setRegisterBusy(false);
+    }
+  };
+
+
+  // --- Settings that are actually settings ------------------------------------
+  //
+  // The six sync toggles and two sharing toggles below rendered from literals
+  // in a `.map()` array with no `onChange`, and "Disconnect all" had no
+  // handler. They looked settable, nothing was stored, and nothing read them
+  // back -- a patient turning off "sync over cellular" got the same result as
+  // not touching it, with no way to tell.
+  //
+  // `GET`/`POST /api/settings` already persists this account's other UI
+  // preferences, so these go there. The disconnect button now has an endpoint
+  // to call: `POST /api/wearables/devices/{id}/disconnect` is new, because a
+  // patient could connect a wearable and never stop it.
+  const [prefs, setPrefs] = useState<Record<string, boolean>>({});
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [prefsError, setPrefsError] = useState('');
+  const [prefsNotice, setPrefsNotice] = useState('');
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserSettings<{ wearables?: Record<string, boolean> }>()
+      .then((settings) => {
+        if (!cancelled) setPrefs(settings.wearables ?? {});
+      })
+      .catch(() => {
+        // Unreadable preferences are shown as their defaults; the alternative
+        // is a screen of toggles in an unknown position, which is worse.
+        if (!cancelled) setPrefsError(t('wearables.prefsLoadFailed'));
+      })
+      .finally(() => {
+        if (!cancelled) setPrefsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  const togglePref = async (key: string, fallback: boolean) => {
+    const next = { ...prefs, [key]: !(prefs[key] ?? fallback) };
+    setPrefs(next);
+    setPrefsError('');
+    try {
+      // Merge rather than replace: this page owns `wearables` and must not
+      // discard the notification or display preferences stored alongside it.
+      const current = await getUserSettings<Record<string, unknown>>().catch(() => ({}));
+      await saveUserSettings({ ...current, wearables: next });
+    } catch (err) {
+      // Put the toggle back. A switch that stays where the finger left it while
+      // the server never heard is the failure this whole section existed as.
+      setPrefs(prefs);
+      setPrefsError(getApiErrorMessage(err, t('wearables.prefsSaveFailed')));
+    }
+  };
+
+  const disconnectAll = async () => {
+    if (devices.length === 0) return;
+    setPrefsError('');
+    setPrefsNotice('');
+    setDisconnecting(true);
+    const failed: string[] = [];
+    for (const device of devices) {
+      try {
+        await disconnectWearableDevice(device.id);
+      } catch {
+        failed.push(device.name || device.id);
+      }
+    }
+    setDisconnecting(false);
+    if (failed.length > 0) {
+      // Naming what did NOT disconnect: "some devices were disconnected" would
+      // leave a patient believing a device stopped streaming when it did not.
+      setPrefsError(t('wearables.disconnectPartial', { devices: failed.join(', ') }));
+    } else {
+      setPrefsNotice(t('wearables.disconnectAllDone'));
+    }
+    loadWearableData();
+  };
+
 
   // --- Alerting ---------------------------------------------------------------
   //
@@ -592,29 +750,19 @@ const WearablesPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4">
               <h3 className="font-semibold text-content mb-4">{t('wearables.addDevice')}</h3>
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
-                  { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
-                  { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'fitbit' },
-                  { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'garmin' },
-                  { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'samsung' },
-                  { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' }
-                ].map(platform => (
+                {ADD_DEVICE_PLATFORMS.map(platform => (
                   <button
                     key={platform.name}
-                    onClick={async () => {
-                      try {
-                        await registerWearableDevice({
-                          device_type: platform.type,
-                          device_name: platform.name,
-                          patient_id: patient?.healthId,
-                        });
-                        loadWearableData();
-                      } catch (err) {
-                        console.warn('Failed to register device:', err);
-                      }
+                    type="button"
+                    onClick={() => {
+                      setPendingManufacturer(
+                        pendingManufacturer === platform.manufacturer ? null : platform.manufacturer
+                      );
+                      setPendingModel('');
+                      setRegisterError('');
                     }}
-                    className="flex items-center gap-3 p-3 border border-border rounded-lg hover:border-teal-300 hover:bg-surface-sunken transition-all"
+                    aria-expanded={pendingManufacturer === platform.manufacturer}
+                    className="flex items-center gap-3 p-3 border border-border rounded-lg hover:border-teal-300 hover:bg-surface-sunken transition-all min-h-[44px]"
                   >
                     <div className={`p-2 rounded-full ${platform.color}`}>
                       {platform.icon}
@@ -623,6 +771,62 @@ const WearablesPage: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {registerError && (
+                <div role="alert" className="mt-3 bg-critical-subtle border border-critical rounded-lg p-3">
+                  <p className="text-sm text-critical-subtle-fg">{registerError}</p>
+                </div>
+              )}
+
+              {pendingManufacturer && (
+                <div className="mt-3 border border-border rounded-lg p-3">
+                  <label
+                    htmlFor="wearable-model"
+                    className="block text-sm font-medium text-content-secondary mb-1"
+                  >
+                    {t('wearables.registerModel', { manufacturer: pendingManufacturer })}
+                  </label>
+                  {modelsFor(pendingManufacturer).length > 0 ? (
+                    <select
+                      id="wearable-model"
+                      value={pendingModel}
+                      onChange={(e) => setPendingModel(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                    >
+                      <option value="">{t('wearables.registerModelPrompt')}</option>
+                      {modelsFor(pendingManufacturer).map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    // The catalogue did not list this manufacturer. Typing the
+                    // model is better than blocking the patient on a list the
+                    // server has not been told about.
+                    <input
+                      id="wearable-model"
+                      value={pendingModel}
+                      onChange={(e) => setPendingModel(e.target.value)}
+                      placeholder={t('wearables.registerModelPlaceholder')}
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    disabled={registerBusy}
+                    onClick={() => {
+                      const platform = ADD_DEVICE_PLATFORMS.find(
+                        (p) => p.manufacturer === pendingManufacturer
+                      );
+                      if (platform) void registerDevice(platform.type, platform.manufacturer);
+                    }}
+                    className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                  >
+                    {registerBusy ? t('wearables.registering') : t('wearables.registerConnect')}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Bluetooth Scan */}
@@ -764,34 +968,56 @@ const WearablesPage: React.FC = () => {
               )}
             </div>
 
+            {prefsError && (
+              <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">{prefsError}</p>
+              </div>
+            )}
+            {prefsNotice && (
+              <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3">
+                <p className="text-sm text-ok-subtle-fg">{prefsNotice}</p>
+              </div>
+            )}
+
             {/* Sync Settings */}
             <div className="bg-surface rounded-lg shadow divide-y">
               <div className="p-4">
                 <h3 className="font-semibold text-content">{t('wearables.syncSettings')}</h3>
               </div>
               {[
-                { label: t('wearables.syncAuto'), enabled: true },
-                { label: t('wearables.syncBackground'), enabled: true },
-                { label: t('wearables.syncCellular'), enabled: false },
-                { label: t('wearables.syncSleep'), enabled: true },
-                { label: t('wearables.syncWorkout'), enabled: true },
-                { label: t('wearables.syncHeartRate'), enabled: true }
-              ].map((setting, idx) => (
-                <div key={idx} className="p-4 flex items-center justify-between">
-                  <span className="text-content-secondary">{setting.label}</span>
-                  <button
-                    className={`w-12 h-6 rounded-full transition-colors ${
-                      setting.enabled ? 'bg-teal-500' : 'bg-gray-300'
-                    }`}
-                  >
-                    <div
-                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
-                        setting.enabled ? 'translate-x-6' : 'translate-x-0.5'
+                { key: 'syncAuto', label: t('wearables.syncAuto'), fallback: true },
+                { key: 'syncBackground', label: t('wearables.syncBackground'), fallback: true },
+                { key: 'syncCellular', label: t('wearables.syncCellular'), fallback: false },
+                { key: 'syncSleep', label: t('wearables.syncSleep'), fallback: true },
+                { key: 'syncWorkout', label: t('wearables.syncWorkout'), fallback: true },
+                { key: 'syncHeartRate', label: t('wearables.syncHeartRate'), fallback: true },
+              ].map((setting) => {
+                const on = prefs[setting.key] ?? setting.fallback;
+                return (
+                  <div key={setting.key} className="p-4 flex items-center justify-between">
+                    <span className="text-content-secondary" id={`pref-${setting.key}`}>
+                      {setting.label}
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={on}
+                      aria-labelledby={`pref-${setting.key}`}
+                      disabled={!prefsLoaded}
+                      onClick={() => void togglePref(setting.key, setting.fallback)}
+                      className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                        on ? 'bg-teal-500' : 'bg-gray-300'
                       }`}
-                    />
-                  </button>
-                </div>
-              ))}
+                    >
+                      <div
+                        className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                          on ? 'translate-x-6' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Data Sharing */}
@@ -801,9 +1027,28 @@ const WearablesPage: React.FC = () => {
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-content-secondary">{t('wearables.shareProvider')}</span>
-                  <button className="w-12 h-6 rounded-full bg-teal-500">
-                    <div className="w-5 h-5 bg-surface rounded-full shadow translate-x-6" />
+                  <span className="text-content-secondary" id="pref-shareProvider">
+                    {t('wearables.shareProvider')}
+                  </span>
+                  {/* Was hardcoded on with no handler. A sharing control that
+                      cannot be turned off is worse than no control: it tells a
+                      patient they have a choice they do not have. */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={prefs.shareProvider ?? true}
+                    aria-labelledby="pref-shareProvider"
+                    disabled={!prefsLoaded}
+                    onClick={() => void togglePref('shareProvider', true)}
+                    className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                      (prefs.shareProvider ?? true) ? 'bg-teal-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                        (prefs.shareProvider ?? true) ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
                   </button>
                 </div>
                 <p className="text-sm text-content-muted">
@@ -812,9 +1057,25 @@ const WearablesPage: React.FC = () => {
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-content-secondary">{t('wearables.emergencyAccess')}</span>
-                  <button className="w-12 h-6 rounded-full bg-teal-500">
-                    <div className="w-5 h-5 bg-surface rounded-full shadow translate-x-6" />
+                  <span className="text-content-secondary" id="pref-emergencyAccess">
+                    {t('wearables.emergencyAccess')}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={prefs.emergencyAccess ?? true}
+                    aria-labelledby="pref-emergencyAccess"
+                    disabled={!prefsLoaded}
+                    onClick={() => void togglePref('emergencyAccess', true)}
+                    className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                      (prefs.emergencyAccess ?? true) ? 'bg-teal-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                        (prefs.emergencyAccess ?? true) ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
                   </button>
                 </div>
                 <p className="text-sm text-content-muted">
@@ -825,9 +1086,16 @@ const WearablesPage: React.FC = () => {
 
             {/* Disconnect */}
             <div className="bg-surface rounded-lg shadow p-4">
-              <button className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium">
+              <button
+                type="button"
+                disabled={disconnecting || devices.length === 0}
+                onClick={() => {
+                  if (window.confirm(t('wearables.disconnectAllConfirm'))) void disconnectAll();
+                }}
+                className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium disabled:opacity-60 min-h-[44px]"
+              >
                 <Unlink className="w-5 h-5" />
-                {t('wearables.disconnectAll')}
+                {disconnecting ? t('wearables.disconnecting') : t('wearables.disconnectAll')}
               </button>
             </div>
           </div>

@@ -635,6 +635,19 @@ const en_US: TranslationRecord = {
 
   // Wearables
   wearables: {
+    registerModel: 'Which {{manufacturer}} device?',
+    registerModelPrompt: 'Choose a model',
+    registerModelPlaceholder: 'Model name',
+    registerNeedsModel: 'Choose which model it is. Different models report different measurements, so the record needs to know.',
+    registerConnect: 'Connect',
+    registering: 'Connecting...',
+    registerFailed: 'That device could not be connected.',
+    prefsLoadFailed: 'Your preferences could not be loaded, so these are shown at their defaults.',
+    prefsSaveFailed: 'That preference could not be saved, so it has been put back.',
+    disconnectAllConfirm: 'Disconnect every device?',
+    disconnectAllDone: 'Every device was disconnected. Readings already taken are kept.',
+    disconnectPartial: 'These devices could not be disconnected and may still be sending data: {{devices}}',
+    disconnecting: 'Disconnecting...',
     alertsHeading: 'Alerts',
     alertsSubtitle: 'Be told when a reading leaves the range you choose.',
     alertsLoading: 'Loading your alerts...',

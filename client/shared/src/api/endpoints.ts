@@ -4570,3 +4570,22 @@ export async function getPatientIntakeOutput(patientId: string): Promise<{
     `/api/clinical/patient/${encodeURIComponent(patientId)}/intake-output`
   );
 }
+
+/**
+ * Disconnect a wearable this patient registered.
+ *
+ * Deactivates rather than deletes: readings already taken were taken, and which
+ * device produced them is part of reading them correctly. `is_active: false`
+ * stops the device without rewriting history.
+ */
+export async function disconnectWearableDevice(deviceId: string): Promise<{
+  success: boolean;
+  device_id: string;
+  is_active: boolean;
+  connection_status?: string | null;
+}> {
+  return getApiClient().post(
+    `/api/wearables/devices/${encodeURIComponent(deviceId)}/disconnect`,
+    {}
+  );
+}

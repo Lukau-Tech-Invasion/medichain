@@ -144,6 +144,117 @@ pub async fn get_wearable_devices(
     }))
 }
 
+/// Disconnect a wearable this patient registered.
+///
+/// # Why this exists
+///
+/// A patient could connect a device and never disconnect it. `POST
+/// /api/wearables/devices` registered one, `GET` listed them, and there was no
+/// route to stop one — the patient app's "Disconnect all" button had no handler
+/// because there was nothing for it to call. A device streaming someone's heart
+/// rate that they cannot switch off is the same problem as a phone they cannot
+/// revoke, and the wearable half was missed.
+///
+/// Deactivates rather than deletes. Readings already taken were taken, and the
+/// record of which device produced them is part of reading them correctly; the
+/// repository's `delete` would take that away. `is_active: false` stops the
+/// device without rewriting history.
+///
+/// Scoped to the caller's own devices. A patient disconnecting another
+/// patient's wearable would be a denial of care, not a privacy control.
+#[post("/api/wearables/devices/{device_id}/disconnect")]
+pub async fn disconnect_wearable_device(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let device_id = path.into_inner();
+
+    // `wearable_device_records`, not `wearable_devices`.
+    //
+    // Registration persists the device as a JSON record in
+    // `wearable_device_records`, and `GET /api/wearables/devices` reads it back
+    // from there. The typed `wearable_devices` repository exists alongside it
+    // and holds nothing this endpoint ever registered -- reading it 404s on a
+    // device the patient can see in their own list, which is how the first cut
+    // of this handler behaved.
+    let mut record = match data
+        .repositories
+        .wearable_device_records
+        .get_by_id(&device_id)
+        .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Wearable device not found".to_string(),
+                code: "WEARABLE_DEVICE_NOT_FOUND".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("wearable device lookup failed for {device_id}: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The wearable device could not be read; please retry.".to_string(),
+                code: "WEARABLE_STORE_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+
+    // `owner_id` is the registering account. A patient disconnecting another
+    // patient's wearable would be a denial of care, not a privacy control.
+    if record.owner_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "That device belongs to another account".to_string(),
+            code: "WEARABLE_DEVICE_OWNER_MISMATCH".to_string(),
+        });
+    }
+
+    // Deactivate in place. The stored shape is the `WearableDevice` the list
+    // renders, so these are the two fields that screen reads.
+    if let Some(object) = record.data.as_object_mut() {
+        object.insert("active".to_string(), serde_json::Value::Bool(false));
+        object.insert(
+            "connection_status".to_string(),
+            serde_json::Value::String("Disconnected".to_string()),
+        );
+    }
+    record.updated_at = chrono::Utc::now();
+
+    // `create` is insert-or-replace by id on this repository; there is no
+    // separate `update`. Documented on the trait as "Insert or replace a record
+    // by `id`", which is what a deactivation needs.
+    match data
+        .repositories
+        .wearable_device_records
+        .create(record)
+        .await
+    {
+        Ok(record) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "device_id": record.id,
+            "is_active": false,
+            "connection_status": "Disconnected",
+        })),
+        Err(error) => {
+            // Reporting a disconnect that did not happen leaves a patient
+            // believing a device stopped streaming when it did not.
+            log::error!("wearable disconnect failed for {device_id}: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The device could not be disconnected; please retry.".to_string(),
+                code: "WEARABLE_DISCONNECT_FAILED".to_string(),
+            })
+        }
+    }
+}
+
 /// Get supported wearables (reference data)
 #[get("/api/wearables/supported")]
 pub async fn get_supported_wearables(

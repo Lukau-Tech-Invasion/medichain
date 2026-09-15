@@ -3487,7 +3487,7 @@ It currently has no caller, so nothing is exploiting it today. The fix is the
 same decision as the entry above: remove it, or derive the id and fold it into
 the live handler.
 
-### The wearables Settings tab is decoration — OPEN
+### The wearables Settings tab is decoration — CLOSED 2026-09-16
 
 `WearablesPage`'s settings tab renders six sync toggles, two data-sharing
 toggles and a "Disconnect all" button. Every toggle's `enabled` is a literal in
@@ -3497,9 +3497,29 @@ render, they look settable, and nothing anywhere records or reads them.
 The alerting section added alongside them on 2026-09-15 is wired end to end; the
 toggles above it are not, and a patient cannot tell the two apart by looking.
 
-Left in place rather than removed: deletion needs authorisation, and the right
-resolution may be to implement them against `saveUserSettings`, which already
-exists and already persists the patient's other preferences.
+Resolved by implementing them, which is what the note above suggested. All eight
+toggles now read and write `wearables` under `GET`/`POST /api/settings`, and a
+failed save puts the switch back rather than leaving it where the finger left
+it. "Disconnect all" now has an endpoint to call.
+
+Finding it turned up two more, both verified against a live server:
+
+  * **Connecting a wearable had never worked.** The page sent
+    `{device_type, device_name, patient_id}`; `RegisterWearableRequest` requires
+    `{device_type, manufacturer, model}`, so every click was refused
+    `400 missing field manufacturer` — into a `console.warn`. The button did
+    nothing and said nothing. The model is now asked for, from
+    `/api/wearables/supported`, because different models report different
+    measurements.
+  * **A wearable could never be disconnected.** There was no route at all;
+    `POST /api/wearables/devices/{id}/disconnect` is new. It deactivates rather
+    than deletes, because readings already taken were taken and which device
+    produced them is part of reading them correctly.
+
+Note for anyone extending this: registration persists to
+`wearable_device_records` (a JSON store), NOT the typed `wearable_devices`
+repository that also exists. The first cut of the disconnect handler read the
+typed one and 404'd on devices the patient could see in their own list.
 
 ### `scripts/unused-endpoints.py` reports a call it cannot parse — OPEN
 

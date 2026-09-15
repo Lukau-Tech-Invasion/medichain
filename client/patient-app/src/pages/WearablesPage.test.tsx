@@ -17,6 +17,9 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   listWearableAlertRules: vi.fn(),
   getWearableAlerts: vi.fn(),
   createWearableAlertRule: vi.fn(),
+  getUserSettings: vi.fn(),
+  saveUserSettings: vi.fn(),
+  disconnectWearableDevice: vi.fn(),
   getWearableReadings: vi.fn(),
   registerWearableDevice: vi.fn(),
 }));
@@ -31,6 +34,8 @@ describe('WearablesPage (Patient)', () => {
   };
 
   beforeEach(() => {
+    vi.mocked(shared.getUserSettings).mockResolvedValue({ wearables: {} } as never);
+    vi.mocked(shared.saveUserSettings).mockResolvedValue({ success: true } as never);
     vi.mocked(shared.listWearableAlertRules).mockResolvedValue({
       success: true,
       count: 0,
@@ -217,6 +222,90 @@ describe('WearablesPage (Patient)', () => {
       expect(screen.getByText(/not a confirmation that none are set/i)).toBeInTheDocument()
     );
     expect(screen.queryByText(/You have not set any alerts/i)).not.toBeInTheDocument();
+  });
+
+
+  // --- Settings that are actually settings ------------------------------------
+  //
+  // The sync and sharing toggles rendered from literals with no `onChange`, and
+  // "Disconnect all" had no handler. They looked settable, nothing was stored,
+  // and nothing read them back.
+
+  it('reflects a stored preference rather than a literal', async () => {
+    vi.mocked(shared.getUserSettings).mockResolvedValue({
+      wearables: { syncCellular: true, shareProvider: false },
+    } as never);
+    await openSettings();
+
+    // `syncCellular` ships off and `shareProvider` ships on; both are inverted
+    // here, so a hardcoded render would fail this.
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: /cellular/i })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      )
+    );
+    expect(screen.getByRole('switch', { name: /provider/i })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+  });
+
+  it('persists a toggle instead of only moving it', async () => {
+    vi.mocked(shared.getUserSettings).mockResolvedValue({ wearables: {} } as never);
+    vi.mocked(shared.saveUserSettings).mockResolvedValue({ success: true } as never);
+    await openSettings();
+
+    const toggle = await screen.findByRole('switch', { name: /cellular/i });
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(shared.saveUserSettings).toHaveBeenCalled());
+    const sent = vi.mocked(shared.saveUserSettings).mock.calls[0][0] as {
+      wearables: Record<string, boolean>;
+    };
+    expect(sent.wearables.syncCellular).toBe(true);
+  });
+
+  it('puts a toggle back when the save fails', async () => {
+    vi.mocked(shared.getUserSettings).mockResolvedValue({ wearables: {} } as never);
+    vi.mocked(shared.saveUserSettings).mockRejectedValue(new Error('boom'));
+    await openSettings();
+
+    const toggle = await screen.findByRole('switch', { name: /cellular/i });
+    fireEvent.click(toggle);
+
+    // A switch that stays where the finger left it while the server never heard
+    // is the exact failure this section existed as.
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: /cellular/i })).toHaveAttribute(
+        'aria-checked',
+        'false'
+      )
+    );
+  });
+
+  it('names the devices that did NOT disconnect', async () => {
+    vi.mocked(shared.getUserSettings).mockResolvedValue({ wearables: {} } as never);
+    vi.mocked(shared.getWearableDevices).mockResolvedValue({
+      success: true,
+      count: 2,
+      devices: [
+        { id: 'DEV-1', device_name: 'Watch A', device_type: 'apple-watch' },
+        { id: 'DEV-2', device_name: 'Watch B', device_type: 'fitbit' },
+      ],
+    } as never);
+    vi.mocked(shared.disconnectWearableDevice)
+      .mockResolvedValueOnce({ success: true, device_id: 'DEV-1', is_active: false } as never)
+      .mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openSettings();
+
+    fireEvent.click(await screen.findByRole('button', { name: /disconnect all/i }));
+
+    // "Some devices were disconnected" would leave a patient believing a device
+    // stopped streaming when it did not.
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/may still be sending/i));
   });
 
 });
