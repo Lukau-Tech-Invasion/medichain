@@ -3510,3 +3510,75 @@ a conditional query-string suffix the script's path matcher does not recognise.
 
 Worth fixing in the script, because a false positive in an audit of what is
 unbuilt costs a real investigation each time somebody works the list.
+
+
+## Endpoints with no client caller, triaged 2026-09-15
+
+The uncalled-endpoint audit went from 62 to 13 over this campaign. What is left
+is not a backlog: every remaining entry has been opened and is one of three
+things. Recording them here so the next person working the list does not
+re-derive the same three answers.
+
+`scripts/unused-endpoints.py` reads the `#[get(...)]`/`#[post(...)]` attribute on
+each handler, not `routes.rs`. A handler carrying an attribute is not
+necessarily reachable, which is why the first bucket exists at all.
+
+### Not registered — unreachable by design (3)
+
+  * `POST /api/auth/login`, `GET /api/auth/login/{address}`,
+    `GET /api/auth/wallet/{address}` — `wallet_login`, `wallet_login_get`,
+    `wallet_lookup`. `routes.rs` says so out loud: "Legacy anonymous wallet
+    lookup/login routes remain unregistered. Private account information is
+    returned only after challenge proof." Verified: zero `.service()`
+    registrations for all three. They are dead code, and deleting them needs
+    authorisation rather than a judgement call.
+
+### Infrastructure, deliberately UI-less (4)
+
+  * `GET /health`, `/health/db`, `/health/ready` — proxied by
+    `nginx/default.conf` and used as container probes. A screen calling them
+    would be the anomaly.
+  * `POST /api/notifications/sms/inbound` — the Africa's Talking inbound-SMS
+    webhook. It always answers 200 so AT cannot use the status code to
+    distinguish a valid callback secret from an invalid one.
+
+### Correct, and redundant for the UI (6)
+
+Each of these works and is duplicated by something the product already uses.
+None should acquire a caller merely to close the audit — a second path to the
+same data is a second thing to keep honest.
+
+  * `GET /api/staff/all` — `/api/users` already serves the administrative
+    roster, including deactivated accounts, and `UserManagementPage` uses it.
+    **Fixed on the way past:** `get_all_staff` read `data.users`, the
+    authorization cache hydrated `WHERE is_active = true AND status = 'active'`,
+    so a deactivated colleague was silently absent. That is the exact defect
+    `list_users` was fixed for and its sibling was missed. It now reads the
+    database and carries `status` through, so if anyone does adopt it, it cannot
+    lie.
+  * `GET /api/clinical/lab-panels/{panel_name}` — `GET /api/clinical/lab-panels`
+    returns every panel with its full test list, so a single-panel fetch adds a
+    round trip and nothing else.
+  * `GET /api/clinical/triage/{assessment_id}` — same shape:
+    `GET /api/clinical/patient/{id}/triage` returns full assessments.
+  * `POST /api/auth/session`, `GET /api/auth/verify` — HMAC bearer tokens,
+    superseded by the JWT path every client uses. Still registered; worth a
+    decision, not a screen.
+  * `POST /api/platform/vitals` — duplicates `POST /api/clinical/vitals`, which
+    is what the vitals page posts to.
+
+### Designed, not adopted (3)
+
+  * `POST /api/auth/step-up/challenge`, `/step-up/verify`,
+    `/transaction/challenge` — ADR-0008's Class B and Class C signature-bound
+    authorisation. The policy every privileged handler actually consumes is
+    `require_privileged_assurance`, which is satisfied by the MFA path
+    (`/api/auth/mfa/challenge`) — that is what `useStepUp` drives, and it is
+    live. These three are the stronger signature-based mechanism, complete and
+    unadopted. `GET /api/auth/assurance` from the same module IS now used, as
+    the preflight in `useStepUp.checkAssurance`, so a screen can prompt before
+    starting a privileged workflow rather than after being refused mid-way.
+
+Adopting Class C would mean binding each mutation to a signature over its exact
+body digest — a real improvement over session elevation, and a change to every
+privileged call site. It needs a decision, not a quiet wiring-up.

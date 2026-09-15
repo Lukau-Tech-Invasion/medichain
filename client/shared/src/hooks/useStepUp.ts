@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { getApiClient } from '../api/client';
-import { mfaChallenge } from '../api/endpoints';
+import { getSessionAssurance, mfaChallenge } from '../api/endpoints';
 
 /**
  * Recover from a `403 MFA_REQUIRED` instead of dead-ending on it.
@@ -72,6 +72,17 @@ export interface StepUpState {
   submitCode: (code: string) => Promise<void>;
   /** Abandon the held action. */
   cancel: () => void;
+  /**
+   * Whether this session is already elevated.
+   *
+   * Lets a screen prompt before starting a privileged workflow rather than
+   * discovering the requirement from a rejected mutation halfway through --
+   * which is what `GET /api/auth/assurance` exists for. Resolves `null` when
+   * the session cannot be asked (a header-only caller proves nothing, and the
+   * endpoint correctly answers 401), and `null` is not `false`: "not elevated"
+   * and "cannot tell" call for different behaviour.
+   */
+  checkAssurance: () => Promise<boolean | null>;
 }
 
 export function useStepUp(): StepUpState {
@@ -127,5 +138,14 @@ export function useStepUp(): StepUpState {
     setError('');
   }, []);
 
-  return { demand, verifying, error, run, submitCode, cancel };
+  const checkAssurance = useCallback(async (): Promise<boolean | null> => {
+    try {
+      const body = await getSessionAssurance();
+      return Boolean(body.class_b);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  return { demand, verifying, error, run, submitCode, cancel, checkAssurance };
 }

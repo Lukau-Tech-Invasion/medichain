@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useStepUp, stepUpDemandOf } from '@medichain/shared';
-import { mfaChallenge } from '../../../shared/src/api/endpoints';
+import { mfaChallenge, getSessionAssurance } from '../../../shared/src/api/endpoints';
 import { getApiClient } from '../../../shared/src/api/client';
 
 // The hook lives in `@medichain/shared`; the test lives here because that is
@@ -14,7 +14,10 @@ import { getApiClient } from '../../../shared/src/api/client';
 // surfaces as the generic fallback message. That is the same trap
 // `AdminDashboardPage.test.tsx` records: Vitest keys mocks by the specifier the
 // consumer resolves, so a mock on a different path silently does nothing.
-vi.mock('../../../shared/src/api/endpoints', () => ({ mfaChallenge: vi.fn() }));
+vi.mock('../../../shared/src/api/endpoints', () => ({
+  mfaChallenge: vi.fn(),
+  getSessionAssurance: vi.fn(),
+}));
 vi.mock('../../../shared/src/api/client', () => ({ getApiClient: vi.fn() }));
 
 /**
@@ -131,4 +134,27 @@ describe('useStepUp', () => {
     ).rejects.toThrow(/network down/);
     expect(result.current.demand).toBeNull();
   });
+
+  it('reports an already-elevated session so a screen can skip the prompt', async () => {
+    vi.mocked(getSessionAssurance).mockResolvedValue({
+      success: true,
+      class_a: true,
+      class_b: true,
+      step_up_ttl_secs: 900,
+    });
+    const { result } = renderHook(() => useStepUp());
+
+    await expect(result.current.checkAssurance()).resolves.toBe(true);
+  });
+
+  it('answers null, not false, when the session cannot be asked', async () => {
+    // A header-only caller proves nothing and the endpoint correctly answers
+    // 401. "Not elevated" and "cannot tell" call for different behaviour, and
+    // collapsing them would prompt for a code the session may not even need.
+    vi.mocked(getSessionAssurance).mockRejectedValue(new Error('401'));
+    const { result } = renderHook(() => useStepUp());
+
+    await expect(result.current.checkAssurance()).resolves.toBeNull();
+  });
+
 });

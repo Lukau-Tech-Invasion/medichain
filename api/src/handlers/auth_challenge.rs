@@ -203,10 +203,54 @@ pub async fn get_all_staff(
         });
     }
 
-    let users = data.users.read().unwrap();
+    // Read from the DATABASE, not from `data.users`.
+    //
+    // `data.users` is the authorization cache, hydrated `WHERE is_active = true
+    // AND status = 'active'` -- correct for deciding what someone may do right
+    // now, and wrong for any roster. Serving staff from it meant a deactivated
+    // colleague vanished from the only list an administrator could see, so a
+    // mistaken deactivation could not be found, let alone undone.
+    //
+    // `list_users` was fixed for exactly this and its sibling was missed. The
+    // two answer different questions -- "who may act" and "who exists, and in
+    // what state" -- and only the first belongs in the cache.
+    let staff_users: Vec<User> = match &data.db_pool {
+        Some(pool) => {
+            let rows = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
+                "SELECT u.*, p.department, p.specialty, p.license_number,
+                        p.contact_encrypted, p.contact_key_version
+                 FROM users u
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 ORDER BY u.created_at DESC",
+            )
+            .fetch_all(pool)
+            .await;
+            match rows {
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|row| user_from_db_row(row, &data.encryption_keyring))
+                    .collect(),
+                Err(e) => {
+                    // An unreadable roster is not an empty one, and an
+                    // administrator acting on "no staff" would be acting on a
+                    // database error.
+                    log::error!("get_all_staff: staff directory unavailable: {e}");
+                    return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                        success: false,
+                        error: "The staff directory could not be read".to_string(),
+                        code: "USER_DIRECTORY_UNAVAILABLE".to_string(),
+                    });
+                }
+            }
+        }
+        // Without persistence the cache is all there is, and it holds only
+        // active accounts -- a property of running without a database, not
+        // something this handler can paper over.
+        None => data.users.read().unwrap().values().cloned().collect(),
+    };
 
-    let staff: Vec<serde_json::Value> = users
-        .values()
+    let staff: Vec<serde_json::Value> = staff_users
+        .iter()
         .filter(|u| u.role != Role::Patient)
         .map(|u| {
             serde_json::json!({
@@ -215,6 +259,9 @@ pub async fn get_all_staff(
                 "role": u.role.to_string(),
                 "username": u.username,
                 "created_at": u.created_at,
+                // Carried through so a deactivated account is visibly
+                // deactivated rather than simply absent.
+                "status": u.status,
             })
         })
         .collect();

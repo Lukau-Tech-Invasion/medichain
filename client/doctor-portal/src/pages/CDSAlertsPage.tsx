@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, listCdsAlerts, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { apiUrl, getApiClient, getCdsAudit, listCdsAlerts, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -95,6 +95,45 @@ const CDSAlertsPage: React.FC = () => {
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
+
+  // --- What the rules actually did -------------------------------------------
+  //
+  // `GET /api/admin/cds/audit` records every alert that fired and what the
+  // clinician did about it, and no screen called it. A rule could be created,
+  // enabled, and fire a thousand times, and nobody could see whether it was
+  // ever acted on or silently overridden -- which is the only evidence that
+  // distinguishes a useful rule from alert fatigue.
+  const [auditEntries, setAuditEntries] = useState<Record<string, unknown>[]>([]);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditLoaded, setAuditLoaded] = useState(false);
+  // "No alert has fired" and "the trail could not be read" are opposite
+  // findings about a safety control.
+  const [auditUnknown, setAuditUnknown] = useState(false);
+  const [auditPatient, setAuditPatient] = useState('');
+
+  const loadAudit = useCallback(
+    async (cursor?: string) => {
+      try {
+        const body = await getCdsAudit(auditPatient.trim() || undefined, { cursor, limit: 50 });
+        const rows = (body.entries ?? []) as Record<string, unknown>[];
+        setAuditEntries((previous) => (cursor ? [...previous, ...rows] : rows));
+        // The handler pages; carrying the cursor is what makes the second page
+        // reachable at all.
+        setAuditCursor(body.next_cursor ?? null);
+        setAuditUnknown(false);
+      } catch {
+        setAuditUnknown(true);
+      } finally {
+        setAuditLoaded(true);
+      }
+    },
+    [auditPatient]
+  );
+
+  useEffect(() => {
+    if (activeTab === 'analytics') void loadAudit();
+  }, [activeTab, loadAudit]);
+
 
   // New Rule Form State
   const [newRule, setNewRule] = useState<Partial<CDSRule>>({
@@ -1236,6 +1275,73 @@ const CDSAlertsPage: React.FC = () => {
       {/* Analytics Tab */}
       {activeTab === 'analytics' && (
         <div className="space-y-6">
+          {/* Audit trail */}
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h3 className="font-semibold text-content mb-1">{t('docCDS.auditHeading')}</h3>
+            <p className="text-sm text-content-muted mb-4">{t('docCDS.auditSubtitle')}</p>
+
+            <div className="flex flex-wrap items-end gap-2 mb-4">
+              <div>
+                <label htmlFor="cds-audit-patient" className="block text-sm font-medium text-content-secondary mb-1">
+                  {t('docCDS.auditPatientLabel')}
+                </label>
+                <input
+                  id="cds-audit-patient"
+                  value={auditPatient}
+                  onChange={(e) => setAuditPatient(e.target.value)}
+                  placeholder={t('docCDS.auditPatientPlaceholder')}
+                  className="px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadAudit()}
+                className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+              >
+                {t('docCDS.auditFilter')}
+              </button>
+            </div>
+
+            {!auditLoaded ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditLoading')}</p>
+            ) : auditUnknown ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditUnknown')}</p>
+            ) : auditEntries.length === 0 ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditNone')}</p>
+            ) : (
+              <>
+                <ul className="space-y-2" data-testid="cds-audit-list">
+                  {auditEntries.map((entry, index) => (
+                    <li
+                      key={String(entry.id ?? entry.audit_id ?? index)}
+                      className="border border-border rounded-lg p-3"
+                    >
+                      <p className="text-sm text-content">
+                        {String(entry.rule_name ?? entry.alert_type ?? t('docCDS.auditUnnamed'))}
+                      </p>
+                      <p className="text-xs text-content-muted">
+                        {String(entry.patient_id ?? '')}
+                        {entry.action ? ` · ${String(entry.action)}` : ''}
+                        {entry.created_at
+                          ? ` · ${new Date(String(entry.created_at)).toLocaleString()}`
+                          : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                {auditCursor && (
+                  <button
+                    type="button"
+                    onClick={() => void loadAudit(auditCursor)}
+                    className="mt-3 px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+                  >
+                    {t('docCDS.auditMore')}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-surface rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.totalRulesTitle')}</h3>
