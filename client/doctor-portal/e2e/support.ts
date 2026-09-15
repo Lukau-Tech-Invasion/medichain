@@ -138,10 +138,34 @@ export async function signIn(page: Page, role: RoleName = 'Doctor') {
   ).toBe(true);
 
   await demoButton.first().click();
-  // Not every role lands on /dashboard — an administrator lands on /admin.
-  // Asserting the shared path is part of why the Admin account had never been
+
+  // Wait for the signed-in PAGE, not for the URL.
+  //
+  // React Router updates the address through `pushState`, and Playwright's
+  // `page.url()` lags that by a noticeable margin under load. Measured
+  // 2026-09-15: two seconds after the click the dashboard was fully rendered
+  // — "Welcome back, Dr Browser Test" — while `page.url()` still reported
+  // `/login`. It caught up between three and five seconds later.
+  //
+  // `signIn` asserted `toHaveURL` against the DEFAULT five-second expect
+  // timeout, so late in a long serial run the assertion expired while the app
+  // was demonstrably signed in. It produced nine failures in one run, every one
+  // reported as a product defect on an innocent spec, with `STAFF_LOGIN_OK` in
+  // the API log beside each. The page content is the thing being claimed;
+  // the address bar is bookkeeping that catches up.
+  // The sidebar, not a page heading: every signed-in layout renders it, and it
+  // is the thing that proves authentication succeeded. A page `h1` is
+  // route-specific and absent while a lazily loaded dashboard is still
+  // suspended, which is a different wait with a different meaning.
+  await expect(page.getByRole('navigation', { name: /sidebar/i })).toBeVisible({
+    timeout: 30000,
+  });
+
+  // Then the URL, on a timeout that reflects how long it actually takes. Not
+  // every role lands on /dashboard — an administrator lands on /admin — and
+  // asserting the shared path is part of why the Admin account had never been
   // signed in by a test.
-  await expect(page).toHaveURL(new RegExp(ROLE_HOME[role]));
+  await expect(page).toHaveURL(new RegExp(ROLE_HOME[role]), { timeout: 30000 });
 }
 
 /**
