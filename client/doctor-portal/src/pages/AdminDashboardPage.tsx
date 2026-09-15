@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Archive,
   Users,
   Activity,
   Shield,
@@ -25,6 +26,7 @@ import {
   BarChart3,
   Settings,
   Key,
+  Laptop,
   Loader2,
   Siren,
   Database,
@@ -208,6 +210,8 @@ export default function AdminDashboardPage() {
     { id: 'analytics', label: t('docAdmin.qaAnalytics'), icon: BarChart3, href: '/analytics', color: 'blue' },
     { id: 'audit', label: t('docAdmin.qaAudit'), icon: FileText, href: '/access-logs', color: 'purple' },
     { id: 'roles', label: t('docAdmin.qaRoles'), icon: Key, href: '/user-management', color: 'amber' },
+    { id: 'devices', label: t('docAdmin.qaDevices'), icon: Laptop, href: '/devices', color: 'green' },
+    { id: 'retention', label: t('docAdmin.qaRetention'), icon: Archive, href: '/retention', color: 'purple' },
     { id: 'nfc', label: t('docAdmin.qaNfc'), icon: CreditCard, href: '/barcode', color: 'green' },
     { id: 'settings', label: t('docAdmin.qaSettings'), icon: Settings, href: '/settings', color: 'teal' },
   ];

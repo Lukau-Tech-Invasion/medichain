@@ -31,12 +31,15 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
+    // VITE_DEV_PORT as well as --port: the HMR WebSocket's port comes from the
+    // config, and a mismatch puts Vite's client into a reload loop that makes
+    // sign-in impossible. See the comment on DEV_PORT in vite.config.ts.
     command: `npx vite --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     // Deliberately false: adopting a stray dev server is the failure this
     // config exists to avoid.
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { VITE_API_PROXY_TARGET: API },
+    env: { VITE_API_PROXY_TARGET: API, VITE_DEV_PORT: String(PORT) },
   },
 });

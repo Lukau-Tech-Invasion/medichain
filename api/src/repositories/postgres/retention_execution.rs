@@ -31,6 +31,48 @@ const RESTRICTION_COLUMNS: &str = "id, patient_id, entity_type, reason, policy_i
 const REGISTER_COLUMNS: &str = "id, patient_id, entity_type, action, policy_id, policy_name, \
     basis, approval_token, executed_by, executed_at";
 
+impl PgRetentionExecutionRepository {
+    /// Say why a decision was refused, after the atomic UPDATE has already
+    /// declined to make it. Never used to authorise anything.
+    async fn explain_refused_decision(
+        &self,
+        token: &str,
+        decided_by: &str,
+    ) -> RepositoryResult<RetentionApprovalEntity> {
+        let existing = sqlx::query_as::<Postgres, RetentionApprovalEntity>(&format!(
+            "SELECT {APPROVAL_COLUMNS} FROM retention_approvals WHERE token = $1"
+        ))
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(approval) = existing else {
+            return Err(RepositoryError::NotFound(format!(
+                "approval {token} does not exist"
+            )));
+        };
+        if approval.status != "pending" {
+            return Err(RepositoryError::Validation(format!(
+                "approval {token} is '{}' and can no longer be decided",
+                approval.status
+            )));
+        }
+        if approval.requested_by == decided_by {
+            return Err(RepositoryError::Validation(
+                "a requester may not decide their own retention approval: a second \
+                 administrator has to review it"
+                    .to_string(),
+            ));
+        }
+        // The row is pending and the caller is not its requester, so the UPDATE
+        // should have matched. Something changed between the two statements --
+        // report that rather than inventing a reason.
+        Err(RepositoryError::Validation(format!(
+            "approval {token} could not be decided; it changed while being decided"
+        )))
+    }
+}
+
 #[async_trait]
 impl RetentionExecutionRepository for PgRetentionExecutionRepository {
     async fn create_approval(
@@ -106,12 +148,21 @@ impl RetentionExecutionRepository for PgRetentionExecutionRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        result.ok_or_else(|| {
-            RepositoryError::Validation(format!(
-                "approval {} does not exist or is no longer pending",
-                token
-            ))
-        })
+        if let Some(approval) = result {
+            return Ok(approval);
+        }
+
+        // The UPDATE is the authority -- three conditions guard it and it is
+        // deliberately atomic. But collapsing all three into one sentence made
+        // the only message an operator ever sees describe the wrong thing: a
+        // token sitting in `list_open_approvals` with status `pending`, refused
+        // with "does not exist or is no longer pending", reads as a broken
+        // system rather than as maker-checker working. That is the message a
+        // compliance control cannot afford, because the operator's next move is
+        // to stop trusting the control.
+        //
+        // This read runs only on the refusal path and never decides anything.
+        self.explain_refused_decision(token, decided_by).await
     }
 
     async fn mark_executed(

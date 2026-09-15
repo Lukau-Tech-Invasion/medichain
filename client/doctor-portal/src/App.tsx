@@ -28,6 +28,8 @@ const PatientSearchPage = lazy(() => import('./pages/PatientSearchPage'));
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'));
 const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
+const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
+const RetentionPage = lazy(() => import('./pages/RetentionPage'));
 const LabReviewPage = lazy(() => import('./pages/LabReviewPage'));
 
 // Settings
@@ -232,6 +234,8 @@ function App() {
         <Route path="patients/:patientId" element={<LazyRoute element={<PatientDetailPage />} />} />
         <Route path="register" element={<LazyRoute element={<RegisterPatientPage />} />} />
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
+        <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />
+        <Route path="retention" element={<LazyRoute element={<RetentionPage />} />} />
         <Route path="lab-review" element={<LazyRoute element={<LabReviewPage />} />} />
 
         {/* Clinical Documentation */}

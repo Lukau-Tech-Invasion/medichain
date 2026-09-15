@@ -273,6 +273,33 @@ impl DeviceLifecycleStore {
         Ok(())
     }
 
+    /// Every enrolled device, newest rotation clock last.
+    ///
+    /// # Why this exists
+    ///
+    /// The only device read was `non_compliant()`, which by construction never
+    /// returns a healthy device. So there was no answer to "which devices are
+    /// enrolled here" -- and a device id is required to issue an emergency
+    /// grant, so break-glass access was unreachable in practice: the id existed
+    /// only in the HTTP response of the enrolment call that created it.
+    ///
+    /// Revoked and retired devices are included. An administrator reviewing
+    /// which hardware can open a record needs the ones that used to be able to
+    /// as well.
+    /// Returns an error rather than an empty list when the store cannot be
+    /// read: "no devices are enrolled" and "the device store is unavailable"
+    /// are opposite answers, and an administrator acting on the first when the
+    /// second is true enrols a duplicate.
+    pub fn list_all(&self) -> Result<Vec<ManagedDevice>, &'static str> {
+        let devices = self
+            .devices
+            .read()
+            .map_err(|_| "Device store is unavailable")?;
+        let mut items: Vec<ManagedDevice> = devices.values().cloned().collect();
+        items.sort_by(|a, b| a.device_name.cmp(&b.device_name).then(a.id.cmp(&b.id)));
+        Ok(items)
+    }
+
     pub fn non_compliant(&self) -> Vec<ManagedDevice> {
         self.devices
             .read()
@@ -323,6 +350,40 @@ mod tests {
             )
             .unwrap()
     }
+    /// `non_compliant()` was the only read, so a healthy fleet and an empty
+    /// one looked identical -- and the device id an emergency grant needs
+    /// existed nowhere a person could find it.
+    #[test]
+    fn list_all_returns_healthy_devices_that_non_compliant_never_would() {
+        let store = DeviceLifecycleStore::new();
+        let device = enrolled(&store);
+        store
+            .rotate(&device.id, "key-1".into(), Utc::now())
+            .unwrap();
+        assert!(store.non_compliant().is_empty());
+        let all = store.list_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, device.id);
+        assert_eq!(all[0].status, DeviceStatus::Active);
+    }
+
+    /// An administrator reviewing which hardware can open a record needs the
+    /// ones that used to be able to as well.
+    #[test]
+    fn list_all_keeps_revoked_devices() {
+        let store = DeviceLifecycleStore::new();
+        let device = enrolled(&store);
+        let now = Utc::now();
+        store.rotate(&device.id, "key-1".into(), now).unwrap();
+        store
+            .revoke(&device.id, "reported stolen".into(), now)
+            .unwrap();
+        let all = store.list_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].status, DeviceStatus::Revoked);
+        assert!(!store.can_access(&device.id, now));
+    }
+
     #[test]
     fn revoked_device_cannot_access_even_with_a_previous_key() {
         let store = DeviceLifecycleStore::new();

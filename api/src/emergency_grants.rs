@@ -402,6 +402,46 @@ impl EmergencyGrantStore {
         Ok((grant, event))
     }
 
+    /// Every grant issued recently, newest first.
+    ///
+    /// # Why this exists
+    ///
+    /// A grant could only be fetched by its own id -- `GET /api/emergency/grants/{id}`
+    /// -- which nobody has unless they issued it. Break-glass access that
+    /// cannot be reviewed or cut short is not oversight, it is a log nobody
+    /// reads: an administrator had no way to answer "who is inside a record
+    /// right now", and the revoke endpoint was unreachable because finding the
+    /// id required already knowing it.
+    ///
+    /// Returns revoked and expired grants too. "Who has emergency access" and
+    /// "who had it" are the same question to anyone reviewing an incident, and
+    /// a list that silently drops the closed ones hides exactly the history an
+    /// audit is looking for.
+    pub async fn list_recent(&self, limit: i64) -> Result<Vec<EmergencyAccessGrant>, &'static str> {
+        if let Some(pool) = &self.pool {
+            let rows = sqlx::query_as::<_, EmergencyGrantRow>(
+                "SELECT id, patient_id, requesting_person_id, organization_id, facility_id, device_id,
+                   reason_code, reason_text, scopes, issued_at, expires_at, revoked_at, revoked_reason, status
+                 FROM emergency_access_grants ORDER BY issued_at DESC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .map_err(|_| "Emergency grant store is unavailable")?;
+            return rows.into_iter().map(row_to_grant).collect();
+        }
+        let grants = self
+            .grants
+            .read()
+            .map_err(|_| "Emergency grant store is unavailable")?;
+        let mut items: Vec<EmergencyAccessGrant> = grants.values().cloned().collect();
+        // Newest first, matching the PostgreSQL branch's ORDER BY. `Reverse`
+        // rather than a flipped comparator so clippy's sort_by_key form holds.
+        items.sort_by_key(|grant| std::cmp::Reverse(grant.issued_at));
+        items.truncate(limit.max(0) as usize);
+        Ok(items)
+    }
+
     pub async fn get(&self, grant_id: &str) -> Result<Option<EmergencyAccessGrant>, &'static str> {
         if let Some(pool) = &self.pool {
             let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, String, Option<String>, serde_json::Value, DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>, String)>(

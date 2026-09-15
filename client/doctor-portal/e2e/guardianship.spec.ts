@@ -67,7 +67,17 @@ test('a guardian is recorded, listed, and ended', async ({ browser }) => {
 
   // Ending it leaves the row in place, marked ended — the list is the history
   // of who could act, not only who can now.
-  const row = page.locator('[data-testid="guardian-list"] li').filter({ hasText: guardianWallet() });
+  //
+  // `.last()` is not cosmetic. This spec records a guardian every run and
+  // nothing removes it, so from the second run onwards the fixture patient has
+  // several rows for the same wallet and an unscoped `getByText(/ended/i)`
+  // matched all of them -- a strict-mode violation that made this spec fail
+  // permanently after its first successful run. The row created by THIS run is
+  // the one appended last.
+  const row = page
+    .locator('[data-testid="guardian-list"] li')
+    .filter({ hasText: guardianWallet() })
+    .last();
   await row.getByRole('button', { name: /^end$/i }).click();
   await expect(row.getByText(/ended/i)).toBeVisible({ timeout: 20000 });
   await expect(row.getByRole('button', { name: /^end$/i })).toHaveCount(0);

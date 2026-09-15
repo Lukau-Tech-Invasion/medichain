@@ -380,12 +380,12 @@ const IncidentReportPage: React.FC = () => {
               className="px-4 py-2 border rounded-lg"
             >
               <option value="all">{t('docIncidentReport.allTypes')}</option>
-              <option value="fall">{t('docIncidentReport.type_fall')}</option>
-              <option value="medication-error">{t('docIncidentReport.type_medication-error')}</option>
-              <option value="equipment-failure">{t('docIncidentReport.type_equipment-failure')}</option>
-              <option value="security">{t('docIncidentReport.type_security')}</option>
-              <option value="behavioral">{t('docIncidentReport.type_behavioral')}</option>
-              <option value="exposure">{t('docIncidentReport.type_exposure')}</option>
+              <option value="fall">{t('docIncidentReport.typeOption_fall')}</option>
+              <option value="medication-error">{t('docIncidentReport.typeOption_medication-error')}</option>
+              <option value="equipment-failure">{t('docIncidentReport.typeOption_equipment-failure')}</option>
+              <option value="security">{t('docIncidentReport.typeOption_security')}</option>
+              <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
+              <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
             </select>
             <select
               value={statusFilter}

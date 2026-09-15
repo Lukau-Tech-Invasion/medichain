@@ -1,8 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { skipFirstVisitReload } from './support';
 
 test.describe('Login Flow', () => {
   test('should login successfully with a demo doctor wallet', async ({ page }) => {
-    // Navigate to login page
+    // See `skipFirstVisitReload`: index.html reloads itself 100ms into a fresh
+    // profile's first visit, which detaches whatever this test is mid-way
+    // through doing.
+    await skipFirstVisitReload(page);
     await page.goto('/login');
 
     // Click on a demo doctor button (Dr. Thandi Mbeki).
@@ -41,6 +45,7 @@ test.describe('Login Flow', () => {
   });
 
   test('should show error for invalid credentials', async ({ page }) => {
+    await skipFirstVisitReload(page);
     await page.goto('/login');
 
     // The form takes an employee identifier and a password. It used to take a

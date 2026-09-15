@@ -64,6 +64,8 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'user-management', label: 'User Management', to: '/user-management', category: 'Admin', icon: <Users size={16} /> },
   { id: 'analytics', label: 'Analytics', to: '/analytics', category: 'Admin', icon: <Activity size={16} /> },
   { id: 'access-logs', label: 'Access Logs', to: '/access-logs', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'devices', label: 'Approved Devices', to: '/devices', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'retention', label: 'Data Retention', to: '/retention', category: 'Admin', icon: <FileText size={16} /> },
   
   // Settings
   { id: 'settings', label: 'Settings', to: '/settings', category: 'Settings', icon: <Settings size={16} /> },

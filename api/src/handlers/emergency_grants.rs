@@ -119,6 +119,57 @@ pub async fn issue_emergency_grant(
     }
 }
 
+/// Every emergency grant issued recently.
+///
+/// # Why this exists
+///
+/// A grant could be read only as `GET /api/emergency/grants/{id}` -- an id
+/// nobody holds unless they issued it -- so an administrator had no way to
+/// answer "who is inside a record right now", and the revoke endpoint was
+/// effectively unreachable because finding the grant required already knowing
+/// its id. Break-glass access that cannot be reviewed or cut short is not
+/// oversight; it is a log nobody reads.
+///
+/// Administrators only. This is the whole deployment's break-glass activity,
+/// which names patients and the clinicians who opened their records; a
+/// clinician reviewing their own grants is a different, narrower question than
+/// the one this answers.
+///
+/// Revoked and expired grants are included. "Who has emergency access" and
+/// "who had it" are the same question during an incident review, and dropping
+/// the closed ones hides exactly the history an audit is looking for.
+#[get("/api/emergency/grants")]
+pub async fn list_emergency_grants(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    if current_user.role != Role::Admin {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only an administrator may review emergency access grants".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data.emergency_grants.list_recent(200).await {
+        Ok(grants) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "grants": grants,
+            "count": grants.len(),
+        })),
+        Err(message) => {
+            log::error!("emergency grant listing failed: {message}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: message.to_string(),
+                code: "GRANT_STORE_UNAVAILABLE".to_string(),
+            })
+        }
+    }
+}
+
 /// Return grant state only to the requesting professional; clinical data stays elsewhere.
 #[get("/api/emergency/grants/{id}")]
 pub async fn get_emergency_grant(

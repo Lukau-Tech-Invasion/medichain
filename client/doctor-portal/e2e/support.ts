@@ -68,7 +68,50 @@ export const ROLE_HOME: Record<RoleName, string> = {
   Admin: '/dashboard',
 };
 
+/**
+ * Neutralise the first-visit cache purge before the page can run it.
+ *
+ * `index.html` carries an inline script that compares an `APP_VERSION`
+ * constant against `localStorage.medichain_app_version`. On any browser that
+ * has not seen this version -- which is EVERY Playwright profile, every run --
+ * it deletes every `medichain*` key and then calls `location.reload()` **100ms
+ * later**. That is a deliberate force-update path for real users, who cannot
+ * type in 100ms and never notice it.
+ *
+ * A test can. The reload lands in the middle of the first `fill()` or the
+ * click after it, which detaches the element mid-action and resets the React
+ * form state -- so the Sign in button stays disabled with a filled-looking
+ * form, and `page.click` times out against `<button disabled>`. It also
+ * discards a session that had already been established, because nothing about
+ * this app's auth survives a full page load (see `settle` below).
+ *
+ * The failure is a race, so the suite passed or failed on machine speed rather
+ * than on anything about the product. Seeding the marker before any page
+ * script runs takes the branch out of play entirely.
+ *
+ * The version is READ from the served `index.html` rather than hardcoded: a
+ * copy of `'v3'` here would silently stop matching the next time someone bumps
+ * it, and the suite would go back to racing without anyone knowing why.
+ */
+export async function skipFirstVisitReload(page: Page) {
+  const response = await page.request.get('/index.html');
+  const version = /APP_VERSION\s*=\s*'([^']+)'/.exec(await response.text())?.[1];
+  expect(
+    version,
+    'Could not find APP_VERSION in index.html. The first-visit cache purge may have ' +
+      'moved; until this helper finds it again, every browser suite races a reload.'
+  ).toBeTruthy();
+  await page.addInitScript((value) => {
+    try {
+      localStorage.setItem('medichain_app_version', value as string);
+    } catch {
+      // A profile that refuses storage cannot be raced by the purge either.
+    }
+  }, version);
+}
+
 export async function signIn(page: Page, role: RoleName = 'Doctor') {
+  await skipFirstVisitReload(page);
   await page.goto('/login');
 
   const pattern = ROLE_BUTTON[role];

@@ -1,6 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store';
-import { getApiClient, useTranslation } from '@medichain/shared';
+import {
+  getApiClient,
+  getApiErrorMessage,
+  listEmergencyGrants,
+  revokeEmergencyGrant,
+  useTranslation,
+} from '@medichain/shared';
+import type { EmergencyAccessGrant } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -30,7 +37,7 @@ interface AccessLog {
 function AccessLogsPage() {
   const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
-  const { user: _user } = useAuthStore();
+  const { user } = useAuthStore();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   // "Nobody has accessed any record" and "the audit trail could not be read"
@@ -39,6 +46,56 @@ function AccessLogsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'emergency' | 'regular'>('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // --- Break-glass grants ----------------------------------------------------
+  //
+  // An emergency grant could be read only as `GET /api/emergency/grants/{id}`,
+  // an id nobody holds unless they issued it. So an administrator could not
+  // answer "who is inside a record right now", and the revoke endpoint was
+  // effectively unreachable -- finding the grant required already knowing its
+  // id. Break-glass access that cannot be reviewed or cut short is not
+  // oversight; it is a log nobody reads. `GET /api/emergency/grants` is new.
+  //
+  // Revoked and expired grants are shown too: during an incident review "who
+  // has emergency access" and "who had it" are the same question.
+  const [grants, setGrants] = useState<EmergencyAccessGrant[]>([]);
+  const [grantsLoaded, setGrantsLoaded] = useState(false);
+  const [grantsError, setGrantsError] = useState<string | null>(null);
+  const [grantBusy, setGrantBusy] = useState<string | null>(null);
+
+  const isAdmin = user?.role === 'Admin';
+
+  const loadGrants = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const body = await listEmergencyGrants();
+      setGrants(body.grants ?? []);
+      setGrantsError(null);
+    } catch (err) {
+      // An empty list and a failed read are opposite answers to "is anyone
+      // inside a record right now".
+      setGrantsError(getApiErrorMessage(err, t('docAccessLogs.grantsLoadFailed')));
+    } finally {
+      setGrantsLoaded(true);
+    }
+  }, [isAdmin, t]);
+
+  useEffect(() => {
+    void loadGrants();
+  }, [loadGrants]);
+
+  const endGrant = async (grantId: string) => {
+    setGrantsError(null);
+    setGrantBusy(grantId);
+    try {
+      await revokeEmergencyGrant(grantId, 'Ended from access review');
+      await loadGrants();
+    } catch (err) {
+      setGrantsError(getApiErrorMessage(err, t('docAccessLogs.grantRevokeFailed')));
+    } finally {
+      setGrantBusy(null);
+    }
+  };
   const logsPerPage = 10;
 
   useEffect(() => {
@@ -184,6 +241,90 @@ function AccessLogsPage() {
           {t('docAccessLogs.exportCsv')}
         </button>
       </div>
+
+      {/* Break-glass grants. Administrators only -- this is the whole
+          deployment's emergency activity, naming patients and the clinicians
+          who opened their records. */}
+      {isAdmin && (
+        <div className="bg-surface rounded-xl shadow p-6 mb-8">
+          <h2 className="font-semibold text-content mb-1">{t('docAccessLogs.grantsHeading')}</h2>
+          <p className="text-sm text-content-muted mb-4">{t('docAccessLogs.grantsSubtitle')}</p>
+
+          {grantsError && (
+            <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+              <p className="text-sm text-critical-subtle-fg">{grantsError}</p>
+            </div>
+          )}
+
+          {!grantsLoaded ? (
+            <p className="text-sm text-content-muted">{t('docAccessLogs.grantsLoading')}</p>
+          ) : grants.length === 0 ? (
+            <p className="text-sm text-content-muted">{t('docAccessLogs.grantsNone')}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="grant-table">
+                <thead>
+                  <tr className="text-left text-content-muted">
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantPatient')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantClinician')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantReason')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantExpires')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantStatus')}</th>
+                    <th scope="col" className="py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {grants.map((grant) => {
+                    // The server's own status, not a time comparison made here:
+                    // a grant is active, expired or revoked because the store
+                    // says so.
+                    const open = grant.status === 'Active' || grant.status === 'active';
+                    return (
+                      <tr key={grant.id} className="border-t border-border">
+                        <td className="py-2 pr-4 text-content">{grant.patient_id}</td>
+                        <td className="py-2 pr-4 text-content-secondary break-all">
+                          {grant.requesting_person_id}
+                        </td>
+                        <td className="py-2 pr-4 text-content-secondary">
+                          {grant.reason_text || grant.reason_code}
+                        </td>
+                        <td className="py-2 pr-4 text-content-muted">
+                          {new Date(grant.expires_at).toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs ${
+                              open
+                                ? 'bg-critical-subtle text-critical-subtle-fg'
+                                : 'bg-surface-sunken text-content-secondary'
+                            }`}
+                          >
+                            {grant.status}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          {open && (
+                            <button
+                              type="button"
+                              onClick={() => void endGrant(grant.id)}
+                              disabled={grantBusy === grant.id}
+                              className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px] whitespace-nowrap"
+                            >
+                              {grantBusy === grant.id
+                                ? t('docAccessLogs.grantWorking')
+                                : t('docAccessLogs.grantEnd')}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

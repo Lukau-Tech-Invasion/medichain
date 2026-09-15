@@ -100,12 +100,16 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(transition_organization_key)
         .service(get_active_organization_key)
         // Phase 4 approved device credentials and lifecycle.
+        .service(list_organizations)
+        .service(list_managed_devices)
+        .service(list_available_devices)
         .service(enroll_managed_device)
         .service(rotate_managed_device)
         .service(revoke_managed_device)
         .service(get_device_compliance)
         // Phase 5 server-side emergency grants.
         .service(issue_emergency_grant)
+        .service(list_emergency_grants)
         .service(get_emergency_grant)
         .service(revoke_emergency_grant)
         .service(grant_bound_emergency_access)

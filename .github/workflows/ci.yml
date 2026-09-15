@@ -107,6 +107,15 @@ jobs:
             - name: No screen renders a raw i18n placeholder
               run: python scripts/check-uninterpolated-i18n.py
 
+            # The sibling failure: the translator returns the KEY when it cannot
+            # resolve one at all, so a t() call naming a key the bundle does not
+            # have puts `docWoundCare.savedOk` on screen where a save
+            # confirmation belongs. Ten screens were doing that when this gate
+            # was added, including an incident-type dropdown whose six options
+            # were all raw keys.
+            - name: No screen renders a raw i18n key
+              run: python scripts/check-missing-i18n-keys.py
+
             # The idempotency middleware requires a header on every
             # authenticated mutation and was landed without migrating one
             # caller. The breakage surfaced four separate times, days apart,

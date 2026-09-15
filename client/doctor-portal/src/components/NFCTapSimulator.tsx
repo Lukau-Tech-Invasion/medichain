@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { EmergencyInfo } from '../store/patientStore';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
-import { enterWorkContext, grantBoundEmergencyAccess } from '@medichain/shared';
+import { enterWorkContext, grantBoundEmergencyAccess, listUsableDevices } from '@medichain/shared';
+import type { UsableDevice } from '@medichain/shared';
 
 /**
  * NFC tap simulation states
@@ -29,8 +30,30 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const [nfcTagId, setNfcTagId] = useState('');
   const [qrInput, setQrInput] = useState('');
   const [deviceId, setDeviceId] = useState('');
+  // The approved device used to be a free-text UUID box. Nothing in either
+  // client could list devices, so the only way to fill it was to have issued
+  // the enrolment call yourself and kept the response -- which meant emergency
+  // access was, in practice, unusable. `/api/devices/available` returns only
+  // devices that pass the same check the grant will apply.
+  const [usableDevices, setUsableDevices] = useState<UsableDevice[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'nfc' | 'qr' | 'manual'>('nfc');
+
+  useEffect(() => {
+    listUsableDevices()
+      .then((body) => {
+        const list = body.devices ?? [];
+        setUsableDevices(list);
+        if (list.length === 1) setDeviceId(list[0].id);
+      })
+      .catch(() => {
+        // A failed lookup is not "no devices". The field stays usable so a
+        // clinician who knows the id is not blocked by our read failing.
+        setUsableDevices([]);
+      })
+      .finally(() => setDevicesLoaded(true));
+  }, []);
 
   /**
    * Simulate NFC tap
@@ -139,16 +162,37 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <label htmlFor="approved-device" className="block text-sm font-medium text-content-secondary mb-1">
           Approved hospital device ID
         </label>
-        <input
-          id="approved-device"
-          type="text"
-          value={deviceId}
-          onChange={(event) => setDeviceId(event.target.value)}
-          placeholder="Registered device UUID"
-          className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
-          disabled={tapState === 'waiting'}
-        />
-        <p className="mt-1 text-xs text-content-muted">Emergency access is bound to this enrolled device and a new professional work context.</p>
+        {usableDevices.length > 0 ? (
+          <select
+            id="approved-device"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand min-h-[44px]"
+            disabled={tapState === 'waiting'}
+          >
+            <option value="">Select the device you are using</option>
+            {usableDevices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.device_name} ({device.device_type})
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="approved-device"
+            type="text"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            placeholder="Registered device UUID"
+            className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
+            disabled={tapState === 'waiting'}
+          />
+        )}
+        <p className="mt-1 text-xs text-content-muted">
+          {devicesLoaded && usableDevices.length === 0
+            ? 'No approved device is available to this account. An administrator must enrol one and provision its credential before emergency access will work.'
+            : 'Emergency access is bound to this enrolled device and a new professional work context.'}
+        </p>
       </div>
 
       <div className="flex gap-2 mb-6">
