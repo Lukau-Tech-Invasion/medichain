@@ -86,10 +86,10 @@ shared endpoint function with **no importer**:
 
 | Endpoint | Shared function | Note |
 |---|---|---|
-| `POST /api/lab/submit` | `submitLabResults` | Lab results can be submitted for approval by the API, but no screen does it. `LabReviewPage` only reviews. |
-| `POST /api/emergency-access` | `requestEmergencyAccess` | The paramedic flow this product is named for. `EmergencyAccessPage` exists; it does not call this. |
-| `POST /api/nfc/tap` | `nfcTap` | Same flow. |
-| `POST /api/clinical/gcs` | `createGCS` | Glasgow Coma Scale — no screen writes one. |
+| ~~`POST /api/lab/submit`~~ | `submitLabResults` | **BUILT 2026-09-15.** All four lab screens only read, QC or review, and the technician's quick action labelled "Enter Result" pointed at a review page. `LabResultsPage` now has an entry form. |
+| ~~`POST /api/emergency-access`~~ | `requestEmergencyAccess` | **CORRECTION — not a gap.** `NFCTapSimulator` calls `grantBoundEmergencyAccess`, a newer device-bound flow. The feature is built; this route is superseded. I had verified only "no importer", which is not the same as "feature missing", and reported it as though it were. |
+| ~~`POST /api/nfc/tap`~~ | `nfcTap` | Same correction, same flow. |
+| `POST /api/clinical/gcs` | `createGCS` | **Still open, verified.** GCS is captured only as a *field* inside the Sepsis and Trauma scores (`glasgow_coma_scale`, `gcs_score`); nothing writes a standalone GCS assessment with its eye/verbal/motor components, though `/api/clinical/patient/{id}/gcs` exists to read them. |
 | `POST /api/appointments/{id}/check-in` | `checkInAppointment` | The patient journey exercises it; no patient screen does. |
 
 Untriaged but in the same category on the evidence so far — **admin and
@@ -130,3 +130,43 @@ alert stores, sync, crossmatch.
 `telehealth_notes`, `vaccine_inventory`, `wearable_integration_logs`. No
 handler, no JSON counterpart, no rows. These are schemas for features that were
 never written.
+
+
+---
+
+## Built since this was opened
+
+### `POST /api/lab/submit` — a lab technician can enter a result (2026-09-15)
+
+Verified before building: all four lab screens (`LabResultPage`,
+`LabResultsPage`, `LabQCPage`, `LabReviewPage`) only read, run QC, or approve
+and reject. None submitted, and there was no alternative route. The
+technician's own navigation carries a quick action labelled **"Enter Result"**
+pointing at `/lab-results` — a review screen.
+
+`LabResultsPage` now has a Review Queue / Enter Result switch. The form reads
+its panels, units and reference ranges from `GET /api/clinical/lab-panels`,
+**the server's catalogue, which also had no client caller** — so the units,
+reference ranges and critical thresholds it defines had never reached a screen.
+Rule 8: a page never decides a clinical threshold, it asks for one.
+
+Two deliberate restraints:
+
+* **A blank analyte is omitted, not submitted.** Every `results` row carries a
+  `value`, so submitting empty rows would report values nobody measured. A
+  submission with no measured parameter is refused outright.
+* **No `flag`.** Whether a value is abnormal is a derived clinical judgement,
+  and nothing on the server computes it today. The form submits the measurement
+  and leaves the finding unclaimed rather than inventing one — see the debt
+  note below.
+
+Verified live before and after: catalogue returns 6 panels, submit returns 201,
+and the result appears in both the doctor's pending queue and the patient's lab
+record. Browser test: a technician signs in, enters a value, and the submission
+is found in the queue by its notes — including after leaving and re-entering
+the page — and a blank submission is refused.
+
+**Recorded, not fixed:** `LabTestResult.flag` has no server-side deriver. The
+catalogue carries `critical_low`/`critical_high` per analyte, so the server
+*could* classify a value; until it does, every submission stores `flag: null`
+and the review screen's Flag column is always empty.

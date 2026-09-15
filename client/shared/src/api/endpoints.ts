@@ -954,6 +954,41 @@ import type {
   LabResultSubmission,
 } from '../types';
 
+/** One test within a standard lab panel, as the server defines it. */
+export interface LabTestTemplate {
+  name: string;
+  code?: string | null;
+  unit: string;
+  reference_range_male: string;
+  reference_range_female: string;
+  reference_range_pediatric?: string | null;
+  critical_low?: number | null;
+  critical_high?: number | null;
+}
+
+/** A standard lab panel template. */
+export interface LabPanelTemplate {
+  name: string;
+  code: string;
+  description: string;
+  tests: LabTestTemplate[];
+}
+
+/**
+ * The standard lab panels, from the server.
+ *
+ * `GET /api/clinical/lab-panels` has existed as long as the lab feature and had
+ * no caller, so the units and reference ranges it defines were unavailable to
+ * any screen. A result-entry form needs exactly this: rule 8 of the project
+ * brief says a page never decides a clinical threshold, it asks for one.
+ */
+export async function getLabPanels(): Promise<{
+  total: number;
+  panels: LabPanelTemplate[];
+}> {
+  return getApiClient().get('/api/clinical/lab-panels');
+}
+
 /**
  * Submit lab results for doctor review (LabTechnician, Doctor, Nurse, Admin)
  */
