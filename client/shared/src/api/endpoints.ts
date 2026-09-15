@@ -4490,3 +4490,83 @@ export async function listSyncDevices(): Promise<{
 export async function getTelehealthHealth(): Promise<Record<string, unknown>> {
   return getApiClient().get('/api/health/telehealth');
 }
+
+// ============================================================================
+// The last of the endpoints that had no client function
+// ============================================================================
+
+/**
+ * Record a dose given during an emergency, onto the patient's MAR for today.
+ *
+ * A field nobody filled is omitted rather than sent empty: the handler reads
+ * each key independently, and `dose: ""` would store a blank dose against a
+ * real administration.
+ */
+export async function administerEmergencyMedication(payload: {
+  patient_id: string;
+  medication_name: string;
+  medication_id?: string;
+  dose?: string;
+  route?: string;
+  notes?: string;
+}): Promise<{ success: boolean; record_id: string }> {
+  return getApiClient().post('/api/emergency/administer-med', payload);
+}
+
+/** Verify a national ID against the issuing country's register. */
+export async function verifyNationalId(payload: {
+  id_number: string;
+  country: string;
+}): Promise<{ success: boolean; [key: string]: unknown }> {
+  return getApiClient().post('/api/national-id/verify', payload);
+}
+
+/**
+ * Exchange a scanned NFC hash for a short-lived access token.
+ *
+ * The hash is not itself a credential: accepting it directly as a PHI-release
+ * credential meant a value captured once could be replayed. This trades it for
+ * a token bound to a device and a stated reason.
+ */
+export async function exchangeNfcHashForToken(payload: {
+  patient_id: string;
+  nfc_hash: string;
+  device_id: string;
+  reason_code: string;
+}): Promise<Record<string, unknown>> {
+  return getApiClient().post('/api/emergency/nfc-token', payload);
+}
+
+/** The single-tap join URL for a telehealth session. */
+export function telehealthJoinUrl(sessionId: string): string {
+  return `/api/telehealth/join/${encodeURIComponent(sessionId)}`;
+}
+
+/**
+ * One emergency grant, readable by the professional who was issued it.
+ *
+ * Distinct from the administrator's `listEmergencyGrants`: this answers "what
+ * am I currently allowed to see, and until when", which is the clinician's own
+ * question about their own break-glass session.
+ */
+export async function getEmergencyGrant(grantId: string): Promise<EmergencyAccessGrant> {
+  return getApiClient().get(`/api/emergency/grants/${encodeURIComponent(grantId)}`);
+}
+
+/**
+ * This patient's fluid balance.
+ *
+ * Reachable only ward-wide before this, through provider-only listings — so the
+ * person whose intake and output it is could not see it.
+ */
+export async function getPatientIntakeOutput(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  count: number;
+  /** The handler's own key — checked against it, not inferred from the route. */
+  intake_output: Record<string, unknown>[];
+}> {
+  return getApiClient().get(
+    `/api/clinical/patient/${encodeURIComponent(patientId)}/intake-output`
+  );
+}

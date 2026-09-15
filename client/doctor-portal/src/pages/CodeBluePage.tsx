@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCodeBlue, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -121,6 +121,41 @@ export default function CodeBluePage() {
   const logEvent = (event: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setEvents(prev => [`[${timestamp}] ${event}`, ...prev]);
+  };
+
+  // --- Drugs given during a code reach the patient's MAR ---------------------
+  //
+  // `logEvent` appends to a local array that becomes narrative text on submit.
+  // A dose given during a resuscitation never reached the patient's medication
+  // record at all, so the next clinician to open the MAR could not see that
+  // epinephrine had been given minutes earlier.
+  //
+  // `POST /api/emergency/administer-med` appends to the MAR for today and had
+  // no caller. The code narrative still records the timing -- that is what it
+  // is for -- and the MAR now records the administration.
+  const [marError, setMarError] = useState('');
+
+  const logMedication = async (name: string, dose: string) => {
+    logEvent(`Medication: ${name} ${dose}`);
+    if (!selectedPatient) {
+      // The timeline is still worth keeping; the MAR entry is not possible
+      // without a patient, and saying so beats failing silently.
+      setMarError(t('docCodeBlue.marNeedsPatient'));
+      return;
+    }
+    try {
+      await administerEmergencyMedication({
+        patient_id: selectedPatient,
+        medication_name: name,
+        dose,
+        route: 'IV',
+      });
+      setMarError('');
+    } catch (err) {
+      // Never silent: a clinician who believes the MAR has it and finds it
+      // missing later is worse off than one told now.
+      setMarError(getApiErrorMessage(err, t('docCodeBlue.marFailed')));
+    }
   };
 
   const handleSubmit = async () => {
@@ -300,7 +335,7 @@ export default function CodeBluePage() {
               </button>
 
               <button
-                onClick={() => logEvent('Medication: Epinephrine 1mg')}
+                onClick={() => void logMedication('Epinephrine', '1mg')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:opacity-50"
               >
@@ -314,7 +349,7 @@ export default function CodeBluePage() {
                   shock had to be typed into the narrative — the one place it is
                   least likely to be timed accurately during a code. */}
               <button
-                onClick={() => logEvent('Medication: Amiodarone 300mg')}
+                onClick={() => void logMedication('Amiodarone', '300mg')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
               >
@@ -332,6 +367,12 @@ export default function CodeBluePage() {
               </button>
             </div>
           </div>
+
+          {marError && (
+            <div role="alert" className="bg-caution-subtle border border-caution rounded-lg p-3">
+              <p className="text-sm text-caution-subtle-fg">{marError}</p>
+            </div>
+          )}
 
           {/* Documentation */}
           <div className="bg-surface shadow rounded-lg p-6">

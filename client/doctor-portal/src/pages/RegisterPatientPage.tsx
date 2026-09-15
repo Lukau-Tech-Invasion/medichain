@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import {
+  verifyNationalId,
   apiUrl,
   getApiClient,
   getApiErrorMessage,
@@ -62,6 +63,65 @@ function RegisterPatientPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [formData, setFormData] = useState<FormData>(initialFormData);
+
+  // --- Checking the ID against its issuing register ---------------------------
+  //
+  // `POST /api/national-id/verify` fronts five real registers -- Fayda,
+  // Ghana Card, NIN, Smart ID, Huduma Namba -- and had no caller, so the one
+  // field that ties a medical record to a real person was accepted entirely on
+  // trust. A mistyped digit creates a record that can never be matched back to
+  // the patient it belongs to, which is the failure a national health ID exists
+  // to prevent.
+  //
+  // Verification is offered, not enforced: an emergency admission cannot wait
+  // on a register being reachable, and refusing to register a patient because a
+  // government API is down would be the worse failure. The result is shown so
+  // the person registering can decide.
+  const [idCountry, setIdCountry] = useState('');
+  const [idChecking, setIdChecking] = useState(false);
+  const [idResult, setIdResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const checkNationalId = async () => {
+    if (!formData.nationalId.trim() || !idCountry) {
+      setIdResult({ ok: false, message: t('docRegisterPatient.idVerifyNeedsBoth') });
+      return;
+    }
+    setIdChecking(true);
+    setIdResult(null);
+    try {
+      const body = await verifyNationalId({
+        id_number: formData.nationalId.trim(),
+        country: idCountry,
+      });
+      // `success` means the CALL worked. Whether the ID matched is
+      // `result.verified`, and conflating the two would report every reachable
+      // register as a match.
+      const result = (body as { result?: Record<string, unknown> }).result ?? {};
+      const verified = Boolean(result.verified);
+      // `verification_method` is the part that must not be glossed over: the
+      // stub answers `verified: true` for ANY non-empty string, so presenting
+      // it as a match would manufacture confidence in an unchecked ID -- worse
+      // than not offering the check at all.
+      const stubbed = String(result.verification_method ?? '').toLowerCase() === 'stub';
+      if (stubbed) {
+        setIdResult({ ok: false, message: t('docRegisterPatient.idVerifyStub') });
+        return;
+      }
+      setIdResult({
+        ok: verified,
+        message: verified
+          ? t('docRegisterPatient.idVerifyMatched')
+          : t('docRegisterPatient.idVerifyNoMatch'),
+      });
+    } catch (err) {
+      setIdResult({
+        ok: false,
+        message: getApiErrorMessage(err, t('docRegisterPatient.idVerifyUnavailable')),
+      });
+    } finally {
+      setIdChecking(false);
+    }
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState<{ patientId: string; nfcTagId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +382,45 @@ function RegisterPatientPage() {
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label htmlFor="register-id-country" className="sr-only">
+                  {t('docRegisterPatient.idCountry')}
+                </label>
+                <select
+                  id="register-id-country"
+                  value={idCountry}
+                  onChange={(e) => setIdCountry(e.target.value)}
+                  className="px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
+                >
+                  <option value="">{t('docRegisterPatient.idCountryPrompt')}</option>
+                  <option value="south_africa">{t('docRegisterPatient.idCountryZA')}</option>
+                  <option value="kenya">{t('docRegisterPatient.idCountryKE')}</option>
+                  <option value="nigeria">{t('docRegisterPatient.idCountryNG')}</option>
+                  <option value="ghana">{t('docRegisterPatient.idCountryGH')}</option>
+                  <option value="ethiopia">{t('docRegisterPatient.idCountryET')}</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void checkNationalId()}
+                  disabled={idChecking}
+                  className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[44px]"
+                >
+                  {idChecking
+                    ? t('docRegisterPatient.idVerifyChecking')
+                    : t('docRegisterPatient.idVerify')}
+                </button>
+              </div>
+              {idResult && (
+                <p
+                  role="status"
+                  className={`mt-2 text-sm ${idResult.ok ? 'text-ok-subtle-fg' : 'text-caution-subtle-fg'}`}
+                >
+                  {idResult.message}
+                </p>
+              )}
+              <p className="mt-1 text-xs text-content-muted">
+                {t('docRegisterPatient.idVerifyOptional')}
+              </p>
             </div>
             
             <div>

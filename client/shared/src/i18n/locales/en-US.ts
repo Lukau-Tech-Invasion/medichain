@@ -919,6 +919,12 @@ const en_US: TranslationRecord = {
 
   // Vital signs
   vitals: {
+    fluidHeading: 'Fluid balance',
+    fluidSubtitle: 'What you took in and put out, as your care team recorded it.',
+    fluidLoading: 'Loading...',
+    fluidNone: 'No fluid balance has been recorded.',
+    fluidUnknown: 'Your fluid balance could not be loaded, so this is not a record of none being taken.',
+    fluidLine: 'In {{intake}} ml, out {{output}} ml',
     title: 'Vital Signs',
     subtitle: 'Your health metrics and trends',
     latestReading: 'Latest Reading',
@@ -1991,6 +1997,8 @@ const en_US: TranslationRecord = {
   },
 
   docCodeBlue: {
+    marNeedsPatient: 'The dose is on the code timeline. Choose a patient to add it to their medication record as well.',
+    marFailed: 'The dose is on the code timeline but could not be added to the medication record.',
     title: 'Code Blue Management',
     subtitle: 'Real-time resuscitation documentation and event logging.',
     saveFailed: 'Failed to save record. Please try again.',
@@ -2091,6 +2099,21 @@ const en_US: TranslationRecord = {
   },
 
   docRegisterPatient: {
+    idCountry: 'Issuing country',
+    idCountryPrompt: 'Issuing country',
+    idCountryZA: 'South Africa - Smart ID',
+    idCountryKE: 'Kenya - Huduma Namba',
+    idCountryNG: 'Nigeria - NIN',
+    idCountryGH: 'Ghana - Ghana Card',
+    idCountryET: 'Ethiopia - Fayda ID',
+    idVerify: 'Check against register',
+    idVerifyChecking: 'Checking...',
+    idVerifyMatched: 'This ID matches the national register.',
+    idVerifyNoMatch: 'The register did not match this ID. Check the number before registering.',
+    idVerifyUnavailable: 'The register could not be reached, so this ID is unchecked rather than wrong.',
+    idVerifyNeedsBoth: 'Enter the ID number and choose the issuing country.',
+    idVerifyStub: 'No government register was contacted - this deployment has no live verification configured, so the ID is unchecked.',
+    idVerifyOptional: 'Optional. Registration is never blocked on a register being reachable.',
     fixBeforeSaving: 'Fix the following before saving:',
     invalidPhone: 'Enter a valid phone number (e.g. +234 801 234 5678).',
     requiredPhone: 'Emergency contact phone is required.',

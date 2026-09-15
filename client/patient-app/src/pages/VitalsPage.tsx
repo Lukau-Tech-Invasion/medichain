@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPatientVitals, IS_DEMO, useTranslation } from '@medichain/shared';
+import {
+  getPatientIntakeOutput,
+  getPatientVitals,
+  IS_DEMO,
+  useTranslation,
+} from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -49,6 +54,36 @@ export function VitalsPage() {
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [readings, setReadings] = useState<VitalReading[]>([]);
+
+  // --- Fluid balance ----------------------------------------------------------
+  //
+  // Intake and output was reachable only ward-wide, through two provider-only
+  // listings, so the person whose fluid balance it is could not see it.
+  // `GET /api/clinical/patient/{id}/intake-output` is patient-scoped and had no
+  // caller.
+  const [fluidRecords, setFluidRecords] = useState<Record<string, unknown>[]>([]);
+  const [fluidLoaded, setFluidLoaded] = useState(false);
+  const [fluidUnknown, setFluidUnknown] = useState(false);
+
+  useEffect(() => {
+    if (!patient?.healthId) return;
+    let cancelled = false;
+    getPatientIntakeOutput(patient.healthId)
+      .then((body) => {
+        if (cancelled) return;
+        setFluidRecords(body.intake_output ?? []);
+        setFluidUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setFluidUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setFluidLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patient?.healthId]);
   const [latest, setLatest] = useState<VitalReading | null>(null);
   const [previous, setPrevious] = useState<VitalReading | null>(null);
   const [loading, setLoading] = useState(true);
@@ -156,6 +191,40 @@ export function VitalsPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
+      {/* Fluid balance */}
+      <div className="patient-card mb-4">
+        <h2 className="text-lg font-semibold text-content mb-1">{t('vitals.fluidHeading')}</h2>
+        <p className="text-sm text-content-muted mb-4">{t('vitals.fluidSubtitle')}</p>
+        {!fluidLoaded ? (
+          <p className="text-sm text-content-muted">{t('vitals.fluidLoading')}</p>
+        ) : fluidUnknown ? (
+          <p className="text-sm text-content-muted">{t('vitals.fluidUnknown')}</p>
+        ) : fluidRecords.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('vitals.fluidNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="fluid-balance-list">
+            {fluidRecords.slice(0, 20).map((record, index) => (
+              <li
+                key={String(record.record_id ?? record.id ?? index)}
+                className="border border-border rounded-lg p-3"
+              >
+                <p className="text-sm text-content">
+                  {t('vitals.fluidLine', {
+                    intake: String(record.total_intake_ml ?? record.intake_ml ?? '—'),
+                    output: String(record.total_output_ml ?? record.output_ml ?? '—'),
+                  })}
+                </p>
+                {record.recorded_at ? (
+                  <p className="text-xs text-content-muted">
+                    {new Date(String(record.recorded_at)).toLocaleString()}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
