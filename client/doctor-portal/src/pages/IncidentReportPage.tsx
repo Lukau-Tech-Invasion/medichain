@@ -246,7 +246,7 @@ const IncidentReportPage: React.FC = () => {
       'minor': 'bg-caution-subtle text-caution-subtle-fg',
       'moderate': 'bg-surface-sunken text-content-secondary',
       'major': 'bg-critical-subtle text-critical-subtle-fg',
-      'sentinel': 'bg-critical text-white'
+      'sentinel': 'bg-critical text-critical-fg'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity]}`}>

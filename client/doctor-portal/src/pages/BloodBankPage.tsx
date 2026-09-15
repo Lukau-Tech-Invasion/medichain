@@ -311,8 +311,8 @@ const BloodBankPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      emergency: 'bg-critical text-white',
-      urgent: 'bg-orange-500 text-white',
+      emergency: 'bg-critical text-critical-fg',
+      urgent: 'bg-caution text-caution-fg',
       routine: 'bg-gray-500 text-white'
     };
     return styles[priority] || 'bg-gray-500 text-white';

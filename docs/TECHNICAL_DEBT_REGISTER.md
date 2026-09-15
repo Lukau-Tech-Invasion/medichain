@@ -2992,6 +2992,55 @@ so the helper was inlined.
 
 ---
 
+## A page with no data is not a page that works (2026-09-15, CLOSED 2026-09-15)
+
+Three screens crashed the first time a real record existed for them to render.
+They had never had one: the patient-visibility campaign
+(`docs/PATIENT_VISIBILITY_WORKFLOWS.md`) is what finally wrote discharges, care
+plans and consults into the database, and an empty list renders no rows -- so a
+defect in the row waits for the first record, indefinitely.
+
+### The failure is quiet and wide, not loud and narrow
+
+`ErrorBoundary` sits **above the router** in `App.tsx`. A render error on any
+route therefore replaces the entire tree -- sidebar included -- and stays there.
+Two consequences, both of which cost time here:
+
+1. **The suite blames the wrong route.** `NursingCarePlanPage` crashed, and
+   `roles.spec.ts` reported the failure against `/immunization`, the next route
+   it tried. The real culprit was two routes earlier.
+2. **It silently voids the audit.** Every route after the crash is unreachable,
+   so it is never sampled. The WCAG suite had been reporting three failures
+   while most pages were never measured at all. Fixing one crash turned three
+   failures into eleven -- not a regression, a disclosure.
+
+### The three crashes
+
+| Screen | Threw | Root cause |
+|---|---|---|
+| `NursingCarePlanPage` | `Cannot read properties of undefined (reading 'bg')` | `styles[priority]` is a `Record<Priority, ...>` indexed with `care_level`, a **nullable** column. All three badge helpers on the page were partial. |
+| `DischargePage` | `Cannot read properties of undefined (reading 'length')` | the page's `DischargeSummary` interface is not `DischargeSummaryEntity` -- different names for nearly every field, and `Option<Value>` list fields arriving as `null`. TypeScript believed the interface, so `.length` type-checked. |
+| `RadiologyPage` | (no throw) rendered the literal `"Invalid Date"` | `new Date(undefined).toLocaleString()` |
+
+The fixes are the two patterns this codebase already uses elsewhere: a **total**
+lookup with a neutral fallback (as `ConsultPage` does), and a **boundary
+mapper** that maps explicitly rather than spreading, so a rename on either side
+is a type error instead of a blank panel.
+
+### And one API defect underneath
+
+`GET /api/clinical/discharges` returned `.map(|e| e.data)` -- the JSON payload
+the screen composed, not the stored record. The screen does not know the id,
+because the id is server-assigned, so **every row in the list arrived without
+one**: React keyed the list on `undefined`, and the approve and export actions
+had no id to act on. The single-record reads in the same file already carried
+the comment "The stored record, not `entity.data`"; the list was missed.
+
+### What to take from it
+
+**Assert a screen renders with data in it, not merely that it opens.** The
+route-reachability gates were green throughout: every one of these pages
+resolved, authenticated and returned 200. What none of them had was a row.
 ## Write endpoints with no producer screen (recorded 2026-09-15, STILL OPEN)
 
 Found while closing the patient-visibility workflows

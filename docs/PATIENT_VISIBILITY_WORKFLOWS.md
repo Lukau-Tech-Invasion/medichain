@@ -369,3 +369,131 @@ rather than any one feature:
    `consultation_notes_status_check` because the harness sent `'Requested'`
    where the page sends `'requested'`. Every payload must be the page's own,
    character for character.
+
+---
+
+## What the browser suite found once the workflows had written real records
+
+The journeys create real clinical records. Several producer screens had never
+rendered one, because nothing had ever written one for them to render -- an
+empty list renders no rows, so a defect in the row waits for the first record.
+Running the browser suites after the campaign surfaced four:
+
+### 1. `DischargePage` crashed on the first discharge that existed
+
+`Cannot read properties of undefined (reading 'length')`. The list read
+`discharge.warning_signs.length`, `discharge.follow_up_appointments.length` and
+`discharge.discharge_medications.length` on rows handed straight from the API.
+
+The page's `DischargeSummary` interface is not `DischargeSummaryEntity`: almost
+every field has a different name (`condition_at_discharge` vs
+`discharge_condition`, `admission_datetime` vs `admission_date`,
+`principal_diagnosis` vs `primary_diagnosis`, `attending_physician_id` vs
+`prepared_by`) and the list fields are `Option<serde_json::Value>`, so they
+arrive as `null`, not `[]`. TypeScript believed the interface, which declares
+every array required and present, so `.length` type-checked and then threw.
+
+Fixed with a `toDischargeSummary` boundary mapper -- the same pattern as the
+`toConsult` mapper this campaign added earlier. Mapping explicitly rather than
+spreading, so a rename on either side is a type error instead of a blank panel.
+
+### 2. `GET /api/clinical/discharges` returned the payload, not the record
+
+`.map(|e| e.data)` -- `data` is the JSON the screen composed, and the screen
+does not know the id, because the id is server-assigned. So **every row in the
+list arrived without one**: React keyed the list on `undefined` and warned about
+duplicate keys, and the approve and export actions had no id to act on.
+
+The single-record reads in the same file had already learned this
+(`get_discharge_summary` carries the comment "The stored record, not
+`entity.data`"); the list was missed. It now returns `result.items`.
+
+### 3. `NursingCarePlanPage` took the whole portal down
+
+`Cannot read properties of undefined (reading 'bg')` at `getPriorityBadge`.
+`styles[priority]` is a `Record<Priority, ...>` indexed with a value that comes
+from the API's `care_level` -- a **nullable** string column. A care plan filed
+without a priority, which the API permits and which workflow 6's journey step
+produces, rendered `undefined.bg`.
+
+Two things made this worse than one broken page:
+
+* **The ErrorBoundary sits above the router**, so a render error on any route
+  replaces the entire tree and stays there. The suite reported the failure
+  against `/immunization` -- the next route it tried -- and the real culprit was
+  two routes earlier.
+* **It masked the accessibility audit.** Every route after the crash was
+  unreachable, so it was never sampled. The suite had been reporting three
+  failures while most pages were never measured at all.
+
+All three badge helpers on that page are now total, with a neutral style and the
+raw value as its own label: naming an unrecognised status is more use to a nurse
+than a blank badge, and inventing one would be worse than either.
+
+### 4. The accessibility backlog the crash had been hiding
+
+With the crash fixed, the audit reached pages it had never sampled:
+
+| Route | Was | Cause |
+|---|---|---|
+| `/lab-review` | 68 of 457 elements below AA | page written for a **dark surface**, rendered on the light shell -- its own `<h1>` was white on `rgb(243,244,246)`, **1.1:1**, an invisible page title |
+| `/pathology`, `/imaging`, blood bank, MAR | badges at 2.8:1 | `bg-orange-500 text-white`, raw Tailwind rather than the `caution` token |
+| `/discharge` | 74 targets below 24x24 | 37 rows x the "Export as PDF" button and "View Patient" link, both 20px tall |
+| dev ErrorBoundary | 1 target below 24x24 | "Show Technical Details" at 177x20 |
+
+`LabReviewPage` is now entirely on design tokens, so both themes are defined in
+one place and the page stops asserting a background it does not have.
+
+**The lesson worth keeping:** a page with no data is not a page that works, and
+a crash does not fail loudly here -- it fails *quietly and widely*, because the
+boundary above the router turns one broken component into every later route
+being unmeasurable.
+
+### Closing the accessibility backlog
+
+All of it, once the crashes were fixed. `roles.spec.ts` now passes for all five
+roles: **15/15**, every route each role can reach, in both themes.
+
+| Fix | Why the token mattered |
+|---|---|
+| `LabReviewPage` fully tokenised | written for a dark surface, rendered on the light shell |
+| `RadiologyPage` muted text re-scaled | the page **owns** its dark surface (`min-h-screen bg-gray-900` -- right for a reading station); `text-content-muted` is calibrated against the *light* app shell, so 17 uses of it were 1.58-2.31:1 there |
+| `bg-critical text-white` -> `text-critical-fg` (5 files) | `--danger` is red-400 in dark mode, so white on it is 2.77:1. The STAT badge -- the one that matters most -- failed |
+| `bg-orange-500 text-white` -> `caution` token (5 files) | 2.8:1; raw Tailwind cannot follow a theme |
+| `bg-teal-600`/`bg-red-500` on `/critical-value` | 3.74:1 and 3.76:1 |
+| `text-content-muted` inside `bg-notice-subtle` on `/consult` | 4.08:1 in dark: the muted token is calibrated against the page surface, not against a `*-subtle` panel. The sibling labels already used the right token |
+| `bg-surface/20` banner | white at 20% over a gradient measures 1:1 |
+| 75 touch targets | discharge row controls (37x2) and the dev ErrorBoundary button |
+
+**The through-line:** almost every one of these is a raw Tailwind palette value
+or a token used against the wrong background. A token pair exists for each
+(`bg-critical`/`text-critical-fg`, `bg-notice-subtle`/`text-notice-subtle-fg`),
+and using one half without the other is what fails -- silently, and only in one
+theme, which is why it survived.
+
+### One more real defect, found in passing
+
+`RadiologyPage` rendered the literal string **"Invalid Date"** into the study
+table: `new Date(s.studyDate).toLocaleString()` on an unparseable value. That is
+a JavaScript artefact, not a finding, and a radiologist reading it learns
+nothing except that the screen is broken. It now shows an em dash, via a
+`formatStudyDate` guard.
+
+### The last two, and a flaky assertion made honest
+
+* **`/admin` in dark mode** — the system-status pills used `text-red-500` /
+  `text-green-500` / `text-amber-500`, raw palette on a slate-800 card, so
+  "Offline" was 3.89:1. It only appeared when something *was* offline, which is
+  why it came and went between runs. Now on the `*-subtle-fg` tokens, which
+  exist precisely to read on a subtle panel in both themes.
+* **`RadiologyPage`'s STAT badge** inherited the page's `text-white` while using
+  `bg-critical`; `--danger` is red-400 in dark, so the badge that matters most
+  was 2.77:1. Each branch now carries its own paired foreground -- and the
+  `urgent` branch was raw `bg-orange-500`, which would have been 2.8:1 the first
+  time an urgent study existed.
+
+The dashboard assertion in `journeys.spec.ts` was also **racing rather than
+waiting**: it sampled `main.innerText()` the instant `main` became visible,
+while every one of those dashboards fetches its panels after mount. Under suite
+load the Nurse dashboard returned 10 characters, which looks exactly like a
+blank screen and is not one. It now polls for the same condition.

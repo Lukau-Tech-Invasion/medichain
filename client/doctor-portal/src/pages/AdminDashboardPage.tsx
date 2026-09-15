@@ -214,17 +214,17 @@ export default function AdminDashboardPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'text-green-500';
-      case 'degraded': return 'text-amber-500';
-      case 'offline': return 'text-red-500';
+      case 'online': return 'text-ok-subtle-fg';
+      case 'degraded': return 'text-caution-subtle-fg';
+      case 'offline': return 'text-critical-subtle-fg';
       default: return 'text-content-muted';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'online': return <CheckCircle className="text-green-500" size={18} />;
-      case 'degraded': return <AlertTriangle className="text-amber-500" size={18} />;
+      case 'online': return <CheckCircle className="text-ok-subtle-fg" size={18} />;
+      case 'degraded': return <AlertTriangle className="text-caution-subtle-fg" size={18} />;
       case 'offline': return <AlertTriangle className="text-red-500" size={18} />;
       default: return <Clock className="text-content-muted" size={18} />;
     }
@@ -327,10 +327,10 @@ export default function AdminDashboardPage() {
                   <span
                     className={`inline-block w-2 h-2 rounded-full ${
                       system.status === 'online'
-                        ? 'bg-green-500'
+                        ? 'bg-ok'
                         : system.status === 'degraded'
                         ? 'bg-caution'
-                        : 'bg-red-500'
+                        : 'bg-critical'
                     }`}
                     aria-hidden="true"
                   />

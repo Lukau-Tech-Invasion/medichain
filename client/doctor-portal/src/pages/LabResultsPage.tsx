@@ -357,13 +357,13 @@ function LabResultsPage() {
                         <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
                           <User size={14} />
                           <span>{submission.patient_name}</span>
-                          <span className="text-gray-300">•</span>
+                          <span className="text-content-muted" aria-hidden="true">•</span>
                           <span>{submission.patient_id}</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-content-muted mt-1">
                           <Clock size={12} />
                           <span>{t('docLabResults.submittedAt', { date, time })}</span>
-                          <span className="text-gray-300">•</span>
+                          <span className="text-content-muted" aria-hidden="true">•</span>
                           <span>{t('docLabResults.byUser', { name: submission.submitted_by })}</span>
                         </div>
                       </div>

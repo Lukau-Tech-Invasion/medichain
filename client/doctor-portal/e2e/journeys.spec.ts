@@ -97,8 +97,21 @@ for (const role of ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] a
     // five assertions wearing one name.
     const main = page.locator('main, [role="main"]').first();
     await expect(main).toBeVisible();
-    const text = (await main.innerText()).trim();
-    expect(text.length, `${role}'s dashboard rendered no text at all`).toBeGreaterThan(40);
+
+    // Poll, rather than sampling once. Every one of these dashboards fetches
+    // its panels after mount, so a single `innerText()` taken the instant
+    // `main` becomes visible reads the shell -- a heading and nothing else.
+    // The Nurse dashboard failed this way intermittently while the rest of the
+    // suite loaded the API: 10 characters, which looks exactly like a blank
+    // screen and is not one.
+    //
+    // This asserts the same thing, and waits for it instead of racing it.
+    await expect
+      .poll(async () => (await main.innerText()).trim().length, {
+        message: `${role}'s dashboard rendered no text at all`,
+        timeout: 15000,
+      })
+      .toBeGreaterThan(40);
     await noErrorBanner(page);
   });
 }

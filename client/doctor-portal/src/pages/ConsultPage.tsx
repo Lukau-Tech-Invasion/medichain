@@ -506,7 +506,13 @@ const ConsultPage: React.FC = () => {
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblPatient')}</p>
                         <p className="font-semibold text-content">{consult.patientName}</p>
-                        <p className="text-sm text-content-muted">{consult.patientId}</p>
+                        {/* `text-content-muted` is calibrated against the page
+                            surface, not against a `*-subtle` panel: on
+                            `bg-notice-subtle` in dark mode it is 4.08:1, under
+                            WCAG AA's 4.5:1. The token that pairs with this
+                            background is the one the sibling labels already
+                            use. */}
+                        <p className="text-sm text-notice-subtle-fg">{consult.patientId}</p>
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblSpecialty')}</p>

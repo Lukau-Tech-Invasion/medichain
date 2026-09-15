@@ -313,7 +313,7 @@ export default function MARPage() {
     switch (status) {
       case 'given': return 'bg-green-500 text-white';
       case 'held': return 'bg-caution text-white';
-      case 'refused': return 'bg-orange-500 text-white';
+      case 'refused': return 'bg-caution text-caution-fg';
       case 'not-given': return 'bg-red-500 text-white';
       default: return 'bg-surface-sunken text-content-muted';
     }

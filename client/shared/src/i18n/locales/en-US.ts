@@ -1925,6 +1925,8 @@ const en_US: TranslationRecord = {
     priorityRequired: 'Priority *',
     templatesTitle: 'Care Plan Templates',
     useTemplate: 'Use Template',
+    statusUnknown: 'Unknown',
+    priorityUnset: 'No priority set',
     statusActive: 'active',
     statusOnHold: 'on-hold',
     statusCompleted: 'completed',

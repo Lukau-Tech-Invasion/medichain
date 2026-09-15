@@ -173,14 +173,22 @@ const NursingCarePlanPage: React.FC = () => {
       'completed': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg' },
       'discontinued': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
-    const s = styles[status];
+    // Total, not partial. `status` is typed `PlanStatus` but it arrives from
+    // the API, where `status` is a plain string column -- so an unrecognised or
+    // absent value indexes to `undefined` and `s.bg` throws, taking the whole
+    // application down through the ErrorBoundary above the router. See the
+    // neutral-marker comment in ConsultPage, which is the same fix.
+    const s = styles[status] ?? { bg: 'bg-surface-sunken', text: 'text-content-secondary' };
     const labels: Record<PlanStatus, string> = {
       'active': t('docNursingCarePlan.statusActive'),
       'on-hold': t('docNursingCarePlan.statusOnHold'),
       'completed': t('docNursingCarePlan.statusCompleted'),
       'discontinued': t('docNursingCarePlan.statusDiscontinued'),
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>{labels[status]}</span>;
+    // The raw value, when it is not one this screen knows: naming it is more
+    // use to a nurse than a blank badge, and inventing a status would be worse
+    // than either.
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>{labels[status] ?? (status || t('docNursingCarePlan.statusUnknown'))}</span>;
   };
 
   const priorityLabel = (priority: Priority): string => {
@@ -188,6 +196,9 @@ const NursingCarePlanPage: React.FC = () => {
       case 'high': return t('docNursingCarePlan.priorityHigh');
       case 'medium': return t('docNursingCarePlan.priorityMedium');
       case 'low': return t('docNursingCarePlan.priorityLow');
+      // `priority` comes from the API's `care_level`, a nullable string
+      // column, so the three literals the type promises are not guaranteed.
+      default: return priority || t('docNursingCarePlan.priorityUnset');
     }
   };
 
@@ -197,7 +208,12 @@ const NursingCarePlanPage: React.FC = () => {
       'medium': { bg: 'bg-surface-sunken', text: 'text-content-secondary' },
       'low': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
-    const s = styles[priority];
+    // This is the one that actually crashed. `care_level` is nullable, so a
+    // care plan filed without a priority -- which the API permits -- rendered
+    // `undefined.bg` and took the whole portal down. The ErrorBoundary sits
+    // above the router, so the suite reported the failure against whichever
+    // route was visited next.
+    const s = styles[priority] ?? { bg: 'bg-surface-sunken', text: 'text-content-secondary' };
     return <span className={`px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>{priorityLabel(priority)}</span>;
   };
 
@@ -207,7 +223,13 @@ const NursingCarePlanPage: React.FC = () => {
       'partially-met': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'met': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> }
     };
-    const s = styles[status];
+    const s = styles[status] ?? {
+      bg: 'bg-surface-sunken',
+      text: 'text-content-secondary',
+      // No icon: an unrecognised goal status must not borrow the glyph of a
+      // met or an unmet one.
+      icon: null,
+    };
     const labels: Record<GoalStatus, string> = {
       'not-met': t('docNursingCarePlan.goalNotMet'),
       'partially-met': t('docNursingCarePlan.goalPartiallyMet'),
@@ -215,7 +237,7 @@ const NursingCarePlanPage: React.FC = () => {
     };
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon} {labels[status]}
+        {s.icon} {labels[status] ?? (status || t('docNursingCarePlan.statusUnknown'))}
       </span>
     );
   };

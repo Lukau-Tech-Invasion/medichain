@@ -70,6 +70,93 @@ interface DischargeSummary {
   created_at: string;
 }
 
+/**
+ * The API's discharge summary, as this screen needs it.
+ *
+ * `GET /api/clinical/discharges` returns `DischargeSummaryEntity`, and this
+ * screen's `DischargeSummary` above is not that shape. Almost every field has a
+ * different name (`condition_at_discharge` vs `discharge_condition`,
+ * `admission_datetime` vs `admission_date`, `principal_diagnosis` vs
+ * `primary_diagnosis`, `attending_physician_id` vs `prepared_by`) and the list
+ * fields are `Option<serde_json::Value>` — so they arrive as `null`, not `[]`.
+ *
+ * The rows used to be handed to `setDischarges` raw. TypeScript believed the
+ * interface, which declares every array as required and present, so
+ * `discharge.warning_signs.length` type-checked and then threw
+ * "Cannot read properties of undefined (reading 'length')" the first time a
+ * real discharge existed to render. The page had simply never had one: an empty
+ * list renders no rows, so the crash waited for the first record.
+ *
+ * `warning_signs` and `activity_restrictions` are a further wrinkle — the
+ * summary stores each as a single `String` while this screen lists them, so a
+ * non-empty string becomes a one-item list rather than being dropped.
+ *
+ * Mapping explicitly, rather than spreading, so a rename on either side is a
+ * type error instead of a blank panel or a crash.
+ */
+function toDischargeSummary(raw: Record<string, unknown>): DischargeSummary {
+  const str = (...keys: string[]): string => {
+    for (const key of keys) {
+      const value = raw[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return '';
+  };
+  // A missing list is nothing to render. It is NOT the same as "none were
+  // recorded", and nothing here claims it is — the panel is simply not shown,
+  // exactly as it is for a genuinely empty list.
+  const list = <T,>(...keys: string[]): T[] => {
+    for (const key of keys) {
+      const value = raw[key];
+      if (Array.isArray(value)) return value as T[];
+    }
+    return [];
+  };
+  // Stored as one string on the summary, listed on this screen.
+  const lines = (...keys: string[]): string[] => {
+    for (const key of keys) {
+      const value = raw[key];
+      if (Array.isArray(value)) return value.map(String);
+      if (typeof value === 'string' && value.trim()) return [value];
+    }
+    return [];
+  };
+
+  return {
+    id: str('id'),
+    patient_id: str('patient_id'),
+    patient_name: str('patient_name'),
+    admission_date: str('admission_date', 'admission_datetime'),
+    discharge_date: str('discharge_date', 'discharge_datetime'),
+    discharge_disposition: str('discharge_disposition', 'discharge_destination'),
+    primary_diagnosis: str('primary_diagnosis', 'principal_diagnosis', 'discharge_diagnosis'),
+    secondary_diagnoses: lines('secondary_diagnoses'),
+    procedures_performed: lines('procedures_performed'),
+    discharge_condition: str('discharge_condition', 'condition_at_discharge'),
+    discharge_instructions: list<DischargeInstruction>('discharge_instructions'),
+    follow_up_appointments: list<FollowUpAppointment>('follow_up_appointments'),
+    // `discharge_medications` is an untyped JSON value on the summary, so it
+    // holds whatever was posted: this screen sends objects, and an integration
+    // (or the journey harness) sends plain strings. A string entry becomes a
+    // named medicine with nothing else claimed about it, rather than rendering
+    // as `undefined undefined - undefined`.
+    discharge_medications: list<DischargeMedication | string>('discharge_medications').map(
+      (med) =>
+        typeof med === 'string'
+          ? { name: med, dosage: '', frequency: '', duration: '', instructions: '', is_new: false }
+          : med
+    ),
+    activity_restrictions: lines('activity_restrictions'),
+    diet_instructions: str('diet_instructions'),
+    warning_signs: lines('warning_signs'),
+    emergency_contact_instructions: str('emergency_contact_instructions'),
+    prepared_by: str('prepared_by', 'attending_physician_id'),
+    approved_by: str('approved_by'),
+    status: (str('status') || 'draft') as DischargeSummary['status'],
+    created_at: str('created_at'),
+  };
+}
+
 interface Patient {
   patient_id: string;
   full_name: string;
@@ -160,7 +247,11 @@ function DischargePage() {
       });
       if (response.ok) {
         const data = await response.json();
-        setDischarges(data.discharges || []);
+        setDischarges(
+          ((data.discharges as Record<string, unknown>[] | undefined) || []).map(
+            toDischargeSummary
+          )
+        );
         setApiConnected(true);
       } else {
         setApiConnected(false);
@@ -589,12 +680,12 @@ function DischargePage() {
                     <button
                       onClick={() => handleExportPdf(discharge)}
                       disabled={exportingId === discharge.id}
-                      className="text-brand hover:text-brand flex items-center gap-1 disabled:opacity-50"
+                      className="text-brand hover:text-brand flex items-center gap-1 disabled:opacity-50 min-h-[24px] py-1"
                     >
                       <Download size={16} />
                       {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
                     </button>
-                    <Link to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1">
+                    <Link to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1 min-h-[24px] py-1">
                       {t('docDischarge.viewPatientLink')} <ChevronRight size={16} />
                     </Link>
                   </div>

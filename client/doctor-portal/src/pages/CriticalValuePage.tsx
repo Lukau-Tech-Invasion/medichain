@@ -403,7 +403,7 @@ const CriticalValuePage: React.FC = () => {
           {t('docCriticalValue.subtitle')}
         </p>
         {pendingNotifications.length > 0 && (
-          <div className="mt-4 bg-surface/20 rounded-lg p-3 flex items-center gap-2">
+          <div className="mt-4 bg-critical text-critical-fg rounded-lg p-3 flex items-center gap-2">
             <Bell className="w-5 h-5 animate-pulse" />
             <span className="font-semibold">
               {pendingNotifications.length !== 1
@@ -451,7 +451,7 @@ const CriticalValuePage: React.FC = () => {
         >
           {t('docCriticalValue.tabPending')}
           {pendingNotifications.length > 0 && (
-            <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+            <span className="ml-2 bg-critical text-critical-fg text-xs rounded-full px-2 py-0.5">
               {pendingNotifications.length}
             </span>
           )}
@@ -607,7 +607,7 @@ const CriticalValuePage: React.FC = () => {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleStartNotification(notification)}
-                      className="flex-1 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors font-semibold flex items-center justify-center gap-2"
+                      className="flex-1 bg-brand text-brand-fg px-4 py-2 rounded-lg hover:bg-brand-hover transition-colors font-semibold flex items-center justify-center gap-2"
                     >
                       <Phone className="w-4 h-4" />
                       {t('docCriticalValue.acknowledgeBtn')}
@@ -633,11 +633,11 @@ const CriticalValuePage: React.FC = () => {
           {selectedNotification && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-teal-600 text-white p-4 flex items-center justify-between">
+                <div className="bg-brand text-brand-fg p-4 flex items-center justify-between">
                   <h2 className="text-xl font-bold">{t('docCriticalValue.acknowledgeModalTitle')}</h2>
                   <button
                     onClick={() => setSelectedNotification(null)}
-                    className="text-white hover:bg-teal-700 rounded p-1"
+                    className="text-white hover:bg-brand-hover rounded p-1"
                   >
                     <XCircle className="w-6 h-6" />
                   </button>
@@ -769,7 +769,7 @@ const CriticalValuePage: React.FC = () => {
                   <div className="flex gap-3 pt-4">
                     <button
                       onClick={handleAcknowledge}
-                      className="flex-1 bg-teal-600 text-white px-4 py-3 rounded-lg hover:bg-teal-700 transition-colors font-semibold"
+                      className="flex-1 bg-brand text-brand-fg px-4 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold"
                     >
                       {t('docCriticalValue.completeAcknowledgmentBtn')}
                     </button>
@@ -947,7 +947,7 @@ const CriticalValuePage: React.FC = () => {
 
           <button
             onClick={handleReportCriticalValue}
-            className="w-full bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 transition-colors font-semibold flex items-center justify-center gap-2"
+            className="w-full bg-brand text-brand-fg px-6 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Bell className="w-5 h-5" />
             {t('docCriticalValue.createNotificationBtn')}

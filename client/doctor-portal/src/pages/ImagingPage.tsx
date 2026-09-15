@@ -266,8 +266,8 @@ const ImagingPage: React.FC = () => {
   };
 
   const getPriorityBadge = (p: ImagingPriority) => {
-    if (p === 'stat') return 'bg-critical text-white';
-    if (p === 'urgent') return 'bg-orange-500 text-white';
+    if (p === 'stat') return 'bg-critical text-critical-fg';
+    if (p === 'urgent') return 'bg-caution text-caution-fg';
     return 'bg-surface-sunken text-content-secondary';
   };
 

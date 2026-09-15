@@ -456,8 +456,8 @@ const PathologyPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      stat: 'bg-critical text-white',
-      urgent: 'bg-orange-500 text-white',
+      stat: 'bg-critical text-critical-fg',
+      urgent: 'bg-caution text-caution-fg',
       routine: 'bg-gray-500 text-white'
     };
     return styles[priority] || 'bg-gray-500 text-white';

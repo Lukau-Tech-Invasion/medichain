@@ -180,7 +180,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <div className="border-t pt-4">
                 <button
                   onClick={this.toggleStack}
-                  className="flex items-center gap-2 text-sm text-content-muted hover:text-content-secondary mb-2"
+                  className="flex items-center gap-2 text-sm text-content-muted hover:text-content-secondary mb-2 min-h-[24px] py-1"
                   aria-expanded={this.state.showStack}
                   aria-controls="error-stack-trace"
                 >

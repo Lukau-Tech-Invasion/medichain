@@ -289,11 +289,18 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
         .await
     {
         Ok(result) => {
-            let discharge_list: Vec<serde_json::Value> =
-                result.items.into_iter().map(|e| e.data).collect();
+            // The stored records, not `e.data`. `data` is the payload the
+            // screen composed, and the screen does not know the id -- that is
+            // server-assigned. So every row in this list arrived without one,
+            // React keyed the list on `undefined` and warned about duplicate
+            // keys, and the approve and export actions had no id to act on.
+            //
+            // The single-record reads on this file already learned this
+            // (`get_discharge_summary`, `get_discharge_instructions`); the list
+            // was missed. The typed columns are the record.
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "discharges": discharge_list
+                "discharges": result.items
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {

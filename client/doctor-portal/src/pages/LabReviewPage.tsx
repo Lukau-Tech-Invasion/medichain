@@ -138,17 +138,17 @@ function LabReviewPage() {
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <FlaskConical className="w-6 h-6 text-amber-400" aria-hidden="true" />
+          <h1 className="text-2xl font-bold text-content flex items-center gap-2">
+            <FlaskConical className="w-6 h-6 text-caution" aria-hidden="true" />
             {t('lab.review.title')}
           </h1>
-          <p className="text-slate-400 text-sm mt-1">{t('lab.review.subtitle')}</p>
+          <p className="text-content-muted text-sm mt-1">{t('lab.review.subtitle')}</p>
         </div>
         <button
           type="button"
           onClick={() => void load()}
           disabled={isLoading}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-sunken hover:bg-surface-sunken text-content-secondary text-sm disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
           {t('common.refresh')}
@@ -158,7 +158,7 @@ function LabReviewPage() {
       {notice && (
         <div
           role="status"
-          className="mb-4 p-3 rounded-lg bg-emerald-900/40 border border-emerald-700 text-emerald-200 text-sm"
+          className="mb-4 p-3 rounded-lg bg-ok-subtle border border-ok text-ok-subtle-fg text-sm"
         >
           {notice}
         </div>
@@ -174,14 +174,14 @@ function LabReviewPage() {
       )}
 
       {!isLoading && submissions.length > 0 && flaggedCount > 0 && (
-        <div className="mb-4 p-3 rounded-lg bg-amber-900/30 border border-amber-700 text-amber-200 text-sm flex items-center gap-2 min-h-[24px] py-1">
+        <div className="mb-4 p-3 rounded-lg bg-caution-subtle border border-caution text-caution-subtle-fg text-sm flex items-center gap-2 min-h-[24px] py-1">
           <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
           {t('lab.review.flaggedCount', { count: flaggedCount })}
         </div>
       )}
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-slate-400 py-12 justify-center">
+        <div className="flex items-center gap-2 text-content-muted py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
           {t('lab.review.loading')}
         </div>
@@ -192,8 +192,8 @@ function LabReviewPage() {
         // the truth is that nobody knows is worse than saying nothing. The
         // error above stands alone in that case.
         loadError ? null : (
-          <div className="text-center py-16 text-slate-400">
-            <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-emerald-500" aria-hidden="true" />
+          <div className="text-center py-16 text-content-muted">
+            <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-ok" aria-hidden="true" />
             <p>{t('lab.review.empty')}</p>
           </div>
         )
@@ -208,17 +208,17 @@ function LabReviewPage() {
             return (
               <li
                 key={s.id}
-                className="rounded-xl border border-slate-700 bg-slate-800/60 p-4"
+                className="rounded-xl border border-border bg-surface p-4"
                 data-testid={`lab-submission-${s.id}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-white font-semibold">{s.test_name}</h2>
-                    <p className="text-slate-400 text-sm">
+                    <h2 className="text-content font-semibold">{s.test_name}</h2>
+                    <p className="text-content-muted text-sm">
                       {s.patient_name} · {s.patient_id} · {s.test_category}
                     </p>
                   </div>
-                  <p className="text-slate-500 text-xs">
+                  <p className="text-content-muted text-xs">
                     {t('lab.review.submittedAt', {
                       when: new Date(s.submitted_at).toLocaleString(),
                     })}
@@ -231,7 +231,7 @@ function LabReviewPage() {
                       {t('lab.review.tableCaption', { test: s.test_name })}
                     </caption>
                     <thead>
-                      <tr className="text-slate-400 text-left">
+                      <tr className="text-content-muted text-left">
                         <th scope="col" className="py-1 pr-4 font-medium">
                           {t('lab.review.parameter')}
                         </th>
@@ -245,11 +245,11 @@ function LabReviewPage() {
                     </thead>
                     <tbody>
                       {(s.results ?? []).map((r) => (
-                        <tr key={r.parameter} className="border-t border-slate-700/60">
-                          <td className="py-1 pr-4 text-slate-200">{r.parameter}</td>
+                        <tr key={r.parameter} className="border-t border-border">
+                          <td className="py-1 pr-4 text-content-secondary">{r.parameter}</td>
                           <td
                             className={`py-1 pr-4 font-mono ${
-                              isFlagged(r.flag) ? 'text-amber-300 font-semibold' : 'text-slate-200'
+                              isFlagged(r.flag) ? 'text-caution-subtle-fg font-semibold' : 'text-content-secondary'
                             }`}
                           >
                             {r.value} {r.unit}
@@ -257,17 +257,17 @@ function LabReviewPage() {
                               <span className="ml-2 text-xs uppercase">{r.flag}</span>
                             )}
                           </td>
-                          <td className="py-1 pr-4 text-slate-400">{r.reference_range}</td>
+                          <td className="py-1 pr-4 text-content-muted">{r.reference_range}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                {s.notes && <p className="mt-2 text-slate-400 text-sm">{s.notes}</p>}
+                {s.notes && <p className="mt-2 text-content-muted text-sm">{s.notes}</p>}
 
                 {isOwnSubmission && (
-                  <p className="mt-3 text-amber-300 text-sm flex items-center gap-2 min-h-[24px] py-1">
+                  <p className="mt-3 text-caution-subtle-fg text-sm flex items-center gap-2 min-h-[24px] py-1">
                     <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
                     {t('lab.review.selfReview')}
                   </p>
@@ -284,7 +284,7 @@ function LabReviewPage() {
                     type="button"
                     onClick={() => void decide(s, 'approve')}
                     disabled={busy || isOwnSubmission}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ok hover:bg-ok text-ok-fg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {busy ? (
                       <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
@@ -303,13 +303,13 @@ function LabReviewPage() {
                     value={rejecting[s.id] ?? ''}
                     onChange={(e) => setRejecting((p) => ({ ...p, [s.id]: e.target.value }))}
                     placeholder={t('lab.review.reasonPlaceholder')}
-                    className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-white text-sm placeholder:text-slate-500"
+                    className="flex-1 min-w-[12rem] px-3 py-2 rounded-lg bg-surface border border-border-interactive text-content text-sm placeholder:text-content-muted"
                   />
                   <button
                     type="button"
                     onClick={() => void decide(s, 'reject')}
                     disabled={busy || isOwnSubmission}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-critical hover:bg-critical text-critical-fg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <XCircle className="w-4 h-4" aria-hidden="true" />
                     {t('lab.review.reject')}
