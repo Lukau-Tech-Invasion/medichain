@@ -3037,6 +3037,17 @@ export async function getSampleHistory(
   return getApiClient().get(`/api/clinical/sample/${patientId}`);
 }
 
+/** What the server computed when a GCS assessment was filed. */
+export interface GcsCreateResult {
+  success: boolean;
+  assessment_id: string;
+  total_score: number;
+  interpretation: string;
+  is_comatose: boolean;
+  needs_airway: boolean;
+  message: string;
+}
+
 export async function createGCS(data: unknown): Promise<{
   success: boolean;
   assessment_id: string;

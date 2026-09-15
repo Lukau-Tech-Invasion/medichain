@@ -89,7 +89,7 @@ shared endpoint function with **no importer**:
 | ~~`POST /api/lab/submit`~~ | `submitLabResults` | **BUILT 2026-09-15.** All four lab screens only read, QC or review, and the technician's quick action labelled "Enter Result" pointed at a review page. `LabResultsPage` now has an entry form. |
 | ~~`POST /api/emergency-access`~~ | `requestEmergencyAccess` | **CORRECTION — not a gap.** `NFCTapSimulator` calls `grantBoundEmergencyAccess`, a newer device-bound flow. The feature is built; this route is superseded. I had verified only "no importer", which is not the same as "feature missing", and reported it as though it were. |
 | ~~`POST /api/nfc/tap`~~ | `nfcTap` | Same correction, same flow. |
-| `POST /api/clinical/gcs` | `createGCS` | **Still open, verified.** GCS is captured only as a *field* inside the Sepsis and Trauma scores (`glasgow_coma_scale`, `gcs_score`); nothing writes a standalone GCS assessment with its eye/verbal/motor components, though `/api/clinical/patient/{id}/gcs` exists to read them. |
+| ~~`POST /api/clinical/gcs`~~ | `createGCS` | **BUILT 2026-09-15.** GCS is captured only as a *field* inside the Sepsis and Trauma scores (`glasgow_coma_scale`, `gcs_score`); nothing writes a standalone GCS assessment with its eye/verbal/motor components, though `/api/clinical/patient/{id}/gcs` exists to read them. |
 | `POST /api/appointments/{id}/check-in` | `checkInAppointment` | The patient journey exercises it; no patient screen does. |
 
 Untriaged but in the same category on the evidence so far — **admin and
@@ -170,3 +170,34 @@ the page — and a blank submission is refused.
 catalogue carries `critical_low`/`critical_high` per analyte, so the server
 *could* classify a value; until it does, every submission stores `flag: null`
 and the review screen's Flag column is always empty.
+
+
+### `POST /api/clinical/gcs` — a standalone GCS assessment (2026-09-15)
+
+Verified before building: `createGCS`, `getGCS` and `getPatientGCS` all sat in
+the shared client with **no caller at either end** — nothing wrote a Glasgow
+Coma Scale assessment and nothing read one. GCS appeared in the UI only as a
+free-typed `gcs_total` number on the vitals form, and as a field inside the
+Sepsis and Trauma scores. A total with no eye, verbal or motor components behind
+it cannot be checked, trended or defended.
+
+`VitalSignsPage` now has a GCS card. Three things make it honest:
+
+* **The scale is the server's.** `GET /api/clinical/scoring/catalog` now
+  publishes `glasgow_coma_scale` alongside the Morse and burn tables, with each
+  component's scores and the enum's own `description()`. The wording matters:
+  "withdrawal from pain" (4) and "abnormal flexion to pain" (3) are adjacent
+  scores meaning very different things, and a screen that paraphrases them
+  records the wrong one.
+* **The page adds nothing up.** Total, interpretation, `is_comatose` and
+  `needs_airway` all come back from the server and are displayed as returned —
+  rule 8. The browser test picks E3/V4/M5 and requires the screen to show
+  **12** and "Moderate brain injury", neither of which it was told.
+* **All three components or none.** A GCS missing a part is an incomplete
+  assessment, not a lower score, and the total would silently be wrong.
+
+`MyRecordsPage` now reads them too, so the assessment reaches the patient.
+
+Verified live: the catalogue returns 4/5/6 options, E3+V4+M5 scores 12
+"Moderate brain injury", an out-of-range eye score of 7 is refused with 400, and
+the patient-scoped read returns the assessment.

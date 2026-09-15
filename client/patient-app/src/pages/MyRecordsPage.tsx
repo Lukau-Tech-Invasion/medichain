@@ -159,6 +159,7 @@ export function MyRecordsPage() {
         bloodData,
         procedureData,
         amaData,
+        gcsData,
       ] = await Promise.all([
         fetchJson(`/api/lab/patient/${patientId}`, headers),
         fetchJson(`/api/records/${patientId}`, headers),
@@ -200,6 +201,10 @@ export function MyRecordsPage() {
         fetchJson(`/api/clinical/patient/${patientId}/procedures`, headers),
         // The document most likely to be cited against the patient later.
         fetchJson(`/api/clinical/patient/${patientId}/ama-discharges`, headers),
+        // Neurological observations. `POST /api/clinical/gcs` and this read had
+        // both existed with no caller at either end: nothing wrote a GCS
+        // assessment and nothing displayed one.
+        fetchJson(`/api/clinical/patient/${patientId}/gcs`, headers),
       ]);
 
       const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
@@ -496,6 +501,23 @@ export function MyRecordsPage() {
         verified: Boolean(record.patient_signed && record.provider_signed),
       }));
       allRecords.push(...amaRecords);
+
+      const gcsRecords = (((gcsData as {
+        assessments?: Array<Record<string, unknown>>;
+      }).assessments) || []).map(assessment => ({
+        id: String(assessment.assessment_id),
+        type: 'consultation' as const,
+        title: `Glasgow Coma Scale ${assessment.total_score ?? ''}`.trim(),
+        // The server's interpretation, not a phrase composed here. The total
+        // and its meaning are scored server-side and displayed as returned.
+        description: String(assessment.interpretation || 'Neurological assessment'),
+        provider: String(assessment.assessed_by || 'MediChain clinician'),
+        date: timestampDate(assessment.assessed_at as string | number | undefined),
+        contentHash: `gcs-${assessment.assessment_id}`,
+        metadataHash: String(assessment.assessment_id),
+        verified: true,
+      }));
+      allRecords.push(...gcsRecords);
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({

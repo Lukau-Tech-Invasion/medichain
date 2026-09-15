@@ -1072,7 +1072,43 @@ pub fn family_history_assessment(relatives: &[AffectedRelative]) -> FamilyHistor
 /// one this module produced on the server, whatever a page displayed while it
 /// was being filled in.
 pub fn catalog() -> serde_json::Value {
+    // The Glasgow Coma Scale's own options, published rather than restated in a
+    // form. Each component is a fixed instrument -- eye 1-4, verbal 1-5, motor
+    // 1-6 -- and the wording matters: "withdrawal from pain" and "abnormal
+    // flexion to pain" are two adjacent scores that mean very different things,
+    // and a screen that paraphrases them scores the wrong one.
+    //
+    // The descriptions come from the enums themselves (`description()`), so the
+    // form and the stored record cannot drift apart.
+    let gcs_component = |scores: &[u8], describe: &dyn Fn(u8) -> String| {
+        scores
+            .iter()
+            .map(|score| serde_json::json!({ "score": score, "description": describe(*score) }))
+            .collect::<Vec<_>>()
+    };
+
     serde_json::json!({
+        "glasgow_coma_scale": {
+            "eye": gcs_component(&[1, 2, 3, 4], &|s| {
+                crate::clinical::EyeResponse::from_score(s)
+                    .map(|v| v.description().to_string())
+                    .unwrap_or_default()
+            }),
+            "verbal": gcs_component(&[1, 2, 3, 4, 5], &|s| {
+                crate::clinical::VerbalResponse::from_score(s)
+                    .map(|v| v.description().to_string())
+                    .unwrap_or_default()
+            }),
+            "motor": gcs_component(&[1, 2, 3, 4, 5, 6], &|s| {
+                crate::clinical::MotorResponse::from_score(s)
+                    .map(|v| v.description().to_string())
+                    .unwrap_or_default()
+            }),
+            // Published for display only. The total, the interpretation and
+            // whether the airway is at risk are computed by the server when the
+            // assessment is filed -- a page never decides one.
+            "range": { "min": 3, "max": 15 },
+        },
         "morse_fall_scale": {
             "items": MORSE_ITEMS
                 .iter()

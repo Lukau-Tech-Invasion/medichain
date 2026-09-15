@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
 import PatientSelect from '../components/PatientSelect';
-import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import {
+  apiUrl,
+  createGCS,
+  getApiClient,
+  getApiErrorMessage,
+  useScoringCatalog,
+  useTranslation,
+} from '@medichain/shared';
+import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -131,6 +139,78 @@ function VitalSignsPage() {
   const { user, isAuthenticated } = useAuthStore();
   
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
+
+  // --- Glasgow Coma Scale ----------------------------------------------------
+  //
+  // `POST /api/clinical/gcs` and `GET /api/clinical/patient/{id}/gcs` have
+  // existed as long as the feature, with `createGCS`/`getPatientGCS` sitting in
+  // the shared client unused: **no screen wrote a GCS assessment and none read
+  // one**. What this page had instead was a free-typed `gcs_total` on the
+  // vitals form -- a number with no eye, verbal or motor components behind it,
+  // which cannot be checked, trended, or defended.
+  //
+  // This records the components. The total, the interpretation, and whether the
+  // airway is at risk all come back from the server (rule 8); nothing here
+  // adds three numbers together.
+  // The catalog is fetched once and shared: `useScoringCatalog` already caches
+  // it across pages, so this adds no request of its own.
+  const { catalog: scoringCatalog } = useScoringCatalog();
+  const gcsScale: GcsScale | null = scoringCatalog?.glasgow_coma_scale ?? null;
+  const [gcsEye, setGcsEye] = useState('');
+  const [gcsVerbal, setGcsVerbal] = useState('');
+  const [gcsMotor, setGcsMotor] = useState('');
+  const [gcsNotes, setGcsNotes] = useState('');
+  const [gcsSubmitting, setGcsSubmitting] = useState(false);
+  const [gcsError, setGcsError] = useState<string | null>(null);
+  const [gcsResult, setGcsResult] = useState<{
+    total_score: number;
+    interpretation: string;
+    is_comatose: boolean;
+    needs_airway: boolean;
+  } | null>(null);
+
+  const handleSubmitGcs = async () => {
+    setGcsError(null);
+    setGcsResult(null);
+    if (!selectedPatientId) {
+      setGcsError(t('docVitalSigns.gcsErrorPatient'));
+      return;
+    }
+    // All three components or none. A GCS reported without one of its parts is
+    // not a lower score, it is an incomplete assessment -- and the total the
+    // server computes would silently be wrong.
+    if (!gcsEye || !gcsVerbal || !gcsMotor) {
+      setGcsError(t('docVitalSigns.gcsErrorComponents'));
+      return;
+    }
+
+    try {
+      setGcsSubmitting(true);
+      const result = await createGCS({
+        patient_id: selectedPatientId,
+        eye_response: Number(gcsEye),
+        verbal_response: Number(gcsVerbal),
+        motor_response: Number(gcsMotor),
+        notes: gcsNotes.trim() || undefined,
+      });
+      // Show what the server scored, not what this page thinks the total is.
+      setGcsResult({
+        total_score: result.total_score,
+        interpretation: result.interpretation,
+        is_comatose: result.is_comatose,
+        needs_airway: result.needs_airway,
+      });
+      setGcsEye('');
+      setGcsVerbal('');
+      setGcsMotor('');
+      setGcsNotes('');
+    } catch (err) {
+      setGcsError(getApiErrorMessage(err, t('docVitalSigns.gcsErrorFailed')));
+    } finally {
+      setGcsSubmitting(false);
+    }
+  };
+
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -308,6 +388,111 @@ function VitalSignsPage() {
           )}
         </div>
       </div>
+
+      {/* Glasgow Coma Scale.
+          Its own card, not a field on the vitals form: the vitals row carries a
+          free-typed `gcs_total`, and a total with no eye/verbal/motor behind it
+          cannot be checked or trended. */}
+      {selectedPatientId && gcsScale && (
+        <div className="mb-6 bg-surface rounded-xl shadow p-6">
+          <h2 className="text-lg font-semibold text-content mb-1">
+            {t('docVitalSigns.gcsHeading')}
+          </h2>
+          <p className="text-sm text-content-muted mb-4">{t('docVitalSigns.gcsSubtitle')}</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            {([
+              ['gcs-eye', t('docVitalSigns.gcsEye'), gcsScale.eye, gcsEye, setGcsEye],
+              ['gcs-verbal', t('docVitalSigns.gcsVerbal'), gcsScale.verbal, gcsVerbal, setGcsVerbal],
+              ['gcs-motor', t('docVitalSigns.gcsMotor'), gcsScale.motor, gcsMotor, setGcsMotor],
+            ] as const).map(([id, label, options, value, setValue]) => (
+              <div key={id}>
+                <label htmlFor={id} className="block text-sm font-medium mb-1">
+                  {label}
+                </label>
+                <select
+                  id={id}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                >
+                  <option value="">{t('docVitalSigns.gcsSelect')}</option>
+                  {/* Wording and scores are the server's, not this page's. */}
+                  {options.map((option) => (
+                    <option key={option.score} value={String(option.score)}>
+                      {option.score} — {option.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-4">
+            <label htmlFor="gcs-notes" className="block text-sm font-medium mb-1">
+              {t('docVitalSigns.gcsNotes')}
+            </label>
+            <textarea
+              id="gcs-notes"
+              value={gcsNotes}
+              onChange={(e) => setGcsNotes(e.target.value)}
+              rows={2}
+              className="w-full border border-border-interactive rounded-lg px-3 py-2"
+            />
+          </div>
+
+          {gcsError && (
+            <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+              <p className="text-sm text-critical-subtle-fg">{gcsError}</p>
+            </div>
+          )}
+
+          {/* What the SERVER scored. This page adds nothing up. */}
+          {gcsResult && (
+            <div
+              role="status"
+              className={`mb-4 rounded-lg p-4 border ${
+                gcsResult.needs_airway || gcsResult.is_comatose
+                  ? 'bg-critical-subtle border-critical'
+                  : 'bg-ok-subtle border-ok'
+              }`}
+            >
+              <p
+                className={`text-lg font-semibold ${
+                  gcsResult.needs_airway || gcsResult.is_comatose
+                    ? 'text-critical-subtle-fg'
+                    : 'text-ok-subtle-fg'
+                }`}
+              >
+                {t('docVitalSigns.gcsTotal', { score: gcsResult.total_score })}
+              </p>
+              <p
+                className={`text-sm ${
+                  gcsResult.needs_airway || gcsResult.is_comatose
+                    ? 'text-critical-subtle-fg'
+                    : 'text-ok-subtle-fg'
+                }`}
+              >
+                {gcsResult.interpretation}
+              </p>
+              {gcsResult.needs_airway && (
+                <p className="text-sm font-semibold text-critical-subtle-fg mt-1">
+                  {t('docVitalSigns.gcsNeedsAirway')}
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSubmitGcs}
+            disabled={gcsSubmitting}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium disabled:opacity-60 disabled:cursor-not-allowed min-h-[24px]"
+          >
+            {gcsSubmitting ? t('docVitalSigns.gcsSaving') : t('docVitalSigns.gcsSave')}
+          </button>
+        </div>
+      )}
 
       {/* Success/Error Messages */}
       {success && (

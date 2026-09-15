@@ -55,9 +55,16 @@ Recorded so nobody "fixes" them later:
 
 Reachable from the patient application today: lab results, medical records,
 SOAP notes, e-prescriptions, triage, history & physical, progress notes, wound
-assessments, vitals, GCS, fall risk, MAR, IV sites, appointments, messages,
+assessments, vitals, fall risk, MAR, IV sites, appointments, messages,
 consents, telehealth, symptom checker, medication reminders, adherence,
 emergency card.
+
+> **Correction, 2026-09-15.** This list previously included **GCS**, and that
+> was wrong — an unverified claim in my own document. `createGCS`, `getGCS` and
+> `getPatientGCS` all sat in the shared client with no caller at either end:
+> nothing wrote a GCS assessment and nothing read one. Built and closed the same
+> day; see `docs/UNBUILT_INVENTORY.md`. The lesson is the one this campaign
+> keeps relearning — a name in a list is not evidence.
 
 ## Method, per workflow
 

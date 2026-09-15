@@ -49,7 +49,30 @@ export interface ScaleItem {
   values: number[];
 }
 
+/** One option on a Glasgow Coma Scale component, as the server words it. */
+export interface GcsScaleOption {
+  score: number;
+  description: string;
+}
+
+/**
+ * The Glasgow Coma Scale instrument, published by the catalog.
+ *
+ * The wording is the server's on purpose: "withdrawal from pain" and "abnormal
+ * flexion to pain" are adjacent scores that mean very different things, and a
+ * screen that paraphrases them records the wrong one.
+ */
+export interface GcsScale {
+  eye: GcsScaleOption[];
+  verbal: GcsScaleOption[];
+  motor: GcsScaleOption[];
+  /** For display only. The total and its interpretation are scored server-side. */
+  range: { min: number; max: number };
+}
+
 export interface ScoringCatalog {
+  /** Absent on a server older than the GCS assessment screen. */
+  glasgow_coma_scale?: GcsScale;
   morse_fall_scale: {
     items: ScaleItem[];
     bands: ScoreBand[];
