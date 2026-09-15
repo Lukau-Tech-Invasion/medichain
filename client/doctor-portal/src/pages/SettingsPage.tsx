@@ -3,7 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useThemeStore } from '../store';
 import {
   debugLog,
+  getApiErrorMessage,
   getUserSettings,
+  mfaDisable,
+  mfaEnroll,
+  mfaStatus,
+  mfaVerify,
   saveUserSettings,
   useTranslation,
 } from '@medichain/shared';
@@ -74,6 +79,95 @@ function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  // --- Multi-factor authentication -------------------------------------------
+  //
+  // What stood here was a switch that wrote `twoFactorEnabled: true` into the
+  // user's settings blob and nothing else. No secret was generated, no
+  // authenticator was paired, and the server's `user_mfa` state was untouched —
+  // so the screen said two-factor was on while `mfa_enabled()` returned false
+  // for that wallet. A security control that reports itself enabled when it is
+  // not is worse than one that is plainly absent.
+  //
+  // This is not cosmetic. `require_privileged_assurance` gates role assignment
+  // (`POST /api/roles/assign`), role revocation, and all three guardianship
+  // endpoints. Outside demo mode an unenrolled caller gets 403
+  // `MFA_ENROLLMENT_REQUIRED`, and there was no way in either client to enrol —
+  // so user management could not work in production at all.
+  //
+  // `mfaEnroll`, `mfaVerify`, `mfaStatus` and `mfaDisable` have all existed in
+  // the shared client with no caller.
+  const [mfaEnrolled, setMfaEnrolled] = useState<boolean | null>(null);
+  const [mfaSecret, setMfaSecret] = useState<string | null>(null);
+  const [mfaQr, setMfaQr] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaNotice, setMfaNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    // `null` means "not known yet", which is distinct from "not enrolled" —
+    // the screen must not claim either until the server has answered.
+    mfaStatus()
+      .then((status) => setMfaEnrolled(Boolean(status.enabled ?? status.enrolled)))
+      .catch(() => setMfaEnrolled(null));
+  }, []);
+
+  const beginMfaEnrollment = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      const enrollment = await mfaEnroll();
+      setMfaSecret(enrollment.secret);
+      setMfaQr(enrollment.qr_code_base64 ?? null);
+    } catch (err) {
+      setMfaError(getApiErrorMessage(err, t('docSettings.mfaEnrollFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const confirmMfaEnrollment = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      await mfaVerify(mfaCode.trim());
+      // Ask the server what the state is rather than assuming the verify
+      // succeeded into "enabled" — the whole point of this control is that it
+      // reports the server's truth.
+      const status = await mfaStatus();
+      setMfaEnrolled(Boolean(status.enabled ?? status.enrolled));
+      setMfaSecret(null);
+      setMfaQr(null);
+      setMfaCode('');
+      setMfaNotice(t('docSettings.mfaEnabledNotice'));
+    } catch (err) {
+      setMfaError(getApiErrorMessage(err, t('docSettings.mfaVerifyFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const turnOffMfa = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      // A current code is required to disable: without it, anyone holding a
+      // live session could strip the second factor off the account.
+      await mfaDisable(mfaCode.trim());
+      const status = await mfaStatus();
+      setMfaEnrolled(Boolean(status.enabled ?? status.enrolled));
+      setMfaCode('');
+      setMfaNotice(t('docSettings.mfaDisabledNotice'));
+    } catch (err) {
+      setMfaError(getApiErrorMessage(err, t('docSettings.mfaDisableFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -368,24 +462,134 @@ function SettingsPage() {
               <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.securitySettings')}</h2>
 
               <div className="space-y-6">
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <div className="flex items-start gap-3">
-                    <Smartphone className="text-content-muted mt-1" size={20} />
-                    <div>
-                      <h4 className="font-medium text-content">{t('docSettings.twoFactor')}</h4>
-                      <p className="text-sm text-content-muted">{t('docSettings.twoFactorDesc')}</p>
+                {/* Real TOTP enrolment, not a stored boolean.
+                    The switch that used to sit here wrote
+                    `twoFactorEnabled: true` into the settings blob and paired
+                    no authenticator, so the screen reported two-factor as on
+                    while the server held no enrolment for that wallet. */}
+                <div className="py-3 border-b border-border">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <Smartphone className="text-content-muted mt-1" size={20} />
+                      <div>
+                        <h4 className="font-medium text-content">{t('docSettings.twoFactor')}</h4>
+                        <p className="text-sm text-content-muted">{t('docSettings.twoFactorDesc')}</p>
+                        <p className="text-sm text-content-muted mt-1">
+                          {t('docSettings.mfaPrivilegedNote')}
+                        </p>
+                      </div>
                     </div>
+                    {/* "Not known yet" is not "off": until the server answers,
+                        this says nothing rather than guessing. */}
+                    <span
+                      data-testid="mfa-status"
+                      className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
+                        mfaEnrolled === null
+                          ? 'bg-surface-sunken text-content-secondary'
+                          : mfaEnrolled
+                            ? 'bg-ok-subtle text-ok-subtle-fg'
+                            : 'bg-caution-subtle text-caution-subtle-fg'
+                      }`}
+                    >
+                      {mfaEnrolled === null
+                        ? t('docSettings.mfaStatusUnknown')
+                        : mfaEnrolled
+                          ? t('docSettings.mfaStatusOn')
+                          : t('docSettings.mfaStatusOff')}
+                    </span>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      aria-label={t('docSettings.twoFactor')}
-                      checked={settings.security.twoFactorEnabled}
-                      onChange={(e) => updateSecurity('twoFactorEnabled', e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
-                  </label>
+
+                  {mfaError && (
+                    <div role="alert" className="mt-3 bg-critical-subtle border border-critical rounded-lg p-3">
+                      <p className="text-sm text-critical-subtle-fg">{mfaError}</p>
+                    </div>
+                  )}
+                  {mfaNotice && (
+                    <div role="status" className="mt-3 bg-ok-subtle border border-ok rounded-lg p-3">
+                      <p className="text-sm text-ok-subtle-fg">{mfaNotice}</p>
+                    </div>
+                  )}
+
+                  {mfaEnrolled === false && !mfaSecret && (
+                    <button
+                      type="button"
+                      onClick={beginMfaEnrollment}
+                      disabled={mfaBusy}
+                      className="mt-3 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+                    >
+                      {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaSetUp')}
+                    </button>
+                  )}
+
+                  {mfaSecret && (
+                    <div className="mt-3 space-y-3">
+                      <p className="text-sm text-content-secondary">{t('docSettings.mfaScanInstruction')}</p>
+                      {mfaQr && (
+                        <img
+                          src={`data:image/png;base64,${mfaQr}`}
+                          alt={t('docSettings.mfaQrAlt')}
+                          className="w-40 h-40 border border-border rounded-lg bg-surface"
+                        />
+                      )}
+                      {/* The secret in text as well as the QR: a clinician on a
+                          desktop with no camera still has to be able to pair. */}
+                      <p className="text-sm font-mono break-all text-content-secondary">
+                        {mfaSecret}
+                      </p>
+                      <div>
+                        <label htmlFor="mfa-code" className="block text-sm font-medium mb-1">
+                          {t('docSettings.mfaCodeLabel')}
+                        </label>
+                        <input
+                          id="mfa-code"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          className="w-40 border border-border-interactive rounded-lg px-3 py-2"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={confirmMfaEnrollment}
+                        disabled={mfaBusy || !mfaCode.trim()}
+                        className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+                      >
+                        {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaConfirm')}
+                      </button>
+                    </div>
+                  )}
+
+                  {mfaEnrolled === true && (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <label htmlFor="mfa-disable-code" className="block text-sm font-medium mb-1">
+                          {t('docSettings.mfaDisableCodeLabel')}
+                        </label>
+                        <input
+                          id="mfa-disable-code"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          className="w-40 border border-border-interactive rounded-lg px-3 py-2"
+                        />
+                      </div>
+                      {/* A current code is required to turn it off: otherwise
+                          anyone holding a live session could strip the second
+                          factor off the account. */}
+                      <button
+                        type="button"
+                        onClick={turnOffMfa}
+                        disabled={mfaBusy || !mfaCode.trim()}
+                        className="px-4 py-2 rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px]"
+                      >
+                        {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaTurnOff')}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="py-3 border-b border-border">

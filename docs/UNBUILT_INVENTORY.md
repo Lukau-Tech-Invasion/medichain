@@ -244,3 +244,39 @@ answer 401 for it, so a browser test would assert nothing about authorisation.
 The journey runs as the real fixture patient and asserts the withdrawn consent
 is *absent* afterwards — the only way to tell a real withdrawal from a 200 that
 changed nothing.
+
+
+### `/api/auth/mfa/*` — two-factor that is actually enrolled (2026-09-15)
+
+Verified before building: `mfaEnroll`, `mfaVerify`, `mfaStatus` and `mfaDisable`
+all sat in the shared client with no caller. What Settings showed instead was a
+**switch that wrote `twoFactorEnabled: true` into the user's settings blob** and
+nothing else — no secret, no paired authenticator, the server's `user_mfa` state
+untouched. The screen reported two-factor as on while `mfa_enabled()` returned
+false for that wallet. A security control that claims to be enabled when it is
+not is worse than one plainly absent.
+
+**And it is a production blocker, not a nicety.**
+`require_privileged_assurance` gates `POST /api/roles/assign`, role revocation
+and all three guardianship endpoints. `privileged_assurance_decision` returns
+`Ok(())` unconditionally in demo mode — which is why the admin journey passes —
+but outside demo mode an unenrolled caller is refused with 403
+`MFA_ENROLLMENT_REQUIRED`. With no way to enrol in either client, **user
+management could not work in production at all**.
+
+Settings now does real TOTP: status from the server, enrol (QR plus the secret
+in text, so a desktop with no camera can still pair), confirm with a code from
+the app, and turn off — which requires a current code, so a live session alone
+cannot strip the second factor off an account. "Checking…" is a distinct state
+from "Off": the screen does not claim either until the server has answered.
+
+Verified live end to end, with a real RFC 6238 code computed from the issued
+secret: off → enrol (32-character secret + QR) → wrong code refused with 401 →
+real code accepted → on → disable → off. The browser test does the same through
+the UI, including the refusal.
+
+**Still open, recorded:** the step-up half. When a privileged operation returns
+403 `MFA_REQUIRED`, nothing in the clients calls `/api/auth/mfa/challenge` to
+re-elevate the session. Enrolment is the precondition and is done; the retry
+path is not, and it cannot be exercised locally because demo mode never asks for
+it.
