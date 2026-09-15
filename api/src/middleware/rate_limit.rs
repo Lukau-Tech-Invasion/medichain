@@ -43,12 +43,63 @@ pub struct RateLimitConfig {
     pub window_duration: Duration,
 }
 
+/// The shipped limits. Overridable only by environment, never by a request.
+const DEFAULT_ANONYMOUS_LIMIT: u32 = 60;
+const DEFAULT_AUTHENTICATED_LIMIT: u32 = 120;
+
+/// Read a positive limit from the environment, or keep the shipped default.
+///
+/// # Why this is configurable at all
+///
+/// The browser suites drive one signed-in account through a whole clinical
+/// workflow as fast as the browser can click, which legitimately exceeds
+/// 120 requests/minute for that user. The consequence was not a clear failure:
+/// sign-ins were starved mid-suite and the run reported product failures --
+/// "8 passed, 40 did not run" -- for specs that were entirely green when run
+/// alone. A limit that cannot be raised for a test harness makes the full suite
+/// unrunnable and its partial results misleading.
+///
+/// A zero or unparseable value keeps the default rather than disabling the
+/// limiter: "rate limiting off" is not something a typo should be able to
+/// arrange, and `MEDICHAIN_RATE_LIMIT_AUTHENTICATED=` in a stray .env file
+/// should not silently remove the protection.
+fn limit_from_env(name: &str, default: u32) -> u32 {
+    match std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+    {
+        Some(value) if value > 0 => {
+            if value > default {
+                // Loud, because a raised limit in production is a finding. The
+                // startup secret-audit warns the same way about demo defaults.
+                log::warn!(
+                    "{name} raises the rate limit to {value}/minute (default {default}). \
+                     Intended for test harnesses only."
+                );
+            }
+            value
+        }
+        _ => default,
+    }
+}
+
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            anonymous_limit: 60,      // 60 requests per minute for anonymous
-            authenticated_limit: 120, // 120 requests per minute for authenticated
-            admin_limit: 300,         // 300 requests per minute for admins
+            anonymous_limit: limit_from_env(
+                "MEDICHAIN_RATE_LIMIT_ANONYMOUS",
+                DEFAULT_ANONYMOUS_LIMIT,
+            ),
+            authenticated_limit: limit_from_env(
+                "MEDICHAIN_RATE_LIMIT_AUTHENTICATED",
+                DEFAULT_AUTHENTICATED_LIMIT,
+            ),
+            // Declared and deliberately never applied: `get_rate_limit` refuses
+            // to read a role from the request, because a role header is
+            // spoofable and honouring one would let a caller hand itself this
+            // tier. Kept so the intent stays visible next to the limits that
+            // are used.
+            admin_limit: 300,
             window_duration: Duration::from_secs(60),
         }
     }
@@ -293,6 +344,57 @@ fn get_rate_limit(req: &ServiceRequest, config: &RateLimitConfig) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The environment can raise a limit for a test harness, and cannot
+    /// accidentally remove one.
+    ///
+    /// Serial by construction: these mutate process environment, so they are
+    /// one test rather than several that could interleave.
+    #[test]
+    fn env_overrides_raise_limits_but_never_disable_them() {
+        // A valid override is taken.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_OK", "500");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_OK", 120),
+            500
+        );
+
+        // Zero is not "no limit" -- it keeps the default. A typo must not be
+        // able to switch the limiter off.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_ZERO", "0");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_ZERO", 120),
+            120
+        );
+
+        // Neither does an unparseable value or an empty one.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_JUNK", "lots");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_JUNK", 120),
+            120
+        );
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_EMPTY", "");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_EMPTY", 120),
+            120
+        );
+
+        // An unset variable keeps the shipped default.
+        std::env::remove_var("MEDICHAIN_RATE_LIMIT_TEST_UNSET");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_UNSET", 60),
+            60
+        );
+
+        for key in [
+            "MEDICHAIN_RATE_LIMIT_TEST_OK",
+            "MEDICHAIN_RATE_LIMIT_TEST_ZERO",
+            "MEDICHAIN_RATE_LIMIT_TEST_JUNK",
+            "MEDICHAIN_RATE_LIMIT_TEST_EMPTY",
+        ] {
+            std::env::remove_var(key);
+        }
+    }
 
     #[test]
     fn test_default_config() {

@@ -71,6 +71,24 @@ export MEDICHAIN_STORAGE=postgres
 export IS_DEMO=true
 export REQUIRE_SIGNATURES=false
 export MEDICHAIN_DEV_MODE=1
+# 5. Rate limits the browser suites can actually live inside.
+#
+# The API allows 60 requests/minute anonymous and 120 per authenticated user.
+# A browser suite drives ONE signed-in account through a whole clinical
+# workflow as fast as Playwright can click, and a 52-test serial run blows
+# through 120/minute for that user well before it finishes.
+#
+# The failure does not look like a rate limit. Sign-ins are starved mid-suite
+# and the run reports product failures: a run on 2026-09-15 said "8 passed,
+# 40 did not run" against 769 rate-limit rejections in the API log, for specs
+# that were entirely green when run alone. Anyone reading that output would
+# start debugging the wrong thing.
+#
+# Raised here only, for this harness. Production sets neither variable and gets
+# the shipped defaults; a zero or unparseable value keeps them too, so a typo
+# cannot switch the limiter off.
+export MEDICHAIN_RATE_LIMIT_ANONYMOUS="${MEDICHAIN_RATE_LIMIT_ANONYMOUS:-6000}"
+export MEDICHAIN_RATE_LIMIT_AUTHENTICATED="${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-6000}"
 export BLOCKCHAIN_ENABLED=false
 export DISPENSING_POLICY_PATH="$(pwd)/api/data/dispensing_policy.example.json"
 
