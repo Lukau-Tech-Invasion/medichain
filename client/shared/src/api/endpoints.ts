@@ -1011,12 +1011,23 @@ export async function setCdsThresholds(
   return getApiClient().put(`/api/admin/cds/thresholds/${facilityId}`, thresholds);
 }
 
-/** Get the CDS audit trail (Admin only); optionally filtered by patient. */
+/**
+ * The CDS audit trail (Admin only); optionally filtered by patient.
+ *
+ * The handler pages with a cursor and returns `next_cursor`; this used to
+ * discard both, so a caller could only ever see the first page and had no way
+ * to tell whether there was more.
+ */
 export async function getCdsAudit(
-  patientId?: string
-): Promise<{ count: number; entries: unknown[] }> {
-  const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-  return getApiClient().get(`/api/admin/cds/audit${q}`);
+  patientId?: string,
+  options?: { cursor?: string; limit?: number }
+): Promise<{ count: number; entries: unknown[]; next_cursor?: string | null }> {
+  const params = new URLSearchParams();
+  if (patientId) params.set('patient_id', patientId);
+  if (options?.cursor) params.set('cursor', options.cursor);
+  if (options?.limit) params.set('limit', String(options.limit));
+  const query = params.toString();
+  return getApiClient().get(`/api/admin/cds/audit${query ? `?${query}` : ''}`);
 }
 
 // ============================================================================
@@ -4159,4 +4170,323 @@ export async function getSupportedWearables(): Promise<{
   supported_manufacturers: SupportedWearable[];
 }> {
   return getApiClient().get('/api/wearables/supported');
+}
+
+// ============================================================================
+// Clinical read-back
+// ============================================================================
+//
+// Each of these existed server-side with no client function. The pattern is the
+// same one this codebase keeps finding: a screen writes a record and then has
+// no way to fetch it again, so nothing can confirm what was stored, and a
+// clinician returning to a note sees whatever the form last held in memory.
+
+/** One SOAP note as stored. */
+export interface StoredSoapNote {
+  note_id: string;
+  patient_id: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Fetch a SOAP note by its id.
+ *
+ * Nothing could read a note back after writing it. A clinician who navigated
+ * away and returned had no way to see what had actually been recorded.
+ */
+export async function getSoapNote(noteId: string): Promise<StoredSoapNote> {
+  return getApiClient().get(`/api/clinical/soap/${encodeURIComponent(noteId)}`);
+}
+
+/**
+ * Append an addendum to a SOAP note.
+ *
+ * The correct way to change a clinical note after the fact: the original stays
+ * exactly as written and the correction is appended with its own author and
+ * timestamp. Overwriting would destroy what was relied on at the time, which is
+ * why the endpoint exists and why no page should offer an edit instead.
+ */
+export async function addSoapAddendum(
+  noteId: string,
+  content: string
+): Promise<{ success: boolean; addendum_id: string; message: string }> {
+  // `content` is the field name the handler reads; it rejects anything else
+  // with MISSING_FIELD. Checked against the handler, not assumed from the
+  // parameter's meaning.
+  return getApiClient().post(`/api/clinical/soap/${encodeURIComponent(noteId)}/addendum`, {
+    content,
+  });
+}
+
+/** One triage assessment as stored. */
+export interface StoredTriageAssessment {
+  assessment_id: string;
+  patient_id: string;
+  [key: string]: unknown;
+}
+
+/** Fetch a triage assessment by its id, to confirm what was recorded. */
+export async function getTriageAssessment(
+  assessmentId: string
+): Promise<StoredTriageAssessment> {
+  return getApiClient().get(`/api/clinical/triage/${encodeURIComponent(assessmentId)}`);
+}
+
+/**
+ * The most recent vital signs recorded for a patient.
+ *
+ * A single reading rather than the whole series — what a clinician wants at the
+ * top of a record, and what a dashboard tile needs without pulling a history.
+ */
+export async function getPatientLatestVitals(
+  patientId: string
+): Promise<Record<string, unknown>> {
+  return getApiClient().get(
+    `/api/clinical/patient/${encodeURIComponent(patientId)}/vitals/latest`
+  );
+}
+
+/**
+ * One lab panel template by name.
+ *
+ * `getLabPanels` lists them; this returns the tests a single panel contains, so
+ * an order form can show what it is about to order rather than a bare name.
+ */
+export async function getLabPanel(panelName: string): Promise<Record<string, unknown>> {
+  return getApiClient().get(`/api/clinical/lab-panels/${encodeURIComponent(panelName)}`);
+}
+
+// ============================================================================
+// Medical identities a person may act for
+// ============================================================================
+
+/** One medical record this account may open. */
+export interface MedicalIdentitySummary {
+  patient_id: string;
+  /** `self`, or the guardianship type for a ward. */
+  relationship: string;
+  full_name?: string | null;
+  date_of_birth?: string | null;
+  permissions: string[];
+}
+
+/**
+ * Every medical record the signed-in person may act for: their own, plus any
+ * ward they hold an active, unexpired guardianship over.
+ *
+ * Caller-scoped on purpose — the question is "whose records may I open", and
+ * the caller has no id to send. Expired and revoked guardianships are filtered
+ * out server-side, because this list is an offer to act, not a history.
+ */
+export async function listMyMedicalIdentities(): Promise<{
+  identities: MedicalIdentitySummary[];
+}> {
+  return getApiClient().get('/api/identity/my-medical-identities');
+}
+
+/**
+ * Claim an existing medical record as your own.
+ *
+ * Proves the claim with a national ID and date of birth checked against what
+ * was stored at registration — so a record created for a walk-in patient can
+ * later be attached to the account that person signs in with, without an
+ * administrator moving data between records by hand.
+ */
+export async function claimMedicalIdentity(payload: {
+  patient_id: string;
+  national_id: string;
+  date_of_birth: string;
+}): Promise<{ success: boolean; patient_id: string; message?: string }> {
+  return getApiClient().post('/api/identity/claim', payload);
+}
+
+// ============================================================================
+// Organisation key directory
+// ============================================================================
+
+/** A registered organisation signing/encryption key. */
+export interface OrganizationKey {
+  key_id: string;
+  organization_id: string;
+  facility_id?: string | null;
+  version: number;
+  purpose: string;
+  algorithm: string;
+  public_key: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+/** The key an organisation is currently using for a given purpose. */
+export async function getActiveOrganizationKey(
+  organizationId: string
+): Promise<{ success: boolean; key?: OrganizationKey | null }> {
+  return getApiClient().get(
+    `/api/organizations/${encodeURIComponent(organizationId)}/keys/active`
+  );
+}
+
+/**
+ * Register a public key against an organisation.
+ *
+ * Only the public half travels: `proof_of_possession` demonstrates the holder
+ * controls the private key without ever sending it. A key arrives `pending` and
+ * has to be transitioned before anything will use it.
+ */
+export async function registerOrganizationKey(
+  organizationId: string,
+  payload: {
+    organization_id: string;
+    facility_id?: string | null;
+    key_id: string;
+    version: number;
+    purpose: string;
+    algorithm: string;
+    public_key: string;
+    proof_of_possession: string;
+  }
+): Promise<{ success: boolean; key?: OrganizationKey }> {
+  return getApiClient().post(
+    `/api/organizations/${encodeURIComponent(organizationId)}/keys`,
+    payload
+  );
+}
+
+/** Move a registered key between states (pending → active → retired). */
+export async function transitionOrganizationKey(
+  organizationId: string,
+  keyId: string,
+  status: string
+): Promise<{ success: boolean; key?: OrganizationKey }> {
+  return getApiClient().post(
+    `/api/organizations/${encodeURIComponent(organizationId)}/keys/${encodeURIComponent(keyId)}/status`,
+    { status }
+  );
+}
+
+// ============================================================================
+// Session assurance
+// ============================================================================
+
+/**
+ * What the current session already proves.
+ *
+ * Lets a screen prompt for a step-up *before* starting a privileged workflow
+ * rather than discovering the requirement from a rejected mutation halfway
+ * through. `class_b` is the elevated state `useStepUp` otherwise has to
+ * recover into.
+ */
+export async function getSessionAssurance(): Promise<{
+  success: boolean;
+  class_a: boolean;
+  class_b: boolean;
+  step_up_ttl_secs: number;
+}> {
+  return getApiClient().get('/api/auth/assurance');
+}
+
+// ============================================================================
+// Reads and actions that existed server-side with no client function
+// ============================================================================
+
+/**
+ * Eligibility checks already run for a patient.
+ *
+ * `POST /api/insurance/eligibility` has run checks since the feature was built
+ * and nothing could read one back, so a clinic that checked a patient's cover on
+ * Monday had to check it again on Tuesday — paying for the query twice and
+ * losing the record of what the insurer said the first time.
+ */
+export async function getEligibilityChecks(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  count: number;
+  checks: Record<string, unknown>[];
+}> {
+  return getApiClient().get(
+    `/api/insurance/eligibility/${encodeURIComponent(patientId)}`
+  );
+}
+
+/** The medication reminders scheduled for a patient. */
+export async function getMedicationReminders(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  count: number;
+  reminders: Record<string, unknown>[];
+}> {
+  return getApiClient().get(
+    `/api/medications/reminders/${encodeURIComponent(patientId)}`
+  );
+}
+
+/** One staff member, as the directory exposes them. */
+export interface StaffMember {
+  wallet_address: string;
+  name: string;
+  role: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Every non-patient account, paginated.
+ *
+ * Distinct from the provider directory, which exposes only public identity
+ * fields for patients choosing somebody to message. This is the administrative
+ * roster.
+ */
+export async function getAllStaff(options?: { page?: number; limit?: number }): Promise<{
+  success: boolean;
+  staff: StaffMember[];
+  count: number;
+  pagination: Record<string, unknown>;
+}> {
+  const params = new URLSearchParams();
+  if (options?.page) params.set('page', String(options.page));
+  if (options?.limit) params.set('limit', String(options.limit));
+  const query = params.toString();
+  return getApiClient().get(`/api/staff/all${query ? `?${query}` : ''}`);
+}
+
+/**
+ * Withdraw a pending or approved secondary verification.
+ *
+ * The prior decision is kept — revoking says the check no longer applies, not
+ * that it never happened, and erasing it would remove the evidence a second
+ * pharmacist had once approved the dispense.
+ */
+export async function revokeSecondaryVerification(
+  prescriptionId: string,
+  reason: string
+): Promise<{ success: boolean; message?: string }> {
+  return getApiClient().post(
+    `/api/e-prescriptions/${encodeURIComponent(prescriptionId)}/verification/revoke`,
+    { reason }
+  );
+}
+
+/**
+ * Every death certificate on the register.
+ *
+ * The page rendered filed certificates from local component state, because the
+ * only endpoint was `GET /api/surgical/death-certificate/{id}` — findable only
+ * by somebody who already knew the id, which is not a register. Registrars,
+ * coroners and families all arrive without one.
+ */
+export async function listDeathCertificates(): Promise<Record<string, unknown>[]> {
+  return getApiClient().get('/api/platform/list/death-certificates');
+}
+
+/** Sync status for every device registered against this account. */
+export async function listSyncDevices(): Promise<{
+  success: boolean;
+  count: number;
+  devices: Record<string, unknown>[];
+}> {
+  return getApiClient().get('/api/sync/devices');
+}
+
+/** Whether the telehealth provider is reachable, before a consultation starts. */
+export async function getTelehealthHealth(): Promise<Record<string, unknown>> {
+  return getApiClient().get('/api/health/telehealth');
 }

@@ -723,6 +723,14 @@ const en_US: TranslationRecord = {
 
   // Offline sync
   offlineSync: {
+    devicesHeading: 'Devices holding a copy of your records',
+    devicesSubtitle: 'Each of these has downloaded records so they can be read offline.',
+    devicesLoading: 'Loading...',
+    devicesNone: 'No device holds an offline copy.',
+    devicesUnknown: 'This list could not be loaded, so it is not a confirmation that no device holds a copy.',
+    deviceUnnamed: 'Unnamed device',
+    deviceLastSync: 'Last synced {{when}}',
+    deviceNeverSynced: 'Has not synced yet',
     loading: 'Loading offline data...',
     title: 'Offline Sync',
     online: 'Online',
@@ -1025,6 +1033,13 @@ const en_US: TranslationRecord = {
 
   // Family
   family: {
+    identitiesHeading: 'Records you can open',
+    identitiesSubtitle: 'Your own record, and any record you have been given authority over.',
+    identitiesLoading: 'Loading...',
+    identitiesNone: 'You can open only your own record.',
+    identitiesUnknown: 'This list could not be loaded, so it is not a confirmation that you have no others.',
+    relationshipSelf: 'Your own record',
+    permissionsAll: 'Full access',
     title: 'Family Access',
     familyGroups: 'Family Groups',
     members: 'Family Members',
@@ -1747,6 +1762,16 @@ const en_US: TranslationRecord = {
   },
 
   docPatientDetail: {
+    latestVitalsHeading: 'Last recorded observations',
+    latestVitalsLoading: 'Loading observations...',
+    latestVitalsNone: 'No observations have been recorded for this patient.',
+    latestVitalsUnknown: 'The last observations could not be read, so this is not a record of none being taken.',
+    vitalHeartRate: 'Heart rate',
+    vitalBloodPressure: 'Blood pressure',
+    vitalTemperature: 'Temperature',
+    vitalSpO2: 'Oxygen saturation',
+    vitalRespiratory: 'Respiratory rate',
+    vitalRecorded: 'Recorded',
     capsuleHeading: 'Emergency capsule',
     capsuleSubtitle: 'The blood type, allergies and directives a paramedic sees within three seconds of tapping this patient\'s card. Publish a new version after changing any of them - until then the card still carries the old values.',
     capsuleLoading: 'Loading the emergency capsule...',
@@ -4926,6 +4951,8 @@ const en_US: TranslationRecord = {
     noPatientsHint: 'Register a patient or connect to the API',
   },
   docDeathCertificate: {
+    registerUnknown: 'The register could not be read. This is not an empty register - it is an unknown one.',
+    registerEmpty: 'No death certificate has been filed.',
     title: 'Death Certificate',
     subtitle: 'Create and manage official death certificates',
     tabCertificates: 'Certificates',
@@ -7008,6 +7035,16 @@ const en_US: TranslationRecord = {
     tableAsaClass: 'ASA Class',
   },
   docSOAPNote: {
+    addAddendum: 'Add addendum',
+    addendumExplainer: 'The note stays exactly as written. Your correction is appended with your name and the time.',
+    addendumLabel: 'Addendum text',
+    addendumPlaceholder: 'What needs correcting or adding',
+    addendumSave: 'Append addendum',
+    addendumSaving: 'Appending...',
+    addendumAdded: 'The addendum was appended.',
+    addendumCount: 'The addendum was appended. This note now carries {{count}}.',
+    addendumFailed: 'The addendum could not be saved. The note is unchanged.',
+    addendumTextRequired: 'Write the addendum before appending it.',
     backButton: 'Back',
     title: 'SOAP Note',
     subtitle: 'Subjective, Objective, Assessment, Plan - Comprehensive Clinical Documentation',

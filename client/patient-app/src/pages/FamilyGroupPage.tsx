@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { getMyFamilyGroups, createFamilyGroup, addFamilyMember, useTranslation } from '@medichain/shared';
+import {
+  addFamilyMember,
+  createFamilyGroup,
+  getMyFamilyGroups,
+  listMyMedicalIdentities,
+  useTranslation,
+} from '@medichain/shared';
+import type { MedicalIdentitySummary } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { Users, Plus, UserPlus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
@@ -34,6 +41,43 @@ export function FamilyGroupPage() {
   const [newMemberRelationship, setNewMemberRelationship] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
+
+  // --- Records this account may open -----------------------------------------
+  //
+  // Guardianship is recorded on the clinician's side -- a parent is verified
+  // against a child's record there -- and `GET /api/identity/my-medical-identities`
+  // is the patient-side answer to "whose records may I open". It had no caller,
+  // so a parent could be granted authority over a child's record and never see
+  // it from their own app.
+  //
+  // The server filters to active, unexpired relationships: this list is an
+  // offer to act, not a history, which is the opposite of how the clinician's
+  // guardian list is built.
+  const [identities, setIdentities] = useState<MedicalIdentitySummary[]>([]);
+  const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
+  // An empty list and a failed read are different answers to "may I open my
+  // child's record", and only one of them should be shown as settled.
+  const [identitiesUnknown, setIdentitiesUnknown] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    listMyMedicalIdentities()
+      .then((body) => {
+        if (cancelled) return;
+        setIdentities(body.identities ?? []);
+        setIdentitiesUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setIdentitiesUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setIdentitiesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
 
   useEffect(() => {
     loadGroups();
@@ -110,6 +154,47 @@ export function FamilyGroupPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
+      {/* Records this account may open */}
+      <div className="patient-card mb-4">
+        <h2 className="text-lg font-semibold text-content mb-1">{t('family.identitiesHeading')}</h2>
+        <p className="text-sm text-content-muted mb-4">{t('family.identitiesSubtitle')}</p>
+        {!identitiesLoaded ? (
+          <p className="text-sm text-content-muted">{t('family.identitiesLoading')}</p>
+        ) : identitiesUnknown ? (
+          <p className="text-sm text-content-muted">{t('family.identitiesUnknown')}</p>
+        ) : identities.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('family.identitiesNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="medical-identity-list">
+            {identities.map((identity) => (
+              <li
+                key={identity.patient_id}
+                className="border border-border rounded-lg p-3 flex items-start justify-between gap-3"
+              >
+                <div>
+                  <p className="text-sm text-content">
+                    {identity.full_name || identity.patient_id}
+                  </p>
+                  <p className="text-xs text-content-muted">
+                    {identity.relationship === 'self'
+                      ? t('family.relationshipSelf')
+                      : identity.relationship}
+                    {identity.date_of_birth ? ` · ${identity.date_of_birth}` : ''}
+                  </p>
+                </div>
+                {/* What the guardianship actually permits, not a blanket
+                    "authorised": a relationship can carry view-only rights. */}
+                <span className="text-xs text-content-muted text-right">
+                  {identity.permissions.includes('all')
+                    ? t('family.permissionsAll')
+                    : identity.permissions.join(', ')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-content">{t('family.familyGroups')}</h1>

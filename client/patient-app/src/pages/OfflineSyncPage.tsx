@@ -20,6 +20,7 @@ import {
   Loader2
 } from 'lucide-react';
 import {
+  listSyncDevices,
   getAllCachedItems,
   getAllSyncItems,
   getStorageInfo,
@@ -113,6 +114,38 @@ const OfflineSyncPage: React.FC = () => {
   const [lastFullSync, setLastFullSync] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
+
+  // --- Devices holding a copy of my records ----------------------------------
+  //
+  // Sync registration has stored a record since the feature was built and
+  // nothing could list them back. A registered device is a copy of clinical
+  // data walking around in someone's pocket; a patient who lost a phone could
+  // not see that it was still registered, let alone say so.
+  const [syncDevices, setSyncDevices] = useState<Record<string, unknown>[]>([]);
+  const [syncDevicesLoaded, setSyncDevicesLoaded] = useState(false);
+  // "No device is registered" is the reassuring answer, and the wrong one to
+  // guess when the read failed.
+  const [syncDevicesUnknown, setSyncDevicesUnknown] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    listSyncDevices()
+      .then((body) => {
+        if (cancelled) return;
+        setSyncDevices(body.devices ?? []);
+        setSyncDevicesUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setSyncDevicesUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSyncDevicesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
 
   // Load data from IndexedDB
@@ -348,6 +381,43 @@ const OfflineSyncPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {/* Devices holding a copy of my records */}
+      <div className="patient-card mb-4">
+        <h2 className="text-lg font-semibold text-content mb-1">{t('offlineSync.devicesHeading')}</h2>
+        <p className="text-sm text-content-muted mb-4">{t('offlineSync.devicesSubtitle')}</p>
+        {!syncDevicesLoaded ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesLoading')}</p>
+        ) : syncDevicesUnknown ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesUnknown')}</p>
+        ) : syncDevices.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="sync-device-list">
+            {syncDevices.map((device, index) => (
+              <li
+                key={String(device.device_id ?? device.id ?? index)}
+                className="border border-border rounded-lg p-3"
+              >
+                <p className="text-sm text-content">
+                  {String(device.device_name ?? device.device_id ?? t('offlineSync.deviceUnnamed'))}
+                </p>
+                {device.last_sync_at ? (
+                  <p className="text-xs text-content-muted">
+                    {t('offlineSync.deviceLastSync', {
+                      when: new Date(String(device.last_sync_at)).toLocaleString(),
+                    })}
+                  </p>
+                ) : (
+                  // Never synced is not "synced a long time ago": one means the
+                  // device holds nothing, the other that it holds something old.
+                  <p className="text-xs text-content-muted">{t('offlineSync.deviceNeverSynced')}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Header */}
       <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-600 to-blue-500' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
         <div className="flex items-center justify-between mb-2">

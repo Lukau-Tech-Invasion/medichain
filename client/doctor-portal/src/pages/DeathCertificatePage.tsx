@@ -14,7 +14,7 @@ import {
   Heart
 } from 'lucide-react';
 import { createDeathCertificate } from '../../../shared/src/api/endpoints';
-import { useTranslation, clickable } from '@medichain/shared';
+import { listDeathCertificates, useTranslation, clickable } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 
 /**
@@ -49,6 +49,45 @@ interface DeathCertificate {
 interface CauseOfDeathEntry {
   cause: string;
   duration: string;
+}
+
+/** Map one stored certificate onto what this page renders.
+ *
+ * The register returns the record as filed, which is the flat shape
+ * `CreateDeathCertificateRequest` accepts -- not this page's camelCase view
+ * model. Unset fields stay empty rather than being invented: a blank cause of
+ * death is a certificate that is not finished, and filling it in would be the
+ * same mistake as the sample data this replaced.
+ */
+function toCertificate(row: Record<string, unknown>): DeathCertificate {
+  const text = (key: string): string => {
+    const value = row[key];
+    return typeof value === 'string' ? value : '';
+  };
+  const conditions = row.other_conditions;
+  return {
+    id: text('certificate_id') || text('id'),
+    deceasedName: text('deceased_name'),
+    dateOfBirth: text('date_of_birth'),
+    dateOfDeath: text('date_of_death'),
+    timeOfDeath: text('time_of_death'),
+    placeOfDeath: text('place_of_death'),
+    // The register carries no county field. Empty, not invented — this page's
+    // previous sample data is exactly what filling it in would recreate.
+    countyOfDeath: '',
+    mannerOfDeath: (text('manner_of_death') || 'pending') as MannerOfDeath,
+    causeOfDeath: text('cause_of_death'),
+    otherConditions: Array.isArray(conditions) ? (conditions as string[]) : [],
+    certifyingPhysician: text('certifier_name'),
+    certifyingPhysicianLicense: text('certifier_license'),
+    status: (text('status') || 'draft') as CertificateStatus,
+    // No created_at on the record; a filed certificate has `filed_at`. Using
+    // `new Date()` for an unfiled one would date it to whenever the page
+    // happened to load.
+    createdAt: row.filed_at ? new Date(String(row.filed_at)) : new Date(0),
+    filedAt: row.filed_at ? new Date(String(row.filed_at)) : undefined,
+    caseNumber: undefined,
+  };
 }
 
 const DeathCertificatePage: React.FC = () => {
@@ -126,60 +165,42 @@ const DeathCertificatePage: React.FC = () => {
     signature: ''
   });
 
+  // The register, as filed.
+  //
+  // This effect used to push three invented certificates into state -- names,
+  // dates of death, causes and certifying physicians for people who do not
+  // exist. On a death register that is not harmless placeholder content: a
+  // registrar reading this screen would have seen a filed certificate for
+  // "Robert James Wilson, acute myocardial infarction" and had no way to tell
+  // it from a real one.
+  //
+  // `GET /api/platform/list/death-certificates` is what the page needed and
+  // already existed with no caller. Until it had one, a certificate could be
+  // filed and then found only by somebody who already knew its id -- which is
+  // not a register, and registrars, coroners and families all arrive without
+  // one.
+  const [registerUnknown, setRegisterUnknown] = useState(false);
+  const [registerLoaded, setRegisterLoaded] = useState(false);
+
   useEffect(() => {
-    // Sample certificates
-    setCertificates([
-      {
-        id: 'DC-2024-00123',
-        deceasedName: 'Robert James Wilson',
-        dateOfBirth: '1942-05-15',
-        dateOfDeath: '2024-01-14',
-        timeOfDeath: '14:32',
-        placeOfDeath: 'Memorial General Hospital',
-        countyOfDeath: 'Riyadh',
-        mannerOfDeath: 'natural',
-        causeOfDeath: 'Acute myocardial infarction',
-        otherConditions: ['Coronary artery disease', 'Hypertension', 'Type 2 diabetes'],
-        certifyingPhysician: 'Dr. Sarah Ahmed',
-        certifyingPhysicianLicense: 'MD-456789',
-        status: 'filed',
-        createdAt: new Date('2024-01-14'),
-        filedAt: new Date('2024-01-15'),
-        caseNumber: 'RC-2024-00045'
-      },
-      {
-        id: 'DC-2024-00122',
-        deceasedName: 'Margaret Anne Thompson',
-        dateOfBirth: '1938-11-22',
-        dateOfDeath: '2024-01-13',
-        timeOfDeath: '08:15',
-        placeOfDeath: 'Sunrise Care Facility',
-        countyOfDeath: 'Jeddah',
-        mannerOfDeath: 'natural',
-        causeOfDeath: 'Respiratory failure',
-        otherConditions: ['COPD', 'Pneumonia'],
-        certifyingPhysician: 'Dr. Mohammed Al-Faisal',
-        certifyingPhysicianLicense: 'MD-234567',
-        status: 'pending-signature',
-        createdAt: new Date('2024-01-13')
-      },
-      {
-        id: 'DC-2024-00121',
-        deceasedName: 'Charles Edward Brown',
-        dateOfBirth: '1955-03-08',
-        dateOfDeath: '2024-01-12',
-        timeOfDeath: '22:45',
-        placeOfDeath: 'King Fahd Medical City',
-        countyOfDeath: 'Riyadh',
-        mannerOfDeath: 'pending',
-        causeOfDeath: 'Under investigation',
-        otherConditions: [],
-        certifyingPhysician: 'Dr. Ahmed Hassan',
-        certifyingPhysicianLicense: 'MD-345678',
-        status: 'pending-review',
-        createdAt: new Date('2024-01-12')
-      }
-    ]);
+    let cancelled = false;
+    listDeathCertificates()
+      .then((rows) => {
+        if (cancelled) return;
+        setCertificates(rows.map(toCertificate));
+        setRegisterUnknown(false);
+      })
+      .catch(() => {
+        // An empty register and an unreadable one are different findings, and
+        // "no certificates have been filed" is a claim about the dead.
+        if (!cancelled) setRegisterUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setRegisterLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const getStatusBadge = (status: CertificateStatus) => {
@@ -342,6 +363,20 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Certificates */}
           <div className="space-y-4">
+            {/* An unreadable register and an empty one are different findings,
+                and "no certificate has been filed" is a claim about the dead. */}
+            {registerUnknown && (
+              <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">
+                  {t('docDeathCertificate.registerUnknown')}
+                </p>
+              </div>
+            )}
+            {registerLoaded && !registerUnknown && filteredCertificates.length === 0 && (
+              <p className="text-sm text-content-muted">
+                {t('docDeathCertificate.registerEmpty')}
+              </p>
+            )}
             {filteredCertificates.map(cert => (
               <div key={cert.id} className="bg-surface rounded-lg shadow border p-6">
                 <div className="flex items-start justify-between mb-4">

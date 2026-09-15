@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   getEmergencyCapsuleAccessLog,
+  getPatientLatestVitals,
   getEmergencyCapsuleVersions,
   publishEmergencyCapsule,
   revokeEmergencyCapsule,
@@ -28,6 +29,7 @@ import {
   Phone,
   Edit,
   Download,
+  Activity,
   Clock
 } from 'lucide-react';
 
@@ -76,6 +78,52 @@ function PatientDetailPage() {
   const [guardiansLoaded, setGuardiansLoaded] = useState(false);
   const [guardianError, setGuardianError] = useState<string | null>(null);
   const [guardianBusy, setGuardianBusy] = useState(false);
+
+  // --- Last recorded observations --------------------------------------------
+  //
+  // `GET /api/clinical/patient/{id}/vitals/latest` had no caller. The vitals
+  // page derives its own "latest" from the flowsheet it loads anyway, so this
+  // endpoint's real consumer is a screen that wants the last readings WITHOUT
+  // pulling a whole flowsheet -- which is this one. Opening a patient record
+  // showed a blood type and no observations at all.
+  const [latestVitals, setLatestVitals] = useState<Record<string, unknown> | null>(null);
+  const [vitalsLoaded, setVitalsLoaded] = useState(false);
+  // "No vitals have been recorded" and "the reading could not be fetched" are
+  // different statements, and only one of them is safe to act on.
+  const [vitalsUnknown, setVitalsUnknown] = useState(false);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    getPatientLatestVitals(patientId)
+      .then((body) => {
+        if (cancelled) return;
+        // `reading`, not `vitals`, and the names inside it are the
+        // repository's own -- checked against a live response, because the
+        // first cut of this read `vitals` / `blood_pressure_systolic` and
+        // would have rendered a dash in every tile while looking fine.
+        const reading = (body as { reading?: Record<string, unknown> }).reading ?? null;
+        setLatestVitals(reading && Object.keys(reading).length > 0 ? reading : null);
+        setVitalsUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setVitalsUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setVitalsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
+  /** A reading that was never taken is absent, never zero. */
+  const vitalOrDash = (key: string, suffix = ''): string => {
+    const value = latestVitals?.[key];
+    if (value === null || value === undefined || value === '') return '—';
+    return `${value}${suffix}`;
+  };
+
   // Recording and ending a guardianship both run through
   // `require_privileged_assurance`, which outside demo mode refuses a session
   // that is not freshly MFA-verified. Without this the page showed the server's
@@ -501,6 +549,59 @@ function PatientDetailPage() {
               </div>
             ) : (
               <p className="text-content-muted">{t('docPatientDetail.noConditions')}</p>
+            )}
+          </div>
+
+          {/* Last recorded observations */}
+          <div className="bg-surface rounded-xl shadow p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity className="text-content-muted" size={20} />
+              <h3 className="font-semibold text-content">{t('docPatientDetail.latestVitalsHeading')}</h3>
+            </div>
+            {!vitalsLoaded ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.latestVitalsLoading')}</p>
+            ) : vitalsUnknown ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.latestVitalsUnknown')}</p>
+            ) : !latestVitals ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.latestVitalsNone')}</p>
+            ) : (
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4" data-testid="latest-vitals">
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalHeartRate')}</dt>
+                  <dd className="text-content font-semibold">{vitalOrDash('heart_rate', ' bpm')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalBloodPressure')}</dt>
+                  <dd className="text-content font-semibold">
+                    {latestVitals.systolic_bp && latestVitals.diastolic_bp
+                      ? `${latestVitals.systolic_bp}/${latestVitals.diastolic_bp}`
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalTemperature')}</dt>
+                  <dd className="text-content font-semibold">{vitalOrDash('temperature_celsius', ' °C')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalSpO2')}</dt>
+                  <dd className="text-content font-semibold">{vitalOrDash('oxygen_saturation', '%')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalRespiratory')}</dt>
+                  <dd className="text-content font-semibold">{vitalOrDash('respiratory_rate')}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-content-muted">{t('docPatientDetail.vitalRecorded')}</dt>
+                  <dd className="text-content-secondary text-sm">
+                    {/* Unix SECONDS, not milliseconds. Passing it straight to
+                        `new Date` dated every reading to January 1970, which is
+                        wrong in a way a clinician would notice and distrust. */}
+                    {typeof latestVitals.timestamp === 'number'
+                      ? new Date(latestVitals.timestamp * 1000).toLocaleString()
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
             )}
           </div>
 
