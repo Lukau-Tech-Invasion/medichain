@@ -106,6 +106,8 @@ export function ConsentManagementPage() {
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [withdrawNotice, setWithdrawNotice] = useState<string | null>(null);
+  // Offered, never demanded: a patient does not owe a reason.
+  const [withdrawReason, setWithdrawReason] = useState('');
 
   const handleWithdrawConsent = async (consentId: string) => {
     if (!patient) return;
@@ -113,9 +115,10 @@ export function ConsentManagementPage() {
     setWithdrawNotice(null);
     setWithdrawingId(consentId);
     try {
-      // A reason is offered, never demanded: a patient does not owe one.
-      const reason = window.prompt(t('consent.withdrawReasonPrompt')) ?? undefined;
-      await revokeConsent(consentId, reason?.trim() || undefined);
+      // The reason is an optional field on the row, not a `window.prompt`.
+      // A blocking browser dialog is the wrong way to ask a patient anything --
+      // it cannot be styled, translated, or read by a screen reader in context.
+      await revokeConsent(consentId, withdrawReason.trim() || undefined);
       // Read the list back rather than editing it here: what the server holds
       // is the record, and a withdrawal this screen only remembers is no
       // withdrawal at all.
@@ -125,6 +128,7 @@ export function ConsentManagementPage() {
       // consents from this list -- so say so, or the screen looks like it
       // simply lost something.
       setWithdrawNotice(t('consent.withdrawDone'));
+      setWithdrawReason('');
     } catch (err) {
       setWithdrawError(getApiErrorMessage(err, t('consent.withdrawFailed')));
     } finally {
@@ -532,20 +536,37 @@ export function ConsentManagementPage() {
             <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-green-500" /> {t('consent.signedForms')}
             </h3>
+            {/* Outside the list branch on purpose. Withdrawing the last
+                standing consent empties the list, and a confirmation rendered
+                inside it would unmount at exactly the moment it was needed --
+                the patient would watch the row vanish with nothing said. */}
+            {withdrawError && (
+              <div role="alert" className="mb-3 bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">{withdrawError}</p>
+              </div>
+            )}
+            {withdrawNotice && (
+              <div role="status" className="mb-3 bg-ok-subtle border border-ok rounded-lg p-3">
+                <p className="text-sm text-ok-subtle-fg">{withdrawNotice}</p>
+              </div>
+            )}
             {signedConsents.length === 0 ? (
               <p className="text-sm text-content-muted">{t('consent.noSigned')}</p>
             ) : (
               <div className="space-y-2">
-                {withdrawError && (
-                  <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
-                    <p className="text-sm text-critical-subtle-fg">{withdrawError}</p>
-                  </div>
-                )}
-                {withdrawNotice && (
-                  <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3">
-                    <p className="text-sm text-ok-subtle-fg">{withdrawNotice}</p>
-                  </div>
-                )}
+                <div>
+                  <label htmlFor="consent-withdraw-reason" className="block text-xs text-content-muted mb-1">
+                    {t('consent.withdrawReasonLabel')}
+                  </label>
+                  <input
+                    id="consent-withdraw-reason"
+                    type="text"
+                    value={withdrawReason}
+                    onChange={e => setWithdrawReason(e.target.value)}
+                    placeholder={t('consent.withdrawReasonPlaceholder')}
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
                 {signedConsents.map(c => (
                   <div key={c.consent_id} className="patient-card flex items-center justify-between">
                     <div className="flex items-center gap-3">

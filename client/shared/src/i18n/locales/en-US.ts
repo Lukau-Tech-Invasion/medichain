@@ -900,7 +900,8 @@ const en_US: TranslationRecord = {
   consent: {
     withdraw: 'Withdraw',
     withdrawing: 'Withdrawing...',
-    withdrawReasonPrompt: 'Why are you withdrawing this consent? (optional)',
+    withdrawReasonLabel: 'Reason for withdrawing (optional)',
+    withdrawReasonPlaceholder: 'You do not have to give a reason',
     withdrawFailed: 'The consent could not be withdrawn.',
     withdrawDone: 'Consent withdrawn. It no longer appears in your signed consents.',
     loadFailed: 'Who has access could not be loaded. This list is not empty — it is unknown.',
