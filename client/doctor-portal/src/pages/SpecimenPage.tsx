@@ -144,19 +144,9 @@ const SpecimenPage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(apiUrl('/api/clinical/specimens'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'LabTechnician'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(t('docSpecimen.fetchError', { status: response.status }));
-        }
-
-        const data = await response.json();
+        const data = await getApiClient().get<
+        { items?: Specimen[]; data?: Specimen[] } | Specimen[]
+      >('/api/clinical/specimens');
         // The endpoint returns a bare array on some paths and an envelope
         // (`{items}` / `{data}`) on others; calling `.map` on the envelope threw
         // `data.map is not a function` and left the page stuck on its error

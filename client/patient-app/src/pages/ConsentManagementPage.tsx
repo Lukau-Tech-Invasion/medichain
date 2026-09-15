@@ -166,7 +166,8 @@ export function ConsentManagementPage() {
     }
 
     setIsLoading(false);
-  }, [patient?.healthId, patient?.walletAddress]);
+    // `t` is now read here, for the load-failure message.
+  }, [patient?.healthId, patient?.walletAddress, t]);
 
   useEffect(() => {
     loadData();

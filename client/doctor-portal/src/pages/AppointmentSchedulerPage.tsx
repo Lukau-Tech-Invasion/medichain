@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiUrl, createAppointment, getApiClient, setAppointmentStatus, useTranslation } from '@medichain/shared';
+import { createAppointment, getApiClient, setAppointmentStatus, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -198,11 +198,9 @@ export default function AppointmentSchedulerPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl(`/api/appointments/provider/${provider.providerId}`), {
-        headers: { ...getApiClient().getSessionHeaders(provider.walletAddress) },
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
+      const data = await getApiClient().get<{ appointments?: Appointment[] }>(
+        `/api/appointments/provider/${provider.providerId}`
+      );
       setAppointments(data.appointments ?? []);
     } catch {
       // A failed load is an error state, not an empty list. Showing "no
@@ -211,7 +209,9 @@ export default function AppointmentSchedulerPage() {
     } finally {
       setLoading(false);
     }
-  }, [provider.isAuthenticated, provider.providerId, provider.walletAddress, t]);
+    // `provider.walletAddress` went with the hand-rolled session headers; the
+    // typed client reads the session itself.
+  }, [provider.isAuthenticated, provider.providerId, t]);
 
   useEffect(() => {
     void fetchAppointments();

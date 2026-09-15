@@ -171,22 +171,42 @@ They are not merely unused — they were **superseded**. The handlers write to a
 | `family_medical_histories` | `family_history_records` |
 | `e_prescriptions` | `e_prescriptions_v2`, `e_prescription_records` |
 
+**Measured 2026-09-12: every one of these tables holds 0 rows.** That settles
+the risk question — nothing is stored in them, so neither direction below loses
+data.
+
 **Why this matters beyond tidiness.** Each typed repository has a real
-PostgreSQL table behind it, and that table is empty while its JSON counterpart
-holds the data. Anyone reading the schema — or writing a report against it, or
-migrating it — will find `transfusion_records` and reasonably conclude that is
-where transfusions live. It is not. That is the same trap as
-`postgres/phase2.rs`, one level up.
+PostgreSQL table behind it, with columns, CHECK constraints and foreign keys.
+Anyone reading the schema — writing a report against it, planning a migration,
+answering "where do transfusions live?" — will find `transfusion_records`, see a
+sensible schema, and be wrong. That is the same trap as `postgres/phase2.rs`,
+one level up.
 
-**What closes it:** a decision, not a deletion. Either the typed repositories
-are the intended shape and the handlers should migrate onto them, or the JSON
-ones are and roughly 23 traits, 46 backend implementations and their tables
-should go. Both are large; picking one is the work, and it needs the owner.
+**Mitigated 2026-09-12 without pre-empting the decision.** Migration
+`20260912000001` puts `COMMENT ON TABLE` on all twenty-three saying they are
+superseded and empty, and naming the JSON repository that actually holds each
+record. A comment is the one thing a schema reader is guaranteed to see, so the
+trap is gone even while the larger question is open.
 
-**Not done here** because removing 23 repositories plus two backends each, while
-their tables may hold rows from earlier runs, is not something to do on a
-general instruction (CLAUDE.md rule 7). The gate now holds the count so it
-cannot quietly grow.
+**What closes it: a decision, and it is not obviously "delete".** The typed
+tables are arguably the *better* design. A `JsonRecordRepository` is an opaque
+JSONB blob that enforces no CHECK constraint — and this codebase has repeatedly
+shipped defects that only PostgreSQL's constraints caught, including a frequency
+written into a channel column and a wallet address written into a four-value
+category (see the `reminder_type` and `reported_by` entries). Choosing the JSON
+stores permanently means choosing the storage layer that cannot catch those.
+
+So the two options are:
+
+1. **Migrate the handlers onto the typed repositories.** More work, and it buys
+   back constraint enforcement on twenty-three record types.
+2. **Remove the typed repositories, their two backend implementations each, and
+   their tables.** Less work, and it accepts the JSON stores as the design.
+
+**Not decided here.** Deleting 23 repositories is gated by CLAUDE.md rule 7, and
+recommending deletion when the deleted half may be the better design would be
+worse than leaving it open. `scripts/check-unread-repositories.py` holds the
+count so it cannot quietly grow.
 
 ---
 
@@ -2971,6 +2991,41 @@ an auth decision a reader cannot see at the endpoint is one nobody can audit —
 so the helper was inlined.
 
 ---
+
+## Write endpoints with no producer screen (recorded 2026-09-15, STILL OPEN)
+
+Found while closing the patient-visibility workflows
+(`docs/PATIENT_VISIBILITY_WORKFLOWS.md`). These are the mirror image of the
+defect that campaign was about: not "the patient cannot read it", but **nothing
+in either application writes it at all.**
+
+Six typed endpoint functions in `client/shared/src/api/endpoints.ts` have **no
+caller anywhere in the doctor portal or the patient application**:
+
+| Function | Endpoint | Nearest screen |
+|---|---|---|
+| `createRadiologyReport` | `POST /api/surgical/radiology/report` | `ImagingPage` orders studies; nothing reports them |
+| `createIntubationRecord` | `POST /api/clinical/intubation` | none |
+| `createLacerationRepair` | `POST /api/clinical/laceration` | `LacerationRepairPage` only *reads* `/api/clinical/laceration-repairs` |
+| `createSplintCast` | `POST /api/clinical/splint` | none |
+| `createBurnAssessment` | `POST /api/clinical/burn` | none |
+| `createAnesthesiaRecord` | `POST /api/surgical/anesthesia` | none |
+
+So today these records can arrive only from an integration or a test. The API
+side is complete — handler, repository, both backends, and now a patient-scoped
+read (`GET /api/clinical/patient/{id}/procedures` and `/imaging`) — and the
+journey steps post the shape an integration would send, which is what proves the
+read path works.
+
+**Not fixed here deliberately.** The visibility campaign asks whether what *is*
+written reaches the patient; building six new clinician forms is a different and
+much larger piece of work, and which of them a deployment actually needs is a
+product decision. `LacerationRepairPage` is the one closest to done — it already
+has the list, the types and the detail view, and is missing only the submit.
+
+Recorded so the next reader does not mistake a complete backend for a working
+feature — the same trap as the superseded typed repositories above, from the
+other direction.
 
 ## Family history banded hereditary risk on a raw count (2026-09-09, CLOSED 2026-09-09)
 

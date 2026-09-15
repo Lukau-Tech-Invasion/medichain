@@ -172,21 +172,9 @@ function VitalSignsPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(
-          apiUrl(`/api/clinical/vitals/flowsheet/${selectedPatientId}`),
-          {
-            headers: { 
-              ...getApiClient().getSessionHeaders(user.walletAddress),
-              'X-Provider-Role': user.role,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(t('docVitalSigns.errorLoadFlowsheet'));
-        }
-
-        const data = await response.json();
+        const data = await getApiClient().get<RawFlowsheet>(
+        `/api/clinical/vitals/flowsheet/${selectedPatientId}`
+      );
         setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));

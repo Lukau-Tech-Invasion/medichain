@@ -2045,6 +2045,7 @@ const en_US: TranslationRecord = {
   },
 
   docAccessLogs: {
+    loadFailed: 'The access log could not be read. This list is not empty - it is unknown.',
     typeNfcTap: 'NFC Card Tap',
     typeQr: 'QR Code Scan',
     typeListRecords: 'View Records',

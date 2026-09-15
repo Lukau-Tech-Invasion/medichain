@@ -5,7 +5,6 @@ import {
   createCardiac,
   getApiClient,
   getPatients,
-  apiUrl,
   useTranslation,
   useScoringCatalog,
 } from '@medichain/shared';
@@ -57,6 +56,18 @@ const TIMI_CRITERIA_FIELDS: ReadonlyArray<{
   { key: 'severe_angina', labelKey: 'docCardiac.timiSevereAngina' },
   { key: 'st_deviation', labelKey: 'docCardiac.timiStDeviation' },
 ];
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type EventList = { events?: { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[] } | { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[];
 
 export default function CardiacPage() {
   const { t } = useTranslation();
@@ -145,13 +156,8 @@ export default function CardiacPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/cardiac/patient/${patientId}`), {
-        headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      const data = await getApiClient().get<EventList>(`/api/emergency/cardiac/patient/${patientId}`);
+      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
     } catch (e) {
       console.error(e);
     } finally {

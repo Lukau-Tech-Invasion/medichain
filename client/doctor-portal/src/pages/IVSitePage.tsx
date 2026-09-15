@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
-  apiUrl,
   createIvSite,
   getApiClient,
   getPatients,
@@ -95,6 +94,18 @@ interface IVAssessment {
   /// is a finding, and a site nobody graded must not assert it.
   infiltrationGrade?: number;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type SiteList = { sites?: IVSite[]; iv_sites?: IVSite[] } | IVSite[];
 
 export default function IVSitePage() {
   const { t } = useTranslation();
@@ -222,18 +233,10 @@ export default function IVSitePage() {
     if (!selectedPatient || !user) return;
     const fetchIVSites = async () => {
       try {
-        const response = await fetch(apiUrl(`/api/clinical/iv-sites/${selectedPatient.patient_id}`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Nurse',
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
-          if (sites.length > 0) {
-            setIvSites(sites);
-          }
+        const data = await getApiClient().get<SiteList>(`/api/clinical/iv-sites/${selectedPatient.patient_id}`);
+        const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
+        if (sites.length > 0) {
+          setIvSites(sites);
         }
       } catch (err) {
         console.error('Failed to fetch IV site history:', err);

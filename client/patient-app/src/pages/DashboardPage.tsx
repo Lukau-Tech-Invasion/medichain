@@ -107,29 +107,27 @@ export function DashboardPage() {
           });
 
           // Fetch access logs for recent activity
-          const logsResponse = await fetch(apiUrl(`/api/access-logs/${patientId}`), {
-            headers: { 
-              ...getApiClient().getSessionHeaders(patient.walletAddress),
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          
-          if (logsResponse.ok) {
-            const logsData = await logsResponse.json();
-            const activities: RecentActivity[] = (logsData.logs || []).slice(0, 5).map((log: {
+          const logsData = await getApiClient().get<{
+            logs?: {
               log_id: string;
               action_type: string;
               accessor_name: string;
               accessed_at: string;
-            }) => ({
-              id: log.log_id,
-              type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
-              description: `${log.accessor_name} ${log.action_type === 'view' ? t('dashboard.accessedYourRecords') : log.action_type}`,
-              timestamp: log.accessed_at,
-              accessor: log.accessor_name,
-            }));
-            setRecentActivity(activities);
-          }
+            }[];
+          }>(`/api/access-logs/${patientId}`);
+          const activities: RecentActivity[] = (logsData.logs || []).slice(0, 5).map((log: {
+            log_id: string;
+            action_type: string;
+            accessor_name: string;
+            accessed_at: string;
+          }) => ({
+            id: log.log_id,
+            type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
+            description: `${log.accessor_name} ${log.action_type === 'view' ? t('dashboard.accessedYourRecords') : log.action_type}`,
+            timestamp: log.accessed_at,
+            accessor: log.accessor_name,
+          }));
+          setRecentActivity(activities);
         } else {
           // API returned error - use local data from wallet
           setApiConnected(false);

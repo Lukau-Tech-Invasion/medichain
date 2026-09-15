@@ -111,8 +111,12 @@ export default function MessagesPage() {
           <h1 className="text-2xl font-bold text-content flex items-center gap-2">
             <MessageSquare className="text-blue-500" size={24} />
             {t('docMessages.title')}
+            {/* `bg-red-500 text-white` measured 3.76:1 — below WCAG AA's 4.5:1 for
+                text this size. The design tokens carry a pair that passes, and using
+                them also makes the badge follow the theme. It went unmeasured because
+                this page failed to load, so the badge never rendered for the audit. */}
             {unreadCount > 0 && (
-              <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full ml-1">
+              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full ml-1">
                 {unreadCount}
               </span>
             )}

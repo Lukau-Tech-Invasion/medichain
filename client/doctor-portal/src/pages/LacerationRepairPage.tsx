@@ -152,21 +152,15 @@ const LacerationRepairPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/clinical/laceration-repairs'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch repairs: ${response.status}`);
-        }
-        
-        const result = await response.json();
+        const result = await getApiClient().get<
+        { data?: LacerationRepair[]; repairs?: LacerationRepair[] } | LacerationRepair[]
+      >('/api/clinical/laceration-repairs');
         // Handle PaginatedResponse or direct array
-        const repairData = result.data || result.repairs || (Array.isArray(result) ? result : []);
+        // The union has to be narrowed now; it used to be `any`, which is how an
+      // enveloped response and a bare array could be conflated in one expression.
+      const repairData = Array.isArray(result)
+        ? result
+        : (result.data ?? result.repairs ?? []);
         // Convert date strings to Date objects
         const repairsWithDates = repairData.map((repair: LacerationRepair) => ({
           ...repair,

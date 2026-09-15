@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getPatients, createPostOp, getApiClient, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -42,6 +42,18 @@ interface PostOpNote {
   complications: string;
   notes: string;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type RecordList = { records?: PostOpNote[]; notes?: PostOpNote[] } | PostOpNote[];
 
 const aldreteDescriptions = {
   activity: { 2: 'Moves all extremities', 1: 'Moves two extremities', 0: 'Unable to move' },
@@ -107,17 +119,12 @@ const PostOpPage: React.FC = () => {
     if (activeTab === 'history' && selectedPatient && user) {
       const fetchHistory = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/surgical/post-op/patient/${selectedPatient}`), {
-          headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
+          const data = await getApiClient().get<RecordList>(`/api/surgical/post-op/patient/${selectedPatient}`);
+          const records = Array.isArray(data) ? data : (data.records || data.notes || []);
+          setNotes(prev => {
+            const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
+            return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
           });
-          if (res.ok) {
-            const data = await res.json();
-            const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-            setNotes(prev => {
-              const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
-              return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
-            });
-          }
         } catch (e) {
           console.error('Failed to fetch post-op history:', e);
         }

@@ -138,19 +138,7 @@ const NursingCarePlanPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/emergency/care-plan/list'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Nurse'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(t('docNursingCarePlan.fetchError', { status: response.status }));
-        }
-        
-        const data = await response.json();
+        const data = await getApiClient().get<CarePlan[]>('/api/emergency/care-plan/list');
         // Convert date strings to Date objects
         const plansWithDates = (data || []).map((plan: CarePlan) => ({
           ...plan,

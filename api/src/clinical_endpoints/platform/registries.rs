@@ -603,3 +603,193 @@ pub async fn list_peds_for_patient(
         Err(e) => registry_read_error(&http_req, e),
     }
 }
+
+/// Workflow 2: what a nurse records must reach the patient's own card, and
+/// nobody else's.
+///
+/// `GET /api/clinical/immunizations` is caller-scoped: it takes no id, because
+/// the patient application's Medical History screen has none to give. That
+/// makes two things worth pinning down, and neither is visible by reading the
+/// handler:
+///
+///   1. The nurse files against a `PAT-` id and the patient asks with a wallet
+///      address. `linked_patient_id` bridges them. If that resolution breaks, a
+///      patient is told they have had no vaccinations — the answer that gets
+///      one repeated.
+///   2. Because the route serves "whoever is calling", a scoping mistake does
+///      not 403; it silently returns somebody else's vaccination history.
+#[cfg(test)]
+mod patient_immunization_card_tests {
+    use crate::{AppState, Role, User};
+    use actix_web::{test, web, App};
+
+    fn state_with_users(users: &[(Role, &str, Option<&str>)]) -> web::Data<AppState> {
+        let state = AppState::new();
+        for (role, wallet, linked) in users {
+            let user = User {
+                wallet_address: wallet.to_string(),
+                username: None,
+                name: "Test".to_string(),
+                role: role.clone(),
+                created_at: chrono::Utc::now(),
+                created_by: None,
+                linked_patient_id: linked.map(str::to_string),
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            };
+            state
+                .users
+                .write()
+                .unwrap()
+                .insert(wallet.to_string(), user);
+        }
+        web::Data::new(state)
+    }
+
+    /// `ImmunizationPage.tsx` -> `createImmunization()`, field for field.
+    fn dose(patient_id: &str, vaccine: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": patient_id,
+            "vaccine_name": vaccine,
+            "cvx_code": "03",
+            "manufacturer": "Test Biologicals",
+            "lot_number": "LOT-1",
+            "expiration_date": "2030-01-01",
+            "administration_date": "2026-09-12T09:00:00Z",
+            "dose_number": 1,
+            "route": "Intramuscular",
+            "site": "left-deltoid",
+            "administered_by": "Test Nurse",
+            "vis_date": "2026-09-12T09:00:00Z",
+            "funding_source": "PublicVFC",
+            "registry_reported": false,
+        })
+    }
+
+    /// The whole round trip in one process: the nurse's write, then the
+    /// patient's read. Testing the read alone would pass against a store the
+    /// producer never reaches.
+    async fn card_for(
+        data: web::Data<AppState>,
+        nurse: &str,
+        doses: &[(&str, &str)],
+        reader: &str,
+    ) -> (u16, String) {
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(crate::clinical_endpoints::create_immunization)
+                .service(super::list_my_immunizations),
+        )
+        .await;
+
+        for (patient_id, vaccine) in doses {
+            let req = test::TestRequest::post()
+                .uri("/api/surgical/immunization")
+                .insert_header(("X-User-Id", nurse.to_string()))
+                .set_json(dose(patient_id, vaccine))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert!(
+                resp.status().is_success(),
+                "the nurse could not record a vaccination: {}",
+                resp.status()
+            );
+        }
+
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/immunizations")
+            .insert_header(("X-User-Id", reader.to_string()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status().as_u16();
+        let body = test::read_body(resp).await;
+        (status, String::from_utf8_lossy(&body).to_string())
+    }
+
+    #[actix_rt::test]
+    async fn a_patient_sees_the_vaccination_a_nurse_gave_them() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("Measles-Rubella"),
+            "the patient's own vaccination was missing from their card: {body}"
+        );
+    }
+
+    /// The failure mode this route has instead of a 403.
+    #[actix_rt::test]
+    async fn a_patients_card_carries_nobody_elses_doses() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+            (Role::Patient, "5PatientTwo", Some("PAT-2")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella"), ("PAT-2", "Yellow fever")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(body.contains("Measles-Rubella"), "own dose missing: {body}");
+        assert!(
+            !body.contains("Yellow fever"),
+            "another patient's vaccination history was disclosed: {body}"
+        );
+    }
+
+    /// A clinician's own card, not the deployment register. The staff account
+    /// has no `linked_patient_id`, so the scope falls back to their wallet —
+    /// which matches no record, rather than matching everything.
+    #[actix_rt::test]
+    async fn an_unlinked_staff_caller_gets_their_own_empty_card() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) =
+            card_for(data, "5Nurse", &[("PAT-1", "Measles-Rubella")], "5Nurse").await;
+        assert_eq!(status, 200);
+        assert!(
+            !body.contains("Measles-Rubella"),
+            "an unlinked caller was handed a patient's record: {body}"
+        );
+    }
+
+    /// An unregistered wallet is not a caller. `require_registered_caller`
+    /// resolves against the user store, so a forged header is refused before
+    /// any scoping decision is made.
+    #[actix_rt::test]
+    async fn an_unknown_caller_is_refused() {
+        let data = state_with_users(&[(Role::Nurse, "5Nurse", None)]);
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::list_my_immunizations),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/immunizations")
+            .insert_header(("X-User-Id", "5NobodyAtAll"))
+            .to_request();
+        let status = test::call_service(&app, req).await.status().as_u16();
+        assert!(status == 401 || status == 403, "got {status}");
+    }
+}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getApiClient, useTranslation } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -33,6 +33,9 @@ function AccessLogsPage() {
   const { user: _user } = useAuthStore();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // "Nobody has accessed any record" and "the audit trail could not be read"
+  // are opposite findings, and an empty list asserts the first.
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'emergency' | 'regular'>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -49,34 +52,30 @@ function AccessLogsPage() {
         }
         
         // Fetch all access logs from the access logs endpoint
-        const response = await fetch(apiUrl('/api/access/logs'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Handle both direct array and object with access_logs property
-          const logsArray = Array.isArray(data)
-            ? data
-            : (data.access_logs || data.data || []);
-          setLogs(logsArray);
-        } else {
-          console.error('Failed to fetch access logs:', response.status);
-          setLogs([]);
-        }
+        const data = await getApiClient().get<
+          { access_logs?: AccessLog[]; data?: AccessLog[] } | AccessLog[]
+        >('/api/access/logs');
+        // Handle both direct array and object with access_logs property
+        const logsArray = Array.isArray(data)
+          ? data
+          : (data.access_logs ?? data.data ?? []);
+        setLogs(logsArray);
+        setLoadError('');
       } catch (error) {
         console.error('Error fetching access logs:', error);
+        // An empty list here reads as "nobody has accessed any record", which
+        // on an audit screen is the opposite of "the audit trail could not be
+        // read". The `else` branch this replaces set exactly that, silently.
         setLogs([]);
+        setLoadError(t('docAccessLogs.loadFailed'));
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchLogs();
-  }, []);
+    // `t` is now read inside, for the load-failure message.
+  }, [t]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -277,6 +276,11 @@ function AccessLogsPage() {
 
       {/* Logs Table */}
       <div className="bg-surface rounded-xl shadow overflow-hidden">
+        {loadError && (
+          <div role="alert" className="mb-4 p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+            {loadError}
+          </div>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-brand" size={32} />

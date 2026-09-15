@@ -129,19 +129,9 @@ const DrugInteractionsPage: React.FC = () => {
       if (!user?.walletAddress) return;
       
       try {
-        const response = await fetch(apiUrl('/api/drugs'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch drug database');
-        }
-        
-        const data = await response.json();
+        const data = await getApiClient().get<{ success?: boolean; drugs?: Drug[] }>(
+          '/api/drugs'
+        );
         if (data.success && data.drugs) {
           setDrugDatabase(data.drugs);
         }
@@ -165,19 +155,9 @@ const DrugInteractionsPage: React.FC = () => {
       if (!user?.walletAddress) return;
       
       try {
-        const response = await fetch(apiUrl('/api/interactions'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch interaction database');
-        }
-        
-        const data = await response.json();
+        const data = await getApiClient().get<{ success?: boolean; interactions?: Interaction[] }>(
+          '/api/interactions'
+        );
         if (data.success && data.interactions) {
           setInteractionDatabase(data.interactions);
         }

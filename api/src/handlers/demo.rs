@@ -275,14 +275,42 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
     // Only accounts that actually carry a keystore can complete the credential
     // flow, so an unseeded database yields an empty list rather than a set of
     // identifiers that would fail at sign-in.
+    //
+    // Matched by PREFIX, not equality. `seed-browser-test-fixtures.ts` supports
+    // `MEDICHAIN_FIXTURE_SUFFIX`, so a seeded administrator is `bt.admin.k`
+    // while this list holds `bt.admin` -- and an exact match therefore returned
+    // every other role and never the administrator. The consequence was not
+    // cosmetic: no browser test could sign in as an administrator at all, so
+    // the fourteen screens in that role's navigation had no coverage.
+    //
+    // The `LIKE` pattern is built from the bound parameter inside the query, so
+    // this is still fully parameterised -- no identifier or literal is
+    // concatenated into the SQL.
+    // ONE credential per login id, not one per matching row.
+    //
+    // A first attempt at the suffix problem matched `base || '.%'` and returned
+    // every suffixed fixture -- `bt.doctor`, `bt.doctor.c`, `bt.doctor.d`,
+    // `bt.doctor.j`, `bt.doctor.k` -- so the sign-in screen grew a dozen demo
+    // buttons where it had five. That broke the browser suites outright: the
+    // selectors match on the role a button advertises, and five buttons saying
+    // "Doctor" are five matches.
+    //
+    // `DISTINCT ON (base)` keeps exactly one per fixture identity, preferring
+    // the unsuffixed account when it exists so an existing database behaves as
+    // it did before.
     let rows: Result<Vec<(String, Option<String>, String)>, _> = sqlx::query_as(
-        "SELECT login_id, name, role
-         FROM users
-         WHERE login_id = ANY($1)
-           AND encrypted_keystore IS NOT NULL
-           AND credential_verifier IS NOT NULL
-           AND status = 'active'
-         ORDER BY role, login_id",
+        "SELECT DISTINCT ON (matched.base) u.login_id, u.name, u.role
+         FROM users u
+         JOIN LATERAL (
+                SELECT base
+                FROM unnest($1::text[]) AS base
+                WHERE u.login_id = base OR u.login_id LIKE base || '.%'
+                LIMIT 1
+              ) AS matched ON TRUE
+         WHERE u.encrypted_keystore IS NOT NULL
+           AND u.credential_verifier IS NOT NULL
+           AND u.status = 'active'
+         ORDER BY matched.base, (u.login_id = matched.base) DESC, u.login_id",
     )
     .bind(DEMO_FIXTURE_LOGIN_IDS)
     .fetch_all(pool)

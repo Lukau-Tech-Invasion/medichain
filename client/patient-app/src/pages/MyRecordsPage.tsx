@@ -151,6 +151,14 @@ export function MyRecordsPage() {
         progressData,
         woundData,
         vitalsData,
+        dischargeData,
+        imagingData,
+        pathologyData,
+        consultData,
+        carePlanData,
+        bloodData,
+        procedureData,
+        amaData,
       ] = await Promise.all([
         fetchJson(`/api/lab/patient/${patientId}`, headers),
         fetchJson(`/api/records/${patientId}`, headers),
@@ -164,6 +172,34 @@ export function MyRecordsPage() {
         fetchJson(`/api/clinical/patient/${patientId}/progress-notes`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/wounds`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/vitals`, headers),
+        // The document a patient physically leaves hospital with. It was
+        // reachable only by an id the patient has never seen, so it could be
+        // written, approved by a second clinician, stored — and never read by
+        // the person it was written for.
+        fetchJson(`/api/clinical/patient/${patientId}/discharges`, headers),
+        // The scan the patient was sent for, waited for and worried about.
+        // The report was readable only by an id they have never seen, behind a
+        // clinical-staff gate that refused them even with it.
+        fetchJson(`/api/clinical/patient/${patientId}/imaging`, headers),
+        // Where a cancer diagnosis, a margin status and a staging live — the
+        // result a patient chases hardest, and the one they were least able to
+        // reach: it was keyed by an accession number they have never seen.
+        fetchJson(`/api/clinical/patient/${patientId}/pathology`, headers),
+        // What the specialist actually said, and what they want done next. A
+        // patient told "the specialist has seen your notes" and unable to read
+        // the answer is being asked to take the recommendation on trust.
+        fetchJson(`/api/clinical/patient/${patientId}/consults`, headers),
+        // The one clinical document written in the second person: what the
+        // goals of this admission are and what the patient is expected to do.
+        fetchJson(`/api/clinical/patient/${patientId}/care-plans`, headers),
+        // A blood group is the single most reusable fact in a record — asked
+        // in every emergency department and on every pre-operative form.
+        fetchJson(`/api/clinical/patient/${patientId}/blood`, headers),
+        // "What was done to me" is one question; it was split across five
+        // endpoints, none of which the patient could reach.
+        fetchJson(`/api/clinical/patient/${patientId}/procedures`, headers),
+        // The document most likely to be cited against the patient later.
+        fetchJson(`/api/clinical/patient/${patientId}/ama-discharges`, headers),
       ]);
 
       const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
@@ -237,6 +273,229 @@ export function MyRecordsPage() {
         verified: true,
       }));
       allRecords.push(...triageRecords);
+
+      const dischargeRecords = (((dischargeData as {
+        summaries?: Array<Record<string, unknown>>;
+      }).summaries) || []).map(summary => ({
+        id: String(summary.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge summary',
+        description: String(
+          summary.discharge_diagnosis || summary.primary_diagnosis || 'Summary of this admission'
+        ),
+        provider: String(summary.attending_physician_id || summary.created_by || 'MediChain provider'),
+        date: timestampDate(summary.discharge_date as string | number | undefined),
+        contentHash: `discharge-${summary.id}`,
+        metadataHash: String(summary.id),
+        verified: true,
+      }));
+      allRecords.push(...dischargeRecords);
+
+      const dischargeInstructionRecords = (((dischargeData as {
+        instructions?: Array<Record<string, unknown>>;
+      }).instructions) || []).map(item => ({
+        id: String(item.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge instructions',
+        // What to do at home is the half of a discharge a patient actually
+        // acts on, so it is listed as its own record rather than folded into
+        // the summary.
+        description: String(
+          item.activity_restrictions || item.diet_instructions || 'Instructions for going home'
+        ),
+        provider: String(item.created_by || 'MediChain provider'),
+        date: timestampDate(item.created_at as string | number | undefined),
+        contentHash: `discharge-instructions-${item.id}`,
+        metadataHash: String(item.id),
+        verified: true,
+      }));
+      allRecords.push(...dischargeInstructionRecords);
+
+      const imagingReports = ((imagingData as {
+        reports?: Array<Record<string, unknown>>;
+      }).reports) || [];
+      const imagingRecords = imagingReports.map(report => ({
+        id: String(report.id),
+        type: 'imaging' as const,
+        title: String(report.study_type || report.modality || 'Imaging report'),
+        // The impression is the radiologist's conclusion — the line a patient
+        // reads first and the one a clinician acts on. `status` is carried
+        // because a preliminary report is not a final one, and a screen that
+        // cannot say which is misleading about both.
+        description: String(report.impression || report.findings || 'Imaging report'),
+        provider: String(report.radiologist_id || 'MediChain radiology'),
+        date: timestampDate(report.report_datetime as string | number | undefined),
+        contentHash: `imaging-report-${report.id}`,
+        metadataHash: String(report.status || report.id),
+        verified: String(report.status || '').toLowerCase() === 'final',
+      }));
+      allRecords.push(...imagingRecords);
+
+      // An order with no report yet is the honest answer to "what about my
+      // scan?". Omitting it makes a study that has been done but not yet read
+      // look identical to one that was never ordered.
+      const reportedOrderIds = new Set(imagingReports.map(r => String(r.order_id)));
+      const imagingOrderRecords = (((imagingData as {
+        orders?: Array<Record<string, unknown>>;
+      }).orders) || [])
+        .filter(order => !reportedOrderIds.has(String(order.id)))
+        .map(order => ({
+          id: String(order.id),
+          type: 'imaging' as const,
+          title: String(order.study_type || order.modality || 'Imaging study'),
+          description: String(order.clinical_indication || 'Requested — no report yet'),
+          provider: String(order.ordering_provider_id || 'MediChain provider'),
+          date: timestampDate(
+            (order.scheduled_datetime ?? order.created_at) as string | number | undefined
+          ),
+          contentHash: `imaging-order-${order.id}`,
+          metadataHash: String(order.status || order.id),
+          // Nothing has been reported, so there is nothing to have verified.
+          verified: false,
+        }));
+      allRecords.push(...imagingOrderRecords);
+
+      const pathologyRecords = (((pathologyData as {
+        reports?: Array<Record<string, unknown>>;
+      }).reports) || []).map(report => ({
+        id: String(report.id),
+        type: 'lab_result' as const,
+        title: `Pathology — ${String(report.specimen_type || 'specimen')}`,
+        // The diagnosis is the report. Falling back to the specimen source
+        // rather than to a cheerful placeholder, because "Pathology report"
+        // where a diagnosis should be reads as reassurance nobody wrote.
+        description: String(report.diagnosis || report.specimen_source || 'Pathology report'),
+        provider: String(report.pathologist_id || 'MediChain pathology'),
+        date: timestampDate(report.report_date as string | number | undefined),
+        contentHash: `pathology-${report.id}`,
+        metadataHash: String(report.status || report.id),
+        verified: String(report.status || '').toLowerCase() === 'final',
+      }));
+      allRecords.push(...pathologyRecords);
+
+      const consultRecords = (((consultData as {
+        consults?: Array<Record<string, unknown>>;
+      }).consults) || []).map(consult => ({
+        id: String(consult.id),
+        type: 'consultation' as const,
+        title: `${String(consult.consultation_type || 'Specialist')} consult`,
+        // The recommendation is what the patient acts on; the reason is what
+        // they recognise it by. Recommendation first, falling back to the
+        // reason while the consult is still only a request.
+        description: String(
+          consult.recommendations || consult.reason_for_consultation || 'Specialist opinion'
+        ),
+        provider: String(consult.consulting_provider || consult.requesting_provider || 'MediChain provider'),
+        date: timestampDate(
+          (consult.completed_at ?? consult.requested_at) as string | number | undefined
+        ),
+        contentHash: `consult-${consult.id}`,
+        metadataHash: String(consult.status || consult.id),
+        // A consult that has been answered is a document; one still awaiting a
+        // specialist is a request, and saying otherwise overstates it.
+        verified: Boolean(consult.completed_at),
+      }));
+      allRecords.push(...consultRecords);
+
+      const carePlanRecords = (((carePlanData as {
+        care_plans?: Array<Record<string, unknown>>;
+      }).care_plans) || []).map(plan => ({
+        id: String(plan.id),
+        type: 'consultation' as const,
+        title: 'Nursing care plan',
+        description: String(plan.plan_name || 'Plan of care for this admission'),
+        provider: String(plan.created_by || 'MediChain nursing'),
+        date: timestampDate(plan.created_at as string | number | undefined),
+        contentHash: `care-plan-${plan.id}`,
+        metadataHash: String(plan.care_level || plan.id),
+        verified: true,
+      }));
+      allRecords.push(...carePlanRecords);
+
+      // Blood-bank orders and transfusions are one subject to a patient, so
+      // they are read from one response and listed under one heading.
+      const bloodBody = bloodData as {
+        screens?: Array<Record<string, unknown>>;
+        transfusions?: Array<Record<string, unknown>>;
+      };
+      const bloodRecords = [
+        ...((bloodBody.screens) || []).map(screen => ({
+          id: String(screen.id),
+          type: 'lab_result' as const,
+          title: 'Blood type and screen',
+          description: String(
+            (screen.data as Record<string, unknown> | undefined)?.indication || 'Blood group on file'
+          ),
+          provider: 'MediChain blood bank',
+          date: timestampDate(screen.created_at as string | number | undefined),
+          contentHash: `blood-screen-${screen.id}`,
+          metadataHash: String(screen.id),
+          verified: true,
+        })),
+        ...((bloodBody.transfusions) || []).map(tx => ({
+          id: String(tx.id),
+          type: 'lab_result' as const,
+          title: 'Transfusion',
+          description: String(
+            (tx.data as Record<string, unknown> | undefined)?.product || 'Blood product given'
+          ),
+          provider: 'MediChain blood bank',
+          date: timestampDate(tx.created_at as string | number | undefined),
+          contentHash: `transfusion-${tx.id}`,
+          metadataHash: String(tx.id),
+          verified: true,
+        })),
+      ];
+      allRecords.push(...bloodRecords);
+
+      // Five kinds of procedure, one list. A patient asking what was done to
+      // them does not distinguish an intubation from a splint by which
+      // endpoint served it.
+      const procedureBody = procedureData as Record<string, Array<Record<string, unknown>> | undefined>;
+      const procedureKinds: Array<[string, string]> = [
+        ['intubations', 'Intubation'],
+        ['laceration_repairs', 'Wound repair'],
+        ['splints_and_casts', 'Splint or cast'],
+        ['burn_assessments', 'Burn assessment'],
+        ['anesthesia_records', 'Anaesthesia'],
+      ];
+      const procedureRecords = procedureKinds.flatMap(([key, label]) =>
+        (procedureBody[key] || []).map(item => ({
+          id: String(item.id),
+          type: 'consultation' as const,
+          title: label,
+          description: String(
+            item.location || item.procedure_type || item.anesthesia_type || label
+          ),
+          provider: String(item.performed_by || item.anesthesiologist_id || 'MediChain provider'),
+          date: timestampDate(
+            (item.performed_at ?? item.created_at) as string | number | undefined
+          ),
+          contentHash: `procedure-${key}-${item.id}`,
+          metadataHash: String(item.id),
+          verified: true,
+        }))
+      );
+      allRecords.push(...procedureRecords);
+
+      const amaRecords = (((amaData as {
+        ama_discharges?: Array<Record<string, unknown>>;
+      }).ama_discharges) || []).map(record => ({
+        id: String(record.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge against medical advice',
+        description: String(
+          record.recommended_treatment || record.diagnosis || 'Left against medical advice'
+        ),
+        provider: String(record.provider || record.attending_physician_id || 'MediChain provider'),
+        date: timestampDate(record.created_at as string | number | undefined),
+        contentHash: `ama-${record.id}`,
+        metadataHash: String(record.id),
+        // The record's evidentiary value is its signatures; until they are
+        // captured it is a pending document, and saying otherwise overstates it.
+        verified: Boolean(record.patient_signed && record.provider_signed),
+      }));
+      allRecords.push(...amaRecords);
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({

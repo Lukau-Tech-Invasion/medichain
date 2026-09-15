@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getApiClient, useTranslation } from '@medichain/shared';
 import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -124,22 +124,17 @@ function PatientSearchPage() {
     const fetchPatients = async () => {
       try {
         setLoading(true);
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(t('docPatientSearch.failFetch'));
-        }
-
-        const data = await response.json();
+        // Both shapes are real: the API client unwraps a `{data: [...]}` envelope
+        // to the bare array for some endpoints and not others, so a type naming
+        // only one of them silently yields an empty roster for the other.
+        const data = await getApiClient().get<
+          | { data?: ApiPatient[]; total?: number; unreadable_count?: number }
+          | ApiPatient[]
+        >('/api/patients');
         setApiConnected(true);
         
         // Handle paginated response
-        const patientArray = Array.isArray(data) ? data : (data.data || []);
+        const patientArray = Array.isArray(data) ? data : (data.data ?? []);
         
         // Transform API response to Patient format
         const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => {
@@ -163,9 +158,15 @@ function PatientSearchPage() {
         
         setPatients(transformedPatients);
         setTotalInSystem(
-          typeof data.total === 'number' ? data.total : transformedPatients.length
+          !Array.isArray(data) && typeof data.total === 'number'
+            ? data.total
+            : transformedPatients.length
         );
-        setUnreadableCount(typeof data.unreadable_count === 'number' ? data.unreadable_count : 0);
+        setUnreadableCount(
+          !Array.isArray(data) && typeof data.unreadable_count === 'number'
+            ? data.unreadable_count
+            : 0
+        );
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docPatientSearch.failFetch'));

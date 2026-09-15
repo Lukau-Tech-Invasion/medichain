@@ -182,24 +182,23 @@ export function MedicalIdPage() {
       if (response.ok) {
         const result = await response.json();
         if (activeView === 'full') {
-          const profileResponse = await fetch(apiUrl(`/api/patients/${userId}`), {
-            headers: {
-              ...getApiClient().getSessionHeaders(patient.walletAddress),
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          if (profileResponse.ok) {
-            const profile = await profileResponse.json();
-            const emergency = profile.emergency_info || {};
-            result.allergies = result.allergies?.length ? result.allergies : (emergency.allergies || []);
-            result.conditions = result.conditions?.length
-              ? result.conditions
-              : (result.chronic_conditions?.length ? result.chronic_conditions : (emergency.chronic_conditions || []));
-            result.medications = result.medications?.length
-              ? result.medications : (emergency.current_medications || []);
-            result.emergency_contacts = result.emergency_contacts?.length
-              ? result.emergency_contacts : (emergency.emergency_contacts || []);
-          }
+          const profile = await getApiClient().get<{
+            emergency_info?: {
+              allergies?: unknown[];
+              chronic_conditions?: unknown[];
+              current_medications?: unknown[];
+              emergency_contacts?: unknown[];
+            };
+          }>(`/api/patients/${userId}`);
+          const emergency = profile.emergency_info || {};
+          result.allergies = result.allergies?.length ? result.allergies : (emergency.allergies || []);
+          result.conditions = result.conditions?.length
+            ? result.conditions
+            : (result.chronic_conditions?.length ? result.chronic_conditions : (emergency.chronic_conditions || []));
+          result.medications = result.medications?.length
+            ? result.medications : (emergency.current_medications || []);
+          result.emergency_contacts = result.emergency_contacts?.length
+            ? result.emergency_contacts : (emergency.emergency_contacts || []);
         }
         setData(result);
       } else {

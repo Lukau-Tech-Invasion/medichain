@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import QRCode from 'qrcode';
 import {
-  apiUrl,
   getApiClient,
   useOfflineCache,
   useTranslation,
@@ -79,17 +78,25 @@ export function EmergencyCardPage() {
     if (!patientId) {
       throw new Error('Not signed in');
     }
-    const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
-      headers: {
-        ...getApiClient().getSessionHeaders(patient?.walletAddress),
-        'X-Health-Id': patientId,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to load emergency data (${response.status})`);
-    }
-    const data = await response.json();
+    const data = await getApiClient().get<{
+        patient_id: string;
+        national_id?: string;
+        full_name: string;
+        date_of_birth: string;
+        emergency_info?: {
+          blood_type?: string;
+          allergies?: { name: string }[];
+          chronic_conditions?: string[];
+          current_medications?: string[];
+          emergency_contacts?: { name?: string; phone?: string; relationship?: string }[];
+          organ_donor?: boolean;
+          dnr_status?: boolean;
+          dnr_verified_by?: string;
+          dnr_verified_at?: string;
+          dnr_document_ref?: string;
+        };
+        last_updated?: string;
+      }>(`/api/patients/${patientId}`);
     const emergencyInfo = data.emergency_info || {};
     const emergencyContact = emergencyInfo.emergency_contacts?.[0] || {};
     return {
@@ -114,7 +121,9 @@ export function EmergencyCardPage() {
       cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated || new Date().toISOString(),
     };
-  }, [patient?.walletAddress, patientId]);
+    // `walletAddress` went with the hand-rolled session headers; the typed
+    // client reads the session itself.
+  }, [patientId]);
 
   // Cache-through: caches on every successful load, serves cached card offline.
   const {

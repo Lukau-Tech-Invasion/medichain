@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, createSepsis, getApiClient, getPatients, useTranslation, clickable } from '@medichain/shared';
+import { createSepsis, getApiClient, getPatients, useTranslation, clickable } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
@@ -48,6 +48,18 @@ const INFECTION_SOURCE_KEYS: Record<string, string> = {
   'Catheter-Related': 'catheter-related',
   'Unknown': 'unknown'
 };
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type EventList = { events?: { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[] } | { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[];
 
 export default function SepsisPage() {
   const navigate = useNavigate();
@@ -158,13 +170,8 @@ export default function SepsisPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/sepsis/patient/${patientId}`), {
-        headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      const data = await getApiClient().get<EventList>(`/api/emergency/sepsis/patient/${patientId}`);
+      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
     } catch (e) {
       console.error(e);
     } finally {

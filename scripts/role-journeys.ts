@@ -146,7 +146,13 @@ async function main(): Promise<void> {
       ['pharmacist', 'pharmacist2', 'doctor'],
       () => pharmacistJourney(j, sessions.pharmacist, sessions.pharmacist2, sessions.doctor, m),
     ],
-    ['patient', ['patient', 'doctor'], () => patientJourney(j, sessions.patient, sessions.doctor, m)],
+    [
+      'patient',
+      ['patient', 'doctor', 'nurse'],
+      // A nurse too: vaccinations are given by nursing staff, and workflow 2
+      // asks whether what the nurse records reaches the patient's own card.
+      () => patientJourney(j, sessions.patient, sessions.doctor, sessions.nurse, m),
+    ],
     [
       'admin',
       ['admin', 'labtech2', 'doctor'],

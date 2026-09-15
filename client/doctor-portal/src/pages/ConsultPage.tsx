@@ -79,6 +79,57 @@ interface Consult {
   notes?: string;
 }
 
+
+/**
+ * Map one consult as the API returns it onto the shape this page renders.
+ *
+ * `GET /api/platform/list/consults` returns snake_case -- `consult_id`,
+ * `patient_id`, `requested_at` -- and this page reads camelCase. The rows were
+ * being cast with `as Consult[]`, which silences the compiler without changing
+ * a single field name, so EVERY field was `undefined` and the first
+ * `.toLowerCase()` in the search filter took the whole page down through the
+ * ErrorBoundary.
+ *
+ * It went unnoticed because the list endpoint returned nothing until it was
+ * fixed to read `consultation_notes` (2026-09-10). A page that crashes only
+ * once its list is non-empty looks perfect on an empty database.
+ *
+ * `as` is what made this possible. It is an assertion, not a conversion.
+ */
+function toConsult(raw: unknown): Consult {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const str = (...keys: string[]): string => {
+    for (const key of keys) {
+      const value = r[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return '';
+  };
+  return {
+    consultId: str('consult_id', 'consultId'),
+    patientId: str('patient_id', 'patientId'),
+    // The list carries no patient name; the id is what it has, and showing the
+    // id beats showing "undefined".
+    patientName: str('patient_name', 'patientName') || str('patient_id', 'patientId'),
+    specialty: (str('specialty', 'consultation_type') || 'other') as ConsultSpecialty,
+    urgency: (str('urgency') || 'routine') as ConsultUrgency,
+    status: (str('status') || 'pending') as ConsultStatus,
+    reason: str('reason'),
+    clinicalQuestion: str('clinical_question', 'clinicalQuestion'),
+    relevantHistory: str('relevant_history', 'relevantHistory'),
+    currentMedications: str('current_medications', 'currentMedications'),
+    vitalSigns: str('vital_signs', 'vitalSigns'),
+    labResults: str('lab_results', 'labResults'),
+    imagingResults: str('imaging_results', 'imagingResults'),
+    requestedBy: str('requested_by', 'requesting_provider', 'requestedBy'),
+    requestedAt: str('requested_at', 'requestedAt'),
+    acknowledgedBy: str('consulting_provider', 'acknowledgedBy') || undefined,
+    acknowledgedAt: str('completed_at', 'acknowledgedAt') || undefined,
+    notes: str('notes') || undefined,
+  };
+}
+
+
 const ConsultPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -120,7 +171,7 @@ const ConsultPage: React.FC = () => {
       setError(null);
       const response = await listConsults();
       if (response.success && Array.isArray(response.items)) {
-        setConsults(response.items as Consult[]);
+        setConsults(response.items.map(toConsult));
       }
     } catch (err) {
       console.error('Error fetching consults:', err);

@@ -123,6 +123,18 @@ function toPatientIO(
   };
 }
 
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type IoPayload = { entries?: Record<string, unknown>[]; intake?: unknown; output?: unknown };
+
 const IntakeOutputPage: React.FC = () => {
   const { t } = useTranslation();
   const { catalog } = useScoringCatalog();
@@ -190,28 +202,20 @@ const IntakeOutputPage: React.FC = () => {
         // 3rd segments (`IO-{patient_id}-{date}`) and ignores the middle, so the
         // shift goes in the middle slot and the date must be last — sending
         // (patient, date, shift) put the shift where the date belongs.
-        const response = await fetch(apiUrl(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && (data.entries || data.intake || data.output)) {
-            // Update the selected patient's entries with fresh data
-            const rawEntries = Array.isArray(data.entries)
-              ? data.entries
-              : [
-                  ...(Array.isArray(data.intake) ? data.intake : []),
-                  ...(Array.isArray(data.output) ? data.output : []),
-                ];
-            const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
-              ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-            }));
-            setSelectedPatient(prev => prev ? { ...prev, entries } : null);
-          }
+        const data = await getApiClient().get<IoPayload>(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`);
+        if (data && (data.entries || data.intake || data.output)) {
+          // Update the selected patient's entries with fresh data
+          const rawEntries = Array.isArray(data.entries)
+            ? data.entries
+            : [
+                ...(Array.isArray(data.intake) ? data.intake : []),
+                ...(Array.isArray(data.output) ? data.output : []),
+              ];
+          const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
+            ...e,
+            timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
+          }));
+          setSelectedPatient(prev => prev ? { ...prev, entries } : null);
         }
       } catch (err) {
         console.error('Failed to fetch I/O detail:', err);

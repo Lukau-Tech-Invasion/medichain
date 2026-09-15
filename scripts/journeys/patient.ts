@@ -34,6 +34,7 @@ export async function patientJourney(
   j: Journal,
   patient: Session,
   clinician: Session,
+  nurse: Session,
   m: Manifest
 ): Promise<void> {
   j.journey('Patient — their own record, their own decisions');
@@ -498,6 +499,14 @@ export async function patientJourney(
   // The arrival the patient does themselves, at the door, on their phone.
   await runSelfCheckInSteps(j, patient, id);
 
+  // --- What the hospital wrote about them ---------------------------------
+  await runDischargeVisibilitySteps(j, patient, clinician, id, other);
+  await runImmunisationVisibilitySteps(j, patient, nurse, id, other);
+  await runImagingVisibilitySteps(j, patient, clinician, id, other);
+  await runPathologyVisibilitySteps(j, patient, clinician, id, other);
+  await runConsultVisibilitySteps(j, patient, clinician, id, other);
+  await runWardRecordVisibilitySteps(j, patient, clinician, nurse, id, other);
+
   const chart = await http('POST', '/clinical/vitals', {
     token: patient.token,
     body: { patient_id: id, heart_rate: 70 },
@@ -581,4 +590,769 @@ export async function runSelfCheckInSteps(
     body: {},
   });
   j.status('the patient checks themselves in', checkIn.status, [200, 201], checkIn.json);
+}
+
+/**
+ * Workflow 1: the doctor discharges the patient, and the patient can read it.
+ *
+ * This is the test the rest of the suite does not make. Every other read-back
+ * here is done by the patient on something the patient wrote, or by a colleague
+ * on something a clinician wrote. This one crosses the two applications: a
+ * clinician produces the document, and the person it is about opens it.
+ *
+ * The discharge summary and instructions were reachable only as
+ * `/api/clinical/discharge-summary/{id}` and its instructions sibling — keyed
+ * by a UUID the patient has never seen — plus the clinician's worklist, which a
+ * patient is refused. So the one document a patient physically leaves hospital
+ * with could be written, approved by a second clinician, stored, and never
+ * opened by them.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runDischargeVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const diagnosis = `Community-acquired pneumonia (journey ${stamp})`;
+  const homeMedicine = `Amoxicillin 500mg (journey ${stamp})`;
+  const warningSign = `Breathlessness at rest (journey ${stamp})`;
+
+  // DischargePage.tsx -> POST /api/clinical/discharge-summary
+  const summary = await http('POST', '/clinical/discharge-summary', {
+    token: clinician.token,
+    body: {
+      patient_id: id,
+      admission_date: new Date(Date.now() - 3 * 86400000).toISOString(),
+      discharge_date: new Date().toISOString(),
+      discharge_diagnosis: diagnosis,
+      hospital_course: 'Responded to intravenous antibiotics; afebrile for 48 hours.',
+      discharge_medications: [homeMedicine],
+      follow_up_instructions: 'See your clinic in seven days.',
+      discharge_disposition: 'home',
+    },
+  });
+  const summaryFiled = j.status(
+    'a doctor writes the discharge summary',
+    summary.status,
+    [200, 201],
+    summary.json
+  );
+
+  // DischargePage.tsx -> POST /api/clinical/discharge-instructions
+  const instructions = await http('POST', '/clinical/discharge-instructions', {
+    token: clinician.token,
+    body: {
+      patient_id: id,
+      diet_instructions: 'Light diet, plenty of fluids.',
+      activity_restrictions: 'No heavy lifting for two weeks.',
+      warning_signs: [warningSign],
+      follow_up_appointments: 'Clinic in seven days.',
+    },
+  });
+  const instructionsFiled = j.status(
+    'and the instructions for going home',
+    instructions.status,
+    [200, 201],
+    instructions.json
+  );
+
+  if (!summaryFiled && !instructionsFiled) {
+    j.skip('the patient can open their own discharge', 'nothing was discharged');
+    j.skip('the discharge names the diagnosis and the medicines to take home', 'nothing was discharged');
+    j.skip('another patient cannot read this discharge', 'nothing was discharged');
+    return;
+  }
+
+  // The assertion this workflow exists for: the PATIENT's own session.
+  const mine = await http('GET', `/clinical/patient/${id}/discharges`, { token: patient.token });
+  const opened = j.status(
+    'the patient can open their own discharge',
+    mine.status,
+    200,
+    mine.json
+  );
+
+  if (opened) {
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      'the discharge names the diagnosis and the medicines to take home',
+      body.includes(diagnosis) && body.includes(homeMedicine) && body.includes(warningSign),
+      `a discharge a patient cannot read the medicines off is the reason they stop ` +
+        `taking them. Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip('the discharge names the diagnosis and the medicines to take home', 'the discharge did not open');
+  }
+
+  // And nobody else's. A discharge summary names a diagnosis and an admission,
+  // so a route that lets one patient read another's is worse than no route.
+  const theirs = await http('GET', `/clinical/patient/${otherId}/discharges`, {
+    token: patient.token,
+  });
+  j.status('another patient cannot read this discharge', theirs.status, [401, 403], theirs.json);
+}
+
+/**
+ * Workflow 2: the nurse records a vaccination, and the patient can read it.
+ *
+ * The producer is `ImmunizationPage` -> `POST /api/surgical/immunization`. The
+ * consumer is the patient application's Medical History screen, which calls
+ * `GET /api/clinical/immunizations` — caller-scoped, so it needs no id the
+ * patient does not have.
+ *
+ * The route existed; whether the round trip worked had never been asserted, and
+ * the two halves disagree about namespaces in exactly the place this codebase
+ * keeps getting wrong: the nurse files against a `PAT-` id, the patient asks
+ * with a wallet address, and `list_my_immunizations` bridges them through
+ * `linked_patient_id`. If that resolution ever breaks, a patient is told they
+ * have had no vaccinations — which is the answer that gets one repeated.
+ *
+ * The boundary here is not a second route to refuse. There is only one route
+ * and it serves the caller, so the boundary assertion is that a vaccination
+ * given to somebody else does not appear in this patient's card.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runImmunisationVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  nurse: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const vaccine = `Measles-Rubella (journey ${stamp})`;
+  const lot = `LOT-${stamp}`;
+  const othersVaccine = `Yellow fever (other patient ${stamp})`;
+
+  // ImmunizationPage.tsx -> createImmunization(), field for field.
+  const dose = (patientId: string, vaccineName: string, lotNumber: string) => ({
+    patient_id: patientId,
+    vaccine_name: vaccineName,
+    cvx_code: '03',
+    manufacturer: 'Journey Biologicals',
+    lot_number: lotNumber,
+    expiration_date: inDays(400),
+    administration_date: iso(),
+    dose_number: 1,
+    route: 'Intramuscular',
+    site: 'left-deltoid',
+    administered_by: 'Journey Nurse',
+    vis_date: iso(),
+    funding_source: 'PublicVFC',
+    registry_reported: false,
+    adverse_reaction: null,
+    notes: 'Given in the vaccination room.',
+  });
+
+  const given = await http('POST', '/surgical/immunization', {
+    token: nurse.token,
+    body: dose(id, vaccine, lot),
+  });
+  const filed = j.status('a nurse records the vaccination', given.status, [200, 201], given.json);
+
+  // A second patient's dose, so the card can be checked for leakage.
+  const othersDose = await http('POST', '/surgical/immunization', {
+    token: nurse.token,
+    body: dose(otherId, othersVaccine, `LOT-OTHER-${stamp}`),
+  });
+
+  if (!filed) {
+    j.skip('the patient can see their own vaccination card', 'the vaccination was not recorded');
+    j.skip('the card names the vaccine, the lot and the date it was given', 'the vaccination was not recorded');
+    j.skip("another patient's vaccination is not on this card", 'the vaccination was not recorded');
+    return;
+  }
+
+  // The assertion this workflow exists for: the PATIENT's own session, and no
+  // id in the URL — this is what the Medical History screen actually sends.
+  const card = await http('GET', '/clinical/immunizations', { token: patient.token });
+  const opened = j.status('the patient can see their own vaccination card', card.status, 200, card.json);
+
+  if (!opened) {
+    j.skip('the card names the vaccine, the lot and the date it was given', 'the card did not open');
+    j.skip("another patient's vaccination is not on this card", 'the card did not open');
+    return;
+  }
+
+  const body = JSON.stringify(card.json ?? null);
+  j.record(
+    'the card names the vaccine, the lot and the date it was given',
+    body.includes(vaccine) && body.includes(lot),
+    `a vaccination the patient cannot see is a vaccination they are given twice. ` +
+      `Returned: ${body.slice(0, 300)}`
+  );
+
+  if (othersDose.status === 200 || othersDose.status === 201) {
+    j.record(
+      "another patient's vaccination is not on this card",
+      !body.includes(othersVaccine),
+      `this route is caller-scoped, so a second patient's dose appearing here is a ` +
+        `disclosure, not a display bug. Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip("another patient's vaccination is not on this card", "the second patient's dose was refused");
+  }
+}
+
+/**
+ * Workflow 3: the scan is ordered and reported, and the patient can read it.
+ *
+ * The producer is `ImagingPage` -> `POST /api/surgical/radiology/order`, and
+ * the radiologist's `POST /api/surgical/radiology/report`. Neither result was
+ * reachable to the patient: `GET /api/surgical/radiology/report/{id}` is keyed
+ * by an id they have never seen *and* gated on `require_clinical_staff`, so a
+ * patient holding the id was refused anyway. The only other read is the
+ * deployment-wide register.
+ *
+ * So the scan a patient was sent for, waited for and worried about could be
+ * performed, reported, flagged critical — and never opened by them.
+ *
+ * The order is asserted as well as the report, because a study that has been
+ * done but not yet read must not look identical to one that was never ordered.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runImagingVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const indication = `Persistent cough, six weeks (journey ${stamp})`;
+  const impression = `No focal consolidation (journey ${stamp})`;
+  const orderId = `IMG-${stamp}`;
+
+  // ImagingPage.tsx -> POST /api/surgical/radiology/order, field for field.
+  const order = await http('POST', '/surgical/radiology/order', {
+    token: clinician.token,
+    body: {
+      order_id: orderId,
+      patient_id: id,
+      study_type: 'XRay',
+      body_part: 'Chest',
+      laterality: 'NA',
+      indication,
+      priority: 'Routine',
+      // The handler stamps this from the session and refuses a mismatch: an
+      // imaging order is an accountable clinical act, so the ordering provider
+      // is whoever placed it, not whoever the body names.
+      ordering_provider: clinician.wallet,
+      order_time: Math.floor(Date.now() / 1000),
+      contrast: false,
+      allergies_reviewed: true,
+      creatinine_checked: null,
+      pregnancy_checked: null,
+      special_instructions: null,
+      status: 'Ordered',
+    },
+  });
+  const ordered = j.status('a doctor orders the scan', order.status, [200, 201], order.json);
+
+  const report = await http('POST', '/surgical/radiology/report', {
+    token: clinician.token,
+    body: {
+      report_id: `RAD-${stamp}`,
+      patient_id: id,
+      order_id: orderId,
+      accession_number: `ACC-${stamp}`,
+      study_type: 'XRay',
+      body_part: 'Chest',
+      study_datetime: Math.floor(Date.now() / 1000),
+      technique: 'PA and lateral projections.',
+      clinical_history: indication,
+      findings: 'Lungs clear. Heart size normal. No pleural effusion.',
+      impression: [impression],
+      critical_finding: false,
+      radiologist: clinician.wallet,
+      status: 'Final',
+    },
+  });
+  const reported = j.status('the radiologist reports it', report.status, [200, 201], report.json);
+
+  if (!ordered && !reported) {
+    j.skip('the patient can open their own imaging', 'nothing was imaged');
+    j.skip('the report carries the impression the radiologist wrote', 'nothing was imaged');
+    j.skip("another patient cannot read this patient's imaging", 'nothing was imaged');
+    return;
+  }
+
+  // The assertion this workflow exists for: the PATIENT's own session.
+  const mine = await http('GET', `/clinical/patient/${id}/imaging`, { token: patient.token });
+  const opened = j.status('the patient can open their own imaging', mine.status, 200, mine.json);
+
+  if (opened) {
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      'the report carries the impression the radiologist wrote',
+      body.includes(impression) && body.includes(indication),
+      `the impression is the line a patient reads first and a clinician acts on. ` +
+        `Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip('the report carries the impression the radiologist wrote', 'the imaging did not open');
+  }
+
+  const theirs = await http('GET', `/clinical/patient/${otherId}/imaging`, {
+    token: patient.token,
+  });
+  j.status(
+    "another patient cannot read this patient's imaging",
+    theirs.status,
+    [401, 403],
+    theirs.json
+  );
+}
+
+/**
+ * Workflow 4: the specimen the patient gave, and what the lab found in it.
+ *
+ * The producer is `PathologyPage` -> `POST /api/surgical/pathology`. The report
+ * was reachable only as `GET /api/surgical/pathology/{id}` — keyed by an
+ * accession number the patient has never seen — and through the deployment-wide
+ * register, both gated on clinical staff.
+ *
+ * A pathology report is where a cancer diagnosis, a margin status and a staging
+ * live. It is the result a patient chases hardest and the one they were least
+ * able to reach.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runPathologyVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const site = `Left breast, upper outer quadrant (journey ${stamp})`;
+  const clinicalDiagnosis = `Suspicious mass (journey ${stamp})`;
+
+  // PathologyPage.tsx -> createPathology(newSpecimen), field for field. The
+  // page accessions a specimen; the finished report fields come later, which is
+  // why the API accepts this shape rather than demanding a completed report.
+  const accession = await http('POST', '/surgical/pathology', {
+    token: clinician.token,
+    body: {
+      specimenId: `S-${stamp}`,
+      patientId: id,
+      patientName: 'Journey Patient',
+      collectionDate: new Date().toISOString().slice(0, 10),
+      collectionTime: '09:30',
+      clinician: clinician.wallet,
+      specimenType: 'surgical',
+      site,
+      laterality: 'left',
+      clinicalHistory: 'Palpable mass on routine examination.',
+      clinicalDiagnosis,
+      priority: 'routine',
+      status: 'received',
+      receivedDate: new Date().toISOString().slice(0, 10),
+      receivedBy: clinician.wallet,
+      container: 'Formalin pot',
+      fixative: '10% neutral buffered formalin',
+    },
+  });
+  const accessioned = j.status(
+    'the lab accessions the specimen',
+    accession.status,
+    [200, 201],
+    accession.json
+  );
+
+  if (!accessioned) {
+    j.skip('the patient can open their own pathology', 'no specimen was accessioned');
+    j.skip('the pathology names the specimen the patient gave', 'no specimen was accessioned');
+    j.skip("another patient cannot read this patient's pathology", 'no specimen was accessioned');
+    return;
+  }
+
+  const mine = await http('GET', `/clinical/patient/${id}/pathology`, { token: patient.token });
+  const opened = j.status('the patient can open their own pathology', mine.status, 200, mine.json);
+
+  if (opened) {
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      'the pathology names the specimen the patient gave',
+      body.includes(site),
+      `a pathology record a patient cannot tie back to the specimen they gave is ` +
+        `not a record of anything. Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip('the pathology names the specimen the patient gave', 'the pathology did not open');
+  }
+
+  const theirs = await http('GET', `/clinical/patient/${otherId}/pathology`, {
+    token: patient.token,
+  });
+  j.status(
+    "another patient cannot read this patient's pathology",
+    theirs.status,
+    [401, 403],
+    theirs.json
+  );
+}
+
+/**
+ * Workflow 5: the specialist's opinion, read by the patient it is about.
+ *
+ * The producer is `ConsultPage` -> `POST /api/clinical/consult`. The result was
+ * reachable only as `GET /api/clinical/consult/{consult_id}` — keyed by an id
+ * the patient has never seen and gated on `can_view_medical_records`, which
+ * excludes the patient — plus the deployment-wide register.
+ *
+ * The consult is where the specialist's recommendation and follow-up plan live:
+ * what the cardiologist actually said, and what they want done next. A patient
+ * told "the specialist has seen your notes" and unable to read the answer is
+ * being asked to take the recommendation on trust.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runConsultVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const reason = `Exertional chest pain for review (journey ${stamp})`;
+  const question = `Is further ischaemia testing warranted? (journey ${stamp})`;
+
+  // ConsultPage.tsx -> POST /api/clinical/consult, camelCase as the page sends.
+  const consult = await http('POST', '/clinical/consult', {
+    token: clinician.token,
+    body: {
+      patientId: id,
+      specialty: 'Cardiology',
+      requestedBy: clinician.wallet,
+      consultingProvider: clinician.wallet,
+      reason,
+      clinicalQuestion: question,
+      relevantHistory: 'Hypertension, ex-smoker.',
+      // Lowercase, as ConsultPage sends and as the `consultation_notes_status_check`
+      // CHECK constraint allows. The capitalised spellings pass in the memory
+      // backend, which enforces no constraints, and 500 on PostgreSQL.
+      urgency: 'routine',
+      status: 'requested',
+      requestedAt: new Date().toISOString(),
+    },
+  });
+  const asked = j.status('a doctor asks for a specialist opinion', consult.status, [200, 201], consult.json);
+
+  if (!asked) {
+    j.skip('the patient can open their own consults', 'no consult was requested');
+    j.skip('the consult names the question that was asked about them', 'no consult was requested');
+    j.skip("another patient cannot read this patient's consults", 'no consult was requested');
+    return;
+  }
+
+  const mine = await http('GET', `/clinical/patient/${id}/consults`, { token: patient.token });
+  const opened = j.status('the patient can open their own consults', mine.status, 200, mine.json);
+
+  if (opened) {
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      'the consult names the question that was asked about them',
+      body.includes(reason),
+      `a referral a patient cannot read is a referral they cannot follow up. ` +
+        `Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip('the consult names the question that was asked about them', 'the consults did not open');
+  }
+
+  const theirs = await http('GET', `/clinical/patient/${otherId}/consults`, {
+    token: patient.token,
+  });
+  j.status(
+    "another patient cannot read this patient's consults",
+    theirs.status,
+    [401, 403],
+    theirs.json
+  );
+}
+
+/**
+ * Workflows 6-10: the rest of what a ward writes about a patient.
+ *
+ * Five artefacts, one step each, all of them following the pattern the first
+ * five established: produce it with the producer screen's own payload as a
+ * clinician, then open it **in the patient's own session**, and confirm another
+ * patient's is refused.
+ *
+ *   6. Care plan        — the one clinical document written in the second
+ *                         person: what the goals are and what the patient is
+ *                         expected to do.
+ *   7. Blood            — blood group and transfusion history; the group is the
+ *                         single most reusable fact in a patient's record.
+ *   8. Procedures       — the bedside and emergency-department procedures that
+ *                         had no patient-scoped read (pre-op, operative note
+ *                         and post-op already had one).
+ *   9. AMA discharge    — the document most likely to be cited *against* the
+ *                         patient later.
+ *  10. Intake / output  — the number a patient on a fluid restriction is told
+ *                         to care about.
+ *
+ * See docs/PATIENT_VISIBILITY_WORKFLOWS.md.
+ */
+export async function runWardRecordVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  nurse: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+
+  // --- 6. Care plan -------------------------------------------------------
+  // CarePlanPage.tsx: POST /api/emergency/care-plan, the same payload
+  // scripts/journeys/nurse.ts sends.
+  const goal = `Sacral ulcer shows granulation within 7 days (journey ${stamp})`;
+  const plan = await http('POST', '/emergency/care-plan', {
+    token: nurse.token,
+    body: {
+      care_plan_id: `CP-${stamp}`,
+      patient_id: id,
+      diagnoses: [
+        {
+          id: `ND-${stamp}`,
+          diagnosis: 'Impaired skin integrity',
+          relatedTo: 'immobility',
+          evidencedBy: 'stage 2 sacral pressure ulcer',
+          priority: 'high',
+          dateIdentified: new Date().toISOString().slice(0, 10),
+        },
+      ],
+      goals: [
+        {
+          id: `GOAL-${stamp}`,
+          diagnosisId: `ND-${stamp}`,
+          description: goal,
+          targetDate: new Date().toISOString().slice(0, 10),
+          status: 'in-progress',
+          measurableOutcome: 'Over 50% granulation tissue on day 7',
+          progressNotes: [],
+        },
+      ],
+      interventions: [
+        {
+          id: `IVN-${stamp}`,
+          goalId: `GOAL-${stamp}`,
+          description: 'Two-hourly repositioning',
+          frequency: 'q2h',
+          status: 'active',
+          responsibleParty: 'nursing',
+        },
+      ],
+      created_by: nurse.userId,
+      created_at: Math.floor(Date.now() / 1000),
+      updated_at: Math.floor(Date.now() / 1000),
+    },
+  });
+  await readBackAsPatient(j, patient, id, otherId, {
+    written: j.status('a nurse writes the care plan', plan.status, [200, 201], plan.json),
+    route: 'care-plans',
+    openLabel: 'the patient can open their own care plan',
+    contentLabel: 'the care plan states the goal set for them',
+    needle: goal,
+    why:
+      'a care plan is written in the second person -- it says what the patient is ' +
+      'expected to do -- and one they cannot read asks them to do it blind',
+  });
+
+  // --- 7. Blood group and transfusion -------------------------------------
+  // BloodBankPage.tsx: createBloodTypeScreen, as scripts/journeys/labtech.ts sends.
+  const indication = `Symptomatic anaemia (journey ${stamp})`;
+  const screen = await http('POST', '/surgical/blood-type', {
+    token: clinician.token,
+    body: {
+      orderId: `BB-${stamp}`,
+      patientId: id,
+      patientName: 'Journey Patient',
+      bloodType: 'O+',
+      orderDate: new Date().toISOString().slice(0, 10),
+      orderTime: '09:00',
+      orderedBy: clinician.userId,
+      product: 'packed_red_cells',
+      units: 2,
+      indication,
+      priority: 'routine',
+      status: 'ordered',
+    },
+  });
+  await readBackAsPatient(j, patient, id, otherId, {
+    written: j.status('the laboratory orders a type-and-screen', screen.status, [200, 201], screen.json),
+    route: 'blood',
+    openLabel: 'the patient can see their own blood group and transfusions',
+    contentLabel: 'the record names why blood was ordered',
+    needle: indication,
+    why:
+      "a patient's blood group is what they are asked in every emergency " +
+      'department, on every pre-operative form and at every donation',
+  });
+
+  // --- 8. Procedures ------------------------------------------------------
+  // No page posts these five; `createLacerationRepair` and its siblings exist
+  // in client/shared with no caller, so today they can only arrive from an
+  // integration. The API shape is what an integration would send.
+  const woundSite = `Left forearm, 4cm (journey ${stamp})`;
+  const laceration = await http('POST', '/clinical/laceration', {
+    token: clinician.token,
+    body: {
+      patient_id: id,
+      location: woundSite,
+      length_cm: 4.0,
+      depth_cm: 0.6,
+      mechanism: 'Glass laceration',
+      contamination_level: 'clean',
+      wound_age_hours: 2.0,
+      tetanus_status: 'up-to-date',
+      tetanus_given: false,
+      anesthesia_type: 'local infiltration',
+      anesthetic_agent: 'Lidocaine 1%',
+      repair_method: 'simple interrupted sutures',
+      suture_material: 'Nylon 4-0',
+      suture_count: 6,
+      performed_by: clinician.wallet,
+      performed_at: new Date().toISOString(),
+    },
+  });
+  await readBackAsPatient(j, patient, id, otherId, {
+    written: j.status('a doctor records the wound repair', laceration.status, [200, 201], laceration.json),
+    route: 'procedures',
+    openLabel: 'the patient can see what was done to them',
+    contentLabel: 'the procedure record names the wound that was repaired',
+    needle: woundSite,
+    why:
+      '"what was done to me" is one question, and it was split across five ' +
+      'endpoints none of which the patient could reach',
+  });
+
+  // --- 9. AMA discharge ---------------------------------------------------
+  // AMAPage.tsx: createAMADischarge, field for field. `hasCapacity` and
+  // `capacityBasis` are mandatory -- an AMA filed without a capacity
+  // determination is not a lawful AMA, and the handler refuses one.
+  const statement = `I need to get home to my children (journey ${stamp})`;
+  const ama = await http('POST', '/clinical/ama', {
+    token: clinician.token,
+    body: {
+      ama_id: `AMA-${stamp}`,
+      patient_id: id,
+      patient_name: 'Journey Patient',
+      mrn: id,
+      dateCreated: new Date().toISOString(),
+      status: 'pending-signatures',
+      riskLevel: 'high',
+      provider: clinician.wallet,
+      diagnosis: 'Community-acquired pneumonia',
+      recommendedTreatment: 'Admission for intravenous antibiotics',
+      patientStatement: statement,
+      hasCapacity: true,
+      capacityBasis: 'Alert and oriented; able to repeat back the risks of leaving.',
+      patientSigned: false,
+      witnessSigned: false,
+      witnessName: 'Journey Witness',
+      providerSigned: false,
+    },
+  });
+  await readBackAsPatient(j, patient, id, otherId, {
+    written: j.status('a doctor files the against-medical-advice discharge', ama.status, [200, 201], ama.json),
+    route: 'ama-discharges',
+    openLabel: 'the patient can read the AMA discharge they signed',
+    contentLabel: 'the AMA record carries what the patient said',
+    needle: statement,
+    why:
+      'an AMA record is the document most likely to be cited against the ' +
+      'patient later, which is exactly why they should be able to read it',
+  });
+
+  // --- 10. Intake / output ------------------------------------------------
+  // NursingPage.tsx: POST /api/nursing/intake-output/record.
+  const fluidNote = `Journey fluid entry ${stamp}`;
+  const fluid = await http('POST', '/nursing/intake-output/record', {
+    token: nurse.token,
+    body: {
+      patient_id: id,
+      entry_type: 'intake',
+      fluid_type: 'Oral',
+      amount_ml: 240,
+      notes: fluidNote,
+      time: new Date().toISOString(),
+    },
+  });
+  await readBackAsPatient(j, patient, id, otherId, {
+    written: j.status('a nurse charts a fluid entry', fluid.status, [200, 201], fluid.json),
+    route: 'intake-output',
+    openLabel: 'the patient can see their own fluid balance',
+    contentLabel: 'the chart carries the entry that was recorded',
+    // The shift record aggregates entries, so the note may be folded into a
+    // total rather than stored verbatim. The patient id is what must come back.
+    needle: id,
+    why:
+      'a patient on a fluid restriction is told to care about a number, and ' +
+      'being told to care about a number they cannot see is not a plan',
+  });
+}
+
+/** One artefact's read-back: open it as the patient, then as the wrong one. */
+interface ReadBack {
+  written: boolean;
+  route: string;
+  openLabel: string;
+  contentLabel: string;
+  needle: string;
+  why: string;
+}
+
+/**
+ * The assertion every workflow in this file shares.
+ *
+ * Kept as one helper rather than repeated per artefact: the three steps are
+ * always the same shape, and writing them out five more times is how one of
+ * them ends up checking the clinician's session by accident.
+ */
+async function readBackAsPatient(
+  j: Journal,
+  patient: Session,
+  id: string,
+  otherId: string,
+  spec: ReadBack
+): Promise<void> {
+  const boundaryLabel = `another patient cannot read this patient's ${spec.route}`;
+  if (!spec.written) {
+    j.skip(spec.openLabel, 'nothing was written to read back');
+    j.skip(spec.contentLabel, 'nothing was written to read back');
+    j.skip(boundaryLabel, 'nothing was written to read back');
+    return;
+  }
+
+  const mine = await http('GET', `/clinical/patient/${id}/${spec.route}`, {
+    token: patient.token,
+  });
+  const opened = j.status(spec.openLabel, mine.status, 200, mine.json);
+
+  if (opened) {
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      spec.contentLabel,
+      body.includes(spec.needle),
+      `${spec.why}. Returned: ${body.slice(0, 300)}`
+    );
+  } else {
+    j.skip(spec.contentLabel, 'the record did not open');
+  }
+
+  const theirs = await http('GET', `/clinical/patient/${otherId}/${spec.route}`, {
+    token: patient.token,
+  });
+  j.status(boundaryLabel, theirs.status, [401, 403], theirs.json);
 }

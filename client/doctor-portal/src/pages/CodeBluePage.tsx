@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCodeBlue, getApiClient, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { createCodeBlue, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -27,6 +27,18 @@ interface EmergencyRecord {
   outcome?: string;
   narrative?: string;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type EventList = { events?: EmergencyRecord[] } | EmergencyRecord[];
 
 export default function CodeBluePage() {
   const { t } = useTranslation();
@@ -79,13 +91,8 @@ export default function CodeBluePage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/code-blue/patient/${patientId}`), {
-        headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      const data = await getApiClient().get<EventList>(`/api/emergency/code-blue/patient/${patientId}`);
+      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
     } catch (e) {
       console.error('Failed to fetch emergency history', e);
     } finally {

@@ -245,19 +245,7 @@ const WoundCarePage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(apiUrl('/api/emergency/wound/list'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Nurse'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch wound assessments: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await getApiClient().get('/api/emergency/wound/list');
         setWounds((Array.isArray(data) ? data : []).map(toWoundAssessment));
         setError(null);
       } catch (err) {

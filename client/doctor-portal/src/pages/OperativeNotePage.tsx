@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createOperativeNote, apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getPatients, createOperativeNote, getApiClient, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -44,6 +44,18 @@ interface OperativeNote {
   disposition: string;
   createdAt: string;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type RecordList = { records?: Record<string, unknown>[]; notes?: Record<string, unknown>[] } | Record<string, unknown>[];
 
 const commonProcedures = [
   'Appendectomy', 'Cholecystectomy', 'Hernia repair', 'Exploratory laparotomy',
@@ -106,48 +118,43 @@ const OperativeNotePage: React.FC = () => {
     if (activeTab === 'history' && selectedPatient && user) {
       const fetchHistory = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/surgical/operative-note/patient/${selectedPatient}`), {
-            headers: { ...getApiClient().getSessionHeaders(user.walletAddress), 'X-Provider-Role': user.role },
+          const data = await getApiClient().get<RecordList>(`/api/surgical/operative-note/patient/${selectedPatient}`);
+          const records = Array.isArray(data) ? data : (data.records || data.notes || []);
+          // Merge with local notes
+          const mappedRecords: OperativeNote[] = records.map((r: Record<string, unknown>) => ({
+            id: r.id as string || String(r.note_id),
+            patientId: r.patientId as string || r.patient_id as string || selectedPatient,
+            patientName: r.patientName as string || r.patient_name as string || '',
+            surgeon: r.surgeon as string || '',
+            assistant: r.assistant as string || '',
+            anesthesiologist: r.anesthesiologist as string || '',
+            scrubNurse: r.scrubNurse as string || r.scrub_nurse as string || '',
+            circulator: r.circulator as string || '',
+            procedureDate: r.procedureDate as string || r.procedure_date as string || '',
+            preOpDiagnosis: r.preOpDiagnosis as string || r.pre_op_diagnosis as string || '',
+            postOpDiagnosis: r.postOpDiagnosis as string || r.post_op_diagnosis as string || '',
+            procedureName: r.procedureName as string || r.procedure_name as string || '',
+            cptCodes: r.cptCodes as string || r.cpt_codes as string || '',
+            anesthesiaType: (r.anesthesiaType || r.anesthesia_type || 'general') as AnesthesiaType,
+            incision: r.incision as string || '',
+            findings: r.findings as string || '',
+            procedure: r.procedure as string || '',
+            closure: r.closure as string || '',
+            drains: r.drains as string || '',
+            ebl: r.ebl as number || 0,
+            urineOutput: r.urineOutput as number || r.urine_output as number || 0,
+            fluidIn: r.fluidIn as number || r.fluid_in as number || 0,
+            specimens: (r.specimens as Specimen[]) || [],
+            woundClass: (r.woundClass || r.wound_class || 'clean') as WoundClass,
+            implants: r.implants as string || '',
+            complications: r.complications as string || '',
+            disposition: r.disposition as string || '',
+            createdAt: r.createdAt as string || r.created_at as string || '',
+          }));
+          setNotes(prev => {
+            const existingIds = new Set(prev.map(n => n.id));
+            return [...prev, ...mappedRecords.filter(r => !existingIds.has(r.id))];
           });
-          if (res.ok) {
-            const data = await res.json();
-            const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-            // Merge with local notes
-            const mappedRecords: OperativeNote[] = records.map((r: Record<string, unknown>) => ({
-              id: r.id as string || String(r.note_id),
-              patientId: r.patientId as string || r.patient_id as string || selectedPatient,
-              patientName: r.patientName as string || r.patient_name as string || '',
-              surgeon: r.surgeon as string || '',
-              assistant: r.assistant as string || '',
-              anesthesiologist: r.anesthesiologist as string || '',
-              scrubNurse: r.scrubNurse as string || r.scrub_nurse as string || '',
-              circulator: r.circulator as string || '',
-              procedureDate: r.procedureDate as string || r.procedure_date as string || '',
-              preOpDiagnosis: r.preOpDiagnosis as string || r.pre_op_diagnosis as string || '',
-              postOpDiagnosis: r.postOpDiagnosis as string || r.post_op_diagnosis as string || '',
-              procedureName: r.procedureName as string || r.procedure_name as string || '',
-              cptCodes: r.cptCodes as string || r.cpt_codes as string || '',
-              anesthesiaType: (r.anesthesiaType || r.anesthesia_type || 'general') as AnesthesiaType,
-              incision: r.incision as string || '',
-              findings: r.findings as string || '',
-              procedure: r.procedure as string || '',
-              closure: r.closure as string || '',
-              drains: r.drains as string || '',
-              ebl: r.ebl as number || 0,
-              urineOutput: r.urineOutput as number || r.urine_output as number || 0,
-              fluidIn: r.fluidIn as number || r.fluid_in as number || 0,
-              specimens: (r.specimens as Specimen[]) || [],
-              woundClass: (r.woundClass || r.wound_class || 'clean') as WoundClass,
-              implants: r.implants as string || '',
-              complications: r.complications as string || '',
-              disposition: r.disposition as string || '',
-              createdAt: r.createdAt as string || r.created_at as string || '',
-            }));
-            setNotes(prev => {
-              const existingIds = new Set(prev.map(n => n.id));
-              return [...prev, ...mappedRecords.filter(r => !existingIds.has(r.id))];
-            });
-          }
         } catch (e) {
           console.error('Failed to fetch operative note history:', e);
         }

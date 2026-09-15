@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ClipboardList,
@@ -53,6 +53,18 @@ interface Intervention {
   lastPerformed?: string;
   notes?: string;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type PlanList = { care_plans?: { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[]; plans?: { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[] } | { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[];
 
 export default function CarePlanPage() {
   const { t } = useTranslation();
@@ -146,16 +158,8 @@ export default function CarePlanPage() {
     const fetchCarePlans = async () => {
       setPlansLoading(true);
       try {
-        const res = await fetch(apiUrl('/api/nursing/care-plans'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Nurse',
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCarePlans(Array.isArray(data) ? data : (data.care_plans || data.plans || []));
-        }
+        const data = await getApiClient().get<PlanList>('/api/nursing/care-plans');
+        setCarePlans(Array.isArray(data) ? data : (data.care_plans || data.plans || []));
       } catch (err) {
         console.error('Failed to fetch care plans:', err);
       } finally {
