@@ -184,6 +184,12 @@ const en_US: TranslationRecord = {
 
   // Emergency
   emergency: {
+    accessHeading: 'Who has opened this card',
+    accessSubtitle: 'Every emergency read of your blood type, allergies and directives is recorded here.',
+    accessLoading: 'Loading...',
+    accessUnknown: 'This list could not be loaded, so it is not a record of nobody opening your card.',
+    accessNone: 'Nobody has opened your emergency card.',
+    accessFields: 'Shown: {{fields}}',
     loadingCard: 'Loading your emergency card',
     cardUnavailable: 'Your emergency card could not be loaded',
     cardUnavailableHelp:
@@ -1690,6 +1696,30 @@ const en_US: TranslationRecord = {
   },
 
   docPatientDetail: {
+    capsuleHeading: 'Emergency capsule',
+    capsuleSubtitle: 'The blood type, allergies and directives a paramedic sees within three seconds of tapping this patient\'s card. Publish a new version after changing any of them - until then the card still carries the old values.',
+    capsuleLoading: 'Loading the emergency capsule...',
+    capsuleUnknown: 'The emergency capsule could not be read. This is not an empty card - it is an unknown one.',
+    capsuleLoadFailed: 'The emergency capsule could not be read.',
+    capsuleNone: 'No capsule has been published. Nothing is on this card yet.',
+    capsuleCurrent: 'Version {{version}} is in force, published {{date}}.',
+    capsulePublish: 'Publish a new version',
+    capsulePublishing: 'Publishing...',
+    capsulePublished: 'Version {{version}} is now in force. On-chain anchoring: {{anchoring}}.',
+    capsulePublishFailed: 'The emergency capsule could not be published.',
+    capsuleVersionLine: 'Version {{version}} - {{date}}',
+    capsuleAnchored: 'Anchored on-chain: {{hash}}',
+    capsuleNotAnchored: 'Not anchored on-chain.',
+    capsuleRevoke: 'Revoke',
+    capsuleRevoked: 'Version {{version}} was revoked. Its record stays.',
+    capsuleRevokedOn: 'Revoked {{date}}',
+    capsuleRevokeFailed: 'That capsule version could not be revoked.',
+    accessLoading: 'Loading the access history...',
+    accessUnknown: 'The access history could not be read, so this is not a record of no access.',
+    accessLoadFailed: 'The emergency access history could not be read.',
+    accessNone: 'Nobody has opened this patient\'s emergency information.',
+    accessFields: 'Revealed: {{fields}}',
+    accessCommitmentUnverified: 'The capsule did not match its on-chain commitment when it was read.',
     guardiansHeading: 'Who may act for this patient',
     guardiansSubtitle: 'Parents, legal proxies and powers of attorney recorded against this record.',
     guardiansLoading: 'Loading...',

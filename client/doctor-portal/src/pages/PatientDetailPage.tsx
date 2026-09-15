@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
+  getEmergencyCapsuleAccessLog,
+  getEmergencyCapsuleVersions,
+  publishEmergencyCapsule,
+  revokeEmergencyCapsule,
   apiUrl,
   getApiClient,
   getApiErrorMessage,
@@ -9,6 +13,7 @@ import {
   verifyGuardian,
   useTranslation,
 } from '@medichain/shared';
+import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
@@ -91,6 +96,109 @@ function PatientDetailPage() {
   useEffect(() => {
     if (activeTab === 'access') void loadGuardians();
   }, [activeTab, loadGuardians]);
+
+  // --- The emergency capsule -------------------------------------------------
+  //
+  // The capsule is the three-second NFC payload: blood type, allergies,
+  // organ-donor status, DNR. Four endpoints implement the POPIA requirement
+  // that it be versioned, revocable and access-logged, and not one had a client
+  // function -- so a capsule could never be published from the product, and the
+  // values a paramedic reads at a bedside were whatever a script last wrote.
+  //
+  // `GET /api/patients/{id}/emergency-capsule` is new. `current()` and
+  // `history()` were on the repository from the start with no route, which left
+  // revoke unreachable (it takes a version number nobody could read) and
+  // publishing unverifiable.
+  const [capsuleVersions, setCapsuleVersions] = useState<EmergencyCapsuleVersion[]>([]);
+  const [capsuleCurrent, setCapsuleCurrent] = useState<EmergencyCapsuleVersion | null>(null);
+  const [capsuleLoaded, setCapsuleLoaded] = useState(false);
+  const [capsuleUnknown, setCapsuleUnknown] = useState(false);
+  const [capsuleError, setCapsuleError] = useState<string | null>(null);
+  const [capsuleNotice, setCapsuleNotice] = useState<string | null>(null);
+  const [capsuleBusy, setCapsuleBusy] = useState(false);
+
+  const [capsuleAccesses, setCapsuleAccesses] = useState<EmergencyCapsuleAccess[]>([]);
+  const [accessLoaded, setAccessLoaded] = useState(false);
+  const [accessUnknown, setAccessUnknown] = useState(false);
+
+  const loadCapsule = useCallback(async () => {
+    if (!patientId) return;
+    try {
+      const body = await getEmergencyCapsuleVersions(patientId);
+      setCapsuleVersions(body.versions ?? []);
+      setCapsuleCurrent(body.current ?? null);
+      setCapsuleUnknown(false);
+    } catch (err) {
+      // "This patient has no emergency capsule" and "the capsule could not be
+      // read" are opposite answers, and the first one tells a clinician the
+      // card is blank when it may not be.
+      setCapsuleUnknown(true);
+      setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.capsuleLoadFailed')));
+    } finally {
+      setCapsuleLoaded(true);
+    }
+  }, [patientId, t]);
+
+  const loadCapsuleAccesses = useCallback(async () => {
+    if (!patientId) return;
+    try {
+      const body = await getEmergencyCapsuleAccessLog(patientId);
+      setCapsuleAccesses(body.accesses ?? []);
+      setAccessUnknown(false);
+    } catch (err) {
+      setAccessUnknown(true);
+      setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.accessLoadFailed')));
+    } finally {
+      setAccessLoaded(true);
+    }
+  }, [patientId, t]);
+
+  useEffect(() => {
+    if (activeTab === 'access') {
+      void loadCapsule();
+      void loadCapsuleAccesses();
+    }
+  }, [activeTab, loadCapsule, loadCapsuleAccesses]);
+
+  const publishCapsule = async () => {
+    if (!patientId) return;
+    setCapsuleError(null);
+    setCapsuleNotice(null);
+    setCapsuleBusy(true);
+    try {
+      const body = await publishEmergencyCapsule(patientId);
+      // `anchoring` rather than the hash: a transaction hash with
+      // `chain_finalized: false` is a placeholder, and reporting it as an
+      // anchoring would claim something that did not happen.
+      setCapsuleNotice(
+        t('docPatientDetail.capsulePublished', {
+          version: body.version,
+          anchoring: body.anchoring,
+        })
+      );
+      await loadCapsule();
+    } catch (err) {
+      setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.capsulePublishFailed')));
+    } finally {
+      setCapsuleBusy(false);
+    }
+  };
+
+  const revokeCapsuleVersion = async (version: number) => {
+    if (!patientId) return;
+    setCapsuleError(null);
+    setCapsuleNotice(null);
+    setCapsuleBusy(true);
+    try {
+      await revokeEmergencyCapsule(patientId, version, 'Revoked from the patient record');
+      setCapsuleNotice(t('docPatientDetail.capsuleRevoked', { version }));
+      await loadCapsule();
+    } catch (err) {
+      setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.capsuleRevokeFailed')));
+    } finally {
+      setCapsuleBusy(false);
+    }
+  };
 
   const togglePermission = (permission: string) => {
     setNewGuardianPermissions((current) =>
@@ -422,14 +530,140 @@ function PatientDetailPage() {
       {activeTab === 'access' && (
         <div className="space-y-6">
           <div className="bg-surface rounded-xl shadow p-6">
+            <h3 className="font-semibold text-content mb-1">
+              {t('docPatientDetail.capsuleHeading')}
+            </h3>
+            <p className="text-sm text-content-muted mb-4">
+              {t('docPatientDetail.capsuleSubtitle')}
+            </p>
+
+            {capsuleError && (
+              <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">{capsuleError}</p>
+              </div>
+            )}
+            {capsuleNotice && (
+              <div role="status" className="mb-4 bg-ok-subtle border border-ok rounded-lg p-3">
+                <p className="text-sm text-ok-subtle-fg">{capsuleNotice}</p>
+              </div>
+            )}
+
+            {!capsuleLoaded ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.capsuleLoading')}</p>
+            ) : capsuleUnknown ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.capsuleUnknown')}</p>
+            ) : (
+              <>
+                <p className="text-sm text-content mb-4">
+                  {capsuleCurrent
+                    ? t('docPatientDetail.capsuleCurrent', {
+                        version: capsuleCurrent.version,
+                        date: new Date(capsuleCurrent.created_at).toLocaleDateString(),
+                      })
+                    : t('docPatientDetail.capsuleNone')}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => void publishCapsule()}
+                  disabled={capsuleBusy}
+                  className="mb-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                >
+                  {capsuleBusy
+                    ? t('docPatientDetail.capsulePublishing')
+                    : t('docPatientDetail.capsulePublish')}
+                </button>
+
+                {capsuleVersions.length > 0 && (
+                  <ul className="space-y-2" data-testid="capsule-version-list">
+                    {capsuleVersions.map((entry) => (
+                      <li
+                        key={entry.version}
+                        className="flex items-start justify-between gap-3 border border-border rounded-lg p-3"
+                      >
+                        <div>
+                          <p className="text-sm text-content">
+                            {t('docPatientDetail.capsuleVersionLine', {
+                              version: entry.version,
+                              date: new Date(entry.created_at).toLocaleString(),
+                            })}
+                          </p>
+                          <p className="text-xs text-content-muted break-all">
+                            {/* A hash without `chain_finalized` is a
+                                placeholder, not an anchoring. */}
+                            {entry.chain_finalized && entry.chain_tx_hash
+                              ? t('docPatientDetail.capsuleAnchored', { hash: entry.chain_tx_hash })
+                              : t('docPatientDetail.capsuleNotAnchored')}
+                          </p>
+                          {entry.revoked_at && (
+                            <p className="text-xs text-content-muted mt-1">
+                              {t('docPatientDetail.capsuleRevokedOn', {
+                                date: new Date(entry.revoked_at).toLocaleDateString(),
+                              })}
+                            </p>
+                          )}
+                        </div>
+                        {!entry.revoked_at && (
+                          <button
+                            type="button"
+                            onClick={() => void revokeCapsuleVersion(entry.version)}
+                            disabled={capsuleBusy}
+                            className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                          >
+                            {t('docPatientDetail.capsuleRevoke')}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Clock className="text-content-muted" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
             </div>
-            <p className="text-content-muted text-center py-8">
-              {t('docPatientDetail.accessLine1')}<br />
-              {t('docPatientDetail.accessLine2')}
-            </p>
+            {/* This used to be two sentences promising an audit trail, with no
+                trail behind them: "View complete audit trail of who accessed
+                this patient's records." The endpoint that answers it existed
+                and had no caller. */}
+            {!accessLoaded ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.accessLoading')}</p>
+            ) : accessUnknown ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.accessUnknown')}</p>
+            ) : capsuleAccesses.length === 0 ? (
+              <p className="text-sm text-content-muted">{t('docPatientDetail.accessNone')}</p>
+            ) : (
+              <ul className="space-y-2" data-testid="capsule-access-list">
+                {capsuleAccesses.map((entry) => (
+                  <li key={entry.id} className="border border-border rounded-lg p-3">
+                    <p className="text-sm text-content break-all">{entry.accessed_by}</p>
+                    <p className="text-xs text-content-muted">
+                      {new Date(entry.accessed_at).toLocaleString()} ·{' '}
+                      {entry.reason_text || entry.reason_code}
+                    </p>
+                    {/* Which fields were actually revealed, not which were
+                        requested -- that difference is the whole point of
+                        logging a break-glass read. */}
+                    {entry.fields_revealed.length > 0 && (
+                      <p className="text-xs text-content-muted mt-1">
+                        {t('docPatientDetail.accessFields', {
+                          fields: entry.fields_revealed.join(', '),
+                        })}
+                      </p>
+                    )}
+                    {!entry.commitment_verified && (
+                      <p className="text-xs text-critical-subtle-fg mt-1">
+                        {t('docPatientDetail.accessCommitmentUnverified')}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="bg-surface rounded-xl shadow p-6">

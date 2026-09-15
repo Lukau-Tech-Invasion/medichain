@@ -164,6 +164,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_processing_restrictions) // GET  /api/admin/retention/restrictions
         .service(lift_processing_restriction) // POST /api/admin/retention/restrictions/{id}/lift
         // Emergency capsule lifecycle: versioned, revocable, access-logged (POPIA gate §1)
+        .service(get_emergency_capsule_versions) // GET  /api/patients/{id}/emergency-capsule
         .service(publish_emergency_capsule) // POST /api/patients/{id}/emergency-capsule
         .service(revoke_emergency_capsule) // POST /api/patients/{id}/emergency-capsule/revoke
         .service(get_emergency_capsule_access_log) // GET  /api/patients/{id}/emergency-capsule/access-log

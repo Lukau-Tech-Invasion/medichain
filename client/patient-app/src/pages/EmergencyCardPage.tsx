@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import QRCode from 'qrcode';
 import {
+  getEmergencyCapsuleAccessLog,
   getApiClient,
   useOfflineCache,
   useTranslation,
@@ -9,6 +10,7 @@ import {
   normalizePhone,
   EmptyState,
 } from '@medichain/shared';
+import type { EmergencyCapsuleAccess } from '@medichain/shared';
 import {
   AlertTriangle,
   Heart,
@@ -71,6 +73,41 @@ export function EmergencyCardPage() {
 
   // Canonical patient record id; the wallet is the authenticated caller.
   const patientId = patient?.healthId || null;
+
+  // --- Who has opened this card ----------------------------------------------
+  //
+  // POPIA requires every emergency read to be logged, and
+  // `GET /api/patients/{id}/emergency-capsule/access-log` already served it to
+  // the patient themself -- it just had no caller anywhere. A log the data
+  // subject cannot read does not answer the question it exists for: "who saw my
+  // blood type, and why".
+  const [accesses, setAccesses] = useState<EmergencyCapsuleAccess[]>([]);
+  const [accessLoaded, setAccessLoaded] = useState(false);
+  // An empty log and a log that could not be read are opposite answers, and
+  // telling a patient "nobody has opened this" when the read failed is the
+  // worse of the two mistakes.
+  const [accessUnknown, setAccessUnknown] = useState(false);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    getEmergencyCapsuleAccessLog(patientId)
+      .then((body) => {
+        if (cancelled) return;
+        setAccesses(body.accesses ?? []);
+        setAccessUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setAccessUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setAccessLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
 
   // Fetch + map the emergency card. Throws on failure so useOfflineCache can fall
   // back to the cached copy (critical: emergency data must be viewable offline).
@@ -612,6 +649,37 @@ export function EmergencyCardPage() {
             );
           })()}
         </div>
+      </div>
+
+      {/* Who has opened this card */}
+      <div className="bg-surface rounded-xl shadow p-4 mb-4">
+        <h2 className="font-semibold text-content mb-1">{t('emergency.accessHeading')}</h2>
+        <p className="text-sm text-content-muted mb-3">{t('emergency.accessSubtitle')}</p>
+        {!accessLoaded ? (
+          <p className="text-sm text-content-muted">{t('emergency.accessLoading')}</p>
+        ) : accessUnknown ? (
+          <p className="text-sm text-content-muted">{t('emergency.accessUnknown')}</p>
+        ) : accesses.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('emergency.accessNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="emergency-access-list">
+            {accesses.map((entry) => (
+              <li key={entry.id} className="border border-border rounded-lg p-3">
+                <p className="text-sm text-content break-all">{entry.accessed_by}</p>
+                <p className="text-xs text-content-muted">
+                  {formatDate(entry.accessed_at, locale)} ·{' '}
+                  {entry.reason_text || entry.reason_code}
+                </p>
+                {/* What was actually shown, not what was asked for. */}
+                {entry.fields_revealed.length > 0 && (
+                  <p className="text-xs text-content-muted mt-1">
+                    {t('emergency.accessFields', { fields: entry.fields_revealed.join(', ') })}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Card Security Info */}

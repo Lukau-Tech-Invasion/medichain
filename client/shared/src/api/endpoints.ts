@@ -3867,3 +3867,132 @@ export async function getDeletionRegister(): Promise<{
 }> {
   return getApiClient().get('/api/admin/retention/register');
 }
+
+// ============================================================================
+// Emergency capsule (the three-second NFC payload)
+// ============================================================================
+//
+// Four endpoints implementing the POPIA requirement that emergency values be
+// versioned, revocable and access-logged. None had a client function, so a
+// capsule could never be published from the product: the blood type a paramedic
+// reads at a bedside was whatever had last been written by a script.
+//
+// No plaintext travels on these. The encrypted capsule body is excluded from
+// the entity server-side; what comes back is commitments and metadata.
+
+/** One published version of a patient's emergency directive. */
+export interface EmergencyCapsuleVersion {
+  patient_id: string;
+  version: number;
+  /** Hex SHA3-256 commitment, as published on-chain. */
+  commitment: string;
+  key_version: number;
+  created_by: string;
+  created_at: string;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  revocation_reason?: string | null;
+  chain_tx_hash?: string | null;
+  /**
+   * `false` with a hash present means a placeholder, not an anchored
+   * commitment. Showing the hash without this would claim an anchoring that
+   * never happened.
+   */
+  chain_finalized: boolean;
+}
+
+/**
+ * Which emergency directive is in force, and which ones used to be.
+ *
+ * Revoked versions are included: that a DNR directive was in force between two
+ * dates is part of the clinical record.
+ */
+export async function getEmergencyCapsuleVersions(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  current: EmergencyCapsuleVersion | null;
+  count: number;
+  versions: EmergencyCapsuleVersion[];
+}> {
+  return getApiClient().get(`/api/patients/${encodeURIComponent(patientId)}/emergency-capsule`);
+}
+
+/**
+ * Publish a new capsule version from the patient's stored emergency
+ * information, and anchor its commitment.
+ *
+ * Call this after any change to blood type, allergies, organ-donor status or a
+ * DNR directive: the previous version stays on file but stops being current.
+ * Until this runs, the card a paramedic taps still carries the old values.
+ */
+export async function publishEmergencyCapsule(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  version: number;
+  commitment: string;
+  /** `finalized` | `pending` | `disabled` — never a bare hash. */
+  anchoring: string;
+  blockchain_tx_hash?: string | null;
+}> {
+  return getApiClient().post(
+    `/api/patients/${encodeURIComponent(patientId)}/emergency-capsule`,
+    {}
+  );
+}
+
+/**
+ * Revoke a capsule version. The row is retained — revocation is never deletion,
+ * because a directive having been in force is itself part of the record.
+ */
+export async function revokeEmergencyCapsule(
+  patientId: string,
+  version: number,
+  reason?: string
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  version: number;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+}> {
+  return getApiClient().post(
+    `/api/patients/${encodeURIComponent(patientId)}/emergency-capsule/revoke`,
+    { version, reason: reason || null }
+  );
+}
+
+/** One break-glass read of a patient's emergency capsule. */
+export interface EmergencyCapsuleAccess {
+  id: string;
+  patient_id: string;
+  /** `null` when no capsule existed to read — a failed break-glass attempt is still an access. */
+  capsule_version: number | null;
+  accessed_by: string;
+  /** The emergency grant the read happened under. */
+  grant_id: string | null;
+  reason_code: string;
+  reason_text: string | null;
+  /** The fields actually returned to the caller, not the ones requested. */
+  fields_revealed: string[];
+  /** Whether the capsule still matched its on-chain commitment at read time. */
+  commitment_verified: boolean;
+  accessed_at: string;
+}
+
+/**
+ * Who read this patient's emergency data, why, and which fields were revealed.
+ *
+ * Readable by the patient themself as well as by clinical staff: a data subject
+ * asking "who saw my emergency information" is the question this log exists to
+ * answer, and a log only clinicians can read does not answer it.
+ */
+export async function getEmergencyCapsuleAccessLog(patientId: string): Promise<{
+  success: boolean;
+  patient_id: string;
+  count: number;
+  accesses: EmergencyCapsuleAccess[];
+}> {
+  return getApiClient().get(
+    `/api/patients/${encodeURIComponent(patientId)}/emergency-capsule/access-log`
+  );
+}
