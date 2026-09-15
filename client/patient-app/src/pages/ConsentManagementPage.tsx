@@ -17,7 +17,17 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
-import { apiUrl, getApiClient, getPatientConsents, getConsentTypes, signConsent, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  getApiErrorMessage,
+  getPatientConsents,
+  getConsentTypes,
+  revokeConsent,
+  signConsent,
+  useTranslation,
+  clickable,
+} from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface AccessGrant {
@@ -82,6 +92,45 @@ export function ConsentManagementPage() {
   const grantStatusLabel = (s: string) =>
     ({ active: t('consent.statusActive'), expired: t('consent.statusExpired'), revoked: t('consent.statusRevoked') }[s] || s);
   const [activeTab, setActiveTab] = useState<'grants' | 'requests' | 'history' | 'consents'>('grants');
+
+  // Withdrawing a consent.
+  //
+  // The page could sign one and never take it back: `POST /api/consent/{id}/revoke`
+  // existed with no caller anywhere. Signing without withdrawal is not consent
+  // management, and under POPIA withdrawal is a right the patient holds.
+  //
+  // Note this is NOT the same as revoking an access grant, which the page
+  // already did (`/api/access/grants/{id}/revoke`). A grant is one clinician's
+  // permission; a consent is the signed legal basis. Revoking one leaves the
+  // other standing, which is why both have to exist.
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawNotice, setWithdrawNotice] = useState<string | null>(null);
+
+  const handleWithdrawConsent = async (consentId: string) => {
+    if (!patient) return;
+    setWithdrawError(null);
+    setWithdrawNotice(null);
+    setWithdrawingId(consentId);
+    try {
+      // A reason is offered, never demanded: a patient does not owe one.
+      const reason = window.prompt(t('consent.withdrawReasonPrompt')) ?? undefined;
+      await revokeConsent(consentId, reason?.trim() || undefined);
+      // Read the list back rather than editing it here: what the server holds
+      // is the record, and a withdrawal this screen only remembers is no
+      // withdrawal at all.
+      const result = (await getPatientConsents(patient.healthId)) as { consents: SignedConsent[] };
+      setSignedConsents(result.consents || []);
+      // The row disappears on success -- the server excludes withdrawn
+      // consents from this list -- so say so, or the screen looks like it
+      // simply lost something.
+      setWithdrawNotice(t('consent.withdrawDone'));
+    } catch (err) {
+      setWithdrawError(getApiErrorMessage(err, t('consent.withdrawFailed')));
+    } finally {
+      setWithdrawingId(null);
+    }
+  };
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -487,6 +536,16 @@ export function ConsentManagementPage() {
               <p className="text-sm text-content-muted">{t('consent.noSigned')}</p>
             ) : (
               <div className="space-y-2">
+                {withdrawError && (
+                  <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
+                    <p className="text-sm text-critical-subtle-fg">{withdrawError}</p>
+                  </div>
+                )}
+                {withdrawNotice && (
+                  <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3">
+                    <p className="text-sm text-ok-subtle-fg">{withdrawNotice}</p>
+                  </div>
+                )}
                 {signedConsents.map(c => (
                   <div key={c.consent_id} className="patient-card flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -498,7 +557,27 @@ export function ConsentManagementPage() {
                         )}
                       </div>
                     </div>
-                    <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">{t('consent.signed')}</span>
+                    <div className="flex items-center gap-2">
+                      {/* Every consent in this list is a standing one:
+                          `GET /api/consent/patient/{id}` filters withdrawn
+                          consents out server-side
+                          (`.filter(|c| !c.revoked...)`), so there is no
+                          withdrawn state to render here -- withdrawing removes
+                          the row. */}
+                      <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">
+                        {t('consent.signed')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleWithdrawConsent(c.consent_id)}
+                        disabled={withdrawingId === c.consent_id}
+                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px]"
+                      >
+                        {withdrawingId === c.consent_id
+                          ? t('consent.withdrawing')
+                          : t('consent.withdraw')}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

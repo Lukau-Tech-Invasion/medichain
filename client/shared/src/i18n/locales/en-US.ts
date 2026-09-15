@@ -898,6 +898,11 @@ const en_US: TranslationRecord = {
 
   // Consent
   consent: {
+    withdraw: 'Withdraw',
+    withdrawing: 'Withdrawing...',
+    withdrawReasonPrompt: 'Why are you withdrawing this consent? (optional)',
+    withdrawFailed: 'The consent could not be withdrawn.',
+    withdrawDone: 'Consent withdrawn. It no longer appears in your signed consents.',
     loadFailed: 'Who has access could not be loaded. This list is not empty — it is unknown.',
     title: 'Consent Management',
     activeConsents: 'Active Consents',
@@ -4791,6 +4796,7 @@ const en_US: TranslationRecord = {
     errorConnectFailed: 'Failed to connect to server',
     errorFetchFailed: 'Failed to fetch discharge summaries. Please ensure the API server is running.',
     successCreated: 'Discharge summary created successfully',
+    errorInstructionsFailed: 'The discharge summary was filed, but the patient’s take-home instructions were not. Open the discharge and add them before the patient leaves.',
     errorCreateFailed: 'Failed to create discharge summary',
     errorGenericCreate: 'Error creating discharge summary',
     successApproved: 'Discharge approved',

@@ -201,3 +201,46 @@ it cannot be checked, trended or defended.
 Verified live: the catalogue returns 4/5/6 options, E3+V4+M5 scores 12
 "Moderate brain injury", an out-of-range eye score of 7 is refused with 400, and
 the patient-scoped read returns the assessment.
+
+
+### `POST /api/clinical/discharge-instructions` — the take-home document (2026-09-15)
+
+Verified before building: `DischargePage` collected the diet, the activity
+restrictions, the warning signs and the emergency instructions all along, and
+posted them onto the discharge **summary** — the clinical record of the
+admission. The separate discharge-instructions record, which is exactly what the
+patient's own `GET /api/clinical/patient/{id}/discharges` returns under
+`instructions`, was created by nothing in either client. A patient could open
+their discharge and find the summary with no instructions attached: no diet, no
+restrictions, nothing to come back for.
+
+The page now files both, the instructions linked to the summary by
+`discharge_summary_id` so the two cannot disagree about which admission they
+describe. A failure of the second call says which half failed, because a
+clinician told only "saved" will not go back for it.
+
+**Fixed in passing:** a failed discharge save called `setSuccess()` with an
+error message, so a discharge that was never filed appeared in the green banner.
+
+### `POST /api/consent/{id}/revoke` — withdrawing consent (2026-09-15)
+
+Verified before building: the consent screen could **sign** a consent and never
+take it back. The page's existing "revoke" button revokes an *access grant*
+(`/api/access/grants/{id}/revoke`) — one clinician's permission — which is a
+different thing from the signed legal basis. Under POPIA withdrawal is a right
+the data subject holds.
+
+`revokeConsent` is new in the shared client and wired to a Withdraw control on
+each standing consent. The reason is prompted for and optional: a patient does
+not owe one.
+
+`GET /api/consent/patient/{id}` filters withdrawn consents out server-side
+(`.filter(|c| !c.revoked...)`), so a successful withdrawal **removes the row** —
+the screen says so rather than appearing to lose it.
+
+**Covered by the journey, not the browser suite.** The patient application's e2e
+harness signs in by creating a fresh demo wallet, and the consent endpoints
+answer 401 for it, so a browser test would assert nothing about authorisation.
+The journey runs as the real fixture patient and asserts the withdrawn consent
+is *absent* afterwards — the only way to tell a real withdrawal from a 200 that
+changed nothing.

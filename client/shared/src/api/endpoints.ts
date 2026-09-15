@@ -2998,6 +2998,24 @@ export async function getPatientConsents(
   return getApiClient().get(`/api/consent/patient/${patientId}`);
 }
 
+/**
+ * Withdraw a consent the patient previously signed.
+ *
+ * `POST /api/consent/{id}/revoke` has existed with no caller: the patient
+ * application could **sign** a consent and never take it back. Withdrawing
+ * consent is a right, not a feature — under POPIA a data subject may withdraw
+ * at any time — and a screen that can only sign is a screen that records
+ * agreement it cannot let go of.
+ *
+ * The reason is optional on purpose: a patient does not owe one.
+ */
+export async function revokeConsent(
+  consentId: string,
+  reason?: string
+): Promise<{ success: boolean; message?: string }> {
+  return getApiClient().post(`/api/consent/${consentId}/revoke`, { reason: reason || null });
+}
+
 // ============================================================================
 // Symptom Tracking
 // ============================================================================

@@ -338,17 +338,67 @@ function DischargePage() {
         body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        setSuccess(t('docDischarge.successCreated'));
-        setShowForm(false);
-        fetchDischarges();
-        resetForm();
-      } else {
-        setSuccess(t('docDischarge.errorCreateFailed'));
+      if (!response.ok) {
+        // A failure used to be written into the SUCCESS banner, so a discharge
+        // that was never filed appeared in green.
+        setError(t('docDischarge.errorCreateFailed'));
+        return;
       }
+
+      const created = (await response.json().catch(() => ({}))) as { summary_id?: string };
+
+      // The take-home document, as its own record.
+      //
+      // This screen collected the diet, the activity restrictions, the warning
+      // signs and the emergency instructions all along, and posted them onto
+      // the discharge SUMMARY -- the clinical record of the admission. The
+      // separate discharge-instructions record, which is what the patient's own
+      // `GET /api/clinical/patient/{id}/discharges` returns under
+      // `instructions`, was never created by anything. So a patient could open
+      // their discharge and find the summary with no instructions attached: no
+      // diet, no restrictions, nothing to come back for.
+      //
+      // Filed after the summary and linked to it, so the two cannot disagree
+      // about which admission they describe.
+      const instructionsResponse = await fetch(apiUrl('/api/clinical/discharge-instructions'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getApiClient().getSessionHeaders(user.walletAddress),
+          // Its own key: a second mutation reusing the summary's would be
+          // refused as a replay.
+          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
+          'X-Provider-Role': user.role,
+        },
+        body: JSON.stringify({
+          patient_id: selectedPatient,
+          discharge_summary_id: created.summary_id ?? null,
+          visit_date: payload.discharge_date,
+          diagnosis_summary: formData.primary_diagnosis,
+          medications_list: medications,
+          diet_instructions: formData.diet_instructions,
+          activity_restrictions: payload.activity_restrictions,
+          follow_up_appointments: followUps,
+          return_precautions: payload.warning_signs,
+          emergency_instructions: formData.emergency_instructions,
+        }),
+      });
+
+      if (!instructionsResponse.ok) {
+        // Say which half failed. The summary is filed; the patient's copy is
+        // not, and a clinician who is told only "saved" will not go back for it.
+        setError(t('docDischarge.errorInstructionsFailed'));
+        fetchDischarges();
+        return;
+      }
+
+      setSuccess(t('docDischarge.successCreated'));
+      setShowForm(false);
+      fetchDischarges();
+      resetForm();
     } catch (error) {
       console.error('Error creating discharge summary:', error);
-      setSuccess(t('docDischarge.errorGenericCreate'));
+      setError(t('docDischarge.errorGenericCreate'));
     } finally {
       setSubmitting(false);
     }

@@ -506,6 +506,7 @@ export async function patientJourney(
   await runPathologyVisibilitySteps(j, patient, clinician, id, other);
   await runConsultVisibilitySteps(j, patient, clinician, id, other);
   await runWardRecordVisibilitySteps(j, patient, clinician, nurse, id, other);
+  await runConsentWithdrawalSteps(j, patient, id);
 
   const chart = await http('POST', '/clinical/vitals', {
     token: patient.token,
@@ -1355,4 +1356,78 @@ async function readBackAsPatient(
     token: patient.token,
   });
   j.status(boundaryLabel, theirs.status, [401, 403], theirs.json);
+}
+
+/**
+ * The patient withdraws a consent they signed.
+ *
+ * `POST /api/consent/{id}/revoke` existed with no caller anywhere: the consent
+ * screen could **sign** and never take back. Signing without withdrawal is not
+ * consent management — under POPIA withdrawal is a right the patient holds, and
+ * a screen that can only sign records agreement it cannot let go of.
+ *
+ * Distinct from revoking an access grant, which the page already did
+ * (`/api/access/grants/{id}/revoke`). A grant is one clinician's permission; a
+ * consent is the signed legal basis, and revoking either leaves the other
+ * standing.
+ *
+ * Covered here rather than in the browser suite because the patient
+ * application's e2e harness signs in by creating a fresh demo wallet, and the
+ * consent endpoints answer 401 for it — so a browser test would assert nothing
+ * about authorisation. This runs as the real fixture patient.
+ */
+export async function runConsentWithdrawalSteps(
+  j: Journal,
+  patient: Session,
+  id: string
+): Promise<void> {
+  const types = await http('GET', '/consent/types', { token: patient.token });
+  const offered = rowsOf(types.json, 'consent_types', 'types', 'items');
+  const first = offered[0] as { consent_type?: string; code?: string; id?: string } | undefined;
+  const consentType = first?.consent_type ?? first?.code ?? first?.id ?? 'treatment';
+  j.record(
+    'the patient is offered consent forms to sign',
+    offered.length > 0,
+    `a consent screen with nothing to sign cannot record a lawful basis. Returned: ${JSON.stringify(types.json).slice(0, 200)}`
+  );
+
+  const signed = await http('POST', '/consent/sign', {
+    token: patient.token,
+    body: { patient_id: id, consent_type: consentType },
+  });
+  const didSign = j.status('the patient signs a consent', signed.status, [200, 201], signed.json);
+
+  if (!didSign) {
+    j.skip('the patient can withdraw the consent they signed', 'nothing was signed');
+    j.skip('the withdrawn consent is gone from their standing consents', 'nothing was signed');
+    return;
+  }
+
+  const before = await http('GET', `/consent/patient/${id}`, { token: patient.token });
+  const standing = rowsOf(before.json, 'consents') as Array<{ consent_id?: string }>;
+  const target = standing[0]?.consent_id;
+
+  if (!target) {
+    j.skip('the patient can withdraw the consent they signed', 'no standing consent came back');
+    j.skip('the withdrawn consent is gone from their standing consents', 'no standing consent came back');
+    return;
+  }
+
+  // The reason is optional on purpose: a patient does not owe one.
+  const revoked = await http('POST', `/consent/${target}/revoke`, {
+    token: patient.token,
+    body: { reason: null },
+  });
+  j.status('the patient can withdraw the consent they signed', revoked.status, [200, 201], revoked.json);
+
+  // `GET /api/consent/patient/{id}` filters withdrawn consents out server-side,
+  // so a withdrawal that took effect REMOVES the row. Asserting its absence is
+  // the only way to tell a real withdrawal from a 200 that changed nothing.
+  const after = await http('GET', `/consent/patient/${id}`, { token: patient.token });
+  const remaining = rowsOf(after.json, 'consents') as Array<{ consent_id?: string }>;
+  j.record(
+    'the withdrawn consent is gone from their standing consents',
+    !remaining.some((c) => c.consent_id === target),
+    `a withdrawal that leaves the consent standing is not a withdrawal. Still listed: ${JSON.stringify(after.json).slice(0, 220)}`
+  );
 }
