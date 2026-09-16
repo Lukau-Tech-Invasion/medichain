@@ -200,18 +200,68 @@ def brace_span(text: str, start: int) -> str | None:
     return None
 
 
+def comment_ranges(text: str) -> list[tuple[int, int]]:
+    """Every `//` and block comment span, skipping strings.
+
+    Needed because the call-site regexes below would otherwise match a call
+    that a comment is *describing*. `OfflineSyncPage` documents the call it
+    replaced — "This used to call `performSync({ patient_id })`" — and the gate
+    read that comment as a live call site, reporting a defect that had already
+    been fixed. A gate that reports a fixed defect costs the same investigation
+    as one that misses a live one.
+    """
+    spans: list[tuple[int, int]] = []
+    i, in_str, quote = 0, False, ''
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote:
+                in_str = False
+            i += 1
+            continue
+        if ch == '/' and i + 1 < len(text):
+            if text[i + 1] == '/':
+                nl = text.find('\n', i)
+                end = len(text) if nl < 0 else nl
+                spans.append((i, end))
+                i = end
+                continue
+            if text[i + 1] == '*':
+                close = text.find('*/', i + 2)
+                end = len(text) if close < 0 else close + 2
+                spans.append((i, end))
+                i = end
+                continue
+        if ch in '"\'`':
+            in_str, quote = True, ch
+        i += 1
+    return spans
+
+
+def find_live(pattern: str, text: str, spans: list[tuple[int, int]]) -> re.Match[str] | None:
+    """The first match of `pattern` that is not inside a comment."""
+    for match in re.finditer(pattern, text):
+        if not any(start <= match.start() < end for start, end in spans):
+            return match
+    return None
+
+
 def payload_keys(text: str, fn: str) -> set[str] | None:
-    call = re.search(r'\b%s\s*\(\s*([A-Za-z_]\w*)\s*[,)]' % re.escape(fn), text)
+    spans = comment_ranges(text)
+    call = find_live(r'\b%s\s*\(\s*([A-Za-z_]\w*)\s*[,)]' % re.escape(fn), text, spans)
     literal = None
     if call:
         var = call.group(1)
-        decl = re.search(
-            r'const\s+%s\s*(?::\s*[\w<>\[\]. ]+)?\s*=\s*\{' % re.escape(var), text
+        decl = find_live(
+            r'const\s+%s\s*(?::\s*[\w<>\[\]. ]+)?\s*=\s*\{' % re.escape(var), text, spans
         )
         if decl:
             literal = brace_span(text, text.index('{', decl.start()))
     if literal is None:
-        inline = re.search(r'\b%s\s*\(\s*\{' % re.escape(fn), text)
+        inline = find_live(r'\b%s\s*\(\s*\{' % re.escape(fn), text, spans)
         if inline:
             literal = brace_span(text, text.index('{', inline.start()))
     if literal is None:
