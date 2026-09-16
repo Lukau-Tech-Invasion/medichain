@@ -182,22 +182,45 @@ pub async fn get_language_preference(
     }
 }
 
-/// Mock AI: Translate clinical content
+/// What `POST /api/platform/translate` answers with.
 ///
-/// HZ-009 audit: `_http_req`/`_data` are genuinely unused, not an oversight —
-/// this is a stateless mock that only echoes/reformats the caller's own
-/// request body (no patient/user data read or written), so `not_applicable`.
+/// `machine_translated` and `clinically_verified` are not decoration. A
+/// mistranslated dose instruction is a dosing error with a language barrier in
+/// front of it, and the patient cannot notice. A screen that renders this must
+/// be able to say where the words came from, so the answer carries it.
+#[derive(Debug, serde::Serialize)]
+pub struct TranslateContentResponse {
+    pub success: bool,
+    pub original_content: String,
+    pub translated_content: String,
+    pub target_language: String,
+    /// What the provider believed the source language was, when it says.
+    pub detected_source_language: Option<String>,
+    pub provider: String,
+    pub machine_translated: bool,
+    /// Always false. Nothing in this system reviews a machine translation, and
+    /// a field that could read `true` would eventually be set by something
+    /// that had not.
+    pub clinically_verified: bool,
+}
+
+/// Translate clinical content.
+///
+/// This used to answer 200 with `[TRANSLATED to fr]: <the original English>` --
+/// the submitted content unchanged, wearing a label saying it had been
+/// translated -- and then, for the length of this campaign, 503, because
+/// refusing beats inventing. It now calls whatever `TRANSLATION_PROVIDER`
+/// names; see `services::translation`. Unconfigured is still the 503.
 #[post("/api/platform/translate")]
 pub async fn translate_content(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<TranslateContentRequest>,
 ) -> impl Responder {
-    // HZ-019: require a known authenticated caller. This is an unauthenticated
-    // compute endpoint that echoes submitted content; in production it would
-    // proxy an LLM/translation API, so leaving it open invites resource abuse
-    // by anyone. It handles no stored data, so authentication (not per-resource
-    // authorization) is the appropriate control.
+    // HZ-019: require a known authenticated caller. This endpoint handles no
+    // stored data, so authentication rather than per-resource authorization is
+    // the appropriate control -- but it now spends money on a third-party API
+    // per call, so leaving it open invites billed resource abuse by anyone.
     let caller = match require_x_user_id_header(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
@@ -206,33 +229,51 @@ pub async fn translate_content(
         return resp;
     }
 
-    // No translation provider is configured, so there is nothing to translate
-    // WITH -- and this refuses rather than inventing a result.
-    //
-    // It used to answer 200 with
-    // `[TRANSLATED to fr]: <the original English>`: the submitted content
-    // unchanged, wearing a label that says it was translated. `translateContent`
-    // already exists in the shared client, so the first screen to call it would
-    // have shown a patient their own medication instructions, untranslated, and
-    // told them they were reading French.
-    //
-    // This follows the rule the blockchain writes already follow — a disabled
-    // capability returns a typed error and is never represented as a real
-    // result. `context` is accepted and passed through to whatever provider is
-    // wired here later; a translator needs to know whether a string is a
-    // medication instruction or a button label.
-    let _ = (&req.content, &req.context);
-    log::warn!(
-        "translation requested for '{}' with no provider configured",
-        req.target_language
-    );
-    HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
-        error: "No translation provider is configured for this deployment. \
-                The content was not translated."
-            .to_string(),
-        code: "TRANSLATION_PROVIDER_UNAVAILABLE".to_string(),
-    })
+    let translation = crate::services::translation::translate(
+        &req.content,
+        &req.target_language,
+        req.context.as_deref(),
+    )
+    .await;
+
+    match translation {
+        Ok(result) => HttpResponse::Ok().json(TranslateContentResponse {
+            success: true,
+            original_content: req.content.clone(),
+            translated_content: result.translated_text,
+            target_language: req.target_language.clone(),
+            detected_source_language: result.detected_source_language,
+            provider: result.provider.to_string(),
+            // Empty content is returned unchanged without reaching a provider,
+            // so it is not a machine translation and is not claimed as one.
+            machine_translated: result.provider != "none",
+            clinically_verified: false,
+        }),
+        Err(crate::services::translation::TranslationError::NotConfigured) => {
+            log::warn!(
+                "translation to {} requested with no provider configured",
+                req.target_language
+            );
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "No translation provider is configured. The content was not translated."
+                    .to_string(),
+                code: "TRANSLATION_PROVIDER_UNAVAILABLE".to_string(),
+            })
+        }
+        Err(error) => {
+            // The provider failed. The submitted content is not logged: it is
+            // the clinical text this endpoint exists to keep out of logs.
+            log::warn!("translation provider failed: {error}");
+            HttpResponse::BadGateway().json(ErrorResponse {
+                success: false,
+                error:
+                    "The translation provider could not be reached. The content was not translated."
+                        .to_string(),
+                code: "TRANSLATION_PROVIDER_ERROR".to_string(),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -331,5 +372,207 @@ mod hz_009_regression_tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
+    }
+}
+
+#[cfg(test)]
+mod translation_endpoint_tests {
+    use super::*;
+    use actix_web::test;
+    use chrono::Utc;
+
+    /// `TRANSLATION_PROVIDER` and friends are process-global, and one of these
+    /// tests needs them unset while another needs them set. Async, so it can be
+    /// held across the awaits these tests are made of.
+    static TRANSLATION_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn caller_state(wallet: &str) -> crate::AppState {
+        let state = crate::AppState::new();
+        {
+            let mut users = state.users.write().unwrap();
+            users.insert(
+                wallet.to_string(),
+                crate::types::User {
+                    wallet_address: wallet.to_string(),
+                    username: None,
+                    name: "Test User".to_string(),
+                    role: crate::types::Role::Doctor,
+                    created_at: Utc::now(),
+                    created_by: None,
+                    linked_patient_id: None,
+                    email: None,
+                    phone: None,
+                    department: None,
+                    specialty: None,
+                    license_number: None,
+                    status: "active".to_string(),
+                    last_login: None,
+                },
+            );
+        }
+        state
+    }
+
+    fn clear_translation_env() {
+        std::env::remove_var("TRANSLATION_PROVIDER");
+        std::env::remove_var("GOOGLE_TRANSLATE_API_KEY");
+        std::env::remove_var("GOOGLE_TRANSLATE_ENDPOINT");
+    }
+
+    fn translate_request(wallet: Option<&str>) -> test::TestRequest {
+        let mut req = test::TestRequest::post()
+            .uri("/api/platform/translate")
+            .set_json(serde_json::json!({
+                "content": "Take one tablet daily",
+                "target_language": "fr"
+            }));
+        if let Some(wallet) = wallet {
+            req = req.insert_header(("X-User-Id", wallet));
+        }
+        req
+    }
+
+    /// It bills a third-party API per call, so an anonymous caller must not
+    /// reach it.
+    #[actix_web::test]
+    async fn an_unauthenticated_caller_cannot_spend_the_translation_budget() {
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(crate::AppState::new()))
+                .service(translate_content),
+        )
+        .await;
+
+        let resp = test::call_service(&app, translate_request(None).to_request()).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+
+    /// The defect this endpoint shipped with: 200, with the submitted English
+    /// as `translated_content` and a label saying it was French. With no
+    /// provider it must refuse, and the untranslated content must not come back
+    /// anywhere in the answer.
+    #[actix_web::test]
+    async fn with_no_provider_the_content_does_not_come_back_labelled_as_translated() {
+        let _environment_guard = TRANSLATION_ENV_LOCK.lock().await;
+        clear_translation_env();
+
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .service(translate_content),
+        )
+        .await;
+
+        let resp =
+            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"]["code"], "TRANSLATION_PROVIDER_UNAVAILABLE");
+        assert!(
+            !body.to_string().contains("Take one tablet daily"),
+            "the untranslated content was returned: {body}"
+        );
+    }
+
+    /// The whole provider path, over a real socket: a stand-in for the Google
+    /// v2 API bound on a loopback port, reached by the same `reqwest` call a
+    /// deployment would make. Parsing a response in isolation proves the shape;
+    /// this proves the request is actually sent and the answer reaches the
+    /// caller.
+    #[actix_web::test]
+    async fn a_configured_provider_translates_and_says_it_was_a_machine() {
+        let _environment_guard = TRANSLATION_ENV_LOCK.lock().await;
+        clear_translation_env();
+
+        async fn fake_google(body: web::Json<serde_json::Value>) -> HttpResponse {
+            // Assert the shape the real API requires, so a change to the
+            // request fails here rather than in production.
+            assert_eq!(body["q"], "Take one tablet daily");
+            assert_eq!(body["target"], "fr");
+            HttpResponse::Ok().json(serde_json::json!({
+                "data": { "translations": [{
+                    "translatedText": "Prenez un comprimé par jour",
+                    "detectedSourceLanguage": "en"
+                }]}
+            }))
+        }
+
+        let provider = actix_web::HttpServer::new(|| {
+            actix_web::App::new().route("/v2", web::post().to(fake_google))
+        })
+        .bind(("127.0.0.1", 0))
+        .expect("bind a loopback port");
+        let port = provider.addrs()[0].port();
+        let provider = provider.run();
+        let provider_handle = provider.handle();
+        tokio::spawn(provider);
+
+        std::env::set_var("TRANSLATION_PROVIDER", "google");
+        std::env::set_var("GOOGLE_TRANSLATE_API_KEY", "test-key");
+        std::env::set_var(
+            "GOOGLE_TRANSLATE_ENDPOINT",
+            format!("http://127.0.0.1:{port}/v2"),
+        );
+
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .service(translate_content),
+        )
+        .await;
+
+        let resp =
+            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+        let status = resp.status();
+        let body: serde_json::Value = test::read_body_json(resp).await;
+
+        clear_translation_env();
+        provider_handle.stop(true).await;
+
+        assert_eq!(status, actix_web::http::StatusCode::OK, "{body}");
+        assert_eq!(body["translated_content"], "Prenez un comprimé par jour");
+        assert_eq!(body["detected_source_language"], "en");
+        assert_eq!(body["provider"], "google");
+        // A screen rendering this has to be able to say where the words came
+        // from. Neither flag is decoration.
+        assert_eq!(body["machine_translated"], true);
+        assert_eq!(body["clinically_verified"], false);
+    }
+
+    /// A provider that is configured but cannot be reached is a 502, not a 200
+    /// carrying the original text.
+    #[actix_web::test]
+    async fn an_unreachable_provider_is_an_error_not_an_echo() {
+        let _environment_guard = TRANSLATION_ENV_LOCK.lock().await;
+        clear_translation_env();
+        std::env::set_var("TRANSLATION_PROVIDER", "google");
+        std::env::set_var("GOOGLE_TRANSLATE_API_KEY", "test-key");
+        // Port 1 on loopback: nothing listens there.
+        std::env::set_var("GOOGLE_TRANSLATE_ENDPOINT", "http://127.0.0.1:1/v2");
+
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .service(translate_content),
+        )
+        .await;
+
+        let resp =
+            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+        let status = resp.status();
+        let body: serde_json::Value = test::read_body_json(resp).await;
+
+        clear_translation_env();
+
+        assert_eq!(status, actix_web::http::StatusCode::BAD_GATEWAY);
+        assert_eq!(body["error"]["code"], "TRANSLATION_PROVIDER_ERROR");
+        assert!(
+            !body.to_string().contains("Take one tablet daily"),
+            "the untranslated content was returned: {body}"
+        );
     }
 }

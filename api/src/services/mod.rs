@@ -9,3 +9,4 @@
 //! in `state.rs`, which predate and superseded it).
 
 pub mod transcription;
+pub mod translation;

@@ -2871,9 +2871,33 @@ export async function getLanguagePreference(userId: string): Promise<{
   return getApiClient().get(`/api/platform/languages/preference/${userId}`);
 }
 
-export async function translateContent(
-  data: unknown
-): Promise<{ success: boolean; original_content: string; translated_content: string; target_language: string }> {
+/**
+ * Translate content through the deployment's configured provider.
+ *
+ * `machine_translated` and `clinically_verified` are not decoration and a
+ * caller must render them. A mistranslated dose instruction is a dosing error
+ * with a language barrier in front of it, and the reader cannot notice.
+ * `clinically_verified` is always false: nothing in this system reviews a
+ * machine translation.
+ *
+ * Throws `503 TRANSLATION_PROVIDER_UNAVAILABLE` when the deployment has no
+ * provider, and `502 TRANSLATION_PROVIDER_ERROR` when it has one that could
+ * not be reached. Neither ever returns the untranslated content.
+ */
+export async function translateContent(data: {
+  content: string;
+  target_language: string;
+  context?: string;
+}): Promise<{
+  success: boolean;
+  original_content: string;
+  translated_content: string;
+  target_language: string;
+  detected_source_language: string | null;
+  provider: string;
+  machine_translated: boolean;
+  clinically_verified: boolean;
+}> {
   return getApiClient().post('/api/platform/translate', data);
 }
 
