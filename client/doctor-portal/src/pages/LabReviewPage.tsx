@@ -48,6 +48,14 @@ function isFlagged(flag?: string | null): boolean {
   return Boolean(flag && flag.trim() && flag.toLowerCase() !== 'normal');
 }
 
+/// A critical value is not a more emphatic abnormal one -- it is the result
+/// that pages somebody. Rendering `critical_high` in the same amber as `high`
+/// puts the decision to notice it back on the reviewer, which is exactly what
+/// the server-side classification exists to avoid.
+function isCritical(flag?: string | null): boolean {
+  return Boolean(flag && flag.toLowerCase().startsWith('critical'));
+}
+
 function LabReviewPage() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
@@ -249,12 +257,21 @@ function LabReviewPage() {
                           <td className="py-1 pr-4 text-content-secondary">{r.parameter}</td>
                           <td
                             className={`py-1 pr-4 font-mono ${
-                              isFlagged(r.flag) ? 'text-caution-subtle-fg font-semibold' : 'text-content-secondary'
+                              isCritical(r.flag)
+                                ? 'text-critical-subtle-fg font-bold'
+                                : isFlagged(r.flag)
+                                  ? 'text-caution-subtle-fg font-semibold'
+                                  : 'text-content-secondary'
                             }`}
                           >
                             {r.value} {r.unit}
+                            {/* The word, not only the colour: WCAG 1.4.1 forbids
+                                carrying the whole meaning in a hue, and a
+                                reviewer reading a printout has no hue at all. */}
                             {isFlagged(r.flag) && (
-                              <span className="ml-2 text-xs uppercase">{r.flag}</span>
+                              <span className="ml-2 text-xs uppercase">
+                                {r.flag?.replace('_', ' ')}
+                              </span>
                             )}
                           </td>
                           <td className="py-1 pr-4 text-content-muted">{r.reference_range}</td>

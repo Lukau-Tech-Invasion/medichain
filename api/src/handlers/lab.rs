@@ -95,6 +95,31 @@ pub async fn submit_lab_results(
             .unwrap_or("000")
     );
 
+    // Whether a value is abnormal is a derived clinical judgement, so the
+    // server makes it -- rule 8. Until now nothing did: every submission stored
+    // `flag: null` and the reviewer's Flag column was permanently empty, so a
+    // critical potassium reached the queue looking exactly like a normal one.
+    //
+    // A flag the submitter sent is deliberately overwritten. The classification
+    // must come from one place, or two laboratories disagree about what
+    // "critical" means on the same screen.
+    let classified_results: Vec<crate::types::LabTestResult> = req
+        .results
+        .iter()
+        .map(|result| {
+            let range = Some(result.reference_range.as_str()).filter(|r| !r.trim().is_empty());
+            let mut classified = result.clone();
+            classified.flag = crate::clinical_scoring::classify_lab_value(
+                &result.parameter,
+                &result.value,
+                range,
+            )
+            .map(crate::clinical_scoring::lab_flag_label)
+            .map(str::to_string);
+            classified
+        })
+        .collect();
+
     // Create lab submission
     let submission = LabResultSubmission {
         id: submission_id.clone(),
@@ -102,7 +127,7 @@ pub async fn submit_lab_results(
         patient_name,
         test_name: req.test_name.clone(),
         test_category: req.test_category.clone(),
-        results: req.results.clone(),
+        results: classified_results,
         notes: req.notes.clone(),
         submitted_by: current_user_id.clone(),
         submitted_at: Utc::now(),

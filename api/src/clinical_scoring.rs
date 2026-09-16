@@ -1912,3 +1912,199 @@ mod tests {
         assert_eq!(c["catheter_dwell_hours"]["picc"], 2160);
     }
 }
+
+// ============================================================================
+// LAB VALUE CLASSIFICATION
+// ============================================================================
+
+/// Classify one measured analyte against the catalogue's thresholds.
+///
+/// Returns `None` — never `Normal` — when the value cannot be judged:
+///
+/// * the value is not numeric (`"Positive"`, `"Trace"`, `"<0.01"`). A
+///   qualitative result is a finding, but it is not this scale's finding.
+/// * the analyte is not in the catalogue, so there is nothing to compare to.
+/// * the analyte is in the catalogue with no reference range and no critical
+///   bounds.
+///
+/// That distinction is rule 12 applied to laboratory work: an unclassifiable
+/// value is not a normal one, and a Flag column that prints "Normal" over a
+/// result nobody could evaluate is worse than one that prints nothing.
+///
+/// Critical bounds are checked before the reference range, because they are the
+/// ones that page a clinician. A potassium of 7.1 is both `High` by range and
+/// `CriticalHigh` by bound; only the second is worth waking someone for.
+pub fn classify_lab_value(
+    test_name: &str,
+    value: &str,
+    reference_range: Option<&str>,
+) -> Option<crate::clinical::LabValueStatus> {
+    use crate::clinical::LabValueStatus as S;
+
+    let measured: f64 = value.trim().parse().ok()?;
+    let template = lab_test_template(test_name);
+
+    // The submitted range wins over the catalogue's: a laboratory may run its
+    // own assay with its own limits, and the row records which one was used.
+    let range = reference_range.and_then(parse_reference_range).or_else(|| {
+        template
+            .as_ref()
+            .and_then(|t| parse_reference_range(&t.reference_range_male))
+    });
+
+    if let Some(template) = template.as_ref() {
+        if let Some(low) = template.critical_low {
+            if measured <= low {
+                return Some(S::CriticalLow);
+            }
+        }
+        if let Some(high) = template.critical_high {
+            if measured >= high {
+                return Some(S::CriticalHigh);
+            }
+        }
+    }
+
+    let (low, high) = range?;
+    if measured < low {
+        Some(S::Low)
+    } else if measured > high {
+        Some(S::High)
+    } else {
+        Some(S::Normal)
+    }
+}
+
+/// The catalogue entry for an analyte, matched case-insensitively on name.
+///
+/// Matching on the name is what the submission gives us; `LabTestResult` has no
+/// LOINC field, so the code in the catalogue cannot be the key yet.
+fn lab_test_template(test_name: &str) -> Option<crate::clinical::LabTestTemplate> {
+    let wanted = test_name.trim().to_ascii_lowercase();
+    if wanted.is_empty() {
+        return None;
+    }
+    crate::clinical::get_standard_lab_panels()
+        .into_iter()
+        .flat_map(|panel| panel.tests)
+        .find(|test| test.name.trim().to_ascii_lowercase() == wanted)
+}
+
+/// `"12.0-17.5"` -> `(12.0, 17.5)`. Anything else is not a range.
+///
+/// Deliberately strict. `"<0.01"`, `"Negative"` and `"up to 40"` are real
+/// entries in real catalogues and none of them bound a value at both ends, so
+/// guessing one end would invent the other.
+fn parse_reference_range(text: &str) -> Option<(f64, f64)> {
+    let cleaned = text.trim();
+    let (low, high) = cleaned.split_once('-')?;
+    let low: f64 = low.trim().parse().ok()?;
+    let high: f64 = high.trim().parse().ok()?;
+    if low > high {
+        return None;
+    }
+    Some((low, high))
+}
+
+/// The wire spelling of a classification, for `LabTestResult.flag`.
+pub fn lab_flag_label(status: crate::clinical::LabValueStatus) -> &'static str {
+    use crate::clinical::LabValueStatus as S;
+    match status {
+        S::CriticalLow => "critical_low",
+        S::Low => "low",
+        S::Normal => "normal",
+        S::High => "high",
+        S::CriticalHigh => "critical_high",
+        S::Unknown => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod lab_flag_tests {
+    use super::{classify_lab_value, lab_flag_label};
+    use crate::clinical::LabValueStatus as S;
+
+    #[test]
+    fn a_critical_low_is_critical_not_merely_low() {
+        // Haemoglobin: reference 13.5-17.5 male, critical_low 7.0.
+        assert_eq!(
+            classify_lab_value("Hemoglobin", "6.4", None),
+            Some(S::CriticalLow)
+        );
+        assert_eq!(classify_lab_value("Hemoglobin", "11.0", None), Some(S::Low));
+    }
+
+    #[test]
+    fn a_value_inside_the_range_is_normal() {
+        assert_eq!(
+            classify_lab_value("Hemoglobin", "15.0", None),
+            Some(S::Normal)
+        );
+    }
+
+    #[test]
+    fn a_critical_high_outranks_high() {
+        assert_eq!(
+            classify_lab_value("Hemoglobin", "21.0", None),
+            Some(S::CriticalHigh)
+        );
+        assert_eq!(
+            classify_lab_value("Hemoglobin", "18.2", None),
+            Some(S::High)
+        );
+    }
+
+    #[test]
+    fn a_boundary_value_is_critical() {
+        // At the bound, not past it. A potassium of exactly 7.0 is not "nearly"
+        // critical.
+        assert_eq!(
+            classify_lab_value("Hemoglobin", "7.0", None),
+            Some(S::CriticalLow)
+        );
+    }
+
+    #[test]
+    fn an_unclassifiable_value_is_none_and_not_normal() {
+        // Qualitative result.
+        assert_eq!(classify_lab_value("Hemoglobin", "Trace", None), None);
+        // Analyte not in the catalogue and no range supplied.
+        assert_eq!(classify_lab_value("Unobtainium", "4.2", None), None);
+        // Blank.
+        assert_eq!(classify_lab_value("Hemoglobin", "", None), None);
+    }
+
+    #[test]
+    fn an_unknown_analyte_is_still_classified_against_a_supplied_range() {
+        assert_eq!(
+            classify_lab_value("Unobtainium", "4.2", Some("1.0-3.0")),
+            Some(S::High)
+        );
+        assert_eq!(
+            classify_lab_value("Unobtainium", "2.0", Some("1.0-3.0")),
+            Some(S::Normal)
+        );
+    }
+
+    #[test]
+    fn a_range_that_is_not_a_range_classifies_nothing() {
+        assert_eq!(
+            classify_lab_value("Unobtainium", "4.2", Some("Negative")),
+            None
+        );
+        assert_eq!(
+            classify_lab_value("Unobtainium", "4.2", Some("<0.01")),
+            None
+        );
+        assert_eq!(
+            classify_lab_value("Unobtainium", "4.2", Some("9.0-1.0")),
+            None
+        );
+    }
+
+    #[test]
+    fn labels_are_stable_on_the_wire() {
+        assert_eq!(lab_flag_label(S::CriticalHigh), "critical_high");
+        assert_eq!(lab_flag_label(S::Normal), "normal");
+    }
+}
