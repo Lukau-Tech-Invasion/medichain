@@ -185,6 +185,21 @@ jobs:
             - name: No handler reads a body key its callers never send
               run: python scripts/check-untyped-body-keys.py
 
+            # A page whose payload cannot deserialise into the type its
+            # handler takes.
+            #
+            # `web::Json<T>` answers 400 before the handler runs, so nine
+            # clinical pages on 2026-09-16 could not save anything at all and
+            # nothing here could see it: the handler never executed, so no
+            # handler test fired; the route resolved, so the drift gate passed;
+            # and 83 of `endpoints.ts`'s wrappers take `data: unknown`, so
+            # TypeScript was blind. Two causes -- handlers deserialising
+            # `clinical.rs` domain types with a dozen required fields, and pages
+            # submitting camelCase against a module with no `rename_all`
+            # anywhere.
+            - name: Every page payload fits the type its handler takes
+              run: python scripts/check-payload-contracts.py
+
             # An INSERT whose column list and bind chain have drifted apart.
             #
             # `QueryBuilder` joins a string literal to a sequence of method
