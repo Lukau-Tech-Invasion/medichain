@@ -716,3 +716,37 @@ export const pathologyRequestSchema = z.object({
   site: requiredText('the anatomical site', 200),
   clinician: requiredText('the ordering clinician', 200),
 });
+
+/**
+ * A quality-control run.
+ *
+ * QC decides whether every patient result from that analyser can be released,
+ * so each number has to be a number: the Westgard rules are computed as
+ * (observed - mean) / SD, and a blank or non-numeric field makes the whole
+ * evaluation meaningless rather than merely incomplete.
+ *
+ * The standard deviation must be positive -- a zero SD divides by zero and
+ * would report every run as infinitely out of range.
+ */
+const qcNumber = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `Enter the ${label}`)
+    .refine(v => !Number.isNaN(Number(v)), { message: `Enter the ${label} as a number` });
+
+export const labQcSchema = z.object({
+  instrument: requiredText('the instrument', 200),
+  analyte: requiredText('the analyte', 200),
+  observedValue: qcNumber('observed value'),
+  expectedMean: qcNumber('expected mean'),
+  expectedSD: qcNumber('expected standard deviation').refine(v => Number(v) > 0, {
+    message: 'Enter a standard deviation greater than 0',
+  }),
+});
+
+/** Adding a relative to a family history. */
+export const familyMemberSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  relationship: requiredText('the relationship to the patient', 64),
+});

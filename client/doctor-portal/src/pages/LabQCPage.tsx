@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listLabQc, createLabQc, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  listLabQc,
+  createLabQc,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  labQcSchema,
+} from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 
@@ -151,10 +160,17 @@ const LabQCPage: React.FC = () => {
     fetchData();
   }, [fetchData, user]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(labQcSchema);
+
+  const qcRun = () => ({ instrument, analyte, observedValue, expectedMean, expectedSD });
+
   const handleSubmitQC = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!instrument || !analyte || !observedValue || !expectedMean || !expectedSD) {
-      showError(t('docLabQC.errorRequiredFields'));
+    // QC decides whether every patient result from this analyser can be
+    // released. The Westgard rules are computed as (observed - mean) / SD, so a
+    // blank or non-numeric field makes the evaluation meaningless rather than
+    // merely incomplete -- and a zero SD divides by zero.
+    if (!validate(qcRun())) {
       return;
     }
 
@@ -618,14 +634,15 @@ const LabQCPage: React.FC = () => {
                 <label htmlFor="labqc-observed-value" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docLabQC.observedValueRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-observed-value"
                   type="number"
                   step="0.01"
                   value={observedValue}
-                  onChange={(e) => setObservedValue(e.target.value)}
+                  onChange={(e) => { clearField('observedValue'); setObservedValue(e.target.value); }}
+                  onBlur={() => validateField('observedValue', qcRun())}
+                  error={errors.observedValue}
                   placeholder={t('docLabQC.observedValuePh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>
@@ -635,14 +652,15 @@ const LabQCPage: React.FC = () => {
                 <label htmlFor="labqc-expected-mean" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docLabQC.expectedMeanRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-expected-mean"
                   type="number"
                   step="0.01"
                   value={expectedMean}
-                  onChange={(e) => setExpectedMean(e.target.value)}
+                  onChange={(e) => { clearField('expectedMean'); setExpectedMean(e.target.value); }}
+                  onBlur={() => validateField('expectedMean', qcRun())}
+                  error={errors.expectedMean}
                   placeholder={t('docLabQC.expectedMeanPh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>
