@@ -3447,7 +3447,29 @@ crashes that were live — `patientName` and `vitalSigns`, both fixed in the sam
 pass — and is the same drift.
 
 
-### Two e-prescription systems, writing to two different stores — OPEN
+### Two e-prescription systems, writing to two different stores — CLOSED 2026-09-16
+
+**Both surgical handlers are gone.** `create_e_prescription`,
+`get_e_prescription`, `create_appointment` and `get_appointment` on the
+`/api/surgical/*` paths were removed in `c76ab1c`; `grep -rn
+"api/surgical/e-prescription\|api/surgical/appointment" api/src` now returns one
+hit, the doc comment in `support.rs` that cites the old defect as an example.
+This entry and the one below it stayed marked OPEN after the code they describe
+had been deleted — worth noting, because a register entry that outlives its
+subject sends the next reader looking for code that is not there.
+
+The live prescription system `/api/e-prescriptions/*` is unaffected and remains
+the only one.
+
+One loose end, recorded rather than acted on: `repositories.e_prescription_records`
+(the JSON store those handlers wrote to) now has no caller in the binary. Its
+PostgreSQL table is already commented `SUPERSEDED AND EMPTY` by
+`20260912000001_mark_superseded_tables.sql`. Removing the repository needs
+authorisation, not a judgement call.
+
+The original finding follows.
+
+### Two e-prescription systems, writing to two different stores — the original finding
 
 `POST /api/surgical/e-prescription` and `GET /api/surgical/e-prescription/{id}`
 persist through `repositories.e_prescription_records`, a generic JSON blob
@@ -3470,7 +3492,7 @@ explicit authorisation.
 Found 2026-09-15 while triaging uncalled endpoints. Verified by reading both
 handlers' repository fields rather than inferring from the route names.
 
-### `POST /api/surgical/appointment` lets a caller overwrite an existing one — OPEN
+### `POST /api/surgical/appointment` lets a caller overwrite an existing one — CLOSED 2026-09-16 (the handler is gone; see above)
 
 It takes `appointment.appointment_id` from the request body verbatim and calls
 `repositories.appointments.create(entity)` — the same repository the live
@@ -3521,15 +3543,34 @@ Note for anyone extending this: registration persists to
 repository that also exists. The first cut of the disconnect handler read the
 typed one and 404'd on devices the patient could see in their own list.
 
-### `scripts/unused-endpoints.py` reports a call it cannot parse — OPEN
+### `scripts/unused-endpoints.py` reports a call it cannot parse — CLOSED 2026-09-16
 
-`GET /api/insurance/claims/patient/{patient_id}` is reported as uncalled. It is
+`GET /api/insurance/claims/patient/{patient_id}` was reported as uncalled. It is
 called, at `client/shared/src/api/endpoints.ts`, which builds the URL as
 `` `/api/insurance/claims/patient/${patientId}${query ? `?${query}` : ''}` `` —
-a conditional query-string suffix the script's path matcher does not recognise.
+a conditional query-string suffix the script's path matcher did not recognise.
 
-Worth fixing in the script, because a false positive in an audit of what is
-unbuilt costs a real investigation each time somebody works the list.
+**It was three endpoints, not one.** `GET /api/admin/cds/audit` and
+`GET /api/staff/all` are built the same way and were both on the uncalled list
+for the same reason. `/api/admin/cds/audit` had been *given* a reader
+(`CDSAlertsPage`, commit `1f593f7`) and the audit still called it unbuilt.
+
+The extractor was a regex whose character class excluded `?`, so it captured
+`` /api/admin/cds/audit${query `` and matched no route. It is now a
+brace-balancing scan: it walks the template literal, replaces each complete
+`${...}` with `{}` — nested braces, nested backticks and all — and stops at the
+closing quote.
+
+One ambiguity is left and is resolved deliberately. An interpolation appended
+with no `/` before it may be a query-string suffix or part of the segment, and
+which one cannot be known without evaluating it. So a call site now offers both
+readings — the full path and the path with each such trailing suffix dropped —
+and a route counts as called if it matches either. That can under-report an
+uncalled route; the alternative over-reports, and each over-report costs an
+afternoon proving a feature exists.
+
+Result: 13 verb+path pairs reported uncalled, now 10, with nothing removed from
+the API. The three that disappeared all had callers all along.
 
 
 ## Endpoints with no client caller, triaged 2026-09-15

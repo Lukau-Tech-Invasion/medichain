@@ -15,8 +15,30 @@ opposite responses:
 The script cannot tell these apart, so it deliberately does not guess or
 delete. It produces the worklist a human triages.
 
+A FALSE POSITIVE HERE COSTS A REAL INVESTIGATION
+------------------------------------------------
+Two endpoints were reported uncalled for a week while both had callers, because
+the extractor was a regex that stopped at the first `?`:
+
+    `/api/admin/cds/audit${query ? `?${query}` : ''}`
+
+It captured `/api/admin/cds/audit${query` and matched nothing. Somebody then
+spends an afternoon proving the feature exists. So the extractor is now a
+brace-balancing scan rather than a regex: it walks a template literal, replaces
+each complete `${...}` with `{}` (nested braces, nested backticks and all), and
+stops at the closing quote.
+
+That leaves one genuine ambiguity. An interpolation appended with no `/` before
+it -- `/api/x/${id}${query ? ... : ''}` -- may be a query-string suffix rather
+than a path segment, and which it is cannot be known without evaluating it. So
+a call site offers every reading: the full path, and the path with each such
+trailing suffix dropped. A route counts as called if it matches any of them.
+The cost of that choice is a route that could be wrongly counted as called;
+the alternative cost is the afternoon above, every time.
+
 Usage:  python scripts/unused-endpoints.py [--csv]
 """
+import os
 import re
 import sys
 from collections import defaultdict
@@ -27,15 +49,68 @@ API_SRC = ROOT / 'api' / 'src'
 CLIENT_SRC = ROOT / 'client'
 
 ROUTE_RE = re.compile(r'#\[(get|post|put|patch|delete)\("([^"]+)"\)\]')
-# Frontend call sites: apiUrl('/api/..'), getApiClient().get('/api/..'), fetch('/api/..')
-CALL_RE = re.compile(r"""['"`](/api/[^'"`\s?]+)""")
+# Where a call site starts: a quote or backtick immediately followed by `/api/`.
+CALL_START_RE = re.compile(r"""(['"`])(?=/api/)""")
 
 
 def normalise(path: str) -> str:
     """Collapse path parameters so `/x/{id}` and `/x/${id}` compare equal."""
     path = re.sub(r'\$\{[^}]*\}', '{}', path)
     path = re.sub(r'\{[^}]*\}', '{}', path)
+    path = path.split('?', 1)[0]
     return path.rstrip('/')
+
+
+def extract_call_paths(text: str):
+    """Yield the path expression of every `/api/...` string in `text`.
+
+    Each complete `${...}` becomes `{}`. Unlike a regex this survives nested
+    braces and the nested backticks of a conditional query-string suffix.
+    """
+    for match in CALL_START_RE.finditer(text):
+        quote = match.group(1)
+        index = match.end()
+        out = []
+        while index < len(text):
+            char = text[index]
+            if char == quote or char == '\n':
+                break
+            if char == '$' and text.startswith('${', index):
+                depth = 0
+                scan = index + 1
+                while scan < len(text):
+                    if text[scan] == '{':
+                        depth += 1
+                    elif text[scan] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    scan += 1
+                else:
+                    # Unterminated: not something to guess about.
+                    break
+                out.append('{}')
+                index = scan + 1
+                continue
+            out.append(char)
+            index += 1
+        if out:
+            yield ''.join(out)
+
+
+def readings(raw: str):
+    """Every path a single call site could produce.
+
+    A trailing `{}` with no `/` before it is a suffix expression -- a
+    conditional query string, an appended fragment -- as often as it is part of
+    a segment, so both readings are offered.
+    """
+    path = normalise(raw)
+    forms = {path}
+    while re.search(r'[^/]\{\}$', path):
+        path = normalise(path[:-2])
+        forms.add(path)
+    return forms
 
 
 def backend_routes():
@@ -55,7 +130,6 @@ def frontend_calls():
     called = set()
     # Walk explicitly and prune node_modules: rglob descends into it first and
     # dies on the broken `@medichain/wasm-crypto` symlink before any filtering.
-    import os
     for base in ('doctor-portal/src', 'patient-app/src', 'shared/src'):
         root = CLIENT_SRC / base
         if not root.exists():
@@ -66,8 +140,8 @@ def frontend_calls():
                 if not name.endswith(('.ts', '.tsx')) or '.test.' in name:
                     continue
                 text = Path(dirpath, name).read_text(encoding='utf-8', errors='ignore')
-                for path in CALL_RE.findall(text):
-                    called.add(normalise(path))
+                for raw in extract_call_paths(text):
+                    called.update(readings(raw))
     return called
 
 
