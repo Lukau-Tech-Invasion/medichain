@@ -369,11 +369,121 @@ pub async fn list_patient_pre_op(
 }
 
 /// Create operative note
+/// What `OperativeNotePage` submits.
+///
+/// The handler took `clinical::OperativeNote` -- 27 required snake_case fields
+/// -- and the page sends camelCase. Nothing matched, so every note was refused
+/// with `missing field note_id` and the page reported a generic save failure.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+// The page sends camelCase. `rename_all` is the accurate bridge: naming
+// each spelling by hand is how the first version of this fix ended up
+// aliasing `anesthesia_type` to itself, which accepts nothing new and
+// silently drops what the form sent.
+#[serde(rename_all = "camelCase")]
+pub struct CreateOperativeNoteRequest {
+    #[serde(alias = "note_id", alias = "noteId", alias = "id")]
+    pub id: String,
+    #[serde(alias = "patient_id")]
+    pub patient_id: String,
+    #[serde(default, alias = "patient_name")]
+    pub patient_name: Option<String>,
+    #[serde(default)]
+    pub surgeon: Option<String>,
+    #[serde(default)]
+    pub assistant: Option<String>,
+    #[serde(default)]
+    pub anesthesiologist: Option<String>,
+    #[serde(default, alias = "scrub_nurse")]
+    pub scrub_nurse: Option<String>,
+    #[serde(default)]
+    pub circulator: Option<String>,
+    #[serde(default, alias = "procedure_date")]
+    pub procedure_date: Option<String>,
+    #[serde(default, alias = "pre_op_diagnosis")]
+    pub pre_op_diagnosis: Option<String>,
+    #[serde(default, alias = "post_op_diagnosis")]
+    pub post_op_diagnosis: Option<String>,
+    #[serde(default, alias = "procedurePerformed", alias = "procedure_name")]
+    pub procedure_name: Option<String>,
+    #[serde(default, alias = "cpt_codes")]
+    pub cpt_codes: Option<String>,
+    #[serde(default, alias = "anesthesia_type")]
+    pub anesthesia_type: Option<String>,
+    #[serde(default)]
+    pub incision: Option<String>,
+    #[serde(default)]
+    pub findings: Option<String>,
+    #[serde(default, alias = "procedure_details", alias = "procedure")]
+    pub procedure: Option<String>,
+    #[serde(default)]
+    pub closure: Option<String>,
+    #[serde(default)]
+    pub drains: Option<String>,
+    /// Estimated blood loss, millilitres.
+    #[serde(default)]
+    pub ebl: Option<i32>,
+    #[serde(default, alias = "urine_output")]
+    pub urine_output: Option<i32>,
+    #[serde(default, alias = "fluid_in")]
+    pub fluid_in: Option<i32>,
+    #[serde(default)]
+    pub specimens: serde_json::Value,
+    #[serde(default, alias = "wound_class")]
+    pub wound_class: Option<String>,
+    #[serde(default)]
+    pub implants: Option<String>,
+    #[serde(default)]
+    pub complications: Option<String>,
+    #[serde(default)]
+    pub disposition: Option<String>,
+    #[serde(default, alias = "created_at")]
+    pub created_at: Option<String>,
+}
+
+impl CreateOperativeNoteRequest {
+    /// Project onto the storage entity. The typed columns are a queryable
+    /// view; `record_json` keeps the submission itself.
+    fn into_entity(self) -> crate::repositories::traits::OperativeNoteEntity {
+        let data = serde_json::to_value(&self).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+        crate::repositories::traits::OperativeNoteEntity {
+            id: self.id,
+            patient_id: self.patient_id,
+            procedure_name: self.procedure_name.unwrap_or_default(),
+            procedure_codes: self.cpt_codes.map(serde_json::Value::from),
+            preoperative_diagnosis: self.pre_op_diagnosis.unwrap_or_default(),
+            postoperative_diagnosis: self.post_op_diagnosis.unwrap_or_default(),
+            surgeon_id: self.surgeon.unwrap_or_default(),
+            assistant_surgeons: self.assistant.map(serde_json::Value::from),
+            anesthesiologist_id: self.anesthesiologist,
+            anesthesia_type: self.anesthesia_type.unwrap_or_default(),
+            scrub_nurse_id: self.scrub_nurse,
+            circulating_nurse_id: self.circulator,
+            // The form has no theatre clock. See migration 20260916000001.
+            start_time: None,
+            end_time: None,
+            estimated_blood_loss_ml: self.ebl,
+            fluids_given_ml: self.fluid_in,
+            specimens_collected: Some(self.specimens),
+            implants_used: self.implants.map(serde_json::Value::from),
+            drains_placed: self.drains.map(serde_json::Value::from),
+            operative_findings: self.findings,
+            procedure_description: self.procedure.unwrap_or_default(),
+            complications: self.complications,
+            disposition: self.disposition,
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
 #[post("/api/surgical/operative-note")]
 pub async fn create_operative_note(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<OperativeNote>,
+    req: web::Json<CreateOperativeNoteRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -404,7 +514,12 @@ pub async fn create_operative_note(
     }
 
     // Persisted through the repository, so the note survives a restart.
-    match data.repositories.operative_notes.create(note.into()).await {
+    match data
+        .repositories
+        .operative_notes
+        .create(note.into_entity())
+        .await
+    {
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
@@ -423,6 +538,20 @@ pub async fn create_operative_note(
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.
 /// Now matches `create_operative_note`'s authenticated-caller bar.
+/// The document as it was submitted, or `None` if the row holds nothing usable.
+///
+/// These records are stored whole in `record_json` precisely so the round trip
+/// loses nothing; the typed columns beside it are a queryable projection, not
+/// the record. Reading through a Rust type instead would serve only the fields
+/// that type happens to name -- and, when the writer's shape changes, nothing
+/// at all.
+fn stored_document(data: serde_json::Value) -> Option<serde_json::Value> {
+    match data {
+        serde_json::Value::Object(map) if !map.is_empty() => Some(serde_json::Value::Object(map)),
+        _ => None,
+    }
+}
+
 #[get("/api/surgical/operative-note/{id}")]
 pub async fn get_operative_note(
     data: web::Data<AppState>,
@@ -434,11 +563,11 @@ pub async fn get_operative_note(
     }
     let id = path.into_inner();
     match data.repositories.operative_notes.get_by_id(&id).await {
-        Ok(entity) => match OperativeNote::try_from(entity) {
-            Ok(note) => HttpResponse::Ok().json(note),
-            Err(e) => {
+        Ok(entity) => match stored_document(entity.data) {
+            Some(note) => HttpResponse::Ok().json(note),
+            None => {
                 // Half an operative note is more dangerous than none.
-                log::error!("operative-note stored payload is unreadable: {e}");
+                log::error!("operative-note {id} has no readable stored document");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored operative note could not be read".to_string(),
@@ -476,10 +605,10 @@ pub async fn list_patient_operative_notes(
             // omits a note reads as "this patient has none".
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                match OperativeNote::try_from(entity) {
-                    Ok(note) => items.push(note),
-                    Err(e) => {
-                        log::error!("operative-note stored payload is unreadable: {e}");
+                match stored_document(entity.data) {
+                    Some(note) => items.push(note),
+                    None => {
+                        log::error!("an operative note has no readable stored document");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored operative notes could not be read"
@@ -498,12 +627,143 @@ pub async fn list_patient_operative_notes(
     }
 }
 
+/// What `PostOpPage` submits.
+///
+/// Replaces `clinical::PostOperativeNote` on the wire, which required
+/// `note_id`, `note_time`, `condition`, `pain_score`, `pain_management`,
+/// `diet`, `activity`, `dvt_prophylaxis` and a `WoundStatus` struct. The
+/// recovery-room screen sends camelCase and collects a different set, so every
+/// note was refused.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+// The page sends camelCase. `rename_all` is the accurate bridge: naming
+// each spelling by hand is how the first version of this fix ended up
+// aliasing `anesthesia_type` to itself, which accepts nothing new and
+// silently drops what the form sent.
+#[serde(rename_all = "camelCase")]
+pub struct CreatePostOpNoteRequest {
+    #[serde(alias = "note_id", alias = "noteId", alias = "id")]
+    pub id: String,
+    #[serde(alias = "patient_id")]
+    pub patient_id: String,
+    #[serde(default, alias = "patient_name")]
+    pub patient_name: Option<String>,
+    #[serde(default, alias = "documented_by")]
+    pub documented_by: Option<String>,
+    #[serde(default, alias = "documented_at")]
+    pub documented_at: Option<String>,
+    #[serde(default)]
+    pub procedure: Option<String>,
+    #[serde(default)]
+    pub surgeon: Option<String>,
+    #[serde(default, alias = "anesthesia_type")]
+    pub anesthesia_type: Option<String>,
+    #[serde(default, alias = "arrival_time")]
+    pub arrival_time: Option<String>,
+    #[serde(default)]
+    pub aldrete: serde_json::Value,
+    /// The page's own spelling.
+    #[serde(
+        default,
+        alias = "aldreteScore",
+        alias = "aldrete_score",
+        alias = "alderet_score"
+    )]
+    pub alderet_score: Option<i32>,
+    #[serde(default)]
+    pub vitals: serde_json::Value,
+    #[serde(default, alias = "pain_score")]
+    pub pain_score: Option<i32>,
+    #[serde(default, alias = "nausea_vomiting")]
+    pub nausea_vomiting: Option<String>,
+    #[serde(default)]
+    pub bleeding: Option<String>,
+    #[serde(default, alias = "urine_output")]
+    pub urine_output: Option<String>,
+    #[serde(default, alias = "fluid_intake")]
+    pub fluid_intake: Option<String>,
+    #[serde(default, alias = "oral_intake")]
+    pub oral_intake: Option<String>,
+    #[serde(default, alias = "iv_access")]
+    pub iv_access: Option<String>,
+    #[serde(default)]
+    pub medications: serde_json::Value,
+    #[serde(default, alias = "dressing_status")]
+    pub dressing_status: Option<String>,
+    #[serde(default)]
+    pub drains: serde_json::Value,
+    #[serde(default, alias = "discharge_criteria")]
+    pub discharge_criteria: serde_json::Value,
+    #[serde(default, alias = "discharge_time")]
+    pub discharge_time: Option<String>,
+    #[serde(default, alias = "discharge_disposition")]
+    pub discharge_disposition: Option<String>,
+    #[serde(default)]
+    pub complications: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+impl CreatePostOpNoteRequest {
+    fn into_entity(self) -> crate::repositories::traits::PostOpNoteEntity {
+        let data = serde_json::to_value(&self).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+        // Read before the struct is taken apart below.
+        let pain_management = self.medications_summary();
+        crate::repositories::traits::PostOpNoteEntity {
+            id: self.id,
+            patient_id: self.patient_id,
+            // The recovery screen documents the immediate post-anaesthetic
+            // period; it has no link to an operative note and no day counter.
+            operative_note_id: None,
+            post_op_day: 0,
+            note_date: now,
+            provider_id: self.documented_by.unwrap_or_default(),
+            pain_level: self.pain_score,
+            pain_management,
+            vital_signs: Some(self.vitals),
+            wound_assessment: self.dressing_status.clone().map(serde_json::Value::from),
+            drain_output: Some(self.drains),
+            diet_status: self.oral_intake,
+            ambulation_status: None,
+            voiding_status: self.urine_output,
+            bowel_function: None,
+            lab_results_reviewed: None,
+            complications: self.complications,
+            plan: self.notes,
+            // Only true when the page says every criterion was met; an
+            // incomplete checklist is not a discharge decision.
+            discharge_criteria_met: self
+                .discharge_criteria
+                .as_array()
+                .is_some_and(|items| !items.is_empty()),
+            estimated_discharge_date: None,
+            created_at: now,
+            updated_at: now,
+            data,
+        }
+    }
+
+    fn medications_summary(&self) -> Option<String> {
+        let items = self.medications.as_array()?;
+        if items.is_empty() {
+            return None;
+        }
+        Some(
+            items
+                .iter()
+                .map(|item| item.as_str().unwrap_or_default().to_string())
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    }
+}
+
 /// Create post-operative note
 #[post("/api/surgical/post-op")]
 pub async fn create_post_op(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<PostOperativeNote>,
+    req: web::Json<CreatePostOpNoteRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -534,7 +794,12 @@ pub async fn create_post_op(
     }
 
     // Persisted through the repository, so the note survives a restart.
-    match data.repositories.post_op_notes.create(note.into()).await {
+    match data
+        .repositories
+        .post_op_notes
+        .create(note.into_entity())
+        .await
+    {
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
@@ -564,10 +829,10 @@ pub async fn get_post_op(
     }
     let id = path.into_inner();
     match data.repositories.post_op_notes.get_by_id(&id).await {
-        Ok(entity) => match PostOperativeNote::try_from(entity) {
-            Ok(note) => HttpResponse::Ok().json(note),
-            Err(e) => {
-                log::error!("post-op note stored payload is unreadable: {e}");
+        Ok(entity) => match stored_document(entity.data) {
+            Some(note) => HttpResponse::Ok().json(note),
+            None => {
+                log::error!("post-op note {id} has no readable stored document");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: "Stored post-operative note could not be read".to_string(),
@@ -603,10 +868,10 @@ pub async fn list_patient_post_op(
         Ok(page) => {
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                match PostOperativeNote::try_from(entity) {
-                    Ok(note) => items.push(note),
-                    Err(e) => {
-                        log::error!("post-op note stored payload is unreadable: {e}");
+                match stored_document(entity.data) {
+                    Some(note) => items.push(note),
+                    None => {
+                        log::error!("a post-op note has no readable stored document");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             success: false,
                             error: "One or more stored post-operative notes could not be read"

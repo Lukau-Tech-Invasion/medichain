@@ -884,12 +884,32 @@ pub async fn get_autopsy_request(
     }
 }
 
+/// What `AutopsyPage` submits.
+///
+/// The handler took `clinical::AutopsyReport` -- ten required snake_case
+/// fields -- and the page sends camelCase. Nothing matched, so every report was
+/// refused with `missing field report_id`.
+///
+/// Only the two identifiers are named here. Everything else is `flatten`ed and
+/// stored exactly as submitted, which is what the JSON-blob repository behind
+/// this endpoint holds anyway: a pathologist's report is prose and findings,
+/// and projecting it through a fixed struct could only lose some of it.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateAutopsyReportRequest {
+    #[serde(alias = "autopsyId", alias = "autopsy_id", alias = "reportId")]
+    pub report_id: String,
+    #[serde(alias = "patientId")]
+    pub patient_id: String,
+    #[serde(flatten)]
+    pub rest: serde_json::Value,
+}
+
 /// Create autopsy report
 #[post("/api/surgical/autopsy/report")]
 pub async fn create_autopsy_report(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<AutopsyReport>,
+    req: web::Json<CreateAutopsyReportRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -951,12 +971,27 @@ pub async fn get_autopsy_report(
     }
     let id = path.into_inner();
     match data.repositories.autopsy_reports.get_by_id(&id).await {
-        Ok(Some(rec)) => match serde_json::from_value::<AutopsyReport>(rec.data) {
-            Ok(report) => HttpResponse::Ok().json(report),
-            Err(_) => HttpResponse::InternalServerError().finish(),
-        },
+        // The stored document, not a `clinical::AutopsyReport` rebuilt from it.
+        // Reconstructing through that type served only the fields it happens to
+        // name and, once the writer stopped using it, nothing at all -- a
+        // report that saved and could not be read back.
+        Ok(Some(rec)) if rec.data.is_object() => HttpResponse::Ok().json(rec.data),
+        Ok(Some(rec)) => {
+            log::error!(
+                "autopsy report {id} has no readable stored document: {:?}",
+                rec.data
+            );
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Stored autopsy report could not be read".to_string(),
+                code: "RECORD_UNREADABLE".to_string(),
+            })
+        }
         Ok(None) => HttpResponse::NotFound().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("autopsy report lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 

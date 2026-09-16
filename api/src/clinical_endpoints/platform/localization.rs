@@ -7,8 +7,24 @@ use super::*;
 /// Set language preference request
 #[derive(Debug, Deserialize)]
 pub struct SetLanguagePreferenceRequest {
+    /// `LanguageSettingsPage` sends `preferred_language`; `language_code` is
+    /// the original spelling and is kept so an existing caller is not broken.
+    /// Neither was optional before, and the page sends only the former, so
+    /// every save answered `400 missing field language_code` -- silently, since
+    /// the page catches the failure and leaves the choice applied locally.
+    #[serde(alias = "preferred_language", alias = "preferredLanguage")]
     pub language_code: String,
+    #[serde(default, alias = "secondary_language", alias = "secondaryLanguage")]
     pub region: Option<String>,
+    /// Asked on the form and, until now, overwritten with `Fluent` and `false`
+    /// for everyone. A patient who needs an interpreter is precisely the
+    /// patient this record exists to identify.
+    #[serde(default, alias = "readingProficiency")]
+    pub reading_proficiency: Option<String>,
+    #[serde(default, alias = "needsInterpreter")]
+    pub needs_interpreter: Option<bool>,
+    #[serde(default, alias = "interpreterLanguage")]
+    pub interpreter_language: Option<String>,
 }
 
 /// Translate content request
@@ -46,6 +62,25 @@ pub async fn get_supported_languages() -> impl Responder {
     }))
 }
 
+/// The proficiency the form reported, defaulting to `Fluent` only when the
+/// question was not answered at all.
+fn parse_proficiency(value: Option<&str>) -> crate::clinical::LanguageProficiency {
+    use crate::clinical::LanguageProficiency as P;
+    match value
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "native" => P::Native,
+        "fluent" => P::Fluent,
+        "intermediate" | "conversational" => P::Intermediate,
+        "basic" => P::Basic,
+        "none" => P::None,
+        _ => P::Fluent,
+    }
+}
+
 /// Set preferred language for a user
 #[post("/api/platform/languages/preference")]
 pub async fn set_language_preference(
@@ -62,9 +97,10 @@ pub async fn set_language_preference(
         user_id: current_user_id.clone(),
         preferred_language: req.language_code.clone(),
         secondary_language: req.region.clone(),
-        reading_proficiency: crate::clinical::LanguageProficiency::Fluent,
-        needs_interpreter: false,
-        interpreter_language: None,
+        // What the patient answered, not what is convenient to assume.
+        reading_proficiency: parse_proficiency(req.reading_proficiency.as_deref()),
+        needs_interpreter: req.needs_interpreter.unwrap_or(false),
+        interpreter_language: req.interpreter_language.clone(),
         updated_at: chrono::Utc::now().timestamp(),
     };
 

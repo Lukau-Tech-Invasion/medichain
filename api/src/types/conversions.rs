@@ -1146,8 +1146,8 @@ impl From<crate::clinical::OperativeNote> for crate::repositories::traits::Opera
             anesthesia_type: anesthesia_type_column(&n.anesthesia_type),
             scrub_nurse_id: team_member_named(&n.surgeons, R::ScrubNurse),
             circulating_nurse_id: team_member_named(&n.surgeons, R::CirculatingNurse),
-            start_time: utc_from_unix(n.time_in_or),
-            end_time: utc_from_unix(n.time_out_or),
+            start_time: Some(utc_from_unix(n.time_in_or)),
+            end_time: Some(utc_from_unix(n.time_out_or)),
             estimated_blood_loss_ml: i32::try_from(n.estimated_blood_loss).ok(),
             // `fluids_given` is free text ("2L crystalloid"), not a millilitre
             // count. Parsing it into a number would be an invention.

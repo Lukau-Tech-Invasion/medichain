@@ -1836,8 +1836,11 @@ pub struct OperativeNoteEntity {
     pub anesthesia_type: String,
     pub scrub_nurse_id: Option<String>,
     pub circulating_nurse_id: Option<String>,
-    pub start_time: DateTime<Utc>,
-    pub end_time: DateTime<Utc>,
+    /// `Option` since migration 20260916000001. `OperativeNotePage` records a
+    /// procedure date and no theatre clock times, and a date written at
+    /// midnight into both of these is a fabricated operative duration.
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
     pub incision_time: Option<DateTime<Utc>>,
     pub closure_time: Option<DateTime<Utc>>,
     pub estimated_blood_loss_ml: Option<i32>,
