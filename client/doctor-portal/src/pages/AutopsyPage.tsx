@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listAutopsy, createAutopsyReport, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listAutopsy,
+  createAutopsyReport,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Textarea,
+  useValidatedForm,
+  autopsyReportSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -92,7 +102,7 @@ const AutopsyPage: React.FC = () => {
   // tab until dismissed, ignores the app's styling and focus handling, and
   // interrupts a clinician mid-form. `Toast.tsx` says in its own header that it
   // exists "to replace browser alert() calls"; these three pages were missed.
-  const { showSuccess, showError } = useToastActions();
+  const { showSuccess } = useToastActions();
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -169,9 +179,11 @@ const AutopsyPage: React.FC = () => {
     fetchAutopsies();
   }, [fetchAutopsies]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(autopsyReportSchema);
   const handleCreateAutopsy = async () => {
-    if (!newAutopsy.patientId || !newAutopsy.dateOfDeath || !newAutopsy.causeOfDeath) {
-      showError(t('docAutopsy.errorRequiredFields'));
+    // One toast for three fields on a long report form.
+    if (!validate(newAutopsy)) {
       return;
     }
 
@@ -906,15 +918,18 @@ const AutopsyPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-content mb-4">{t('docAutopsy.conclusionsTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docAutopsy.lblCauseOfDeath')} <span className="text-critical-subtle-fg">*</span>
-                  </label>
-                  <textarea
+                  {/* The label had no `htmlFor` and the control no `id`, so the
+                      two were never associated at all -- a screen reader read
+                      an unlabelled text box. `Textarea` renders both. */}
+                  <Textarea
+                    id="autopsy-cause-of-death"
+                    label={t('docAutopsy.lblCauseOfDeath')}
                     value={newAutopsy.causeOfDeath}
-                    onChange={(e) => setNewAutopsy({ ...newAutopsy, causeOfDeath: e.target.value })}
+                    onChange={(e) => { clearField('causeOfDeath'); setNewAutopsy({ ...newAutopsy, causeOfDeath: e.target.value }); }}
+                    onBlur={() => validateField('causeOfDeath', newAutopsy)}
+                    error={errors.causeOfDeath}
                     placeholder={t('docAutopsy.causeOfDeathPh')}
-                    rows={2}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                    rows={3}
                     required
                   />
                 </div>

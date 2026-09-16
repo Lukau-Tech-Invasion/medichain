@@ -11,6 +11,9 @@ import {
   useTranslation,
   Alert,
   LoadingSpinner,
+  Input,
+  useValidatedForm,
+  pathologyRequestSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
@@ -213,10 +216,18 @@ const PathologyPage: React.FC = () => {
     fetchSpecimens();
   }, [user, fetchSpecimens]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    pathologyRequestSchema
+  );
+
+  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatientId || !collectionDate || !site || !clinician) {
-      showError(t('docPathology.errorRequiredFields'));
+    // The anatomical site is what makes the specimen interpretable: a report on
+    // "a biopsy" cannot say whether the margin it describes is the one that
+    // mattered.
+    if (!validate(pathologyOrder())) {
       return;
     }
 
@@ -731,12 +742,13 @@ const PathologyPage: React.FC = () => {
                 <label htmlFor="path-collection-date" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docPathology.collectionDateRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-collection-date"
                   type="date"
                   value={collectionDate}
-                  onChange={(e) => setCollectionDate(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('collectionDate'); setCollectionDate(e.target.value); }}
+                  onBlur={() => validateField('collectionDate', pathologyOrder())}
+                  error={errors.collectionDate}
                   required
                 />
               </div>
@@ -757,14 +769,15 @@ const PathologyPage: React.FC = () => {
                 <label htmlFor="path-site" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docPathology.anatomicalSiteRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-site"
                   type="text"
                   value={site}
-                  onChange={(e) => setSite(e.target.value)}
-                  placeholder={t('docPathology.anatomicalSitePh')}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('site'); setSite(e.target.value); }}
+                  onBlur={() => validateField('site', pathologyOrder())}
+                  error={errors.site}
                   required
+                  placeholder={t('docPathology.anatomicalSitePh')}
                 />
               </div>
 
@@ -789,14 +802,15 @@ const PathologyPage: React.FC = () => {
                 <label htmlFor="path-clinician" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docPathology.orderingClinicianRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-clinician"
                   type="text"
                   value={clinician}
-                  onChange={(e) => setClinician(e.target.value)}
-                  placeholder={t('docPathology.orderingClinicianPh')}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('clinician'); setClinician(e.target.value); }}
+                  onBlur={() => validateField('clinician', pathologyOrder())}
+                  error={errors.clinician}
                   required
+                  placeholder={t('docPathology.orderingClinicianPh')}
                 />
               </div>
 

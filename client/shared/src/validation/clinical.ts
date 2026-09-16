@@ -703,3 +703,16 @@ export const medicationReminderSchema = z.object({
   /** At least one time, or nothing will ever fire. */
   reminderTimeCount: z.number().min(1, 'Add at least one reminder time'),
 });
+
+/**
+ * A pathology request.
+ *
+ * The anatomical site is what makes the specimen interpretable: a report on "a
+ * biopsy" cannot say whether the margin it describes is the one that mattered.
+ */
+export const pathologyRequestSchema = z.object({
+  selectedPatientId: requiredText('a patient', 64),
+  collectionDate: requiredText('the collection date', 32),
+  site: requiredText('the anatomical site', 200),
+  clinician: requiredText('the ordering clinician', 200),
+});
