@@ -330,14 +330,15 @@ jobs:
             - name: Run tests
               run: cargo test
 
-            - name: Install cargo-audit
-              run: cargo install cargo-audit
-
-            # Report-only: the substrate/subxt transitive tree carries upstream
-            # advisories we don't directly control (mirrors the supply-chain job).
-            - name: Security audit (report-only)
-              continue-on-error: true
-              run: cargo audit
+            # `cargo audit` used to run here, report-only, because "the
+            # substrate/subxt transitive tree carries upstream advisories we
+            # don't directly control". Removed 2026-09-16: the Supply Chain job
+            # below runs `cargo-deny ... advisories` **enforced** against both
+            # workspaces, with the exceptions reviewed and written down in
+            # `deny.toml`. This step was a second scanner with no policy behind
+            # it, whose output nothing acted on, costing a `cargo install` on
+            # every run. Two advisory scanners where one is a gate and the other
+            # is noise is worse than one gate.
 
     # ============================================================================
     # Blockchain workspace (pallets + runtime + node)
@@ -513,16 +514,25 @@ jobs:
 
             # Licences stay report-only, and only licences.
             #
-            # The allow-list was derived offline from 1074 of the 1171 locked
-            # packages — the remaining 97 were not in the local registry cache —
-            # so it is still a discovery gate rather than a complete one.
-            # Enforcing an incomplete allow-list would fail on crates nobody has
-            # reviewed yet, which says nothing about whether their licences are
-            # acceptable. Flip it once a full CI run confirms the list covers
-            # all 1171. `bans` is warn-level by config, not a failure.
-            - name: cargo-deny blockchain (licences, report-only — allow-list incomplete)
+            # Blocking since 2026-09-16. The allow-list was derived offline
+            # from 1074 of the 1171 locked packages — the remaining 97 were not
+            # in the local registry cache — so this was report-only, on the
+            # stated condition: "flip it once a full CI run confirms the list
+            # covers all 1171."
+            #
+            # That condition is met. `cargo deny --manifest-path
+            # blockchain/Cargo.toml check licenses bans` now resolves the whole
+            # 1171-package graph and reports `bans ok, licenses ok` with zero
+            # errors; the only remaining diagnostics are `license-not-
+            # encountered` warnings for allowances nothing uses, which are the
+            # opposite of a gap.
+            #
+            # This matters more here than in most graphs: `medichain-node` links
+            # 17 strict GPL-3.0-only crates, and the obligation attaches on
+            # distribution. A report-only licence check is how that reaches a
+            # partner unnoticed.
+            - name: cargo-deny blockchain (licences and bans)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
               with:
                   manifest-path: blockchain/Cargo.toml
                   command: check
