@@ -967,21 +967,46 @@ pub async fn get_available_slots(
 ) -> impl Responder {
     let (provider_id, date) = path.into_inner();
 
-    // A fixed clinic-hours grid, NOT this provider's calendar.
+    // This provider's own hours where they have published them, and the fixed
+    // clinic grid where they have not.
     //
-    // Nothing stores provider working hours: `ProviderSchedule`, `WorkingDay`
-    // and `BlockedTime` exist as types with no storage behind them, so every
-    // provider is offered the same ten slots regardless of when they actually
-    // work. Real bookings ARE excluded below, so this cannot double-book —
-    // but it can offer 09:00 with someone who starts at 14:00.
+    // The grid used to be the only answer: nothing stored working hours, so
+    // every provider was offered the same ten slots whatever their diary said.
+    // Real bookings were excluded, so it could not double-book — but it could
+    // offer 09:00 with a surgeon whose list starts at 14:00, and the patient app
+    // rendered that as availability.
     //
-    // The response says which of the two it is (`slots_source`), because a
-    // patient reading "available" reasonably assumes the provider's diary was
-    // checked. Declaring it is the honest half of a feature that is not built;
-    // silently presenting it as availability is not.
-    let slots = vec![
-        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30",
-    ];
+    // `slots_source` has always said which of the two it is, and now it can say
+    // `provider_schedule`. A provider with no schedule keeps the grid rather
+    // than being shown as unavailable: absent hours are unknown hours, not zero
+    // hours, and refusing every booking for a provider who has not filled in a
+    // form is a worse failure than over-offering.
+    let parsed_date = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok();
+    let schedule = crate::clinical_endpoints::load_schedule(&data, &provider_id).await;
+
+    let (slots, slots_source, works_today) = match (schedule.as_ref(), parsed_date) {
+        (Some(schedule), Some(day)) => {
+            match crate::clinical_endpoints::slots_for_date(schedule, day) {
+                Some(times) => (times, "provider_schedule", true),
+                // The provider does not work this day, or it is blocked outright.
+                // An empty list with `works_today: false` beside it is not the same
+                // statement as "fully booked", and a booking screen must not
+                // conflate them.
+                None => (Vec::new(), "provider_schedule", false),
+            }
+        }
+        _ => (
+            [
+                "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00",
+                "15:30",
+            ]
+            .iter()
+            .map(|slot| (*slot).to_string())
+            .collect(),
+            "default_clinic_hours",
+            true,
+        ),
+    };
 
     // Filter out already booked slots for this provider on this date
     let booked_times: Vec<String> = match chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
@@ -1004,9 +1029,9 @@ pub async fn get_available_slots(
         Err(_) => Vec::new(),
     };
 
-    let available_slots: Vec<&str> = slots
+    let available_slots: Vec<String> = slots
         .into_iter()
-        .filter(|slot| !booked_times.contains(&slot.to_string()))
+        .filter(|slot| !booked_times.contains(slot))
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -1014,9 +1039,11 @@ pub async fn get_available_slots(
         "provider_id": provider_id,
         "date": date,
         "available_slots": available_slots,
-        "slot_duration_minutes": 30,
-        // `provider_schedule` once provider working hours are stored.
-        "slots_source": "default_clinic_hours"
+        "slot_duration_minutes": schedule.as_ref().map_or(30, |s| s.slot_minutes),
+        "slots_source": slots_source,
+        // Distinguishes "this provider does not work today" from "every slot is
+        // taken". Both are an empty list; only one of them means try tomorrow.
+        "works_today": works_today
     }))
 }
 

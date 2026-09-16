@@ -9,7 +9,7 @@
 -- The alternative was to write the procedure date at midnight into both. That
 -- is a fabricated operative duration on a surgical record -- the kind of number
 -- an audit, a billing review or a morbidity meeting would read as measured.
--- Rule 12: an unmeasured thing is not a zero, and a time nobody recorded is not
+-- Rule 11: an unmeasured thing is not a zero, and a time nobody recorded is not
 -- 00:00.
 --
 -- Same reasoning, and the same shape, as 20260810000001, which relaxed

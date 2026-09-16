@@ -212,6 +212,7 @@ pub use phase7::{
     PgLanguagePreferenceRepository,
     PgMessageRepository,
     PgPrescriptionVerificationEventRepository,
+    PgProviderScheduleRepository,
     PgSatisfactionSurveyRepository,
     // Round 7: SOAP clinical notes
     PgSoapNoteRecordRepository,

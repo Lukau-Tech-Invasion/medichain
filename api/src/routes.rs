@@ -484,6 +484,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::check_in_appointment)
         .service(clinical_endpoints::transition_appointment) // POST /api/appointments/{id}/status
         .service(clinical_endpoints::get_available_slots)
+        // A provider's working hours, so "available" means available.
+        .service(clinical_endpoints::get_provider_schedule)
+        .service(clinical_endpoints::set_provider_schedule)
         .service(clinical_endpoints::get_appointment)
         // Phase 24: Wearable Device Integration endpoints
         .service(clinical_endpoints::get_supported_wearables)

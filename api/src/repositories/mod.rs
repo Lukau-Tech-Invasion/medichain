@@ -244,6 +244,11 @@ pub struct RepositoryContainer {
 
     // Phase 7 (Round 4): generic JSON-record feature domains
     pub language_preferences: Arc<dyn JsonRecordRepository>,
+    /// A provider's weekly working pattern and dated exceptions. Absent for a
+    /// provider means the default clinic grid, which the slots endpoint
+    /// reports as `slots_source: default_clinic_hours` rather than passing off
+    /// as a diary.
+    pub provider_schedules: Arc<dyn JsonRecordRepository>,
     pub eligibility_checks: Arc<dyn JsonRecordRepository>,
     pub satisfaction_surveys: Arc<dyn JsonRecordRepository>,
     pub symptom_sessions: Arc<dyn JsonRecordRepository>,
@@ -580,6 +585,7 @@ impl RepositoryContainer {
 
             // Phase 7 (Round 4): generic JSON-record feature domains (memory)
             language_preferences: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            provider_schedules: Arc::new(memory::MemoryJsonRecordRepository::new()),
             eligibility_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
             satisfaction_surveys: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_sessions: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -1152,6 +1158,7 @@ impl RepositoryContainer {
             retention_job_runs: Arc::new(postgres::PgRetentionJobRunRepository::new(pool.clone())),
 
             // Phase 7 (Round 4): generic JSON-record feature domains (PostgreSQL)
+            provider_schedules: Arc::new(postgres::PgProviderScheduleRepository::new(pool.clone())),
             language_preferences: Arc::new(postgres::PgLanguagePreferenceRepository::new(
                 pool.clone(),
             )),

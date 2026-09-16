@@ -129,6 +129,7 @@ macro_rules! pg_json_repo {
 }
 
 pg_json_repo!(PgLanguagePreferenceRepository, "language_preferences");
+pg_json_repo!(PgProviderScheduleRepository, "provider_schedules");
 pg_json_repo!(PgEligibilityCheckRepository, "eligibility_checks");
 pg_json_repo!(PgSatisfactionSurveyRepository, "satisfaction_surveys");
 pg_json_repo!(PgSymptomSessionRepository, "symptom_sessions");
