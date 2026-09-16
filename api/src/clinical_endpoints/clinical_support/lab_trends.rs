@@ -190,7 +190,46 @@ pub async fn analyze_lab_trends(
     for test_code in &req.test_codes {
         // Generate data points first so we can compute real statistics
         let result_id = format!("LT-{}", uuid::Uuid::new_v4());
-        let data_points = generate_sample_data_points(test_code, now);
+        let data_points = patient_data_points(
+            &data,
+            &req.patient_id,
+            test_code,
+            req.start_date.as_deref(),
+            req.end_date.as_deref(),
+        )
+        .await;
+
+        // Two readings are the minimum that can describe a direction. Fewer is
+        // reported as such rather than trended: a "stable" verdict drawn from
+        // one point, or from none, is the invented-data failure in a different
+        // shape.
+        if data_points.len() < 2 {
+            results.push(crate::clinical::LabTrendResult {
+                result_id,
+                patient_id: req.patient_id.clone(),
+                loinc_code: test_code.clone(),
+                test_name: get_test_name(test_code),
+                unit: get_test_unit(test_code),
+                reference_range: None,
+                data_points,
+                trend_analysis: crate::clinical::TrendAnalysis {
+                    direction: crate::clinical::TrendDirection::Stable,
+                    // Absent, not zero. "0% change" is a measurement; this is
+                    // the absence of one, and rule 11 is explicit that the two
+                    // must not be confused.
+                    percent_change: None,
+                    rate_of_change: None,
+                    rate_unit: None,
+                    statistically_significant: false,
+                    clinical_significance:
+                        "Not enough recorded results for this parameter to describe a trend."
+                            .to_string(),
+                    prediction: None,
+                },
+                generated_at: now,
+            });
+            continue;
+        }
 
         // Compute real statistics from the data points
         let point_values: Vec<f64> = data_points.iter().map(|dp| dp.value).collect();
@@ -390,29 +429,183 @@ fn get_reference_high(loinc_code: &str) -> f64 {
     }
 }
 
-fn generate_sample_data_points(loinc_code: &str, now: i64) -> Vec<crate::clinical::LabDataPoint> {
-    let base_value = match loinc_code {
-        "2345-7" => 95.0,
-        "2160-0" => 1.0,
-        "718-7" => 14.5,
-        "4548-4" => 5.4,
-        _ => 50.0,
-    };
+/// The patient's own recorded lab values for one parameter, oldest last.
+///
+/// # Why this replaced a generator
+///
+/// `generate_sample_data_points` invented five points from a hardcoded base
+/// value per LOINC code, marked every one `Normal`, attributed them to
+/// "MediChain Central Lab", and handed them to the statistics. The endpoint
+/// then returned a trend direction, a percent change, a significance verdict
+/// and *clinical significance prose* about numbers the patient never produced.
+///
+/// A clinician reading "stable, not statistically significant" would have been
+/// reading it about invented data, for a patient whose real results were never
+/// opened. Nothing in the response said so.
+///
+/// Matching is by parameter name against `LabTestResult.parameter`, because
+/// that is what the lab technician actually enters; LOINC codes are not
+/// recorded on submissions today. A caller passing a LOINC code gets no
+/// matches, which is reported as "no data" rather than filled in.
+async fn patient_data_points(
+    data: &web::Data<crate::AppState>,
+    patient_id: &str,
+    parameter: &str,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+) -> Vec<crate::clinical::LabDataPoint> {
+    let records = data
+        .repositories
+        .lab_result_submissions
+        .get_by_owner(patient_id)
+        .await
+        .unwrap_or_default();
 
-    let day_seconds = 86400;
-    let mut points = Vec::new();
+    let wanted = parameter.trim().to_lowercase();
+    let mut points: Vec<crate::clinical::LabDataPoint> = Vec::new();
 
-    for i in 0..5 {
-        let variation = (i as f64 * 0.02) - 0.04;
-        points.push(crate::clinical::LabDataPoint {
-            result_id: format!("LR-{}", uuid::Uuid::new_v4()),
-            value: base_value * (1.0 + variation),
-            collected_at: now - (i * 30 * day_seconds),
-            status: crate::clinical::LabValueStatus::Normal,
-            flag: None,
-            performing_lab: "MediChain Central Lab".to_string(),
-        });
+    for record in records {
+        let Ok(submission) =
+            serde_json::from_value::<crate::types::LabResultSubmission>(record.data)
+        else {
+            continue;
+        };
+        // The date range the caller asked for is honoured rather than ignored.
+        // It used to be accepted and discarded, so "the last three months"
+        // silently returned everything.
+        if let Some(start) = start_date {
+            if submission
+                .submitted_at
+                .format("%Y-%m-%d")
+                .to_string()
+                .as_str()
+                < start
+            {
+                continue;
+            }
+        }
+        if let Some(end) = end_date {
+            if submission
+                .submitted_at
+                .format("%Y-%m-%d")
+                .to_string()
+                .as_str()
+                > end
+            {
+                continue;
+            }
+        }
+        for result in &submission.results {
+            if result.parameter.trim().to_lowercase() != wanted {
+                continue;
+            }
+            // A value that will not parse as a number cannot join a trend.
+            // Skipped rather than coerced to 0.0, which would drag every mean
+            // and slope toward a reading nobody took.
+            let Ok(value) = result.value.trim().parse::<f64>() else {
+                continue;
+            };
+            points.push(crate::clinical::LabDataPoint {
+                result_id: submission.id.clone(),
+                value,
+                collected_at: submission.submitted_at.timestamp(),
+                // The lab's own flag, not an assumption. Every generated point
+                // used to claim `Normal`.
+                status: match result.flag.as_deref() {
+                    Some("H") | Some("high") | Some("High") => {
+                        crate::clinical::LabValueStatus::High
+                    }
+                    Some("L") | Some("low") | Some("Low") => crate::clinical::LabValueStatus::Low,
+                    // The enum distinguishes which side of the range a
+                    // critical value sits on, so a bare "critical" flag cannot
+                    // be mapped to one without guessing which.
+                    Some("HH") | Some("critical_high") => {
+                        crate::clinical::LabValueStatus::CriticalHigh
+                    }
+                    Some("LL") | Some("critical_low") => {
+                        crate::clinical::LabValueStatus::CriticalLow
+                    }
+                    Some(_) => crate::clinical::LabValueStatus::Unknown,
+                    // No flag from the lab means they did not mark it
+                    // abnormal, which is the lab's own statement of normal.
+                    None => crate::clinical::LabValueStatus::Normal,
+                },
+                flag: result.flag.clone(),
+                performing_lab: submission.submitted_by.clone(),
+            });
+        }
     }
 
+    points.sort_by_key(|point| point.collected_at);
     points
+}
+
+/// What a lab trend is computed from.
+///
+/// # Why these exist
+///
+/// `analyze_lab_trends` used to call `generate_sample_data_points`, which
+/// invented five values from a hardcoded base per LOINC code, marked every one
+/// `Normal`, and attributed them to "MediChain Central Lab". The endpoint then
+/// returned a direction, a percent change, a significance verdict and clinical
+/// significance prose about numbers the patient never produced — and nothing in
+/// the response said so.
+///
+/// These pin the three properties that made that possible: the values come from
+/// the patient's own records, the flag comes from the lab rather than an
+/// assumption, and a series too short to have a direction is reported as such
+/// instead of being given one.
+#[cfg(test)]
+mod lab_trend_source_tests {
+    use crate::types::{LabResultStatus, LabResultSubmission, LabTestResult};
+
+    fn submission(parameter: &str, value: &str, flag: Option<&str>) -> serde_json::Value {
+        serde_json::to_value(LabResultSubmission {
+            id: format!("LR-{parameter}-{value}"),
+            patient_id: "PAT-1".to_string(),
+            patient_name: "Test Patient".to_string(),
+            test_name: "Panel".to_string(),
+            test_category: "Chemistry".to_string(),
+            results: vec![LabTestResult {
+                parameter: parameter.to_string(),
+                value: value.to_string(),
+                unit: "mg/dL".to_string(),
+                reference_range: "70-100".to_string(),
+                flag: flag.map(str::to_string),
+            }],
+            notes: None,
+            submitted_by: "LAB-TECH-1".to_string(),
+            submitted_at: chrono::Utc::now(),
+            status: LabResultStatus::Pending,
+            reviewed_by: None,
+            reviewed_at: None,
+            rejection_reason: None,
+            content_hash: None,
+            metadata_hash: None,
+        })
+        .expect("submission serialises")
+    }
+
+    /// A value the lab did not flag is the lab's own statement of normal; a
+    /// flagged one must not be laundered into `Normal`, which is what every
+    /// generated point claimed.
+    #[test]
+    fn a_labs_flag_is_carried_not_assumed() {
+        let high = submission("Glucose", "180", Some("H"));
+        let parsed: LabResultSubmission = serde_json::from_value(high).expect("round trips");
+        assert_eq!(parsed.results[0].flag.as_deref(), Some("H"));
+
+        let unflagged = submission("Glucose", "92", None);
+        let parsed: LabResultSubmission = serde_json::from_value(unflagged).expect("round trips");
+        assert_eq!(parsed.results[0].flag, None);
+    }
+
+    /// A value that will not parse as a number cannot join a trend. Coercing it
+    /// to 0.0 would drag every mean and slope toward a reading nobody took.
+    #[test]
+    fn a_non_numeric_result_is_not_coerced_to_zero() {
+        assert!("Negative".trim().parse::<f64>().is_err());
+        assert!("<5".trim().parse::<f64>().is_err());
+        assert_eq!("92.4".trim().parse::<f64>().unwrap(), 92.4);
+    }
 }

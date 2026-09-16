@@ -5198,6 +5198,7 @@ const en_US: TranslationRecord = {
     createSummaryBtn: 'Create Discharge Summary',
   },
   docDrugInteractions: {
+    conditionsNotScreened: 'Drug-condition interactions were not checked. This result covers drug-drug and allergy interactions only.',
     title: 'Drug Interaction Checker',
     subtitle: 'Check for drug-drug, drug-allergy, and other medication interactions',
     tabChecker: 'Interaction Checker',

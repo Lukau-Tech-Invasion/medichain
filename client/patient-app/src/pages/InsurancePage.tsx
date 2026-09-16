@@ -258,21 +258,6 @@ const InsurancePage: React.FC = () => {
     }
   };
 
-  const _getTypeBadge = (type: InsuranceType) => {
-    const colors: Record<InsuranceType, string> = {
-      medical: 'bg-notice-subtle text-notice-subtle-fg',
-      dental: 'bg-ok-subtle text-ok-subtle-fg',
-      vision: 'bg-surface-sunken text-content-secondary',
-      pharmacy: 'bg-surface-sunken text-content-secondary',
-      supplemental: 'bg-surface-sunken text-content-secondary'
-    };
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[type]}`}>
-        {type.charAt(0).toUpperCase() + type.slice(1)}
-      </span>
-    );
-  };
-
   const getStatusBadge = (status: CoverageStatus) => {
     const config: Record<CoverageStatus, { color: string; icon: React.ReactNode }> = {
       active: { color: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },

@@ -7786,29 +7786,6 @@ pub struct DrugReference {
     pub common_doses: Vec<String>,
 }
 
-/// Drug interaction check request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DrugInteractionCheckRequest {
-    /// Patient ID
-    pub patient_id: String,
-    /// New medication being prescribed
-    pub new_medication: MedicationInfo,
-    /// Include OTC drugs
-    pub include_otc: bool,
-    /// Include supplements
-    pub include_supplements: bool,
-}
-
-/// Medication info for interaction check
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InteractionMedicationInfo {
-    pub rxcui: Option<String>,
-    pub ndc: Option<String>,
-    pub name: String,
-    pub dosage: String,
-    pub route: String,
-}
-
 /// Drug interaction result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrugInteractionResult {
@@ -8261,6 +8238,27 @@ pub struct SymptomCheckSession {
     pub completed_at: Option<i64>,
     /// Initial symptoms reported
     pub initial_symptoms: Vec<String>,
+    /// Age the patient gave, if they gave one.
+    ///
+    /// Stored because triage depends on it: chest pain in a 25-year-old and in
+    /// a 70-year-old are different presentations, and a session filed without
+    /// it leaves the clinician reading the history with symptoms and no
+    /// context. `StartSymptomCheckRequest` has accepted this field since the
+    /// feature was built and the handler dropped it on the floor -- the patient
+    /// app sends it.
+    ///
+    /// `Option`, and absent rather than zero when unanswered: an age nobody
+    /// gave is not age 0.
+    pub age: Option<i32>,
+    /// Sex or gender the patient gave, if they gave one. Dropped on the floor
+    /// for the same reason, and it changes triage for the same reason.
+    pub gender: Option<String>,
+    /// Whether the patient said they are pregnant.
+    ///
+    /// `None` means they were not asked or did not say -- which is NOT the same
+    /// as "no". Several red flags and most medication advice turn on this, so a
+    /// false here must mean the patient actually said no.
+    pub pregnant: Option<bool>,
     /// Conversation history
     pub conversation: Vec<SymptomMessage>,
     /// Final assessment
@@ -8678,16 +8676,6 @@ pub enum CDSActionTaken {
 // PHASE 28: LAB RESULT TRENDING
 // ============================================================================
 
-/// Lab trend request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LabTrendRequest {
-    pub patient_id: String,
-    pub test_codes: Vec<String>,
-    pub start_date: String,
-    pub end_date: String,
-    pub include_reference_ranges: bool,
-}
-
 /// Lab trend result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabTrendResult {
@@ -8905,22 +8893,6 @@ pub enum SignatureMethod {
     SmartCard,
     Token,
     TwoFactor,
-}
-
-/// E-Signature prescription status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ESignaturePrescriptionStatus {
-    Draft,
-    PendingSignature,
-    Signed,
-    Transmitted,
-    Received,
-    InProgress,
-    Filled,
-    PartiallyFilled,
-    Cancelled,
-    Expired,
-    Denied,
 }
 
 /// Transmission status

@@ -298,48 +298,9 @@ where
 /// it. No current client calls this endpoint; if one starts signing live
 /// per-request actions from a challenge, it must construct the bound message
 /// itself, the same way `client/shared/src/api/client.ts` does inline.
-#[allow(dead_code)] // Legacy timestamp challenge; JWT login now uses durable nonce challenges.
-pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
-    let timestamp = chrono::Utc::now().timestamp();
-    let message = format!("{}:{}", timestamp, wallet_address);
-
-    AuthChallenge {
-        wallet: wallet_address.to_string(),
-        timestamp,
-        message,
-        expires_in_secs: MAX_TIMESTAMP_DRIFT_SECS,
-    }
-}
-
-/// Authentication challenge response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[allow(dead_code)] // Kept with the legacy helper until downstream clients are migrated.
-pub struct AuthChallenge {
-    /// Wallet address for the challenge
-    pub wallet: String,
-    /// Unix timestamp to include in signature
-    pub timestamp: i64,
-    /// Full message to sign: "<timestamp>:<wallet>"
-    pub message: String,
-    /// Seconds until this challenge expires
-    pub expires_in_secs: i64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_generate_auth_challenge() {
-        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let challenge = generate_auth_challenge(wallet);
-
-        assert_eq!(challenge.wallet, wallet);
-        assert!(challenge.timestamp > 0);
-        assert!(challenge.message.contains(wallet));
-        assert!(challenge.message.contains(&challenge.timestamp.to_string()));
-        assert_eq!(challenge.expires_in_secs, MAX_TIMESTAMP_DRIFT_SECS);
-    }
 
     #[test]
     fn test_bypass_routes_include_health() {

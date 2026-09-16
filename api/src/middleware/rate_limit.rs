@@ -37,8 +37,6 @@ pub struct RateLimitConfig {
     pub anonymous_limit: u32,
     /// Maximum requests per window for authenticated users
     pub authenticated_limit: u32,
-    /// Maximum requests per window for admin users
-    pub admin_limit: u32,
     /// Window duration
     pub window_duration: Duration,
 }
@@ -94,12 +92,6 @@ impl Default for RateLimitConfig {
                 "MEDICHAIN_RATE_LIMIT_AUTHENTICATED",
                 DEFAULT_AUTHENTICATED_LIMIT,
             ),
-            // Declared and deliberately never applied: `get_rate_limit` refuses
-            // to read a role from the request, because a role header is
-            // spoofable and honouring one would let a caller hand itself this
-            // tier. Kept so the intent stays visible next to the limits that
-            // are used.
-            admin_limit: 300,
             window_duration: Duration::from_secs(60),
         }
     }
@@ -401,7 +393,6 @@ mod tests {
         let config = RateLimitConfig::default();
         assert_eq!(config.anonymous_limit, 60);
         assert_eq!(config.authenticated_limit, 120);
-        assert_eq!(config.admin_limit, 300);
         assert_eq!(config.window_duration, Duration::from_secs(60));
     }
 

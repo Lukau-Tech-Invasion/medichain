@@ -28,4 +28,4 @@ pub use error_handling::*;
 #[allow(unused_imports)]
 pub use rate_limit::RateLimitMiddleware;
 #[allow(unused_imports)]
-pub use signature_auth::{generate_auth_challenge, AuthChallenge, SignatureAuthMiddleware};
+pub use signature_auth::SignatureAuthMiddleware;

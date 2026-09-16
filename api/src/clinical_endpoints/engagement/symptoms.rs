@@ -5,7 +5,6 @@ use super::*;
 // ============================================================================
 
 /// Start symptom check session request
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct StartSymptomCheckRequest {
     pub primary_symptom: String,
@@ -56,6 +55,13 @@ pub async fn start_symptom_check(
         started_at: chrono::Utc::now().timestamp(),
         completed_at: None,
         initial_symptoms: vec![req.primary_symptom.clone()],
+        // Carried onto the record rather than discarded. The request has
+        // accepted these three since the feature was built and the session was
+        // constructed without them, so a symptom history showed what somebody
+        // reported and never who reported it.
+        age: req.age,
+        gender: req.gender.clone(),
+        pregnant: req.pregnant,
         conversation: vec![initial_message],
         assessment: None,
         triage_recommendation: None,

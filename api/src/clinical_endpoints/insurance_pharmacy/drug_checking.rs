@@ -9,12 +9,28 @@
 use super::*;
 
 /// Check drug interactions request
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CheckDrugInteractionsRequest {
     pub patient_id: String,
     pub medications: Vec<String>,
     pub include_allergies: Option<bool>,
+    /// Asked for by the caller and **not currently honoured**.
+    ///
+    /// `DrugInteractionsPage` sends this whenever the patient has recorded
+    /// conditions, so the clinician believes conditions were considered. No
+    /// drug-condition screening exists: there is no curated dataset for it, and
+    /// inventing one would be fabricating clinical content -- worse than not
+    /// having it.
+    ///
+    /// Kept in the request rather than dropped so the response can say plainly
+    /// that it was not screened. See `screened` in the response: a check that
+    /// silently does less than it was asked lets "No significant interactions
+    /// detected" be read as "safe in this patient's conditions".
+    ///
+    /// Never read on purpose -- reading it would imply acting on it. Dropping
+    /// the field instead would make an existing caller's body fail to
+    /// deserialise, and would remove the record of what was asked for.
+    #[allow(dead_code)]
     pub include_conditions: Option<bool>,
 }
 
@@ -295,8 +311,16 @@ async fn check_interactions_response(
                                   crate::clinical::InteractionSeverity::Major)),
         "interactions": interactions,
         "allergy_alerts": allergy_alerts,
+        // What was actually screened, so the caller cannot mistake silence for
+        // safety. `conditions` is false because no drug-condition dataset
+        // exists; the page asks for it and this is the honest answer.
+        "screened": {
+            "drug_drug": true,
+            "allergies": req.include_allergies.unwrap_or(true),
+            "conditions": false,
+        },
         "recommendation": if interactions.is_empty() && allergy_alerts.is_empty() {
-            "No significant interactions detected"
+            "No drug-drug or allergy interactions detected. Conditions were not screened."
         } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated)) {
             "CONTRAINDICATED - Do not prescribe together"
         } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Major)) {

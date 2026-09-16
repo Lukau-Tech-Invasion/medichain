@@ -227,26 +227,6 @@ fn prescription_record(
 
 /// Record a prescription lifecycle transition in the durable access log.
 ///
-/// Signing and transmitting a prescription are the two points at which a
-/// clinician takes personal responsibility for a controlled instruction, and
-/// neither was audited at all. A failure here is returned to the caller rather
-/// than logged, for the same reason the transition itself is: an unattributable
-/// signature is not a signature.
-#[allow(dead_code)]
-async fn audit_prescription_event(
-    data: &web::Data<crate::AppState>,
-    prescription: &crate::clinical::EPrescription,
-    actor: &str,
-    actor_role: &str,
-    event: &str,
-) -> Result<(), crate::repositories::traits::RepositoryError> {
-    data.repositories
-        .access_logs
-        .create(prescription_audit(prescription, actor, actor_role, event))
-        .await
-        .map(|_| ())
-}
-
 fn prescription_audit(
     prescription: &crate::clinical::EPrescription,
     actor: &str,
@@ -291,12 +271,16 @@ fn signature_provenance(http_req: &HttpRequest) -> (String, String) {
 }
 
 /// Sign e-prescription request
-#[allow(dead_code)]
+///
+/// Carried an `Option<String> password` that no client sent and no handler
+/// read. A password accepted over the wire for nothing is a liability rather
+/// than spare capacity -- it reaches request logs and proxy traces having
+/// bought nothing. Signing is authenticated by the session and attested by
+/// `attestation`.
 #[derive(Debug, Deserialize)]
 pub struct SignPrescriptionRequest {
     pub signature_method: String,
     pub attestation: String,
-    pub password: Option<String>,
 }
 
 /// Sign an e-prescription
@@ -687,26 +671,6 @@ fn verification_event(
     }
 }
 
-#[allow(dead_code)]
-async fn store_verification_event(
-    data: &web::Data<AppState>,
-    event: crate::repositories::traits::JsonRecordEntity,
-) -> Result<(), HttpResponse> {
-    data.repositories
-        .prescription_verification_events
-        .create(event)
-        .await
-        .map(|_| ())
-        .map_err(|error| {
-            log::error!("Prescription verification history write failed: {error}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
-                error: "The verification history could not be saved".to_string(),
-                code: "VERIFICATION_HISTORY_FAILED".to_string(),
-            })
-        })
-}
-
 /// Loads a prescription, or the response explaining why it could not be.
 async fn load_prescription(
     data: &web::Data<AppState>,
@@ -983,15 +947,6 @@ fn verification_policy_missing() -> HttpResponse {
         success: false,
         error: "The approved verification policy is incomplete".to_string(),
         code: "DISPENSING_POLICY_UNAVAILABLE".to_string(),
-    })
-}
-
-#[allow(dead_code)]
-fn audit_unavailable() -> HttpResponse {
-    HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
-        error: "The verification decision could not be audited".to_string(),
-        code: "AUDIT_UNAVAILABLE".to_string(),
     })
 }
 

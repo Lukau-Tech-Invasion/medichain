@@ -119,6 +119,19 @@ const DrugInteractionsPage: React.FC = () => {
   // Loading/Error state for drugs
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // What the server actually screened.
+  //
+  // This page sends `include_conditions` whenever the patient has recorded
+  // conditions, so a clinician reasonably believes conditions were considered.
+  // No drug-condition screening exists -- there is no curated dataset for it,
+  // and inventing one would be fabricating clinical content. The server now
+  // says so in `screened`, and a green "no interactions" panel that does not
+  // repeat the limit is the same false assurance in a nicer colour.
+  const [screened, setScreened] = useState<{
+    drug_drug?: boolean;
+    allergies?: boolean;
+    conditions?: boolean;
+  } | null>(null);
 
   // Drug Database - fetched from API
   const [drugDatabase, setDrugDatabase] = useState<Drug[]>([]);
@@ -277,6 +290,7 @@ const DrugInteractionsPage: React.FC = () => {
         });
       }
       
+      setScreened(data.screened ?? null);
       setInteractions(foundInteractions);
       
       // Create check record
@@ -669,6 +683,14 @@ const DrugInteractionsPage: React.FC = () => {
                   <p className="text-sm text-ok-subtle-fg mt-2">
                     {t('docDrugInteractions.noInteractionsHint')}
                   </p>
+                  {screened && screened.conditions === false && (
+                    // Said on the clean result specifically. A clinician reads
+                    // this panel as "safe to prescribe", and conditions are
+                    // exactly what would make it not safe.
+                    <p className="text-sm text-caution-subtle-fg mt-3">
+                      {t('docDrugInteractions.conditionsNotScreened')}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">

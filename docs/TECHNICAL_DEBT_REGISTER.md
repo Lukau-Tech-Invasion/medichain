@@ -3602,3 +3602,112 @@ same data is a second thing to keep honest.
 Adopting Class C would mean binding each mutation to a signature over its exact
 body digest — a real improvement over session elevation, and a change to every
 privileged call site. It needs a decision, not a quiet wiring-up.
+
+
+## 2026-09-16 — CLOSED: a dead-code sweep, and the four live defects hiding in it
+
+`cargo check` with `--force-warn dead_code` reported 141 unreferenced items in
+this crate, behind 45 `#[allow(dead_code)]` suppressions. Each was checked
+against one question before anything was deleted: **is this dead code, or a
+control that was written and never wired?** The second is a defect, and deleting
+it buries the defect.
+
+Four were the second kind.
+
+### `POST /api/lab-trends/analyze` fabricated the data it analysed
+
+`generate_sample_data_points` invented five values from a hardcoded base per
+LOINC code, marked every one `Normal`, and attributed them to "MediChain Central
+Lab". `analyze_lab_trends` then computed statistics over them and returned a
+trend direction, a percent change, a significance verdict and *clinical
+significance prose*. A clinician reading "stable, not statistically significant"
+was reading it about numbers the patient never produced, for a patient whose
+real results were never opened. Nothing in the response said so.
+
+It now reads the patient's own `lab_result_submissions`, honours the
+`start_date`/`end_date` the caller sends (accepted and discarded until now, so
+"the last three months" silently returned everything), carries the lab's own
+flag rather than assuming `Normal`, skips values that will not parse rather than
+coercing them to 0.0, and refuses to describe a direction from fewer than two
+readings. `percent_change` is `None` in that case, not 0.0.
+
+### The symptom checker discarded age and sex
+
+`StartSymptomCheckRequest` accepted `age`, `gender` and `pregnant`, and
+`SymptomCheckSession` had nowhere to put them. `SymptomCheckerPage` sends age
+and gender on every check. A symptom history therefore showed what somebody
+reported and never who reported it — and age and sex materially change triage.
+The session now carries all three, `pregnant` as `Option<bool>` because "not
+asked" is not "no".
+
+### The drug check silently did less than it was asked
+
+`include_conditions` was accepted and never read; no drug-condition screening
+exists. `DrugInteractionsPage` sends it whenever the patient has recorded
+conditions, so the clinician believed conditions were considered, and
+"No significant interactions detected" could be read as "safe in this patient's
+conditions". A drug-condition dataset was NOT invented — that would be
+fabricating clinical content. The response now carries `screened`, the
+recommendation says conditions were not checked, and the page repeats it on the
+green result, which is where the false assurance lived.
+
+### `cargo deny check advisories` was failing, not green
+
+This register said it was green as of 2026-08-25. It was not:
+
+  * `RUSTSEC-2026-0285` — **a vulnerability**, not an informational notice:
+    rustls 0.23.42 accepted TLS 1.3 handshake messages at the wrong encryption
+    level. Fixed by `rustls 0.23.45` (and `rustls-webpki 0.103.15` with it).
+  * A **yanked** `chacha20 0.10.1`, reached via `rand` → `postgres-protocol`.
+    Not the crate `medichain-crypto` uses for PHI. Updated to 0.10.2.
+
+`cargo deny check` now reports `advisories ok, bans ok, licenses ok, sources ok`.
+The two accepted Subxt advisories stay accepted on their existing criterion; the
+note in this register about four stale `rustls-webpki` ignore entries is itself
+out of date — they were removed, and `unused-ignored-advisory = "deny"` now
+stops them coming back.
+
+### What was removed (24 items)
+
+Three unregistered legacy wallet-auth handlers and their two request/response
+types; four superseded audit and notification helpers (`log_access`,
+`audit_prescription_event`, `store_verification_event`, `audit_unavailable`,
+`notify_appointment`, `notify_lab_result`) — every one checked to confirm a live
+path already does the job, and in the prescription case that path is strictly
+better because it writes record and audit atomically; `generate_auth_challenge`
+and its type; three unadopted validators and two generators; four duplicate
+clinical types; `RateLimitConfig.admin_limit`;
+`SignPrescriptionRequest.password`, which no client sent and no handler read — a
+password accepted over the wire for nothing reaches request logs having bought
+nothing; `PgDeathCertificateRepository`, which named a table **no migration
+creates**; and `client/patient-app/src/utils/offlineStorage.ts`, 660 lines with
+zero importers beside a live `offlineQueue` in shared.
+
+All 36 generated Postgres repositories were audited against the migrations.
+Exactly one named a table that does not exist — the one above.
+
+### What was deliberately NOT removed
+
+  * `blood_type_compatible` and `mean_arterial_pressure` — flagged dead only
+    because their callers live in `property_tests.rs`, which is `cfg(test)`.
+    They are tested clinical logic.
+  * `is_session_active` and `clear_step_up` — documented keeps with stated
+    reasons and test coverage.
+  * `error_codes` and the `SmsTemplate` catalogue — enumerated vocabularies.
+    Trimming unused members is churn the next handler undoes.
+  * `analytics.metric_type`, `sync.last_sync_at` — accepted-not-yet-consumed
+    compatibility fields, already documented as such.
+  * The ~80 remaining unreferenced types in `clinical.rs`. 14 are mirrored as
+    interfaces in the client (a live contract) and 56 more are nested inside
+    those, so they are reachable from something real. The rest is one design
+    decision, not a pile of small ones.
+
+### Gates
+
+`noUnusedLocals` and `noUnusedParameters` were `false` in both portals, so
+nothing caught a declaration that stopped being used. Enabling them found five
+across the whole codebase; all five are cleared and the settings are now on.
+
+**Method note.** A removal pass verified with `cargo check` alone is not
+verified — `cfg(test)` code only compiles under `--all-targets`, and two
+deletions broke tests that `cargo check` reported as clean.

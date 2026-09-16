@@ -68,35 +68,8 @@ pub mod secure_tokens {
 
     /// Generate a secure emergency token
     /// Format: EMG-{timestamp_hex}{random_hex}{checksum} (40 chars total)
-    pub fn generate_emergency_token() -> String {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let random_bytes: [u8; 16] = rand_bytes();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(b"MEDICHAIN_EMERGENCY_");
-        hasher.update(timestamp.to_be_bytes());
-        hasher.update(random_bytes);
-        let hash = hasher.finalize();
-
-        format!("EMG-{}", hex::encode(&hash[..16]))
-    }
-
     /// Generate a secure NFC tag ID
     /// Format: NFC-{random_hex} (28 chars total)
-    pub fn generate_nfc_tag_id() -> String {
-        let random_bytes: [u8; 16] = rand_bytes();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(b"MEDICHAIN_NFC_");
-        hasher.update(random_bytes);
-        let hash = hasher.finalize();
-
-        format!("NFC-{}", hex::encode(&hash[..12]))
-    }
-
     /// Generate random bytes using UUID as entropy source
     fn rand_bytes() -> [u8; 16] {
         let uuid1 = uuid::Uuid::new_v4();
@@ -121,13 +94,6 @@ pub mod validation {
     pub const MAX_NAME_LENGTH: usize = 200;
     /// Maximum allowed string length for IDs
     pub const MAX_ID_LENGTH: usize = 100;
-    /// Maximum age value
-    pub const MAX_AGE: u8 = 150;
-    /// Maximum reasonable weight in kg
-    pub const MAX_WEIGHT_KG: f64 = 700.0;
-    /// Maximum reasonable height in cm
-    pub const MAX_HEIGHT_CM: f64 = 300.0;
-
     /// Validate string length is within bounds
     pub fn validate_string_length(
         value: &str,
@@ -151,46 +117,6 @@ pub mod validation {
     ) -> Result<(), String> {
         if let Some(v) = value {
             validate_string_length(v, field_name, max_length)?;
-        }
-        Ok(())
-    }
-
-    /// Validate age is reasonable
-    pub fn validate_age(age: u8) -> Result<(), String> {
-        if age > MAX_AGE {
-            return Err(format!("Age {} exceeds maximum of {}", age, MAX_AGE));
-        }
-        Ok(())
-    }
-
-    /// Validate numeric range
-    pub fn validate_range<T: PartialOrd + std::fmt::Display>(
-        value: T,
-        field_name: &str,
-        min: T,
-        max: T,
-    ) -> Result<(), String> {
-        if value < min || value > max {
-            return Err(format!(
-                "{} must be between {} and {}",
-                field_name, min, max
-            ));
-        }
-        Ok(())
-    }
-
-    /// Validate wallet address format (SS58)
-    pub fn validate_wallet_address(address: &str) -> Result<(), String> {
-        // SS58 addresses start with 5 and are 48 characters for substrate
-        if address.is_empty() {
-            return Err("Wallet address cannot be empty".to_string());
-        }
-        if address.len() < 32 || address.len() > 64 {
-            return Err("Invalid wallet address length".to_string());
-        }
-        // Basic character validation
-        if !address.chars().all(|c| c.is_alphanumeric()) {
-            return Err("Wallet address contains invalid characters".to_string());
         }
         Ok(())
     }
@@ -221,21 +147,5 @@ mod tests {
     fn test_string_validation() {
         assert!(validate_string_length("short", "field", 100).is_ok());
         assert!(validate_string_length("x".repeat(101).as_str(), "field", 100).is_err());
-    }
-
-    #[test]
-    fn test_age_validation() {
-        assert!(validate_age(25).is_ok());
-        assert!(validate_age(150).is_ok());
-        assert!(validate_age(151).is_err());
-    }
-
-    #[test]
-    fn test_wallet_validation() {
-        assert!(
-            validate_wallet_address("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY").is_ok()
-        );
-        assert!(validate_wallet_address("").is_err());
-        assert!(validate_wallet_address("short").is_err());
     }
 }

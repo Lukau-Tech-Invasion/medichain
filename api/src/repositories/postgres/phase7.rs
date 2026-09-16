@@ -137,7 +137,6 @@ pg_json_repo!(PgInsuranceClaimRepository, "insurance_claims");
 pg_json_repo!(PgInsuranceCardRepository, "insurance_cards");
 pg_json_repo!(PgAutopsyRequestRepository, "autopsy_requests");
 pg_json_repo!(PgAutopsyReportRepository, "autopsy_reports");
-pg_json_repo!(PgDeathCertificateRepository, "death_certificates");
 pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
 
 // Round 5: wearables + telehealth legacy shapes (repos existed but entity shapes

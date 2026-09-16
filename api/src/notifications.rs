@@ -547,34 +547,6 @@ fn wallet_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String
         .map(|user| user.wallet_address.clone())
 }
 
-pub async fn notify_appointment(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    appointment_date: &str,
-    provider_name: &str,
-) {
-    let title = "Appointment Reminder";
-    let body = format!(
-        "Your appointment with {} is scheduled for {}.",
-        provider_name, appointment_date
-    );
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "appointment".to_string());
-    data.insert("appointment_date".to_string(), appointment_date.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
-}
-
 pub async fn notify_prescription(
     repos: &RepositoryContainer,
     patient_user_id: &str,
@@ -589,30 +561,6 @@ pub async fn notify_prescription(
     let mut data = HashMap::new();
     data.insert("type".to_string(), "prescription".to_string());
     data.insert("medication".to_string(), medication_name.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
-}
-
-pub async fn notify_lab_result(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    test_name: &str,
-) {
-    let title = "Lab Results Available";
-    let body = format!("Results for {} are now available in MediChain.", test_name);
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "lab_result".to_string());
-    data.insert("test_name".to_string(), test_name.to_string());
 
     let _ = send_push_to_user(
         repos,

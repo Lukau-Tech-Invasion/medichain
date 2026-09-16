@@ -370,38 +370,6 @@ pub async fn load_current_verified(
     })
 }
 
-/// Record a break-glass read: who, why, when, under which grant, and which
-/// fields were actually revealed.
-///
-/// The caller must not release the emergency payload unless this append
-/// succeeds. A warning in process logs is not an immutable disclosure record,
-/// and a database outage must not create an unaudited break-glass path.
-#[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
-pub async fn log_access(
-    data: &web::Data<AppState>,
-    patient_id: &str,
-    capsule_version: Option<i32>,
-    accessed_by: &str,
-    grant_id: Option<String>,
-    reason_code: &str,
-    reason_text: Option<String>,
-    fields_revealed: Vec<String>,
-    commitment_verified: bool,
-) -> Result<(), String> {
-    let entry = build_access_entry(
-        patient_id,
-        capsule_version,
-        accessed_by,
-        grant_id,
-        reason_code,
-        reason_text,
-        fields_revealed,
-        commitment_verified,
-    );
-    persist_access(data, entry).await
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn build_access_entry(
     patient_id: &str,
