@@ -12,6 +12,7 @@ import {
   Textarea,
   useValidatedForm,
   consultRequestSchema,
+  consultResponseSchema,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -274,9 +275,22 @@ const ConsultPage: React.FC = () => {
     showSuccess(t('docConsult.successRequested', { id: consult.consultId }));
   };
 
+  const {
+    errors: responseErrors,
+    validate: validateResponse,
+    validateField: validateResponseField,
+    clearField: clearResponseField,
+  } = useValidatedForm(consultResponseSchema);
+
   const handleRespondToConsult = async () => {
-    if (!selectedConsult || !consultResponse.assessment || !consultResponse.recommendations) {
+    // The assessment and the recommendations are the two halves a referrer acts
+    // on: what the consultant thinks, and what they want done. A response with
+    // one of them sends the referrer back to ask again.
+    if (!selectedConsult) {
       showError(t('docConsult.errorRequiredResponseFields'));
+      return;
+    }
+    if (!validateResponse(consultResponse)) {
       return;
     }
 
@@ -681,13 +695,15 @@ const ConsultPage: React.FC = () => {
                   <label htmlFor="consult-assessment" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docConsult.assessmentLabel')} <span className="text-critical-subtle-fg">*</span>
                   </label>
-                  <textarea
+                  <Textarea
                     id="consult-assessment"
                     value={consultResponse.assessment}
-                    onChange={(e) => setConsultResponse({ ...consultResponse, assessment: e.target.value })}
+                    onChange={(e) => { clearResponseField('assessment'); setConsultResponse({ ...consultResponse, assessment: e.target.value }); }}
+                    onBlur={() => validateResponseField('assessment', consultResponse)}
+                    error={responseErrors.assessment}
                     placeholder={t('docConsult.assessmentPh')}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     rows={4}
+                    required
                   />
                 </div>
 
@@ -695,13 +711,15 @@ const ConsultPage: React.FC = () => {
                   <label htmlFor="consult-recommendations" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docConsult.recommendationsLabel')} <span className="text-critical-subtle-fg">*</span>
                   </label>
-                  <textarea
+                  <Textarea
                     id="consult-recommendations"
                     value={consultResponse.recommendations}
-                    onChange={(e) => setConsultResponse({ ...consultResponse, recommendations: e.target.value })}
+                    onChange={(e) => { clearResponseField('recommendations'); setConsultResponse({ ...consultResponse, recommendations: e.target.value }); }}
+                    onBlur={() => validateResponseField('recommendations', consultResponse)}
+                    error={responseErrors.recommendations}
                     placeholder={t('docConsult.recommendationsPh')}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     rows={6}
+                    required
                   />
                 </div>
 

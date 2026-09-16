@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, getCdsAudit, listCdsAlerts, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  getCdsAudit,
+  listCdsAlerts,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  cdsRuleSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -193,8 +204,29 @@ const CDSAlertsPage: React.FC = () => {
   // Handler Functions
   const { showSuccess, showError } = useToastActions();
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(cdsRuleSchema);
+
+  const ruleCore = () => ({
+    name: newRule.name ?? '',
+    description: newRule.description ?? '',
+  });
+
   const handleCreateRule = () => {
-    if (!newRule.name || !newRule.description || !newRule.conditions?.length || !newRule.actions?.length) {
+    // A CDS rule fires at someone mid-task, and the clinician deciding whether
+    // to override it has only the rule's own words to judge it by -- an
+    // unexplained alert is the one dismissed reflexively. So the name and the
+    // description are field errors.
+    //
+    // Having at least one condition and one action stays a toast: that is a
+    // rule about the rule, not a fact about any single control, and the
+    // conditions are built in a sub-form of their own.
+    // The parsed output, not the raw state: it is trimmed, and it narrows
+    // `string | undefined` to `string` the way the hand-written guard used to.
+    const validated = validate(ruleCore());
+    if (!validated) {
+      return;
+    }
+    if (!newRule.conditions?.length || !newRule.actions?.length) {
       showError(t('docCDS.errorRequiredFieldsRule'));
       return;
     }
@@ -202,9 +234,9 @@ const CDSAlertsPage: React.FC = () => {
     const ruleId = `CDS-${String(rules.length + 1).padStart(3, '0')}`;
     const rule: CDSRule = {
       ruleId,
-      name: newRule.name,
+      name: validated.name,
       category: newRule.category || 'medication',
-      description: newRule.description,
+      description: validated.description,
       severity: newRule.severity || 'medium',
       triggerType: newRule.triggerType || 'threshold',
       conditions: newRule.conditions || [],
@@ -866,13 +898,15 @@ const CDSAlertsPage: React.FC = () => {
                   <label htmlFor="cds-rule-name" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docCDS.ruleNameLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
+                  <Input
                     id="cds-rule-name"
                     type="text"
                     value={newRule.name || ''}
-                    onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                    onChange={(e) => { clearField('name'); setNewRule({ ...newRule, name: e.target.value }); }}
+                    onBlur={() => validateField('name', ruleCore())}
+                    error={errors.name}
                     placeholder={t('docCDS.ruleNamePh')}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    required
                   />
                 </div>
 

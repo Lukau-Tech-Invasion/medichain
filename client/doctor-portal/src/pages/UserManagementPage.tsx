@@ -1,7 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation, useStepUp, StepUpDialog, RestrictedSection, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  assignRole,
+  getUsers,
+  revokeRole,
+  updateUserProfile,
+  walletRegister,
+  useTranslation,
+  useStepUp,
+  StepUpDialog,
+  RestrictedSection,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  newUserSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
@@ -152,6 +167,8 @@ const UserManagementPage: React.FC = () => {
     fetchUsers();
   }, [fetchUsers, isAdministrator]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(newUserSchema);
   const handleCreateUser = async () => {
     // Phone is deliberately NOT required.
     //
@@ -160,8 +177,11 @@ const UserManagementPage: React.FC = () => {
     // hand, and blocking the account on it is how account creation became
     // impossible in the first place: the form would not submit without a phone,
     // and the API of the day would not accept one.
-    if (!newUser.walletAddress || !newUser.name || !newUser.email) {
-      showError(t('docUserManagement.errorRequiredFields'));
+    // Three fields in one toast. The email in particular is worth validating as
+    // an email rather than as "not empty": it is how the account holder is
+    // contacted about their own access, and a typo there is discovered the day
+    // it is needed.
+    if (!validate(newUser)) {
       return;
     }
 
@@ -657,14 +677,15 @@ const UserManagementPage: React.FC = () => {
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docUserManagement.fullNameLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="new-user-name"
                   type="text"
                   value={newUser.name}
-                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                  placeholder={t('docUserManagement.fullNamePlaceholder')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  onChange={(e) => { clearField('name'); setNewUser({ ...newUser, name: e.target.value }); }}
+                  onBlur={() => validateField('name', newUser)}
+                  error={errors.name}
                   required
+                  placeholder={t('docUserManagement.fullNamePlaceholder')}
                 />
               </div>
               <div>

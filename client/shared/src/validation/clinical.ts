@@ -750,3 +750,35 @@ export const familyMemberSchema = z.object({
   patientId: requiredText('a patient', 64),
   relationship: requiredText('the relationship to the patient', 64),
 });
+
+/**
+ * A consultant's answer.
+ *
+ * The assessment and the recommendations are the two halves a referrer acts on:
+ * what the consultant thinks, and what they want done. A response carrying one
+ * of them sends the referrer back to ask again.
+ */
+export const consultResponseSchema = z.object({
+  assessment: requiredText('your assessment', 5_000),
+  recommendations: requiredText('your recommendations', 5_000),
+});
+
+/**
+ * A clinical-decision-support rule.
+ *
+ * The description is required because a CDS rule fires at someone mid-task: the
+ * clinician deciding whether to override it has only the rule's own words to
+ * judge it by, and an unexplained alert is the one that gets dismissed
+ * reflexively.
+ */
+export const cdsRuleSchema = z.object({
+  name: requiredText('a rule name', 200),
+  description: requiredText('what this rule is for', 2_000),
+});
+
+/** Creating a staff account. */
+export const newUserSchema = z.object({
+  walletAddress: requiredText('a wallet address', 128),
+  name: requiredText('the full name', 200),
+  email: emailSchema,
+});
