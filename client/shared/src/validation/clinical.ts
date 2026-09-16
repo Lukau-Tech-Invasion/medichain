@@ -238,3 +238,49 @@ export const patientRegistrationSchema = z.object({
 });
 
 export type PatientRegistration = z.infer<typeof patientRegistrationSchema>;
+
+/**
+ * An electronic prescription.
+ *
+ * The highest-risk form in the product: a malformed dose reaches a pharmacy and
+ * then a patient. Every message states the rule to satisfy rather than the
+ * state that failed — "Enter a strength, such as 500 mg" rather than "Invalid
+ * strength" — which is the difference between a validator's output and a
+ * message someone can act on.
+ */
+export const prescriptionSchema = z.object({
+  patient_id: patientIdSchema,
+  medication_name: requiredText('the medication name'),
+  strength: requiredText('a strength, such as 500 mg', 64),
+  form: requiredText('a form', 32),
+  /**
+   * Quantity and days' supply are bounded because the realistic range is
+   * narrow and a stray keystroke is not. A quantity of 1000 tablets is a
+   * typo far more often than a prescription, and the pharmacy cannot tell.
+   */
+  quantity: z.coerce
+    .number({ error: 'Enter the quantity to dispense as a number' })
+    .int('Enter a whole number of units')
+    .min(1, 'Enter a quantity of at least 1')
+    .max(1000, 'Quantities above 1000 need a written order, not an e-prescription'),
+  days_supply: z.coerce
+    .number({ error: "Enter the days' supply as a number" })
+    .int('Enter a whole number of days')
+    .min(1, "Enter a days' supply of at least 1")
+    .max(365, "Enter a days' supply of 365 or fewer"),
+  /**
+   * Repeats are capped at 12 by the form's own `max`, and stated here too: an
+   * attribute the browser enforces is not a rule the server or a paste can be
+   * relied on to respect.
+   */
+  refills_allowed: z.coerce
+    .number({ error: 'Enter the number of repeats as a number' })
+    .int('Enter a whole number of repeats')
+    .min(0, 'Enter 0 repeats or more')
+    .max(12, 'Enter 12 repeats or fewer'),
+  /** The page's own field name; the API calls this the sig. */
+  directions: requiredText('the directions for the patient', 500),
+  patient_instructions: clinicalNoteSchema(2_000).optional(),
+});
+
+export type PrescriptionInput = z.infer<typeof prescriptionSchema>;
