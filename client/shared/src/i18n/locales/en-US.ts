@@ -737,6 +737,8 @@ const en_US: TranslationRecord = {
 
   // Offline sync
   offlineSync: {
+    replaySummary:
+      '{{sent}} sent, {{alreadyApplied}} already on the server, {{rejected}} refused, {{deferred}} still waiting',
     devicesHeading: 'Devices holding a copy of your records',
     devicesSubtitle: 'Each of these has downloaded records so they can be read offline.',
     devicesLoading: 'Loading...',

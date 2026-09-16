@@ -2378,7 +2378,17 @@ export interface LogAdherenceInput {
 export async function logMedicationAdherence(
   data: LogAdherenceInput
 ): Promise<AdherenceLogCreateResult> {
-  return getApiClient().post('/api/reminders/adherence', data);
+  // Queued when the device is offline. This is the case the offline story was
+  // built for: a dose is taken at a time, and a patient with no signal must not
+  // have to remember it until they next have one. The call still rejects with
+  // `OfflineQueuedError`, so the page says "saved on this device, not yet sent"
+  // rather than claiming the server has it.
+  return getApiClient().post('/api/reminders/adherence', data, {
+    queueWhenOffline: {
+      category: 'medications',
+      description: `Medication dose: ${data.action}`,
+    },
+  });
 }
 
 /** One logged dose, as `GET /api/reminders/adherence/{patient_id}` returns it. */

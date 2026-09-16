@@ -58,6 +58,7 @@ export * from './utils/cache';
 export { lookupOr, componentOr } from './utils/enumLookup';
 export { fetchWithRetry } from './utils/fetchWithRetry';
 export * from './utils/indexedDB';
+export * from './utils/syncQueue';
 export * from './utils/offlineQueue';
 export { SubstrateConnection, testSubstrateConnection } from './utils/SubstrateConnection';
 export * from './utils/validation';

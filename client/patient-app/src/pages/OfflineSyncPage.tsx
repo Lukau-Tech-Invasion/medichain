@@ -30,7 +30,8 @@ import {
   STORES,
   type SyncQueueItem as IndexedDBSyncItem,
   type CachedDataItem,
-  performSync,
+  replayQueue,
+  type ReplayOutcome,
   downloadOfflineData,
   getSyncConflicts,
   resolveSyncConflict,
@@ -112,6 +113,10 @@ const OfflineSyncPage: React.FC = () => {
   const [syncQueue, setSyncQueue] = useState<SyncQueue[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo>({ used: 0, available: 0, quota: 0 });
   const [lastFullSync, setLastFullSync] = useState<string | null>(null);
+  // What the last pass actually did. Shown instead of a bare "synced",
+  // because "3 sent, 1 already applied, 2 still waiting" is the answer to
+  // the question a patient on a poor connection is really asking.
+  const [lastReplay, setLastReplay] = useState<ReplayOutcome | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
 
@@ -288,16 +293,19 @@ const OfflineSyncPage: React.FC = () => {
     setSyncStatus('syncing');
 
     try {
-      // Call backend sync API if patient is authenticated
-      if (patient?.healthId) {
-        try {
-          await performSync({ patient_id: patient.healthId });
-        } catch (apiErr) {
-          console.warn('Backend sync API failed, continuing with local sync:', apiErr);
-        }
-      }
+      // Actually send what this device could not send.
+      //
+      // This used to call `performSync({ patient_id })`. Every field of the
+      // server's `SyncRequest` carries `#[serde(default)]`, so that body was
+      // accepted as `device_id: ""` with `items: []`, synced nothing, and
+      // answered 200 — and the page reported "synced". `replayQueue` sends each
+      // queued item as the request it actually is, keyed by the item's own id
+      // so the server's idempotency guard cannot apply it twice.
+      const outcome = await replayQueue();
+      setLastReplay(outcome);
 
-      // Clear completed sync items from IndexedDB
+      // Only now is there anything to clear: an item reaches `completed` by
+      // being accepted, not by the sync button being pressed.
       await clearCompletedSyncItems();
 
       // Clear expired cache entries
@@ -307,7 +315,11 @@ const OfflineSyncPage: React.FC = () => {
       await loadOfflineData();
 
       setLastFullSync(new Date().toISOString());
-      setSyncStatus('synced');
+      // "Synced" only when the queue is empty. An item the server refused, or
+      // one still waiting for a reachable network, is not a completed sync, and
+      // a green tick over unsent clinical data is the failure this whole change
+      // exists to remove.
+      setSyncStatus(outcome.deferred > 0 || outcome.rejected > 0 ? 'error' : 'synced');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
@@ -544,6 +556,18 @@ const OfflineSyncPage: React.FC = () => {
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.lastFullSync')}</h3>
                 <p className="text-sm text-content-muted">{lastFullSync ? formatDate(lastFullSync) : t('offlineSync.never')}</p>
+                {/* What the pass actually did, counted. "Synced" alone was the
+                    old lie: it appeared over a call that sent nothing. */}
+                {lastReplay && (
+                  <p className="text-sm text-content-secondary mt-1">
+                    {t('offlineSync.replaySummary', {
+                      sent: lastReplay.sent,
+                      alreadyApplied: lastReplay.alreadyApplied,
+                      rejected: lastReplay.rejected,
+                      deferred: lastReplay.deferred,
+                    })}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {getStatusIcon(syncStatus)}

@@ -54,6 +54,25 @@ export interface RequestOptions {
   timeout?: number;
   /** Additional headers */
   headers?: Record<string, string>;
+  /**
+   * Queue this mutation for replay if the device cannot reach the server.
+   *
+   * **Opt-in, deliberately.** Queueing every failed mutation would sweep up
+   * sign-in, sign-out and token refresh, and replaying those hours later is
+   * wrong at best. It would also surprise someone who watched a write fail and
+   * then saw it apply itself later. A caller asks for this when the operation
+   * is the user's own record and capturing it offline is the point — a dose
+   * taken with no signal, a symptom logged in a queue at a rural clinic.
+   *
+   * The caller still receives an error (`OfflineQueuedError`), so nothing shows
+   * a false success. Replay is safe because the queue item's id becomes the
+   * `Idempotency-Key`; see `utils/syncQueue.ts`.
+   */
+  queueWhenOffline?: {
+    category: 'medical-records' | 'appointments' | 'medications' | 'lab-results' | 'documents' | 'images';
+    description: string;
+    patientId?: string;
+  };
 }
 
 /**
@@ -468,7 +487,13 @@ export class ApiClient {
     const timeout = options?.timeout ?? this.timeout;
     // Generate once per logical mutation, outside the retry loop. Recreating a
     // key per attempt would turn a response-loss retry into a second write.
-    const idempotencyKey = isMutationMethod(method) ? createOperationKey() : undefined;
+    // A caller-supplied key wins. `replayQueuedMutation` passes the queue
+    // item's id, and overwriting it with a fresh one here would defeat the
+    // server-side deduplication that makes replay safe at all.
+    const callerKey = options?.headers?.['Idempotency-Key'];
+    const idempotencyKey = isMutationMethod(method)
+      ? (callerKey ?? createOperationKey())
+      : undefined;
     const requestHeaders = idempotencyKey
       ? { ...options?.headers, 'Idempotency-Key': idempotencyKey }
       : options?.headers;
@@ -497,12 +522,29 @@ export class ApiClient {
           if (this.isNetworkError(error)) {
             this.setConnectionStatus(false);
             
-            // Do not auto-submit mutations after reconnect. Durable server-side
-            // idempotency (including encrypted replay state) is not complete,
-            // so automatic replay could duplicate a clinical or governance
-            // action after a response loss. Draft/read offline support remains.
-            if (isMutationMethod(method)) {
-              debugLog('ApiClient', `Offline replay disabled for ${method} ${path}; user confirmation is required`);
+            // Replay used to be disabled outright, and that was right at the
+            // time: "durable server-side idempotency ... is not complete, so
+            // automatic replay could duplicate a clinical or governance action
+            // after a response loss."
+            //
+            // It is complete now — `middleware/idempotency.rs` claims each
+            // keyed mutation in PostgreSQL under
+            // `UNIQUE (subject, method, route, idempotency_key)`, surviving
+            // restart — so a queued item replayed twice executes once. What
+            // remains deliberate is that a caller has to *ask*: see
+            // `queueWhenOffline`.
+            if (isMutationMethod(method) && options?.queueWhenOffline) {
+              const queued = await queueOfflineMutation(
+                method as 'POST' | 'PUT' | 'DELETE',
+                path,
+                body,
+                options.queueWhenOffline
+              );
+              if (queued) {
+                throw queued;
+              }
+            } else if (isMutationMethod(method)) {
+              debugLog('ApiClient', `${method} ${path} failed offline and was not queued (no queueWhenOffline)`);
             }
           }
           break;
@@ -707,6 +749,35 @@ export class ApiClient {
   }
 
   /**
+   * Send a mutation that was queued while the device was offline, under a key
+   * the *caller* owns.
+   *
+   * This is the one place a caller supplies the `Idempotency-Key`, and the
+   * reason is the whole safety argument for replay. `request()` mints a fresh
+   * key per logical mutation, which is right for a button press — two presses
+   * are two intents. A queued item is the opposite case: every attempt to send
+   * it is the *same* intent, so the key must be the item's own id and must not
+   * change between attempts. The server claims it under
+   * `UNIQUE (subject, method, route, idempotency_key)` and refuses a second
+   * execution, which is what makes replaying after a lost response safe rather
+   * than a second clinical write.
+   *
+   * `noRetry` is deliberate: the replay loop owns retrying, because it also
+   * owns the ordering.
+   */
+  async replayQueuedMutation<T>(
+    method: 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: unknown,
+    idempotencyKey: string
+  ): Promise<T> {
+    return this.request<T>(method, path, body, {
+      noRetry: true,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  }
+
+  /**
    * Get the current offline queue
    */
   getOfflineQueue(): OfflineQueue {
@@ -723,6 +794,54 @@ function createOperationKey(): string {
     return crypto.randomUUID();
   }
   return `op-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * A mutation the device could not send, which has been queued for replay.
+ *
+ * Thrown rather than swallowed. The caller has to know the write did not land,
+ * or a page reports success over a record the server has never seen — which is
+ * the defect this whole queue exists to avoid.
+ */
+export class OfflineQueuedError extends Error {
+  public readonly queueItemId: string;
+
+  constructor(queueItemId: string, endpoint: string) {
+    super(`This device is offline. "${endpoint}" is queued and will be sent when it reconnects.`);
+    this.name = 'OfflineQueuedError';
+    this.queueItemId = queueItemId;
+  }
+}
+
+/**
+ * Put a mutation in the durable queue. Returns the error to throw, or `null`
+ * if the queue itself is unavailable — in which case the original network
+ * error stands, because a failure to queue must not read as a successful one.
+ */
+async function queueOfflineMutation(
+  method: 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body: unknown,
+  intent: NonNullable<RequestOptions['queueWhenOffline']>
+): Promise<OfflineQueuedError | null> {
+  try {
+    const { enqueueSyncItem } = await import('../utils/indexedDB');
+    const id = await enqueueSyncItem({
+      action: method === 'DELETE' ? 'delete' : 'update',
+      endpoint: path,
+      method,
+      body,
+      category: intent.category,
+      description: intent.description,
+      priority: 'medium',
+      patientId: intent.patientId,
+    });
+    debugLog('ApiClient', `Queued ${method} ${path} for replay as ${id}`);
+    return new OfflineQueuedError(id, path);
+  } catch (error) {
+    debugLog('ApiClient', `Could not queue ${method} ${path}: ${String(error)}`);
+    return null;
+  }
 }
 
 /**
