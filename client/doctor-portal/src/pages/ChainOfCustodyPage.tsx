@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listChainOfCustody, createChainOfCustody, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listChainOfCustody,
+  createChainOfCustody,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  chainOfCustodySchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -168,9 +178,14 @@ const ChainOfCustodyPage: React.FC = () => {
   // who held it, when, and whether the seal was intact. A gap in it is what
   // makes the specimen inadmissible, so a record that only exists in a browser
   // tab is worse than no record, because the collector believes it was kept.
+  const { errors, validate, validateField, clearField } = useValidatedForm(chainOfCustodySchema);
+
   const handleCreateCustody = async () => {
-    if (!newCollection.patientId || !newCollection.specimenDescription || !newCollection.sealNumber) {
-      showError(t('docChainOfCustody.errorRequiredFields'));
+    // The seal number is what makes the chain checkable -- it ties this record
+    // to the physical container, so a later transfer can prove it handled the
+    // same specimen. A toast naming three fields at once cannot say which of
+    // them is the one that would break the chain.
+    if (!validate(newCollection)) {
       return;
     }
 
@@ -562,13 +577,15 @@ const ChainOfCustodyPage: React.FC = () => {
                 <label htmlFor="coc-specimen-description" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docChainOfCustody.specimenDescriptionLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="coc-specimen-description"
                   type="text"
                   value={newCollection.specimenDescription}
-                  onChange={(e) => setNewCollection({ ...newCollection, specimenDescription: e.target.value })}
+                  onChange={(e) => { clearField('specimenDescription'); setNewCollection({ ...newCollection, specimenDescription: e.target.value }); }}
+                  onBlur={() => validateField('specimenDescription', newCollection)}
+                  error={errors.specimenDescription}
                   placeholder={t('docChainOfCustody.specimenDescriptionPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 
@@ -659,13 +676,15 @@ const ChainOfCustodyPage: React.FC = () => {
                 <label htmlFor="coc-seal-number" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docChainOfCustody.sealNumberLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="coc-seal-number"
                   type="text"
                   value={newCollection.sealNumber}
-                  onChange={(e) => setNewCollection({ ...newCollection, sealNumber: e.target.value })}
+                  onChange={(e) => { clearField('sealNumber'); setNewCollection({ ...newCollection, sealNumber: e.target.value }); }}
+                  onBlur={() => validateField('sealNumber', newCollection)}
+                  error={errors.sealNumber}
                   placeholder={t('docChainOfCustody.sealNumberPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 

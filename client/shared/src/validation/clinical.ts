@@ -573,3 +573,42 @@ export const preTransfusionVitalsSchema = z.object({
   preTemp: requiredText('the pre-transfusion temperature', 8),
   preRR: requiredText('the pre-transfusion respiratory rate', 8),
 });
+
+/**
+ * A death certificate's registrable core.
+ *
+ * These are the fields a registrar checks. A certificate missing any of them is
+ * not a document with a gap -- it is one that cannot be registered, and the
+ * family finds that out at the registry office.
+ */
+export const deathCertificateSchema = z.object({
+  lastName: requiredText("the deceased's surname", 200),
+  dateOfDeath: requiredText('the date of death', 32),
+  /**
+   * The condition that directly led to death, and the line the certificate
+   * exists to record. Antecedent causes sit beneath it and are optional; this
+   * is not.
+   */
+  immediateCause: requiredText('the immediate cause of death', 500),
+  certifierName: requiredText('the certifying practitioner', 200),
+  licenseNumber: requiredText("the certifier's registration number", 64),
+});
+
+/**
+ * Taking a specimen into evidential custody.
+ *
+ * The seal number is what makes the chain checkable: it ties this record to the
+ * physical container, so a later transfer can prove it handled the same
+ * specimen. A break in the chain makes the specimen inadmissible.
+ */
+export const chainOfCustodySchema = z.object({
+  patientId: requiredText('a patient', 64),
+  specimenDescription: requiredText('a description of the specimen', 500),
+  sealNumber: requiredText('the seal number on the container', 64),
+});
+
+/** Handing that specimen to somebody else. */
+export const custodyTransferSchema = z.object({
+  transferredTo: requiredText('who is taking custody', 200),
+  location: requiredText('where the transfer happened', 200),
+});

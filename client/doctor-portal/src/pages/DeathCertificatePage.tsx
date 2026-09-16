@@ -14,7 +14,14 @@ import {
   Heart
 } from 'lucide-react';
 import { createDeathCertificate } from '../../../shared/src/api/endpoints';
-import { listDeathCertificates, useTranslation, clickable } from '@medichain/shared';
+import {
+  listDeathCertificates,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  deathCertificateSchema,
+} from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 
 /**
@@ -238,14 +245,31 @@ const DeathCertificatePage: React.FC = () => {
     }
   };
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    deathCertificateSchema
+  );
+
+  /** The fields a registrar checks, from this page's separate section state. */
+  const certificateCore = () => ({
+    lastName: deceasedInfo.lastName,
+    dateOfDeath: deathInfo.dateOfDeath,
+    immediateCause: causeInfo.immediateCause,
+    certifierName: certifierInfo.certifierName,
+    licenseNumber: certifierInfo.licenseNumber,
+  });
   const handleSignAndSubmit = async () => {
     // Basic validation
     if (!patientId) {
       showError(t('docDeathCertificate.errorSelectPatient'));
       return;
     }
-    if (!deceasedInfo.lastName || !deathInfo.dateOfDeath || !causeInfo.immediateCause || !certifierInfo.certifierName || !certifierInfo.licenseNumber) {
-      showError(t('docDeathCertificate.errorRequiredFields'));
+
+    // Was one toast for five fields spread across four collapsible sections.
+    // These are the fields a registrar checks: a certificate missing any of
+    // them cannot be registered, and the family finds that out at the registry
+    // office.
+    if (!validate(certificateCore())) {
       return;
     }
 
@@ -533,12 +557,13 @@ const DeathCertificatePage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="death-last-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.lastNameLabel')}</label>
-                  <input
+                  <Input
                     id="death-last-name"
                     type="text"
                     value={deceasedInfo.lastName}
-                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, lastName: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
+                    onChange={(e) => { clearField('lastName'); setDeceasedInfo({ ...deceasedInfo, lastName: e.target.value }); }}
+                    onBlur={() => validateField('lastName', certificateCore())}
+                    error={errors.lastName}
                     required
                   />
                 </div>
@@ -813,13 +838,15 @@ const DeathCertificatePage: React.FC = () => {
                       <label htmlFor="death-immediate-cause" className="block text-sm font-medium text-content-secondary mb-1">
                         {t('docDeathCertificate.immediateCauseLabel')}
                       </label>
-                      <input
+                      <Input
                         id="death-immediate-cause"
                         type="text"
                         value={causeInfo.immediateCause}
-                        onChange={(e) => setCauseInfo({ ...causeInfo, immediateCause: e.target.value })}
-                        className="w-full border rounded-lg px-3 py-2"
+                        onChange={(e) => { clearField('immediateCause'); setCauseInfo({ ...causeInfo, immediateCause: e.target.value }); }}
+                        onBlur={() => validateField('immediateCause', certificateCore())}
+                        error={errors.immediateCause}
                         placeholder={t('docDeathCertificate.immediateCausePh')}
+                        required
                       />
                     </div>
                     <div>
