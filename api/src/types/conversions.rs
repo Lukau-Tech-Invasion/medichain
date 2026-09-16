@@ -436,15 +436,34 @@ pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
 /// The facility's fixed offset from UTC, in minutes, from
 /// `CLINIC_UTC_OFFSET_MINUTES` (e.g. `120` for SAST, `-300` for EST).
 ///
+/// Resolved from `CLINIC_TIMEZONE` where set, falling back to
+/// `CLINIC_UTC_OFFSET_MINUTES`.
+///
 /// A fixed offset rather than an IANA zone because the deployment targets
 /// (South Africa, Nigeria, Kenya, Ghana, Ethiopia) do not observe DST, and a
-/// fixed offset needs no timezone database. Defaults to `0`, which preserves
-/// the previous UTC-as-wall-clock behaviour; `startup` warns when it is unset so
-/// a non-UTC deployment does not inherit the bug silently.
+/// fixed offset needs no timezone database. `CLINIC_TIMEZONE` is what keeps
+/// that reasoning enforceable: `startup::SUPPORTED_CLINIC_ZONES` lists only
+/// zones without DST, so a region where a fixed offset would drift by an hour
+/// for half the year cannot be configured. A bare offset is still honoured for
+/// existing deployments and warned about, because it cannot carry that
+/// guarantee. Defaults to `0`, which preserves UTC-as-wall-clock.
 ///
 /// Values beyond ±14h are ignored as nonsense rather than applied.
 pub fn clinic_utc_offset_minutes() -> i64 {
     const MAX_OFFSET_MINUTES: i64 = 14 * 60;
+
+    // `CLINIC_TIMEZONE` first. Naming the zone is the supported way to say
+    // where a facility is, because this offset is applied unchanged all year --
+    // a bare number cannot say whether the region observes daylight saving, and
+    // `startup::SUPPORTED_CLINIC_ZONES` contains only zones that do not.
+    if let Ok(zone) = std::env::var("CLINIC_TIMEZONE") {
+        if let Some(minutes) = crate::startup::clinic_zone_offset_minutes(&zone) {
+            return minutes;
+        }
+        // An unsupported zone falls through to UTC rather than guessing. The
+        // startup check has already said so at error level.
+    }
+
     std::env::var("CLINIC_UTC_OFFSET_MINUTES")
         .ok()
         .and_then(|raw| raw.trim().parse::<i64>().ok())

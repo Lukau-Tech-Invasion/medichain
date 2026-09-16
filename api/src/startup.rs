@@ -477,19 +477,156 @@ pub async fn validate_single_organisation(pool: &sqlx::PgPool) -> Result<(), Str
     }
 }
 
-/// Warn when the facility timezone offset is unset.
+/// The facility timezones this build supports, and their fixed UTC offsets in
+/// minutes.
+///
+/// Facility times use a **fixed** offset with no daylight-saving rules. That is
+/// correct, and needs no timezone database, precisely because none of these
+/// observe DST. Naming the zone rather than typing an offset is what keeps that
+/// true: a DST region is not expressible here, so it cannot be configured by
+/// accident.
+///
+/// An offset allow-list was tried first and abandoned — `-300` is US Eastern
+/// standard time *and* Peru, which has no DST, so almost every offset is
+/// legitimate somewhere and the check had no power.
+pub const SUPPORTED_CLINIC_ZONES: &[(&str, i64)] = &[
+    ("UTC", 0),
+    ("Africa/Accra", 0),           // Ghana, GMT
+    ("Africa/Abidjan", 0),         // Côte d'Ivoire, GMT
+    ("Africa/Lagos", 60),          // Nigeria, WAT
+    ("Africa/Kinshasa", 60),       // DRC (west), WAT
+    ("Africa/Johannesburg", 120),  // South Africa, SAST
+    ("Africa/Harare", 120),        // Zimbabwe, CAT
+    ("Africa/Lusaka", 120),        // Zambia, CAT
+    ("Africa/Maputo", 120),        // Mozambique, CAT
+    ("Africa/Nairobi", 180),       // Kenya, EAT
+    ("Africa/Addis_Ababa", 180),   // Ethiopia, EAT
+    ("Africa/Dar_es_Salaam", 180), // Tanzania, EAT
+    ("Africa/Kampala", 180),       // Uganda, EAT
+    ("Africa/Kigali", 120),        // Rwanda, CAT
+];
+
+/// The offset for a named zone, if this build supports it.
+pub fn clinic_zone_offset_minutes(zone: &str) -> Option<i64> {
+    let wanted = zone.trim();
+    SUPPORTED_CLINIC_ZONES
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+        .map(|(_, minutes)| *minutes)
+}
+
+/// Check the facility timezone configuration at startup.
 ///
 /// Appointment dates and times are stored as facility wall-clock. Without an
 /// offset they are interpreted as UTC, which shifts every scheduled instant —
 /// and therefore the telehealth join window and appointment reminders — by the
 /// facility's real offset.
+///
+/// `CLINIC_TIMEZONE` is the supported way to say where a facility is.
+/// `CLINIC_UTC_OFFSET_MINUTES` still works, because deployments use it, but it
+/// cannot express whether the region observes DST and so is reported as the
+/// weaker option it is.
 pub fn warn_if_clinic_offset_unset() {
-    if std::env::var("CLINIC_UTC_OFFSET_MINUTES").is_err() {
+    if let Ok(zone) = std::env::var("CLINIC_TIMEZONE") {
+        match clinic_zone_offset_minutes(&zone) {
+            Some(minutes) => {
+                log::info!("Facility timezone: {zone} (UTC{minutes:+} minutes, no DST)");
+            }
+            None => {
+                log::error!(
+                    "CLINIC_TIMEZONE is {zone:?}, which this build does not support. Facility \
+                     times use a fixed offset with no daylight-saving rules, so only zones \
+                     without DST can be honoured: {}. Appointment times are being treated as \
+                     UTC until this is corrected.",
+                    SUPPORTED_CLINIC_ZONES
+                        .iter()
+                        .map(|(name, _)| *name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        return;
+    }
+
+    let Ok(raw) = std::env::var("CLINIC_UTC_OFFSET_MINUTES") else {
         log::warn!(
-            "CLINIC_UTC_OFFSET_MINUTES is not set - appointment times are being treated as UTC. \
-             Set it to the facility's offset in minutes (e.g. 120 for SAST) or telehealth join \
-             windows and reminders will be wrong by that offset."
+            "Neither CLINIC_TIMEZONE nor CLINIC_UTC_OFFSET_MINUTES is set - appointment times \
+             are being treated as UTC. Set CLINIC_TIMEZONE to the facility's zone (e.g. \
+             Africa/Johannesburg) or telehealth join windows and reminders will be wrong by the \
+             facility's real offset."
         );
+        return;
+    };
+
+    if raw.trim().parse::<i64>().is_err() {
+        log::warn!(
+            "CLINIC_UTC_OFFSET_MINUTES is {raw:?}, which is not a number of minutes. It is being \
+             ignored and appointment times are being treated as UTC."
+        );
+        return;
+    }
+
+    log::warn!(
+        "CLINIC_UTC_OFFSET_MINUTES is set without CLINIC_TIMEZONE. A bare offset cannot say \
+         whether the region observes daylight saving, and this build applies it unchanged all \
+         year - so in a DST region it is right for part of the year and an hour wrong for the \
+         rest, silently, in every reminder and join window. Prefer CLINIC_TIMEZONE."
+    );
+}
+
+#[cfg(test)]
+mod clinic_offset_tests {
+    use super::{clinic_zone_offset_minutes, SUPPORTED_CLINIC_ZONES};
+
+    #[test]
+    fn every_deployment_target_resolves() {
+        // The five named in the design rationale.
+        assert_eq!(clinic_zone_offset_minutes("Africa/Johannesburg"), Some(120));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Lagos"), Some(60));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Nairobi"), Some(180));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Accra"), Some(0));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Addis_Ababa"), Some(180));
+    }
+
+    #[test]
+    fn a_dst_zone_cannot_be_configured() {
+        // This is the whole point of naming the zone instead of typing an
+        // offset. `-300` as a number is US Eastern *and* Peru, so no offset
+        // check could tell them apart; the zone name can, and these are simply
+        // absent.
+        assert_eq!(clinic_zone_offset_minutes("America/New_York"), None);
+        assert_eq!(clinic_zone_offset_minutes("Europe/London"), None);
+        assert_eq!(clinic_zone_offset_minutes("Europe/Berlin"), None);
+        assert_eq!(clinic_zone_offset_minutes("Australia/Sydney"), None);
+    }
+
+    #[test]
+    fn zone_names_are_matched_forgivingly_but_not_loosely() {
+        assert_eq!(
+            clinic_zone_offset_minutes("  africa/johannesburg  "),
+            Some(120)
+        );
+        assert_eq!(clinic_zone_offset_minutes("Africa/Johannesburg/"), None);
+        assert_eq!(clinic_zone_offset_minutes(""), None);
+    }
+
+    #[test]
+    fn no_supported_zone_observes_daylight_saving() {
+        // A guard on the table itself: every entry here has to be a zone with
+        // no DST, because the offset is applied unchanged all year.
+        for (name, minutes) in SUPPORTED_CLINIC_ZONES {
+            assert!(
+                !name.starts_with("America/")
+                    && !name.starts_with("Europe/")
+                    && !name.starts_with("Australia/"),
+                "{name} is in a region that observes DST; a fixed offset cannot serve it"
+            );
+            assert!(
+                (-14 * 60..=14 * 60).contains(minutes),
+                "{name} has an impossible offset"
+            );
+        }
     }
 }
 
