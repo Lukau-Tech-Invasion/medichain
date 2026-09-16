@@ -30,6 +30,16 @@ export default defineConfig({
   // the whole run shares one rate-limit bucket and parallel workers turn a
   // healthy run into navigation timeouts that read as application faults.
   workers: 1,
+  // Per-test timeout, and hooks inherit it.
+  //
+  // Playwright's default is 30 seconds, which a `beforeAll` that signs in can
+  // exhaust on its own. Sign-in is Argon2id key derivation, a keystore open, an
+  // sr25519 signature, a challenge, a JWT exchange and `/api/auth/me` before the
+  // app renders -- and `page.url()` lags React Router's `pushState` by a further
+  // three to five seconds under load (measured 2026-09-15). `signIn` waits for
+  // both, so a 30-second budget shared with the test itself is not enough, and
+  // the failure it produces is a hook timeout that names nothing useful.
+  timeout: 90_000,
   reporter: [['list']],
   use: {
     baseURL: `http://localhost:${PORT}`,
