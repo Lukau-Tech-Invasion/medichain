@@ -3980,3 +3980,152 @@ annotated, an external wire shape, a documented provider seam, a field accepted
 and explicitly documented as not stored, or the `error_codes` module whose
 constants are unused while their values appear as literals 100+ times (the
 duplication is the debt; adopting the module is its own change).
+
+
+## 2026-09-16 (later still) — Three capabilities that refused, and two gates that lied
+
+Refusing beats inventing, and every one of these had been made to refuse
+earlier in this campaign. A refusal is honest; it is not a feature. This entry
+closes the three that were left sitting at an error, and two audit scripts that
+were reporting defects which did not exist.
+
+### Email had no transport at all
+
+`send_email` slept 150ms, logged "Email successfully queued for delivery" and
+returned `Ok(())` with no SMTP client in the binary. Its only caller is
+`dispatch_breach_notification`, which counted every one of those as a delivered
+POPIA / HIPAA regulator notification — a statutory deadline reported as met by
+a function that had sent nothing. It was made to fail closed; now it sends.
+
+`lettre` 0.11 (`smtp-transport` + `tokio1-rustls-tls`, default features off).
+`SMTP_HOST` and `SMTP_FROM` are both required — a from-address derived from the
+host would arrive from a guessed `noreply@` and be filtered before anyone read
+it, which is a silent failure of exactly the message that must not fail
+silently. `SMTP_USER`/`SMTP_PASS` are optional because IP-authenticated relays
+are normal, and a half-set pair warns rather than quietly connecting
+unauthenticated.
+
+TLS is the default in both directions: STARTTLS on 587, or implicit TLS on 465
+with `SMTP_IMPLICIT_TLS`. `SMTP_ALLOW_PLAINTEXT` exists for a local capture
+server or a trusted in-cluster relay, and `validate_smtp_configuration` refuses
+to start a production process with it set — a breach notification names the
+breach, so sending it in clear text is its own disclosure.
+
+Verified by capturing a real SMTP conversation, not by reading the code: a
+purpose-built server on 127.0.0.1:2525 received the full breach notification,
+headers and body, driven through `dispatch_breach_notification`.
+
+Unconfigured is still a typed error. The recipient and subject are logged; the
+body is not.
+
+### Translation returned the submitted English wearing a French label
+
+`POST /api/platform/translate` answered 200 with
+`[TRANSLATED to fr]: <the original English>`. It was made to answer 503; now
+`TRANSLATION_PROVIDER=google` calls Google Cloud Translation v2 (v2 rather than
+v3 because v2 takes a plain API key and v3 needs a service-account OAuth flow —
+v2 is the one a deployment can turn on with one secret). `none` remains the
+default and remains the 503.
+
+An unrecognised value disables translation rather than falling back to a
+provider: a typo in `TRANSLATION_PROVIDER` must not silently start sending
+patient content to a third party.
+
+Machine translation of clinical content is not a neutral act. A mistranslated
+dose instruction is a dosing error with a language barrier in front of it, and
+the reader cannot notice. Every answer carries `machine_translated` and
+`clinically_verified`, the shared client types both as required fields, and
+`clinically_verified` is always false — nothing here reviews a machine
+translation, and a field that could read `true` would eventually be set by
+something that had not. Whether to *show* a machine-translated medication
+instruction to a patient remains a clinical governance decision.
+
+The API key goes in the query string because that is what the endpoint accepts;
+the content goes in the body, so patient text is not written into proxy and
+access logs. A provider error body may echo the submitted content, so it is
+neither logged nor returned.
+
+The provider path is proved over a real socket rather than mocked: a stand-in
+for the v2 API binds a loopback port, asserts the request shape, and the answer
+returns through the handler. Unconfigured (503) and unreachable (502) both
+assert the untranslated content appears nowhere in the response.
+
+### The provider schedule had no screen
+
+`PUT`/`GET /api/providers/{id}/schedule` landed earlier the same day with no
+caller — the "designed, not adopted" class this register exists to catch. A
+working feature nobody can reach is indistinguishable from a missing one.
+
+`ProviderSchedulePage` (Working Hours, under Main beside Appointments) is that
+screen. Nothing is pre-filled with a plausible 09:00–17:00: a provider who ticks
+a day and saves without looking would publish hours they never chose, and the
+booking screen would offer them. An empty break is absent from the payload
+rather than an empty string, because `''` is one end of a break and the API
+refuses one end. Appointment length left blank is not sent, so the server's own
+default applies and the page is not the thing asserting 30 minutes.
+
+The preview reads slots back from `/api/appointments/slots` rather than
+computing them locally. A page that previews its own arithmetic proves only
+that it agrees with itself.
+
+Verified against a live server with the page's own payload: a Tuesday
+14:00–18:00 with a 16:00–16:30 break produced 14:00 14:30 15:00 15:30 **16:30**
+17:00 17:30 — the 16:00 slot correctly gone because it overlaps the break — a
+blocked date produced `works_today: false`, Monday produced `works_today:
+false`, and `slots_source` read `provider_schedule` rather than the default
+grid. A colleague PUTting the diary got 403; one end of a break got 400.
+
+### Two audit gates reported defects that did not exist
+
+Both had the same shape, and both cost the kind of investigation the gates
+exist to save.
+
+**`scripts/unused-endpoints.py`** called three live endpoints unbuilt:
+`GET /api/admin/cds/audit`, `GET /api/insurance/claims/patient/{patient_id}`
+and `GET /api/staff/all`. Each is built as
+`` `/api/…${id}${query ? `?${query}` : ''}` `` and the extractor was a regex
+whose character class excluded `?`, so it captured `` /api/admin/cds/audit${query ``
+and matched no route. `/api/admin/cds/audit` had been given a reader the day
+before and the audit still called it unbuilt.
+
+Replaced with a brace-balancing scan. One ambiguity is resolved deliberately:
+an interpolation appended with no `/` before it may be a query-string suffix or
+part of the segment, so a call site offers both readings and a route counts as
+called if it matches either. That can under-report; the alternative over-reports,
+and over-reporting is what cost the afternoons. 13 verb+path pairs → 10, then 8
+once Working Hours acquired its screen.
+
+**`scripts/check-payload-contracts.py`** reported `OfflineSyncPage` as sending
+`patient_id` to `POST /api/sync` with no field in common with the handler. That
+defect was real and had been fixed hours earlier; what the gate matched was the
+comment recording the fix. `brace_span` skipped comments while walking, but the
+regex that finds the call site did not, so a comment describing a removed call
+resurrected it. Call sites are now matched against the file's comment spans.
+
+### Two register entries that had outlived their code
+
+`POST`/`GET /api/surgical/e-prescription` and `/api/surgical/appointment` were
+both deleted in `c76ab1c`, and this register still carried them as OPEN — one
+of them as a live "a caller can overwrite an arbitrary appointment id". A
+register entry that outlives its subject sends the next reader looking for code
+that is not there. Both are now marked closed, with the loose end recorded:
+`repositories.e_prescription_records` has no caller left, and removing it needs
+authorisation rather than a judgement call.
+
+### Still open, and why
+
+  * **Six pages send ids and timestamps the handler derives and discards**
+    (`CarePlanPage`, `ConsultPage`, `IVSitePage`, `PreOpPage`,
+    `ShiftHandoffPage`, `LanguageSettingsPage`). Nothing is stored wrongly
+    today, because the handlers own those fields. `ConsultPage` sending
+    `consultId` is the WF-020 shape — a client choosing a record id — and is
+    the one worth removing first if anyone touches these pages.
+  * **The dev database migration checksum for `20260916000001`** is still
+    unrepaired; the repair SQL is in `9373ca7`. Docker on this host has been
+    unresponsive all session (the `docker-desktop` distro is *running*, so this
+    is not the stale-socket failure recorded in memory), so `provider_schedules`
+    is verified on the memory backend only.
+  * **Pallet tests** were not re-run: `blockchain/target` was deleted to
+    recover disk and the host has under 3 GB free, which will not build
+    polkadot-sdk. `git diff` confirms that workspace is unchanged since the
+    green 60-test run.
