@@ -145,18 +145,29 @@ def parse_routes(sources: dict[str, str]) -> dict[str, str]:
     return routes
 
 
-def parse_wrappers(text: str) -> dict[str, str]:
-    """endpoints.ts function name -> route template it posts to."""
+def parse_wrappers(text: str) -> tuple[dict[str, str], set[str]]:
+    """endpoints.ts function name -> route template, plus the untyped subset.
+
+    The second half is what makes an unreadable payload worth chasing. A
+    wrapper declared `createAppointment(data: CreateAppointmentInput)` is
+    checked by the type checker whether or not this gate can read the call
+    site; one declared `data: unknown` is checked by nothing at all, and 83 of
+    these wrappers are the latter -- which is how nine clinical pages came to
+    be unable to save anything.
+    """
     out: dict[str, str] = {}
+    untyped: set[str] = set()
     pattern = re.compile(
-        r'export async function (\w+)\s*\([^)]*\)[^{]*\{(.*?)\n\}', re.S
+        r'export async function (\w+)\s*\(([^)]*)\)[^{]*\{(.*?)\n\}', re.S
     )
     for m in pattern.finditer(text):
-        fn, body = m.group(1), m.group(2)
+        fn, params, body = m.group(1), m.group(2), m.group(3)
         rm = re.search(r"\.(?:post|put|patch)(?:<[^>]*>)?\(\s*[`'\"]([^`'\"]+)", body)
         if rm:
             out[fn] = rm.group(1)
-    return out
+            if re.search(r':\s*unknown\b', params):
+                untyped.add(fn)
+    return out, untyped
 
 
 def brace_span(text: str, start: int) -> str | None:
@@ -249,21 +260,89 @@ def find_live(pattern: str, text: str, spans: list[tuple[int, int]]) -> re.Match
     return None
 
 
+def argument_span(text: str, open_paren: int) -> tuple[int, int] | None:
+    """The `(...)` argument list starting at `open_paren`, as (start, end)."""
+    depth, i, in_str, quote = 0, open_paren, False, ''
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote:
+                in_str = False
+            i += 1
+            continue
+        if ch in '"\'`':
+            in_str, quote = True, ch
+        elif ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+            if depth == 0:
+                return open_paren + 1, i
+        i += 1
+    return None
+
+
+def object_argument(text: str, open_paren: int) -> int | None:
+    """Index of the first top-level `{` inside an argument list.
+
+    The body is not always the first argument. `addFamilyMember(groupId, {...})`
+    and `submitSymptomAnswers(sessionId, {...})` put it second, and a matcher
+    anchored on `fn(` followed by `{` reported both as unreadable -- which sent
+    them to the hand-probe list for no reason.
+    """
+    span = argument_span(text, open_paren)
+    if span is None:
+        return None
+    start, end = span
+    depth, i, in_str, quote = 0, start, False, ''
+    while i < end:
+        ch = text[i]
+        if in_str:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote:
+                in_str = False
+            i += 1
+            continue
+        if ch in '"\'`':
+            in_str, quote = True, ch
+        elif ch in '([':
+            depth += 1
+        elif ch in ')]':
+            depth -= 1
+        elif ch == '{' and depth == 0:
+            return i
+        i += 1
+    return None
+
+
 def payload_keys(text: str, fn: str) -> set[str] | None:
     spans = comment_ranges(text)
-    call = find_live(r'\b%s\s*\(\s*([A-Za-z_]\w*)\s*[,)]' % re.escape(fn), text, spans)
     literal = None
+    # An inline object literal, in whichever argument position it occupies.
+    call = find_live(r'\b%s\s*\(' % re.escape(fn), text, spans)
     if call:
-        var = call.group(1)
-        decl = find_live(
-            r'const\s+%s\s*(?::\s*[\w<>\[\]. ]+)?\s*=\s*\{' % re.escape(var), text, spans
-        )
-        if decl:
-            literal = brace_span(text, text.index('{', decl.start()))
+        brace = object_argument(text, text.index('(', call.start()))
+        if brace is not None:
+            literal = brace_span(text, brace)
     if literal is None:
-        inline = find_live(r'\b%s\s*\(\s*\{' % re.escape(fn), text, spans)
-        if inline:
-            literal = brace_span(text, text.index('{', inline.start()))
+        # A variable argument, resolved to its `const x = { ... }`.
+        named = find_live(
+            r'\b%s\s*\((?:[^,()]*,\s*)?([A-Za-z_]\w*)\s*[,)]' % re.escape(fn), text, spans
+        )
+        if named:
+            var = named.group(1)
+            decl = find_live(
+                r'const\s+%s\s*(?::\s*[\w<>\[\]. ]+)?\s*=\s*\{' % re.escape(var),
+                text,
+                spans,
+            )
+            if decl:
+                literal = brace_span(text, text.index('{', decl.start()))
     if literal is None:
         return None
     # A spread (`...newEntry`) carries keys this gate cannot see. Reporting a
@@ -339,10 +418,12 @@ def main() -> int:
     structs = parse_structs(blob)
     routes = parse_routes(sources)
     with open(ENDPOINTS, encoding='utf-8', errors='replace') as fh:
-        wrappers = parse_wrappers(fh.read())
+        wrappers, untyped_wrappers = parse_wrappers(fh.read())
 
     failures: list[str] = []
     advisory: list[str] = []
+    unreadable_typed: list[str] = []
+    unreadable_untyped: list[str] = []
     checked = 0
 
     for directory in PAGES:
@@ -354,8 +435,9 @@ def main() -> int:
             path = os.path.join(directory, name)
             with open(path, encoding='utf-8', errors='replace') as fh:
                 text = fh.read()
+            spans = comment_ranges(text)
             for fn, template in wrappers.items():
-                if not re.search(r'\b%s\s*\(' % re.escape(fn), text):
+                if find_live(r'\b%s\s*\(' % re.escape(fn), text, spans) is None:
                     continue
                 target = next(
                     (r for r in routes if route_matches(template, r)), None
@@ -367,6 +449,17 @@ def main() -> int:
                     continue
                 keys = payload_keys(text, fn)
                 if keys is None:
+                    # The gate could not read this payload: a spread, a builder
+                    # function, an object assembled across branches. Skipping it
+                    # silently is how a gate comes to claim coverage it does not
+                    # have, so it is counted and named below.
+                    if name not in UNRESOLVED_OK:
+                        bucket = (
+                            unreadable_untyped
+                            if fn in untyped_wrappers
+                            else unreadable_typed
+                        )
+                        bucket.append('%s -> %s (via %s)' % (name, target, fn))
                     continue
                 checked += 1
                 known: set[str] = set()
@@ -435,7 +528,24 @@ def main() -> int:
         )
         return 1
 
-    print('check-payload-contracts: %d page/handler payload contracts agree' % checked)
+    if unreadable_untyped:
+        # The ones worth an hour. The gate cannot read the payload AND the
+        # wrapper takes `unknown`, so nothing -- not this gate, not the type
+        # checker -- compares what the page sends with what the handler needs.
+        # Probe each against a live server with the page's own payload.
+        print(
+            'Unreadable payload AND an `unknown` wrapper (%d) — nothing checks '
+            'these, probe by hand:\n' % len(unreadable_untyped)
+        )
+        for line in unreadable_untyped:
+            print('  ' + line)
+        print()
+
+    print(
+        'check-payload-contracts: %d payload contracts agree; %d unreadable but '
+        'typed by the wrapper; %d unreadable and untyped'
+        % (checked, len(unreadable_typed), len(unreadable_untyped))
+    )
     return 0
 
 
