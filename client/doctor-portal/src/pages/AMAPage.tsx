@@ -21,7 +21,12 @@ import {
   createAMADischarge,
   getPatients,
   useTranslation,
-  type PatientProfile, clickable } from '@medichain/shared';
+  type PatientProfile,
+  clickable,
+  Textarea,
+  useValidatedForm,
+  amaCapacitySchema,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -141,6 +146,13 @@ const AMAPage: React.FC = () => {
     fetchPatients();
   }, [user, t]);
 
+  const {
+    errors,
+    validate: validateCapacity,
+    validateField,
+    clearField,
+  } = useValidatedForm(amaCapacitySchema);
+
   const handleCreateAMA = async () => {
     if (!patientId || !patientName || !diagnosis || !recommendedTreatment) {
       showError(t('docAMA.errorRequiredFields'));
@@ -155,12 +167,14 @@ const AMAPage: React.FC = () => {
     // capacity, but the record itself could be created without it — and the
     // server now refuses that with CAPACITY_DETERMINATION_REQUIRED. Asking here
     // means the clinician is told what is missing before they lose the form.
-    if (!hasCapacity) {
-      showError(t('docAMA.errorCapacityRequired'));
-      return;
-    }
-    if (!capacityBasis.trim()) {
-      showError(t('docAMA.errorCapacityBasisRequired'));
+    // The capacity checkbox keeps its toast -- it sits in its own card, away
+    // from the submit button. The basis is a field error and now says so on the
+    // field: "capacity confirmed" with nothing written behind it is an
+    // assertion, not a determination, and the basis is what a review reads.
+    if (!validateCapacity({ hasCapacity, capacityBasis })) {
+      if (!hasCapacity) {
+        showError(t('docAMA.errorCapacityRequired'));
+      }
       return;
     }
 
@@ -768,13 +782,15 @@ const AMAPage: React.FC = () => {
                   <label htmlFor="ama-capacity-basis" className="sr-only">
                     {t('docAMA.capacityBasisLabel')}
                   </label>
-                  <textarea
+                  <Textarea
                     id="ama-capacity-basis"
                     value={capacityBasis}
-                    onChange={(e) => setCapacityBasis(e.target.value)}
-                    rows={2}
+                    onChange={(e) => { clearField('capacityBasis'); setCapacityBasis(e.target.value); }}
+                    onBlur={() => validateField('capacityBasis', { hasCapacity, capacityBasis })}
+                    error={errors.capacityBasis}
+                    rows={3}
                     placeholder={t('docAMA.capacityBasisPh')}
-                    className="mt-2 w-full border border-border-interactive rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500"
+                    required
                   />
                 </fieldset>
 

@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, listBloodBank, createBloodTypeScreen, createTransfusion, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listBloodBank,
+  createBloodTypeScreen,
+  createTransfusion,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  preTransfusionVitalsSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -219,6 +230,16 @@ const BloodBankPage: React.FC = () => {
     setActiveTab('transfusion');
   };
 
+  const {
+    errors,
+    validate: validateVitals,
+    validateField,
+    clearField,
+  } = useValidatedForm(preTransfusionVitalsSchema);
+
+  /** The baseline a reaction is judged against. */
+  const preTransfusionVitals = () => ({ preBP, preHR, preTemp, preRR });
+
   const handleSubmitTransfusion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
@@ -226,8 +247,11 @@ const BloodBankPage: React.FC = () => {
       return;
     }
 
-    if (!preBP || !preHR || !preTemp || !preRR) {
-      showError(t('docBloodBank.errorPreVitalsRequired'));
+    // Was one toast for four fields. A transfusion reaction is recognised by
+    // comparing observations taken during the transfusion against this
+    // baseline, so which of the four is missing is precisely what the nurse
+    // needs told -- and on the box, not above the form.
+    if (!validateVitals(preTransfusionVitals())) {
       return;
     }
 
@@ -702,13 +726,14 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-pre-bp" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.bpLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-bp"
+                  <Input
                     type="text"
-                    value={preBP}
-                    onChange={(e) => setPreBP(e.target.value)}
                     placeholder="120/80"
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-bp"
+                    value={preBP}
+                    onChange={(e) => { clearField('preBP'); setPreBP(e.target.value); }}
+                    onBlur={() => validateField('preBP', preTransfusionVitals())}
+                    error={errors.preBP}
                     required
                   />
                 </div>
@@ -716,13 +741,14 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-pre-hr" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.hrLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-hr"
+                  <Input
                     type="number"
-                    value={preHR}
-                    onChange={(e) => setPreHR(e.target.value)}
                     placeholder={t('docBloodBank.bpmPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-hr"
+                    value={preHR}
+                    onChange={(e) => { clearField('preHR'); setPreHR(e.target.value); }}
+                    onBlur={() => validateField('preHR', preTransfusionVitals())}
+                    error={errors.preHR}
                     required
                   />
                 </div>
@@ -730,14 +756,15 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-pre-temp" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.tempLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-temp"
+                  <Input
                     type="number"
                     step="0.1"
-                    value={preTemp}
-                    onChange={(e) => setPreTemp(e.target.value)}
                     placeholder={t('docBloodBank.celsiusPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-temp"
+                    value={preTemp}
+                    onChange={(e) => { clearField('preTemp'); setPreTemp(e.target.value); }}
+                    onBlur={() => validateField('preTemp', preTransfusionVitals())}
+                    error={errors.preTemp}
                     required
                   />
                 </div>
@@ -745,13 +772,14 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-pre-rr" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.rrLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-rr"
+                  <Input
                     type="number"
-                    value={preRR}
-                    onChange={(e) => setPreRR(e.target.value)}
                     placeholder={t('docBloodBank.breathsPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-rr"
+                    value={preRR}
+                    onChange={(e) => { clearField('preRR'); setPreRR(e.target.value); }}
+                    onBlur={() => validateField('preRR', preTransfusionVitals())}
+                    error={errors.preRR}
                     required
                   />
                 </div>

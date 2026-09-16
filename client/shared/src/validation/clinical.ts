@@ -529,3 +529,47 @@ export const anesthesiaRecordSchema = z.object({
   selectedPatient: requiredText('a patient', 64),
   procedure: requiredText('the procedure', 300),
 });
+
+/**
+ * Acknowledging a critical laboratory value.
+ *
+ * Read-back is the safety procedure, not paperwork: the clinician who took the
+ * call repeats the value so a mis-heard potassium is caught before it is acted
+ * on. Recording an acknowledgement without it claims a verification that did
+ * not happen -- the same failure as a MAR entry with the five rights unticked.
+ */
+export const criticalValueAckSchema = z.object({
+  notifiedProvider: requiredText('who you notified', 200),
+  readBackValue: requiredText('the value the provider read back to you', 200),
+});
+
+/**
+ * The capacity determination behind an against-medical-advice discharge.
+ *
+ * A patient who lacks decision-making capacity cannot validly refuse treatment,
+ * so an AMA filed without this is not a lawful AMA — the server refuses it with
+ * CAPACITY_DETERMINATION_REQUIRED. The *basis* is the part that matters on
+ * review: "capacity confirmed" with nothing behind it is an assertion, not a
+ * determination.
+ */
+export const amaCapacitySchema = z.object({
+  hasCapacity: z.literal(true, {
+    error: 'Confirm the patient has decision-making capacity before filing an AMA',
+  }),
+  capacityBasis: requiredText('what your capacity determination was based on', 2_000),
+});
+
+/**
+ * Pre-transfusion observations.
+ *
+ * All four are required because a transfusion reaction is detected by comparing
+ * observations taken during the transfusion against these. A missing baseline
+ * does not delay the transfusion — it makes the reaction unrecognisable when it
+ * happens.
+ */
+export const preTransfusionVitalsSchema = z.object({
+  preBP: requiredText('the pre-transfusion blood pressure', 16),
+  preHR: requiredText('the pre-transfusion heart rate', 8),
+  preTemp: requiredText('the pre-transfusion temperature', 8),
+  preRR: requiredText('the pre-transfusion respiratory rate', 8),
+});

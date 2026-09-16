@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listCriticalValues, createCriticalValue, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listCriticalValues,
+  createCriticalValue,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  criticalValueAckSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -257,11 +267,19 @@ const CriticalValuePage: React.FC = () => {
     });
   };
 
+  const {
+    errors,
+    validate: validateAck,
+    validateField,
+    clearField,
+  } = useValidatedForm(criticalValueAckSchema);
+
   const handleAcknowledge = () => {
     if (!selectedNotification) return;
 
-    if (!acknowledgment.notifiedProvider || !acknowledgment.readBackValue) {
-      showError(t('docCriticalValue.errorProviderReadBackRequired'));
+    // Read-back is the safety procedure, so the message belongs on the box the
+    // clinician has to fill, not in a toast above a long notification panel.
+    if (!validateAck(acknowledgment)) {
       return;
     }
 
@@ -727,16 +745,16 @@ const CriticalValuePage: React.FC = () => {
                     <label htmlFor="critval-read-back" className="block text-sm font-semibold text-content-secondary mb-2">
                       {t('docCriticalValue.providerReadBackLabel')} <span className="text-critical-subtle-fg">*</span>
                     </label>
-                    <input
+                    <Input
                       id="critval-read-back"
                       type="text"
                       value={acknowledgment.readBackValue}
-                      onChange={(e) =>
-                        setAcknowledgment({
-                          ...acknowledgment,
-                          readBackValue: e.target.value,
-                        })
-                      }
+                      onChange={(e) => {
+                        clearField('readBackValue');
+                        setAcknowledgment({ ...acknowledgment, readBackValue: e.target.value });
+                      }}
+                      onBlur={() => validateField('readBackValue', acknowledgment)}
+                      error={errors.readBackValue}
                       placeholder={t('docCriticalValue.readBackPh', { analyte: selectedNotification.analyte, value: selectedNotification.value, unit: selectedNotification.unit })}
                       className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
