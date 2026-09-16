@@ -10,7 +10,7 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  preTransfusionVitalsSchema,
+  transfusionStartSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
@@ -230,20 +230,34 @@ const BloodBankPage: React.FC = () => {
     setActiveTab('transfusion');
   };
 
-  const {
-    errors,
-    validate: validateVitals,
-    validateField,
-    clearField,
-  } = useValidatedForm(preTransfusionVitalsSchema);
+  // One hook for the whole transfusion form: the two-person check and the
+  // baseline observations are recorded together, and two hooks would mean two
+  // `errors` objects with each field bound to only one of them.
+  const { errors, validate, validateField, clearField } =
+    useValidatedForm(transfusionStartSchema);
 
-  /** The baseline a reaction is judged against. */
-  const preTransfusionVitals = () => ({ preBP, preHR, preTemp, preRR });
+  /** The check and the baseline a reaction is judged against. */
+  const preTransfusionVitals = () => ({
+    preBP,
+    preHR,
+    preTemp,
+    preRR,
+    startTime,
+    administeredBy,
+    witnessedBy,
+  });
 
   const handleSubmitTransfusion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
+    // Transfusion is a two-person check: the administering nurse and the
+    // witness verify the unit against the patient independently. A record with
+    // one name is a record of a check that was not performed as designed, so
+    // both names are field errors rather than one shared toast.
+    if (!selectedOrder) {
       showError(t('docBloodBank.errorRequiredFields'));
+      return;
+    }
+    if (!validate(preTransfusionVitals())) {
       return;
     }
 
@@ -251,7 +265,7 @@ const BloodBankPage: React.FC = () => {
     // comparing observations taken during the transfusion against this
     // baseline, so which of the four is missing is precisely what the nurse
     // needs told -- and on the box, not above the form.
-    if (!validateVitals(preTransfusionVitals())) {
+    if (!validate(preTransfusionVitals())) {
       return;
     }
 
@@ -824,13 +838,14 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-administered-by" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.administeredByLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-administered-by"
+                  <Input
                     type="text"
-                    value={administeredBy}
-                    onChange={(e) => setAdministeredBy(e.target.value)}
                     placeholder={t('docBloodBank.administeredByPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-administered-by"
+                    value={administeredBy}
+                    onChange={(e) => { clearField('administeredBy'); setAdministeredBy(e.target.value); }}
+                    onBlur={() => validateField('administeredBy', preTransfusionVitals())}
+                    error={errors.administeredBy}
                     required
                   />
                 </div>
@@ -838,13 +853,14 @@ const BloodBankPage: React.FC = () => {
                   <label htmlFor="bloodbank-witnessed-by" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docBloodBank.witnessedByLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-witnessed-by"
+                  <Input
                     type="text"
-                    value={witnessedBy}
-                    onChange={(e) => setWitnessedBy(e.target.value)}
                     placeholder={t('docBloodBank.witnessedByPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-witnessed-by"
+                    value={witnessedBy}
+                    onChange={(e) => { clearField('witnessedBy'); setWitnessedBy(e.target.value); }}
+                    onBlur={() => validateField('witnessedBy', preTransfusionVitals())}
+                    error={errors.witnessedBy}
                     required
                   />
                 </div>

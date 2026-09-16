@@ -782,3 +782,55 @@ export const newUserSchema = z.object({
   name: requiredText('the full name', 200),
   email: emailSchema,
 });
+
+/**
+ * The clinical half of an against-medical-advice discharge.
+ *
+ * The recommended treatment is the thing being refused. An AMA that does not
+ * say what was advised records a refusal of nothing in particular, which is
+ * exactly what a later dispute turns on.
+ */
+export const amaDetailsSchema = amaCapacitySchema.extend({
+  patientName: requiredText("the patient's name", 200),
+  diagnosis: requiredText('the diagnosis', 500),
+  recommendedTreatment: requiredText('the treatment you recommended', 2_000),
+});
+
+/**
+ * Starting a transfusion.
+ *
+ * Two people are named because transfusion is a two-person check: the
+ * administering nurse and the witness verify the unit against the patient
+ * independently. A record with one name is a record of a check that was not
+ * performed as designed.
+ */
+export const transfusionStartSchema = preTransfusionVitalsSchema.extend({
+  startTime: requiredText('the start time', 16),
+  administeredBy: requiredText('who is administering the unit', 200),
+  witnessedBy: requiredText('who witnessed the check', 200),
+});
+
+/**
+ * Reporting a critical laboratory value.
+ *
+ * The ordering provider is who gets called. Without it the notification has no
+ * addressee and the value sits in a queue.
+ */
+export const criticalValueReportSchema = z.object({
+  analyte: requiredText('the analyte', 200),
+  value: requiredText('the measured value', 32),
+  orderingProvider: requiredText('the ordering provider to notify', 200),
+});
+
+/** A calibration run. */
+export const calibrationSchema = z.object({
+  calInstrument: requiredText('the instrument', 200),
+  calibratorLot: requiredText('the calibrator lot', 64),
+  calExpiryDate: requiredText('the calibrator expiry date', 32),
+});
+
+/** Adding a relative to a family history (patient + relationship). */
+export const familyHistoryMemberSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  relationship: requiredText('the relationship to the patient', 64),
+});

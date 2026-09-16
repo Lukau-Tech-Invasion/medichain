@@ -25,7 +25,8 @@ import {
   clickable,
   Textarea,
   useValidatedForm,
-  amaCapacitySchema,
+  Input,
+  amaDetailsSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -146,16 +147,28 @@ const AMAPage: React.FC = () => {
     fetchPatients();
   }, [user, t]);
 
-  const {
-    errors,
-    validate: validateCapacity,
-    validateField,
-    clearField,
-  } = useValidatedForm(amaCapacitySchema);
+  // One hook, because one form. Two would mean two `errors` objects and a
+  // field could only ever be bound to one of them.
+  const { errors, validate, validateField, clearField } = useValidatedForm(amaDetailsSchema);
+
+  const amaDetails = () => ({
+    patientName,
+    diagnosis,
+    recommendedTreatment,
+    hasCapacity,
+    capacityBasis,
+  });
 
   const handleCreateAMA = async () => {
-    if (!patientId || !patientName || !diagnosis || !recommendedTreatment) {
+    // The recommended treatment is the thing being refused. An AMA that does
+    // not say what was advised records a refusal of nothing in particular,
+    // which is what a later dispute turns on. Selecting the patient stays a
+    // toast; the rest are field errors.
+    if (!patientId) {
       showError(t('docAMA.errorRequiredFields'));
+      return;
+    }
+    if (!validate(amaDetails())) {
       return;
     }
 
@@ -171,7 +184,7 @@ const AMAPage: React.FC = () => {
     // from the submit button. The basis is a field error and now says so on the
     // field: "capacity confirmed" with nothing written behind it is an
     // assertion, not a determination, and the basis is what a review reads.
-    if (!validateCapacity({ hasCapacity, capacityBasis })) {
+    if (!validate(amaDetails())) {
       if (!hasCapacity) {
         showError(t('docAMA.errorCapacityRequired'));
       }
@@ -680,13 +693,15 @@ const AMAPage: React.FC = () => {
                     <label htmlFor="ama-diagnosis" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.diagnosisLabel')} <span className="text-critical">*</span>
                     </label>
-                    <input
-                      id="ama-diagnosis"
+                    <Input
                       type="text"
-                      value={diagnosis}
-                      onChange={(e) => setDiagnosis(e.target.value)}
                       placeholder={t('docAMA.diagnosisPh')}
-                      className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      id="ama-diagnosis"
+                      value={diagnosis}
+                      onChange={(e) => { clearField('diagnosis'); setDiagnosis(e.target.value); }}
+                      onBlur={() => validateField('diagnosis', amaDetails())}
+                      error={errors.diagnosis}
+                      required
                     />
                   </div>
                   <div>
@@ -786,7 +801,7 @@ const AMAPage: React.FC = () => {
                     id="ama-capacity-basis"
                     value={capacityBasis}
                     onChange={(e) => { clearField('capacityBasis'); setCapacityBasis(e.target.value); }}
-                    onBlur={() => validateField('capacityBasis', { hasCapacity, capacityBasis })}
+                    onBlur={() => validateField('capacityBasis', amaDetails())}
                     error={errors.capacityBasis}
                     rows={3}
                     placeholder={t('docAMA.capacityBasisPh')}
