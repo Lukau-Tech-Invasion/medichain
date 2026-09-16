@@ -7,6 +7,8 @@ import {
   Alert,
   LoadingSpinner,
   assessFamilyHistory,
+  useValidatedForm,
+  familyHistoryMemberSchema,
 } from '@medichain/shared';
 import type {
   PatientProfile,
@@ -195,9 +197,13 @@ const FamilyHistoryPage: React.FC = () => {
     }
   }, [selectedPatient, fetchFamilyHistory]);
 
+
+  const { validate } = useValidatedForm(familyHistoryMemberSchema);
   const handleAddMember = async () => {
-    if (!newMember.patientId || !newMember.relationship) {
-      showError(t('docFamilyHistory.errorRequiredFields'));
+    // Two fields in one toast, on a form where the relationship is the whole
+    // point of the record: a family history entry that does not say whose
+    // history it is cannot inform a risk assessment.
+    if (!validate(newMember)) {
       return;
     }
 

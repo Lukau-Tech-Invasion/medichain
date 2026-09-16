@@ -9,6 +9,7 @@ import {
   Input,
   useValidatedForm,
   criticalValueAckSchema,
+  criticalValueReportSchema,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -200,9 +201,22 @@ const CriticalValuePage: React.FC = () => {
     return null;
   };
 
+  const {
+    errors: reportErrors,
+    validate: validateReport,
+    validateField: validateReportField,
+    clearField: clearReportField,
+  } = useValidatedForm(criticalValueReportSchema);
+
   const handleReportCriticalValue = async () => {
-    if (!newCritical.patientId || !newCritical.analyte || !newCritical.value || !newCritical.orderingProvider) {
+    // The ordering provider is who gets called. Without it the notification has
+    // no addressee and the value sits in a queue -- which is the one outcome a
+    // critical-value workflow exists to prevent.
+    if (!newCritical.patientId) {
       showError(t('docCriticalValue.errorRequiredFields'));
+      return;
+    }
+    if (!validateReport(newCritical)) {
       return;
     }
 
@@ -899,15 +913,18 @@ const CriticalValuePage: React.FC = () => {
                 <label htmlFor="critval-ordering-provider" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docCriticalValue.orderingProviderLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="critval-ordering-provider"
                   type="text"
                   value={newCritical.orderingProvider}
-                  onChange={(e) =>
-                    setNewCritical({ ...newCritical, orderingProvider: e.target.value })
-                  }
+                  onChange={(e) => {
+                    clearReportField('orderingProvider');
+                    setNewCritical({ ...newCritical, orderingProvider: e.target.value });
+                  }}
+                  onBlur={() => validateReportField('orderingProvider', newCritical)}
+                  error={reportErrors.orderingProvider}
                   placeholder={t('docCriticalValue.providerNotifiedPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
             </div>

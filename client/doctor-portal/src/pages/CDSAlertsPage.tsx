@@ -11,6 +11,8 @@ import {
   Input,
   useValidatedForm,
   cdsRuleSchema,
+  Textarea,
+  cdsActionSchema,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -311,9 +313,21 @@ const CDSAlertsPage: React.FC = () => {
     });
   };
 
+  const {
+    errors: actionErrors,
+    validate: validateAction,
+    validateField: validateActionField,
+    clearField: clearActionField,
+  } = useValidatedForm(cdsActionSchema);
+
   const handleAddAction = () => {
-    if (!newAction.message) {
-      showError(t('docCDS.errorRequiredActionMessage'));
+    // This string is the entire alert as the clinician sees it, mid-task. An
+    // empty one interrupts without saying why, which trains people to dismiss
+    // the next one too.
+    // The parsed output, which narrows `string | undefined` the way the old
+    // truthiness check did, and is trimmed.
+    const validatedAction = validateAction({ message: newAction.message ?? '' });
+    if (!validatedAction) {
       return;
     }
 
@@ -321,7 +335,7 @@ const CDSAlertsPage: React.FC = () => {
     const action: Action = {
       actionId,
       type: newAction.type || 'alert',
-      message: newAction.message,
+      message: validatedAction.message,
       severity: newAction.severity || 'medium',
       notifyRoles: newAction.notifyRoles || ['doctor'],
       blockAction: newAction.blockAction || false,
@@ -1195,13 +1209,16 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="cds-action-message" className="sr-only">{t('docCDS.alertMessageSr')}</label>
-                  <textarea
+                  <Textarea
                     id="cds-action-message"
+                    label={t('docCDS.alertMessageSr')}
                     value={newAction.message || ''}
-                    onChange={(e) => setNewAction({ ...newAction, message: e.target.value })}
+                    onChange={(e) => { clearActionField('message'); setNewAction({ ...newAction, message: e.target.value }); }}
+                    onBlur={() => validateActionField('message', { message: newAction.message ?? '' })}
+                    error={actionErrors.message}
                     placeholder={t('docCDS.alertMessagePh')}
                     rows={2}
-                    className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                    required
                   />
                 </div>
                 <div>

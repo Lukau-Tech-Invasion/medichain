@@ -9,6 +9,7 @@ import {
   Input,
   useValidatedForm,
   labQcSchema,
+  calibrationSchema,
 } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -69,7 +70,7 @@ interface Calibration {
 const LabQCPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning, showError } = useToastActions();
+  const { showSuccess, showWarning } = useToastActions();
   const [qcTests, setQcTests] = useState<QCTest[]>([]);
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
   const [activeTab, setActiveTab] = useState<'qcTests' | 'newQC' | 'calibrations' | 'newCalibration'>('qcTests');
@@ -235,10 +236,21 @@ const LabQCPage: React.FC = () => {
     setActiveTab('qcTests');
   };
 
+  const {
+    errors: calErrors,
+    validate: validateCal,
+    validateField: validateCalField,
+    clearField: clearCalField,
+  } = useValidatedForm(calibrationSchema);
+
+  const calibrationRun = () => ({ calInstrument, calibratorLot, calExpiryDate });
+
   const handleSubmitCalibration = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!calInstrument || !calibratorLot || !calExpiryDate) {
-      showError(t('docLabQC.errorRequiredFields'));
+    // The calibrator lot is how a bad calibrator is traced to every run that
+    // used it: without it, a recalled lot cannot be connected to the results it
+    // produced.
+    if (!validateCal(calibrationRun())) {
       return;
     }
 
@@ -882,13 +894,14 @@ const LabQCPage: React.FC = () => {
                 <label htmlFor="labqc-cal-lot" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docLabQC.calibratorLotRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-cal-lot"
                   type="text"
                   value={calibratorLot}
-                  onChange={(e) => setCalibratorLot(e.target.value)}
+                  onChange={(e) => { clearCalField('calibratorLot'); setCalibratorLot(e.target.value); }}
+                  onBlur={() => validateCalField('calibratorLot', calibrationRun())}
+                  error={calErrors.calibratorLot}
                   placeholder={t('docLabQC.calibratorLotPh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>

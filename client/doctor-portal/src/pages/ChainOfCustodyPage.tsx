@@ -9,6 +9,7 @@ import {
   Input,
   useValidatedForm,
   chainOfCustodySchema,
+  custodyHandoverSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -255,9 +256,21 @@ const ChainOfCustodyPage: React.FC = () => {
     showSuccess(t('docChainOfCustody.successCreated', { id: newRecord.custodyId }));
   };
 
+  const {
+    errors: transferErrors,
+    validate: validateTransfer,
+    validateField: validateTransferField,
+    clearField: clearTransferField,
+  } = useValidatedForm(custodyHandoverSchema);
+
   const handleTransfer = () => {
-    if (!selectedRecord || !transfer.transferredTo || !transfer.location) {
+    // Who took it and where are what make the chain traceable; a transfer
+    // missing either leaves the gap a later challenge points at.
+    if (!selectedRecord) {
       showError(t('docChainOfCustody.errorRequiredTransferFields'));
+      return;
+    }
+    if (!validateTransfer(transfer)) {
       return;
     }
 
@@ -833,13 +846,15 @@ const ChainOfCustodyPage: React.FC = () => {
                 <label htmlFor="coc-transfer-to" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docChainOfCustody.transferToLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="coc-transfer-to"
                   type="text"
                   value={transfer.transferredTo}
-                  onChange={(e) => setTransfer({ ...transfer, transferredTo: e.target.value })}
+                  onChange={(e) => { clearTransferField('transferredTo'); setTransfer({ ...transfer, transferredTo: e.target.value }); }}
+                  onBlur={() => validateTransferField('transferredTo', transfer)}
+                  error={transferErrors.transferredTo}
                   placeholder={t('docChainOfCustody.transferToPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 
@@ -847,13 +862,15 @@ const ChainOfCustodyPage: React.FC = () => {
                 <label htmlFor="coc-transfer-location" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docChainOfCustody.locationLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="coc-transfer-location"
                   type="text"
                   value={transfer.location}
-                  onChange={(e) => setTransfer({ ...transfer, location: e.target.value })}
+                  onChange={(e) => { clearTransferField('location'); setTransfer({ ...transfer, location: e.target.value }); }}
+                  onBlur={() => validateTransferField('location', transfer)}
+                  error={transferErrors.location}
                   placeholder={t('docChainOfCustody.locationPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 

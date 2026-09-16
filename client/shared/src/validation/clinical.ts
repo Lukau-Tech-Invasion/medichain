@@ -825,6 +825,11 @@ export const criticalValueReportSchema = z.object({
 /** A calibration run. */
 export const calibrationSchema = z.object({
   calInstrument: requiredText('the instrument', 200),
+  /**
+   * The calibrator lot is how a bad calibrator is traced to every run that used
+   * it. Without it a recalled lot cannot be connected to the results it
+   * produced.
+   */
   calibratorLot: requiredText('the calibrator lot', 64),
   calExpiryDate: requiredText('the calibrator expiry date', 32),
 });
@@ -833,4 +838,26 @@ export const calibrationSchema = z.object({
 export const familyHistoryMemberSchema = z.object({
   patientId: requiredText('a patient', 64),
   relationship: requiredText('the relationship to the patient', 64),
+});
+
+/**
+ * The alert text a CDS rule fires.
+ *
+ * This string is the entire alert as the clinician sees it, mid-task. An empty
+ * one produces a popup that interrupts without saying why, which trains people
+ * to dismiss the next one too.
+ */
+export const cdsActionSchema = z.object({
+  message: requiredText('the alert message the clinician will see', 1_000),
+});
+
+/**
+ * Handing a specimen on.
+ *
+ * Both halves are what makes the chain traceable: who took it and where. A
+ * transfer missing either leaves a gap that a later challenge points at.
+ */
+export const custodyHandoverSchema = z.object({
+  transferredTo: requiredText('who is taking custody', 200),
+  location: requiredText('where the transfer happened', 200),
 });
