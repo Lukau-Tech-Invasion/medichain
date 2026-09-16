@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createOperativeNote, getApiClient, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  createOperativeNote,
+  getApiClient,
+  useTranslation,
+  Input,
+  Textarea,
+  useValidatedForm,
+  operativeNoteSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -173,9 +182,17 @@ const OperativeNotePage: React.FC = () => {
     setSpecimens(specimens.filter(s => s.id !== id));
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(operativeNoteSchema);
+
+  /** The fields a note cannot be filed without, from this page's own state. */
+  const opNote = () => ({ selectedPatient, procedureName, preOpDiagnosis, postOpDiagnosis });
+
   const handleSubmit = async () => {
-    if (!selectedPatient || !procedureName) {
-      showError(t('docOperativeNote.errorSelectPatientProcedure'));
+    // Was a toast naming two fields. Both diagnoses are required now as well:
+    // the difference between them is what the operation found, and a note
+    // carrying only one cannot answer the question a morbidity review asks
+    // first.
+    if (!validate(opNote())) {
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -322,33 +339,37 @@ const OperativeNotePage: React.FC = () => {
                 <FileText className="w-5 h-5" /> {t('docOperativeNote.diagnosisProcedureHeading')}
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="opnote-pre-op-diagnosis" className="text-sm text-content-muted">{t('docOperativeNote.preOpDiagnosisLabel')}</label>
-                  <textarea
-                    id="opnote-pre-op-diagnosis"
-                    value={preOpDiagnosis}
-                    onChange={e => setPreOpDiagnosis(e.target.value)}
-                    className="w-full border rounded p-2 h-20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="opnote-post-op-diagnosis" className="text-sm text-content-muted">{t('docOperativeNote.postOpDiagnosisLabel')}</label>
-                  <textarea
-                    id="opnote-post-op-diagnosis"
-                    value={postOpDiagnosis}
-                    onChange={e => setPostOpDiagnosis(e.target.value)}
-                    className="w-full border rounded p-2 h-20"
-                  />
-                </div>
+                <Textarea
+                  id="opnote-pre-op-diagnosis"
+                  label={t('docOperativeNote.preOpDiagnosisLabel')}
+                  value={preOpDiagnosis}
+                  onChange={e => { clearField('preOpDiagnosis'); setPreOpDiagnosis(e.target.value); }}
+                  onBlur={() => validateField('preOpDiagnosis', opNote())}
+                  error={errors.preOpDiagnosis}
+                  rows={3}
+                  required
+                />
+                <Textarea
+                  id="opnote-post-op-diagnosis"
+                  label={t('docOperativeNote.postOpDiagnosisLabel')}
+                  value={postOpDiagnosis}
+                  onChange={e => { clearField('postOpDiagnosis'); setPostOpDiagnosis(e.target.value); }}
+                  onBlur={() => validateField('postOpDiagnosis', opNote())}
+                  error={errors.postOpDiagnosis}
+                  rows={3}
+                  required
+                />
                 <div>
                   <label htmlFor="opnote-procedure-name" className="text-sm text-content-muted">{t('docOperativeNote.procedureNameLabel')}</label>
-                  <input
+                  <Input
                     id="opnote-procedure-name"
                     list="procedures"
                     value={procedureName}
-                    onChange={e => setProcedureName(e.target.value)}
-                    className="w-full border rounded p-2"
+                    onChange={e => { clearField('procedureName'); setProcedureName(e.target.value); }}
+                    onBlur={() => validateField('procedureName', opNote())}
+                    error={errors.procedureName}
                     placeholder={t('docOperativeNote.procedureNamePh')}
+                    required
                   />
                   <datalist id="procedures">
                     {commonProcedures.map(p => <option key={p} value={p} />)}

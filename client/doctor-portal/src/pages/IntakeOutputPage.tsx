@@ -23,6 +23,9 @@ import {
   clickable,
   useScoringCatalog,
   fluidBalanceBand,
+  Input,
+  useValidatedForm,
+  intakeOutputSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -303,9 +306,19 @@ const IntakeOutputPage: React.FC = () => {
     (p.room ?? '').toLowerCase().includes(q)
   );
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(intakeOutputSchema);
+
   const handleAddEntry = async () => {
-    if (!selectedPatient || newEntry.amount <= 0) {
+    // Selecting a patient is a precondition for the chart, not a field error.
+    if (!selectedPatient) {
       showError(t('docIntakeOutput.errorValidAmount'));
+      return;
+    }
+    // The amount was checked as `<= 0` and reported in a toast. It now carries
+    // an upper bound too: a stray zero turning 250 into 2500 moves a running
+    // fluid balance by two litres, and that total drives resuscitation and
+    // diuresis decisions.
+    if (!validate(newEntry)) {
       return;
     }
 
@@ -553,17 +566,20 @@ const IntakeOutputPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="io-amount" className="block text-sm font-medium mb-1">{t('docIntakeOutput.amountRequired')} *</label>
-                  <input
-                    id="io-amount"
-                    type="number"
-                    value={newEntry.amount || ''}
-                    onChange={(e) => setNewEntry({ ...newEntry, amount: parseInt(e.target.value) || 0 })}
-                    className="w-full border rounded-lg px-3 py-2"
-                    placeholder="0"
-                  />
-                </div>
+                <Input
+                  id="io-amount"
+                  type="number"
+                  label={t('docIntakeOutput.amountRequired')}
+                  value={newEntry.amount || ''}
+                  onChange={(e) => {
+                    clearField('amount');
+                    setNewEntry({ ...newEntry, amount: parseInt(e.target.value) || 0 });
+                  }}
+                  onBlur={() => validateField('amount', newEntry)}
+                  error={errors.amount}
+                  placeholder="0"
+                  required
+                />
                 <div>
                   <label htmlFor="io-unit" className="block text-sm font-medium mb-1">{t('docIntakeOutput.unitLabel')}</label>
                   <select

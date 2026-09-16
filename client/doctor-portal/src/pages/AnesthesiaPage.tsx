@@ -8,6 +8,9 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
+  Input,
+  useValidatedForm,
+  anesthesiaRecordSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -156,9 +159,20 @@ const AnesthesiaPage: React.FC = () => {
     setNewVital({ time: '', bp: '120/80', hr: 70, spo2: 99, etco2: 35, rr: 12, fio2: 100 });
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    anesthesiaRecordSchema
+  );
+
   const handleSubmit = async () => {
+    // Selecting a patient is a precondition for the record, so it keeps its
+    // toast. The procedure is a field error and now says so on the field: an
+    // anaesthetic technique is reviewed against what was being done, and a
+    // record naming neither cannot be judged at all.
     if (!selectedPatient) {
       showError(t('docAnesthesia.errorSelectPatient'));
+      return;
+    }
+    if (!validate({ selectedPatient, procedure })) {
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -241,13 +255,15 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-procedure" className="text-sm text-content-muted">{t('docAnesthesia.procedure')}</label>
-                  <input
+                  <Input
                     id="anes-procedure"
                     type="text"
+                    label={t('docAnesthesia.procedure')}
                     value={procedure}
-                    onChange={e => setProcedure(e.target.value)}
-                    className="w-full border rounded p-2"
+                    onChange={e => { clearField('procedure'); setProcedure(e.target.value); }}
+                    onBlur={() => validateField('procedure', { selectedPatient, procedure })}
+                    error={errors.procedure}
+                    required
                   />
                 </div>
                 <div>

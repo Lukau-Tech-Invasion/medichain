@@ -28,7 +28,11 @@ import {
   createHistoryPhysical,
   listHistoryPhysicals,
   useTranslation,
-  type PatientProfile
+  type PatientProfile,
+  Input,
+  useValidatedForm,
+  historyAndPhysicalSchema,
+  historyAndPhysicalDraftSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -253,9 +257,18 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setFormData({ ...formData, vitalSigns });
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    historyAndPhysicalSchema
+  );
+  const { validate: validateDraft } = useValidatedForm(historyAndPhysicalDraftSchema);
+
   const handleSaveHp = async (status: 'in-progress' | 'signed') => {
-    if (!formData.patientId || !formData.chiefComplaint) {
-      showError(t('docHistoryPhysical.errorRequiredFields'));
+    // The same requirement used to apply to 'in-progress' and 'signed' alike,
+    // which made a work-in-progress save mean the same thing as signing. An H&P
+    // is written across an admission; saving what exists so far needs only to
+    // know whose document it is.
+    const ready = status === 'signed' ? validate(formData) : validateDraft(formData);
+    if (!ready) {
       return;
     }
     
@@ -695,17 +708,20 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 </button>
                 {expandedSections.has('chief-complaint') && (
                   <div className="mt-4 space-y-4">
-                    <div>
-                      <label htmlFor="hp-chief-complaint" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.chiefComplaintRequiredLabel')}</label>
-                      <input
-                        id="hp-chief-complaint"
-                        type="text"
-                        value={formData.chiefComplaint}
-                        onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
-                        className="w-full border rounded-lg px-3 py-2"
-                        placeholder={t('docHistoryPhysical.chiefComplaintPh')}
-                      />
-                    </div>
+                    <Input
+                      id="hp-chief-complaint"
+                      type="text"
+                      label={t('docHistoryPhysical.chiefComplaintRequiredLabel')}
+                      value={formData.chiefComplaint}
+                      onChange={(e) => {
+                        clearField('chiefComplaint');
+                        setFormData({ ...formData, chiefComplaint: e.target.value });
+                      }}
+                      onBlur={() => validateField('chiefComplaint', formData)}
+                      error={errors.chiefComplaint}
+                      placeholder={t('docHistoryPhysical.chiefComplaintPh')}
+                      required
+                    />
                     <div>
                       <label htmlFor="hp-hpi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.hpiLabel')}</label>
                       <textarea

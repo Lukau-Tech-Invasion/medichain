@@ -464,3 +464,68 @@ export const medicationAdministrationSchema = z
       });
     }
   });
+
+/**
+ * One intake or output entry on the fluid balance chart.
+ *
+ * The amount is bounded at 5,000 mL for a single entry: fluid balance drives
+ * resuscitation and diuresis decisions, and a stray zero turning 250 into 2500
+ * moves a running total by two litres. A genuine larger volume is recorded as
+ * the several administrations it actually was.
+ */
+export const intakeOutputSchema = z.object({
+  amount: z.coerce
+    .number({ error: 'Enter the amount as a number' })
+    .positive('Enter an amount greater than 0')
+    .max(5_000, 'Record volumes above 5,000 mL as separate entries'),
+  category: requiredText('a category', 64),
+});
+
+/**
+ * An operative note.
+ *
+ * The pre- and post-operative diagnoses are both required, and they are the
+ * point of the document: the difference between them is what the operation
+ * found. A note recording only one of them cannot answer the question a
+ * morbidity review asks first.
+ */
+export const operativeNoteSchema = z.object({
+  selectedPatient: requiredText('a patient', 64),
+  procedureName: requiredText('the procedure performed', 300),
+  preOpDiagnosis: requiredText('the pre-operative diagnosis', 2_000),
+  postOpDiagnosis: requiredText('the post-operative diagnosis', 2_000),
+});
+
+/**
+ * A history and physical, ready to sign.
+ *
+ * The chief complaint is the one field the rest of the document is organised
+ * around; an H&P without it is a set of findings with no question attached.
+ */
+export const historyAndPhysicalSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  chiefComplaint: requiredText('the chief complaint', 500),
+});
+
+/**
+ * The same document, still in progress.
+ *
+ * An H&P is written across an admission, not in one sitting, so saving what
+ * exists so far needs only to know whose it is. The page applied the full
+ * requirement to both, which made 'in progress' mean the same as 'signed'.
+ */
+export const historyAndPhysicalDraftSchema = z.object({
+  patientId: requiredText('a patient', 64),
+});
+
+/**
+ * An anaesthesia record.
+ *
+ * The procedure is required because the record is read alongside it: an
+ * anaesthetic technique is judged against what was being done, and a record
+ * naming neither is not reviewable.
+ */
+export const anesthesiaRecordSchema = z.object({
+  selectedPatient: requiredText('a patient', 64),
+  procedure: requiredText('the procedure', 300),
+});
