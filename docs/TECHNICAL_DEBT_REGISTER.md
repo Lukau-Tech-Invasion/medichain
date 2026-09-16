@@ -4120,11 +4120,29 @@ authorisation rather than a judgement call.
     today, because the handlers own those fields. `ConsultPage` sending
     `consultId` is the WF-020 shape — a client choosing a record id — and is
     the one worth removing first if anyone touches these pages.
-  * **The dev database migration checksum for `20260916000001`** is still
-    unrepaired; the repair SQL is in `9373ca7`. Docker on this host has been
-    unresponsive all session (the `docker-desktop` distro is *running*, so this
-    is not the stale-socket failure recorded in memory), so `provider_schedules`
-    is verified on the memory backend only.
+  * ~~**The dev database migration checksum for `20260916000001`**~~ —
+    **CLOSED, and the earlier diagnosis was wrong.** `9373ca7` recorded that
+    the recorded checksum "no longer matches any reconstruction" of the file
+    and offered hand-written `UPDATE _sqlx_migrations` SQL. It does match: the
+    byte-identical restore had worked, and the chain had simply never been
+    re-run, because the Docker CLI hangs on this host and that was read as
+    "no database". PostgreSQL itself is reachable on 5432 regardless — the
+    695-test suite's `repositories::postgres::tests` were passing against it
+    all along. Starting the API with `MEDICHAIN_STORAGE=postgres` applied
+    `20260916000002` through the product's own migrator; `provider_schedules`
+    exists and no hand-written SQL was needed.
+
+    Two things worth keeping from that. First, **a hung `docker ps` says
+    nothing about whether the database is up** — connect to 5432 and ask.
+    Second, `20260916000002` is now applied, so the lesson written at the top
+    of it is itself immutable; editing that comment would halt the chain
+    exactly as editing `20260916000001` was believed to have done.
+
+    Verified on PostgreSQL, not only in memory: the schedule saves, reads back
+    with its break and blocked date intact, produces the same slot list as the
+    memory backend (`14:00 14:30 15:00 15:30 16:30 17:00 17:30`, the 16:00 slot
+    correctly absent), and the row is present in `provider_schedules` when the
+    table is queried directly.
   * **Pallet tests** were not re-run: `blockchain/target` was deleted to
     recover disk and the host has under 3 GB free, which will not build
     polkadot-sdk. `git diff` confirms that workspace is unchanged since the
