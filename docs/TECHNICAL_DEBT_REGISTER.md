@@ -4147,3 +4147,82 @@ authorisation rather than a judgement call.
     recover disk and the host has under 3 GB free, which will not build
     polkadot-sdk. `git diff` confirms that workspace is unchanged since the
     green 60-test run.
+
+### Every encrypted record download failed against a default kubo node
+
+Found by running the synthetic e2e harness on PostgreSQL once the database
+turned out to have been reachable all along (see the entry above). Three
+assertions failed:
+
+    FAIL  patient downloads own record                 want 200 got 500
+    FAIL  downloaded bytes match the original          got IPFS_ERROR
+    FAIL  provider downloads the record                want 200 got 500
+
+    IPFS download failed: error sending request for url
+      (http://localhost:8080/ipfs/QmSRVmB3Edp9WVdJXJcnWCfve23GoH4i8RrBeVQZgXCQNy)
+
+Not the node being down — both IPFS ports answered, and the upload in the same
+test had just succeeded. `download_raw` read through `{gateway}/ipfs/{cid}`,
+and kubo ships `Gateway.PublicGateways` with `localhost` set to
+`UseSubdomains: true`, so that path is answered:
+
+    HTTP/1.1 301 Moved Permanently
+    Location: http://bafybeib4vseqhsybndpsafvvzvy7wr5cr3zlfwfiilqfj2zzfx5hidtnvy.ipfs.localhost:8080/
+
+`*.ipfs.localhost` resolves nowhere outside a browser with the right resolver,
+so `reqwest` follows the redirect into a connection error. **That is kubo's
+default**, which makes this a defect against a stock node rather than against
+an unusual configuration — and it surfaces as a 500 on a clinical document
+download, which is as visible as a defect gets.
+
+Worth noting what did *not* catch it. `docs/FEATURE_END_TO_END_AUDIT.md` and
+this project's own briefing both recorded the IPFS round-trip as verified, and
+it had been — against whatever gateway configuration was running that day. A
+round-trip that passes once is not a round-trip that passes against a default
+install, and only the live harness on a real node could tell the two apart.
+
+The gateway is the *browser* interface. `POST /api/v0/cat` on the RPC API is
+the server-to-server one — the same endpoint upload, pin and health already
+use — and it never redirects. Reads go there first; the gateway remains a
+fallback for a deployment that exposes only one of the two.
+
+A missing CID needed care. Kubo answers **500 with a JSON body** rather than
+404, so `classify_rpc_failure` reads the body. Getting that backwards matters
+in both directions: an outage reported as a missing record sends a clinician
+looking for a document that exists, and a missing record reported as an outage
+invites a retry loop that can never succeed. The match is on substrings,
+because the wording has changed between kubo releases and a version bump must
+not silently reclassify every missing record as an outage.
+
+5 unit tests. Verified end to end:
+
+    synthetic-e2e-test.sh   258 passed / 3 failed   ->   261 passed / 0 failed
+
+### State at the close of this campaign
+
+Every number below was produced by running it, on 2026-09-16, against a
+PostgreSQL-backed API and a real kubo node.
+
+    cargo test --bin medichain-api        700 passed, 0 failed, 2 ignored
+    synthetic-e2e-test.sh (PostgreSQL)    261 passed, 0 failed
+    role-journeys.ts                      266/266, 2 legitimate skips
+    cross-role-qualification.ts           108/108, 1 skip (its own per-wallet
+                                          challenge limiter firing mid-section
+                                          — a control refusing the harness)
+    doctor-portal vitest                  425 passed (94 files)
+    patient-app vitest                    105 passed (27 files)
+    static gates                          24/24
+    unused-endpoints.py                   440 of 448 called; 8 triaged
+
+The synthetic run used a database created fresh for it (`CREATE DATABASE
+medichain_e2e`), because the harness bootstrap 409s on a second run and every
+later section then fails for reasons that have nothing to do with the product.
+All 90 migrations applied from scratch on that database, which is the clearest
+evidence available that a fresh deployment migrates cleanly.
+
+**Not re-run: the 60 pallet tests.** `blockchain/target` was deleted earlier to
+recover disk and this host has under 3 GB free, which will not build
+polkadot-sdk. `git diff` confirms that workspace is unchanged since its green
+run on 2026-09-15. Docker's data disk on this host is 65 GB and `docker ps`
+hangs; `docker system prune` would reclaim most of it, but that is an owner
+decision, not a judgement call.
