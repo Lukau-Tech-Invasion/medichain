@@ -215,7 +215,7 @@ pub async fn analyze_lab_trends(
                 trend_analysis: crate::clinical::TrendAnalysis {
                     direction: crate::clinical::TrendDirection::Stable,
                     // Absent, not zero. "0% change" is a measurement; this is
-                    // the absence of one, and rule 11 is explicit that the two
+                    // the absence of one, and rule 12 is explicit that the two
                     // must not be confused.
                     percent_change: None,
                     rate_of_change: None,

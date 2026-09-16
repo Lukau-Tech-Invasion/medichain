@@ -1347,7 +1347,7 @@ pub struct CodeBlueEntity {
     /// `Option` throughout for the fields `CodeBluePage` does not collect.
     /// A resuscitation record that says the initial rhythm was `""` or that
     /// the arrest was un-witnessed, when nobody was asked, is asserting a
-    /// clinical finding of its own (Rule 11). Stored as JSONB in
+    /// clinical finding of its own (Rule 12). Stored as JSONB in
     /// `ep_code_blue_records.record_json`, so this needs no migration.
     pub location: Option<String>,
     pub code_called_at: i64,
