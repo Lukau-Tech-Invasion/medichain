@@ -2,7 +2,15 @@ import { useState, useEffect } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  getPatients,
+  useTranslation,
+  Textarea,
+  useValidatedForm,
+  imagingRequestSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
@@ -193,9 +201,17 @@ const ImagingPage: React.FC = () => {
     fetchOrders();
   }, [user, patients]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(imagingRequestSchema);
   const handleSubmit = async () => {
-    if (!selectedPatient || !indication) {
+    // The indication is what the radiologist reports against: "CT abdomen"
+    // with none produces a description of an abdomen, with one it produces an
+    // answer. Selecting a patient stays a toast; the indication is a field.
+    if (!selectedPatient) {
       showError(t('docImaging.fillRequired'));
+      return;
+    }
+    if (!validate({ selectedPatient, indication })) {
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -478,12 +494,15 @@ const ImagingPage: React.FC = () => {
               </div>
               <div className="mt-4">
                 <label htmlFor="imaging-clinical-indication" className="text-sm text-content-muted">{t('docImaging.clinicalIndication')}</label>
-                <textarea
+                <Textarea
                   id="imaging-clinical-indication"
                   value={indication}
-                  onChange={e => setIndication(e.target.value)}
-                  className="w-full border rounded p-2 h-20"
+                  onChange={e => { clearField('indication'); setIndication(e.target.value); }}
+                  onBlur={() => validateField('indication', { selectedPatient, indication })}
+                  error={errors.indication}
+                  rows={3}
                   placeholder={t('docImaging.indicationPlaceholder')}
+                  required
                 />
               </div>
             </div>

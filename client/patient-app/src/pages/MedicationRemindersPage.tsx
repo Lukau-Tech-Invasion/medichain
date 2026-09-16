@@ -3,6 +3,9 @@ import {
   createMedicationReminder,
   getPatientReminders,
   useTranslation,
+  Input,
+  useValidatedForm,
+  medicationReminderSchema,
 } from '@medichain/shared';
 
 /** One reminder as `GET /api/reminders/medication/{id}` returns it. */
@@ -70,6 +73,17 @@ export function MedicationRemindersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patient?.healthId]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    medicationReminderSchema
+  );
+
+  /** The fields a reminder needs; the time count is counted at submit. */
+  const reminderFields = (timeCount = 1) => ({
+    medication,
+    dosage,
+    reminderTimeCount: timeCount,
+  });
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!patient?.healthId) return;
@@ -79,8 +93,11 @@ export function MedicationRemindersPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (!medication.trim() || !dosage.trim() || reminderTimes.length === 0) {
-      setError(t('medications.reminderFieldsRequired'));
+    // Was one banner for three fields. The dose matters as much as the name:
+    // "Metformin" at 08:00 does not say whether to take one tablet or two, and
+    // a reminder that has to be checked against something else is not a
+    // reminder.
+    if (!validate(reminderFields(reminderTimes.length))) {
       return;
     }
 
@@ -155,24 +172,28 @@ export function MedicationRemindersPage() {
             <label htmlFor="reminder-medication" className="block text-sm font-medium mb-1">
               {t('medications.reminderMedicationLabel')}
             </label>
-            <input
+            <Input
               id="reminder-medication"
-              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
               value={medication}
-              onChange={(e) => setMedication(e.target.value)}
+              onChange={(e) => { clearField('medication'); setMedication(e.target.value); }}
+              onBlur={() => validateField('medication', reminderFields())}
+              error={errors.medication}
               autoComplete="off"
+              required
             />
           </div>
           <div>
             <label htmlFor="reminder-dosage" className="block text-sm font-medium mb-1">
               {t('medications.reminderDosageLabel')}
             </label>
-            <input
+            <Input
               id="reminder-dosage"
-              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
               value={dosage}
-              onChange={(e) => setDosage(e.target.value)}
+              onChange={(e) => { clearField('dosage'); setDosage(e.target.value); }}
+              onBlur={() => validateField('dosage', reminderFields())}
+              error={errors.dosage}
               autoComplete="off"
+              required
             />
           </div>
           <div>

@@ -665,3 +665,41 @@ export const pediatricAssessmentSchema = z.object({
     }),
   heartRate: requiredText('the heart rate', 8),
 });
+
+/**
+ * An imaging request.
+ *
+ * The clinical indication is what the radiologist reports against. "CT abdomen"
+ * with no indication produces a description of an abdomen; with one it produces
+ * an answer.
+ */
+export const imagingRequestSchema = z.object({
+  selectedPatient: requiredText('a patient', 64),
+  indication: requiredText('the clinical indication', 1_000),
+});
+
+/**
+ * A shift handover.
+ *
+ * The incoming nurse is the point of the document: a handover with nobody named
+ * as receiving it records that care was handed to no one, which is exactly the
+ * gap a handover exists to close.
+ */
+export const shiftHandoffSchema = z.object({
+  incomingNurse: requiredText('the nurse taking over', 200),
+});
+
+/**
+ * A patient's own medication reminder.
+ *
+ * The dose is required alongside the name because the reminder is what the
+ * patient acts on: "Metformin" at 08:00 does not say whether to take one tablet
+ * or two, and a reminder that has to be checked against something else is not a
+ * reminder.
+ */
+export const medicationReminderSchema = z.object({
+  medication: requiredText('the medication name', 200),
+  dosage: requiredText('the dose to take', 120),
+  /** At least one time, or nothing will ever fire. */
+  reminderTimeCount: z.number().min(1, 'Add at least one reminder time'),
+});

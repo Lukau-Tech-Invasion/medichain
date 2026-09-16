@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createShiftHandoff, getApiClient, getPatients, useTranslation, clickable } from '@medichain/shared';
+import {
+  createShiftHandoff,
+  getApiClient,
+  getPatients,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  shiftHandoffSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ArrowRightLeft,
@@ -339,9 +348,12 @@ export default function ShiftHandoffPage() {
     }
   };
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(shiftHandoffSchema);
   const handleSave = async () => {
-    if (!handoff.incomingNurse) {
-      setError(t('docShiftHandoff.errorIncomingNurseRequired'));
+    // A handover with nobody named as receiving it records that care was handed
+    // to no one, which is the gap a handover exists to close.
+    if (!validate(handoff)) {
       return;
     }
 
@@ -519,13 +531,15 @@ export default function ShiftHandoffPage() {
 
                   <div>
                     <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.incomingNurseLabel')}</label>
-                    <input
+                    <Input
                       id="handoff-incoming-nurse"
                       type="text"
                       value={handoff.incomingNurse}
-                      onChange={(e) => setHandoff({ ...handoff, incomingNurse: e.target.value })}
+                      onChange={(e) => { clearField('incomingNurse'); setHandoff({ ...handoff, incomingNurse: e.target.value }); }}
+                      onBlur={() => validateField('incomingNurse', handoff)}
+                      error={errors.incomingNurse}
                       placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
-                      className="w-full p-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
+                      required
                     />
                   </div>
                 </div>
