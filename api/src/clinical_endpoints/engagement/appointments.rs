@@ -965,8 +965,18 @@ pub async fn get_available_slots(
 ) -> impl Responder {
     let (provider_id, date) = path.into_inner();
 
-    // In a real system, this would query the provider's schedule and existing appointments
-    // For demo, return some mock slots
+    // A fixed clinic-hours grid, NOT this provider's calendar.
+    //
+    // Nothing stores provider working hours: `ProviderSchedule`, `WorkingDay`
+    // and `BlockedTime` exist as types with no storage behind them, so every
+    // provider is offered the same ten slots regardless of when they actually
+    // work. Real bookings ARE excluded below, so this cannot double-book —
+    // but it can offer 09:00 with someone who starts at 14:00.
+    //
+    // The response says which of the two it is (`slots_source`), because a
+    // patient reading "available" reasonably assumes the provider's diary was
+    // checked. Declaring it is the honest half of a feature that is not built;
+    // silently presenting it as availability is not.
     let slots = vec![
         "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30",
     ];
@@ -1002,7 +1012,9 @@ pub async fn get_available_slots(
         "provider_id": provider_id,
         "date": date,
         "available_slots": available_slots,
-        "slot_duration_minutes": 30
+        "slot_duration_minutes": 30,
+        // `provider_schedule` once provider working hours are stored.
+        "slots_source": "default_clinic_hours"
     }))
 }
 

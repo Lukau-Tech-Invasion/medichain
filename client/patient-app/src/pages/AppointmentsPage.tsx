@@ -258,6 +258,8 @@ export function AppointmentsPage() {
   const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  // Whether the slots above are this provider's hours or a default grid.
+  const [slotsAreDefaultHours, setSlotsAreDefaultHours] = useState(false);
   const [booking, setBooking] = useState({
     providerId: '',
     date: '',
@@ -303,6 +305,14 @@ export function AppointmentsPage() {
     try {
       const result = await getAvailableSlots(providerId, date);
       setSlots(result.available_slots ?? []);
+      // `default_clinic_hours` means nobody stored this provider's working
+      // hours, so these are standard hours rather than their diary. Real
+      // bookings are excluded either way, so a slot shown here is never
+      // double-booked -- but it may be a time this provider does not work,
+      // and a patient reading "available" assumes otherwise.
+      setSlotsAreDefaultHours(
+        (result as { slots_source?: string }).slots_source === 'default_clinic_hours'
+      );
     } catch {
       setSlots([]);
       setBookingError(t('appointments.bookLoadSlotsFailed'));
@@ -532,7 +542,13 @@ export function AppointmentsPage() {
             ) : slots.length === 0 ? (
               <p className="mt-1 text-sm text-content-muted">{t('appointments.bookNoSlots')}</p>
             ) : (
-              <div className="mt-1 flex flex-wrap gap-2">
+              <div className="mt-1">
+                {slotsAreDefaultHours && (
+                  <p className="text-xs text-content-muted mb-2">
+                    {t('appointments.bookSlotsAreDefaultHours')}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
                 {slots.map(slot => (
                   <button
                     key={slot}
@@ -548,6 +564,7 @@ export function AppointmentsPage() {
                     {slot}
                   </button>
                 ))}
+                </div>
               </div>
             )}
           </div>

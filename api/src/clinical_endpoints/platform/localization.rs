@@ -12,7 +12,6 @@ pub struct SetLanguagePreferenceRequest {
 }
 
 /// Translate content request
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct TranslateContentRequest {
     pub content: String,
@@ -171,15 +170,33 @@ pub async fn translate_content(
         return resp;
     }
 
-    // In production, this would call an LLM or translation API
-    let translated = format!("[TRANSLATED to {}]: {}", req.target_language, req.content);
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "original_content": req.content,
-        "translated_content": translated,
-        "target_language": req.target_language
-    }))
+    // No translation provider is configured, so there is nothing to translate
+    // WITH -- and this refuses rather than inventing a result.
+    //
+    // It used to answer 200 with
+    // `[TRANSLATED to fr]: <the original English>`: the submitted content
+    // unchanged, wearing a label that says it was translated. `translateContent`
+    // already exists in the shared client, so the first screen to call it would
+    // have shown a patient their own medication instructions, untranslated, and
+    // told them they were reading French.
+    //
+    // This follows the rule the blockchain writes already follow — a disabled
+    // capability returns a typed error and is never represented as a real
+    // result. `context` is accepted and passed through to whatever provider is
+    // wired here later; a translator needs to know whether a string is a
+    // medication instruction or a button label.
+    let _ = (&req.content, &req.context);
+    log::warn!(
+        "translation requested for '{}' with no provider configured",
+        req.target_language
+    );
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: "No translation provider is configured for this deployment. \
+                The content was not translated."
+            .to_string(),
+        code: "TRANSLATION_PROVIDER_UNAVAILABLE".to_string(),
+    })
 }
 
 #[cfg(test)]

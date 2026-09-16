@@ -332,6 +332,7 @@ const en_US: TranslationRecord = {
 
   // Appointments
   appointments: {
+    bookSlotsAreDefaultHours: 'These are standard clinic hours, not this provider\'s own diary. Your booking will be confirmed by the clinic.',
     // Patient-side lifecycle actions. `reschedule` is retained for other
     // callers but no longer rendered: the API models rescheduling as booking a
     // replacement, which this app cannot do yet.
