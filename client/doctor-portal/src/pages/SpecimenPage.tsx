@@ -13,7 +13,16 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, getApiClient, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  useTranslation,
+  clickable,
+  Input,
+  Select,
+  useValidatedForm,
+  specimenSchema,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -94,10 +103,13 @@ const SpecimenPage: React.FC = () => {
         : [...f.checklist, key],
     }));
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(specimenSchema);
+
   const recordCollection = async () => {
     if (!user?.walletAddress) return;
-    if (!form.patientId || !form.testsOrdered.trim()) {
-      setSaveMessage(t('docSpecimen.errPatientAndTests'));
+    // Was a banner naming two fields at once. The message now sits on the
+    // control that needs fixing (WCAG 3.3.1).
+    if (!validate(form)) {
       return;
     }
     setSaving(true);
@@ -400,16 +412,19 @@ const SpecimenPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.collectTitle')}</h2>
 
             <div className="space-y-4">
-              <div>
-                <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">{t('docSpecimen.patientRequired')}</label>
-                <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2"
-                  value={form.patientId} onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
-                  <option value="">{t('docSpecimen.selectPatient')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                id="specimen-patient"
+                label={t('docSpecimen.patientRequired')}
+                value={form.patientId}
+                onChange={(e) => { clearField('patientId'); setForm(f => ({ ...f, patientId: e.target.value })); }}
+                onBlur={() => validateField('patientId', form)}
+                error={errors.patientId}
+                required
+                options={[
+                  { value: '', label: t('docSpecimen.selectPatient') },
+                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
+                ]}
+              />
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -437,17 +452,28 @@ const SpecimenPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">{t('docSpecimen.testsOrderedRequired')}</label>
-                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.testsPlaceholder')}
-                  value={form.testsOrdered} onChange={(e) => setForm(f => ({ ...f, testsOrdered: e.target.value }))} />
-              </div>
+              <Input
+                id="specimen-tests-ordered"
+                type="text"
+                label={t('docSpecimen.testsOrderedRequired')}
+                placeholder={t('docSpecimen.testsPlaceholder')}
+                value={form.testsOrdered}
+                onChange={(e) => { clearField('testsOrdered'); setForm(f => ({ ...f, testsOrdered: e.target.value })); }}
+                onBlur={() => validateField('testsOrdered', form)}
+                error={errors.testsOrdered}
+                required
+              />
 
-              <div>
-                <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">{t('docSpecimen.collectionSite')}</label>
-                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.sitePlaceholder')}
-                  value={form.collectionSite} onChange={(e) => setForm(f => ({ ...f, collectionSite: e.target.value }))} />
-              </div>
+              <Input
+                id="specimen-collection-site"
+                type="text"
+                label={t('docSpecimen.collectionSite')}
+                placeholder={t('docSpecimen.sitePlaceholder')}
+                value={form.collectionSite}
+                onChange={(e) => { clearField('collectionSite'); setForm(f => ({ ...f, collectionSite: e.target.value })); }}
+                onBlur={() => validateField('collectionSite', form)}
+                error={errors.collectionSite}
+              />
 
               <div>
                 <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">{t('docSpecimen.notes')}</label>

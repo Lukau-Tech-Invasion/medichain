@@ -16,7 +16,17 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, getApiClient, useProviderDirectory, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  useProviderDirectory,
+  useTranslation,
+  clickable,
+  Input,
+  Select,
+  useValidatedForm,
+  woundAssessmentSchema,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -179,10 +189,15 @@ const WoundCarePage: React.FC = () => {
       .catch(() => setPatients([]));
   }, [user?.walletAddress]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(woundAssessmentSchema);
+
   const saveAssessment = async () => {
     if (!user?.walletAddress) return;
-    if (!form.patientId || !form.location.trim()) {
-      setSaveMessage(t('docWoundCare.errPatientAndLocation'));
+    // Was a banner naming two fields at once, which cannot say which control
+    // is wrong -- that association is the whole of WCAG 3.3.1. The dimensions
+    // stay optional: a blank one means "not measured", and forcing a 0 would
+    // record a flat wound.
+    if (!validate(form)) {
       return;
     }
     setSaving(true);
@@ -495,16 +510,19 @@ const WoundCarePage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">{t('docWoundCare.newAssessment')}</h2>
 
             <div className="space-y-4">
-              <div>
-                <label htmlFor="wound-patient" className="block text-sm font-medium mb-1">{t('docWoundCare.patientReq')}</label>
-                <select id="wound-patient" className="w-full border rounded-lg px-3 py-2"
-                  value={form.patientId} onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
-                  <option value="">{t('docWoundCare.selectPatient')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                id="wound-patient"
+                label={t('docWoundCare.patientReq')}
+                value={form.patientId}
+                onChange={(e) => { clearField('patientId'); setForm(f => ({ ...f, patientId: e.target.value })); }}
+                onBlur={() => validateField('patientId', form)}
+                error={errors.patientId}
+                required
+                options={[
+                  { value: '', label: t('docWoundCare.selectPatient') },
+                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
+                ]}
+              />
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -521,29 +539,53 @@ const WoundCarePage: React.FC = () => {
                     <option value="skin-tear">{t('docWoundCare.wtSkinTear')}</option>
                   </select>
                 </div>
-                <div>
-                  <label htmlFor="wound-location" className="block text-sm font-medium mb-1">{t('docWoundCare.locationReq')}</label>
-                  <input id="wound-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docWoundCare.locationPh')}
-                    value={form.location} onChange={(e) => setForm(f => ({ ...f, location: e.target.value }))} />
-                </div>
+                <Input
+                  id="wound-location"
+                  type="text"
+                  label={t('docWoundCare.locationReq')}
+                  placeholder={t('docWoundCare.locationPh')}
+                  value={form.location}
+                  onChange={(e) => { clearField('location'); setForm(f => ({ ...f, location: e.target.value })); }}
+                  onBlur={() => validateField('location', form)}
+                  error={errors.location}
+                  required
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label htmlFor="wound-length" className="block text-sm font-medium mb-1">{t('docWoundCare.lengthCm')}</label>
-                  <input id="wound-length" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0"
-                    value={form.lengthCm} onChange={(e) => setForm(f => ({ ...f, lengthCm: e.target.value }))} />
-                </div>
-                <div>
-                  <label htmlFor="wound-width" className="block text-sm font-medium mb-1">{t('docWoundCare.widthCm')}</label>
-                  <input id="wound-width" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0"
-                    value={form.widthCm} onChange={(e) => setForm(f => ({ ...f, widthCm: e.target.value }))} />
-                </div>
-                <div>
-                  <label htmlFor="wound-depth" className="block text-sm font-medium mb-1">{t('docWoundCare.depthCm')}</label>
-                  <input id="wound-depth" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0"
-                    value={form.depthCm} onChange={(e) => setForm(f => ({ ...f, depthCm: e.target.value }))} />
-                </div>
+                <Input
+                  id="wound-length"
+                  type="number"
+                  step="0.1"
+                  label={t('docWoundCare.lengthCm')}
+                  placeholder="0.0"
+                  value={form.lengthCm}
+                  onChange={(e) => { clearField('lengthCm'); setForm(f => ({ ...f, lengthCm: e.target.value })); }}
+                  onBlur={() => validateField('lengthCm', form)}
+                  error={errors.lengthCm}
+                />
+                <Input
+                  id="wound-width"
+                  type="number"
+                  step="0.1"
+                  label={t('docWoundCare.widthCm')}
+                  placeholder="0.0"
+                  value={form.widthCm}
+                  onChange={(e) => { clearField('widthCm'); setForm(f => ({ ...f, widthCm: e.target.value })); }}
+                  onBlur={() => validateField('widthCm', form)}
+                  error={errors.widthCm}
+                />
+                <Input
+                  id="wound-depth"
+                  type="number"
+                  step="0.1"
+                  label={t('docWoundCare.depthCm')}
+                  placeholder="0.0"
+                  value={form.depthCm}
+                  onChange={(e) => { clearField('depthCm'); setForm(f => ({ ...f, depthCm: e.target.value })); }}
+                  onBlur={() => validateField('depthCm', form)}
+                  error={errors.depthCm}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">

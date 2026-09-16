@@ -20,6 +20,10 @@ import {
   listIncidentReports,
   createIncidentReport,
   useTranslation,
+  Input,
+  Textarea,
+  useValidatedForm,
+  incidentReportSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -166,9 +170,13 @@ const IncidentReportPage: React.FC = () => {
     fetchIncidents();
   }, [user, t]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(incidentReportSchema);
+
   const handleSubmitReport = async () => {
-    if (!formData.description || !formData.location || !formData.dateTime) {
-      showError(t('docIncidentReport.errorRequiredFields'));
+    // Was a toast naming three fields at once, which is the least useful place
+    // to put an error: it is not attached to any control, and this form is a
+    // three-step wizard, so the offending field may not even be on screen.
+    if (!validate(formData)) {
       return;
     }
 
@@ -519,12 +527,16 @@ const IncidentReportPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">{t('docIncidentReport.dateTimeRequired')} *</label>
-                    <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2"
-                      value={formData.dateTime}
-                      onChange={(e) => setFormData(f => ({ ...f, dateTime: e.target.value }))} />
-                  </div>
+                  <Input
+                    id="inc-date-time"
+                    type="datetime-local"
+                    label={t('docIncidentReport.dateTimeRequired')}
+                    value={formData.dateTime}
+                    onChange={(e) => { clearField('dateTime'); setFormData(f => ({ ...f, dateTime: e.target.value })); }}
+                    onBlur={() => validateField('dateTime', formData)}
+                    error={errors.dateTime}
+                    required
+                  />
                   <div>
                     <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
                     <select id="inc-department" className="w-full border rounded-lg px-3 py-2"
@@ -538,24 +550,34 @@ const IncidentReportPage: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">{t('docIncidentReport.exactLocationRequired')} *</label>
-                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.exactLocationPh')}
-                    value={formData.location}
-                    onChange={(e) => setFormData(f => ({ ...f, location: e.target.value }))} />
-                </div>
+                <Input
+                  id="inc-exact-location"
+                  type="text"
+                  label={t('docIncidentReport.exactLocationRequired')}
+                  placeholder={t('docIncidentReport.exactLocationPh')}
+                  value={formData.location}
+                  onChange={(e) => { clearField('location'); setFormData(f => ({ ...f, location: e.target.value })); }}
+                  onBlur={() => validateField('location', formData)}
+                  error={errors.location}
+                  required
+                />
               </div>
             )}
 
             {formStep === 2 && (
               <div className="space-y-4">
                 <h3 className="font-medium text-content">{t('docIncidentReport.step2Heading')}</h3>
-                <div>
-                  <label htmlFor="inc-description" className="block text-sm font-medium mb-1">{t('docIncidentReport.descriptionRequired')} *</label>
-                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')}
-                    value={formData.description}
-                    onChange={(e) => setFormData(f => ({ ...f, description: e.target.value }))} />
-                </div>
+                <Textarea
+                  id="inc-description"
+                  rows={6}
+                  label={t('docIncidentReport.descriptionRequired')}
+                  placeholder={t('docIncidentReport.descriptionPh')}
+                  value={formData.description}
+                  onChange={(e) => { clearField('description'); setFormData(f => ({ ...f, description: e.target.value })); }}
+                  onBlur={() => validateField('description', formData)}
+                  error={errors.description}
+                  required
+                />
                 <div className="flex items-center gap-3 p-3 bg-surface-sunken rounded-lg">
                   <input
                     id="inc-patient-involved"

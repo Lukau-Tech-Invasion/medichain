@@ -284,3 +284,116 @@ export const prescriptionSchema = z.object({
 });
 
 export type PrescriptionInput = z.infer<typeof prescriptionSchema>;
+
+/**
+ * A nursing care plan.
+ *
+ * The page checked `!form.patientId || !form.diagnosis.trim()` and set a banner
+ * naming both. A banner cannot say *which* field is wrong, which is the whole
+ * of WCAG 3.3.1, and it names two problems when the user has one.
+ */
+export const carePlanSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  diagnosis: requiredText('the nursing diagnosis', 500),
+  priority: z.enum(['high', 'medium', 'low']),
+});
+
+/**
+ * A progress note.
+ *
+ * `hospital_day` is bounded: a stay of 400 days is a typo far more often than an
+ * admission, and the note is a legal record of when care happened.
+ */
+export const progressNoteSchema = z.object({
+  patient_id: patientIdSchema,
+  hospital_day: z.coerce
+    .number({ error: 'Enter the hospital day as a number' })
+    .int('Enter a whole number of days')
+    .min(1, 'Enter a hospital day of 1 or more')
+    .max(365, 'Enter a hospital day of 365 or fewer'),
+  subjective: requiredText('what the patient reports', 5_000),
+  objective: requiredText('your examination findings', 5_000),
+  assessment: requiredText('your assessment', 5_000),
+  plan: requiredText('the plan', 5_000),
+});
+
+/**
+ * An incident report.
+ *
+ * Severity and type are closed vocabularies on the server; a free-typed value
+ * is stored and then never matches a filter, so the report is filed and
+ * invisible to the safety review it exists for.
+ */
+export const incidentReportSchema = z.object({
+  incidentType: requiredText('the incident type', 64),
+  severity: requiredText('a severity', 32),
+  dateTime: requiredText('when it happened', 64),
+  department: requiredText('the department', 64),
+  location: requiredText('exactly where it happened', 200),
+  /**
+   * The description is the report. A safety review reads this and nothing else
+   * to decide whether the same thing can happen again, so an empty one files a
+   * record that cannot be acted on.
+   */
+  description: requiredText('what happened', 5_000),
+});
+
+/**
+ * A specimen collection.
+ *
+ * The collection time matters more than most timestamps here: a specimen's
+ * result is interpreted against when it was taken, not when it reached the lab.
+ */
+export const specimenSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  specimenType: requiredText('the specimen type', 64),
+  priority: requiredText('a priority', 32),
+  /**
+   * Required, because a specimen with no test ordered is a tube the laboratory
+   * cannot act on -- it is collected from the patient and then discarded.
+   */
+  testsOrdered: requiredText('the tests to run on this specimen', 500),
+  /** Optional: not every specimen type has a meaningful site. */
+  collectionSite: z.string().max(200).optional(),
+});
+
+/**
+ * A wound assessment.
+ *
+ * Dimensions are in centimetres and bounded at 100: a wound larger than a metre
+ * in any direction is a units mistake, and the measurement drives the dressing
+ * plan.
+ */
+/**
+ * A wound dimension in centimetres, or blank.
+ *
+ * **Blank is allowed and means "not measured"** — the page already sends `null`
+ * for an empty box, and the record reads that as unmeasured rather than as
+ * zero. Requiring a number here would force a nurse who measured length and
+ * width but not depth to type a 0, which says the wound is flat (rule 12).
+ *
+ * When a number IS given it is bounded: a wound over a metre in any direction
+ * is a units mistake, and the measurement drives the dressing plan.
+ */
+const woundDimension = (label: string) =>
+  z
+    .string()
+    .trim()
+    .refine(value => value === '' || !Number.isNaN(Number(value)), {
+      message: `Enter the ${label} in centimetres, or leave it blank if it was not measured`,
+    })
+    .refine(value => value === '' || Number(value) >= 0, {
+      message: `Enter a ${label} of 0 or more`,
+    })
+    .refine(value => value === '' || Number(value) <= 100, {
+      message: `A ${label} above 100 cm is almost certainly a units mistake`,
+    });
+
+export const woundAssessmentSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  woundType: requiredText('the wound type', 64),
+  location: requiredText('where the wound is', 200),
+  lengthCm: woundDimension('length'),
+  widthCm: woundDimension('width'),
+  depthCm: woundDimension('depth'),
+});

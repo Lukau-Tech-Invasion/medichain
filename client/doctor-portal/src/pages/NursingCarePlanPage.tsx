@@ -15,7 +15,16 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, getApiClient, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  useTranslation,
+  clickable,
+  Input,
+  Select,
+  useValidatedForm,
+  carePlanSchema,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -91,10 +100,15 @@ const NursingCarePlanPage: React.FC = () => {
       .catch(() => setPatients([]));
   }, [user?.walletAddress]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
+
   const createPlan = async () => {
     if (!user?.walletAddress) return;
-    if (!form.patientId || !form.diagnosis.trim()) {
-      setSaveMessage(t('docNursingCarePlan.errPatientAndDiagnosis'));
+    // Was a banner naming both fields at once. A banner cannot say which
+    // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
+    // reported two problems when the nurse had one. `validate` puts the message
+    // on the field.
+    if (!validate(form)) {
       return;
     }
     setSaving(true);
@@ -421,23 +435,36 @@ const NursingCarePlanPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
             <div className="space-y-4">
-              <div>
-                <label htmlFor="ncp-patient" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.patientRequired')}</label>
-                <select id="ncp-patient" className="w-full border rounded-lg px-3 py-2"
-                  value={form.patientId}
-                  onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
-                  <option value="">{t('docNursingCarePlan.selectPatient')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="ncp-diagnosis" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.diagnosisRequired')}</label>
-                <input id="ncp-diagnosis" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docNursingCarePlan.diagnosisPlaceholder')}
-                  value={form.diagnosis}
-                  onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} />
-              </div>
+              <Select
+                id="ncp-patient"
+                label={t('docNursingCarePlan.patientRequired')}
+                value={form.patientId}
+                onChange={(e) => {
+                  clearField('patientId');
+                  setForm(f => ({ ...f, patientId: e.target.value }));
+                }}
+                onBlur={() => validateField('patientId', form)}
+                error={errors.patientId}
+                required
+                options={[
+                  { value: '', label: t('docNursingCarePlan.selectPatient') },
+                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
+                ]}
+              />
+              <Input
+                id="ncp-diagnosis"
+                type="text"
+                label={t('docNursingCarePlan.diagnosisRequired')}
+                placeholder={t('docNursingCarePlan.diagnosisPlaceholder')}
+                value={form.diagnosis}
+                onChange={(e) => {
+                  clearField('diagnosis');
+                  setForm(f => ({ ...f, diagnosis: e.target.value }));
+                }}
+                onBlur={() => validateField('diagnosis', form)}
+                error={errors.diagnosis}
+                required
+              />
               <div role="group" aria-labelledby="ncp-priority-label">
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
