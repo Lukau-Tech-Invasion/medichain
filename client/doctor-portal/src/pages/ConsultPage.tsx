@@ -1,5 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listConsults, createConsult, respondToConsult, useTranslation, lookupOr, componentOr, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listConsults,
+  createConsult,
+  respondToConsult,
+  useTranslation,
+  lookupOr,
+  componentOr,
+  Alert,
+  LoadingSpinner,
+  Textarea,
+  useValidatedForm,
+  consultRequestSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -193,9 +206,14 @@ const ConsultPage: React.FC = () => {
     fetchConsults();
   }, [fetchConsults]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(consultRequestSchema);
   const handleRequestConsult = async () => {
-    if (!newConsult.patientId || !newConsult.reason || !newConsult.clinicalQuestion) {
-      showError(t('docConsult.errorRequiredFields'));
+    // The clinical question is the consultation. A referral saying only
+    // "please review" makes the consultant guess what was asked, and the answer
+    // comes back addressing something else -- so the message belongs on that
+    // box.
+    if (!validate(newConsult)) {
       return;
     }
 
@@ -826,12 +844,14 @@ const ConsultPage: React.FC = () => {
               <label htmlFor="consult-clinical-question" className="block text-sm font-semibold text-content-secondary mb-2">
                 {t('docConsult.clinicalQuestionLabel')} <span className="text-critical-subtle-fg">*</span>
               </label>
-              <textarea
+              <Textarea
                 id="consult-clinical-question"
                 value={newConsult.clinicalQuestion}
-                onChange={(e) => setNewConsult({ ...newConsult, clinicalQuestion: e.target.value })}
+                onChange={(e) => { clearField('clinicalQuestion'); setNewConsult({ ...newConsult, clinicalQuestion: e.target.value }); }}
+                onBlur={() => validateField('clinicalQuestion', newConsult)}
+                error={errors.clinicalQuestion}
                 placeholder={t('docConsult.clinicalQuestionPh')}
-                className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                required
                 rows={3}
               />
             </div>

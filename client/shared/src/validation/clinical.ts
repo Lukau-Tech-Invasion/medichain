@@ -612,3 +612,56 @@ export const custodyTransferSchema = z.object({
   transferredTo: requiredText('who is taking custody', 200),
   location: requiredText('where the transfer happened', 200),
 });
+
+/**
+ * Requesting a specialist consultation.
+ *
+ * The clinical question is the consultation. A referral saying only "please
+ * review" makes the consultant guess what was being asked, and the answer comes
+ * back addressing something else.
+ */
+export const consultRequestSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  reason: requiredText('the reason for referral', 500),
+  clinicalQuestion: requiredText('the specific question you want answered', 2_000),
+});
+
+/** An autopsy report's registrable core. */
+export const autopsyReportSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  dateOfDeath: requiredText('the date of death', 32),
+  causeOfDeath: requiredText('the cause of death', 2_000),
+});
+
+/**
+ * Administering a vaccine.
+ *
+ * The lot number is required because it is how a recall reaches the people who
+ * received that lot. Without it a batch withdrawal cannot identify anybody.
+ */
+export const immunizationSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  vaccineName: requiredText('the vaccine', 200),
+  lotNumber: requiredText('the lot number', 64),
+});
+
+/**
+ * A paediatric assessment.
+ *
+ * Weight is required and bounded because paediatric dosing is per kilogram: a
+ * weight in pounds entered as kilograms roughly doubles every dose calculated
+ * from it, and 250 kg is not a child.
+ */
+export const pediatricAssessmentSchema = z.object({
+  patientId: requiredText('a patient', 64),
+  weightKg: z
+    .string()
+    .trim()
+    .min(1, 'Enter the weight in kilograms')
+    .refine(v => !Number.isNaN(Number(v)), { message: 'Enter the weight as a number of kilograms' })
+    .refine(v => Number(v) > 0, { message: 'Enter a weight greater than 0' })
+    .refine(v => Number(v) <= 150, {
+      message: 'A weight above 150 kg is almost certainly pounds entered as kilograms',
+    }),
+  heartRate: requiredText('the heart rate', 8),
+});

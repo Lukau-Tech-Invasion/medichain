@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listImmunizations, createImmunization, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  getPatients,
+  listImmunizations,
+  createImmunization,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  immunizationSchema,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -150,7 +160,7 @@ interface VaccineScheduleItem {
 const ImmunizationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError } = useToastActions();
+  const { showSuccess } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -274,9 +284,13 @@ const ImmunizationPage: React.FC = () => {
     },
   ];
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
   const handleAdminister = async () => {
-    if (!newVaccine.patientId || !newVaccine.vaccineName || !newVaccine.lotNumber) {
-      showError(t('docImmunization.errorRequiredFields'));
+    // The lot number is how a recall reaches the people who received that lot;
+    // without it a batch withdrawal cannot identify anybody. Worth naming on
+    // the field rather than in a toast listing three.
+    if (!validate(newVaccine)) {
       return;
     }
 
@@ -716,13 +730,15 @@ const ImmunizationPage: React.FC = () => {
                 <label htmlFor="imm-lot-number" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docImmunization.lotNumberRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="imm-lot-number"
                   type="text"
                   value={newVaccine.lotNumber}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, lotNumber: e.target.value })}
+                  onChange={(e) => { clearField('lotNumber'); setNewVaccine({ ...newVaccine, lotNumber: e.target.value }); }}
+                  onBlur={() => validateField('lotNumber', newVaccine)}
+                  error={errors.lotNumber}
                   placeholder={t('docImmunization.lotNumberPh')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 

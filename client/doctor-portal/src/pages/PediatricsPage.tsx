@@ -13,7 +13,14 @@ import {
   FileSignature
 } from 'lucide-react';
 import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
-import { getPatients, useTranslation, clickable } from '@medichain/shared';
+import {
+  getPatients,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  pediatricAssessmentSchema,
+} from '@medichain/shared';
 
 /**
  * PediatricsPage
@@ -232,9 +239,13 @@ const PediatricsPage: React.FC = () => {
     p.mrn.includes(searchQuery)
   );
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(pediatricAssessmentSchema);
   const handleSubmitAssessment = async () => {
-    if (!assessmentForm.patientId || !assessmentForm.weightKg || !assessmentForm.heartRate) {
-      showError(t('docPediatrics.errorRequiredFields'));
+    // Weight is bounded as well as required: paediatric dosing is per
+    // kilogram, so a weight in pounds entered as kilograms roughly doubles
+    // every dose calculated from it, and 250 kg is not a child.
+    if (!validate(assessmentForm)) {
       return;
     }
 
@@ -464,14 +475,16 @@ const PediatricsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="peds-weight" className="block text-sm font-medium mb-1">{t('docPediatrics.weightKgRequired')} *</label>
-                  <input
+                  <Input
                     id="peds-weight"
                     type="number"
                     step="0.1"
                     value={assessmentForm.weightKg}
-                    onChange={(e) => setAssessmentForm({ ...assessmentForm, weightKg: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
+                    onChange={(e) => { clearField('weightKg'); setAssessmentForm({ ...assessmentForm, weightKg: e.target.value }); }}
+                    onBlur={() => validateField('weightKg', assessmentForm)}
+                    error={errors.weightKg}
                     placeholder="0.0"
+                    required
                   />
                 </div>
                 <div>
