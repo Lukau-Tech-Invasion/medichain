@@ -121,12 +121,17 @@ pub struct RegisterPatientResponse {
     pub message: String,
 }
 
-#[allow(dead_code)]
+/// Break-glass access by NFC tag.
+///
+/// **The accessor is not in this body and must never be.** It comes from the
+/// authenticated caller, which is what `emergency_access` has always read.
+/// `accessor_id` and `accessor_role` were accepted here and ignored -- harmless
+/// while ignored, and an invitation once someone notices two fields that look
+/// like they belong to the audit record and starts trusting them. A caller who
+/// can name their own role in a break-glass request can name `Admin`.
 #[derive(Debug, Deserialize)]
 pub struct EmergencyAccessRequest {
     pub nfc_tag_id: String,
-    pub accessor_id: String,
-    pub accessor_role: String,
     pub location: Option<String>,
 }
 

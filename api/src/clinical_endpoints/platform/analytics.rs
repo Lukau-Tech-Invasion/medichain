@@ -8,16 +8,12 @@ use super::*;
 /// `YYYY-MM-DD` bounds; both are optional and an absent bound is unbounded.
 #[derive(Debug, Deserialize)]
 pub struct AnalyticsQueryRequest {
+    /// Accepted because `AnalyticsPage` sends them, and **not applied**: every
+    /// figure below is an all-time total or a live process measurement. The
+    /// response says so in `date_range_applied` rather than letting the picker
+    /// imply a filter that does not exist.
     pub start_date: Option<String>,
     pub end_date: Option<String>,
-    /// Accepted and deserialised so an existing caller's query string is not
-    /// rejected, but no handler narrows on them yet. Kept rather than dropped
-    /// because the frontend already sends them; they become live when a
-    /// metric-specific or per-patient view needs them.
-    #[allow(dead_code)]
-    pub metric_type: Option<String>,
-    #[allow(dead_code)]
-    pub patient_id: Option<String>,
 }
 
 /// Get high-level dashboard metrics for administrators
@@ -80,6 +76,10 @@ pub async fn get_dashboard_metrics(
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
+        // The counts are of everything on file. An administrator who narrowed
+        // the date picker needs to know the numbers did not narrow with it.
+        "scope": "all_time",
+        "date_range_applied": false,
         "metrics": {
             "total_patients": total_patients,
             "total_medical_records": total_records,

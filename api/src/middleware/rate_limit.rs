@@ -132,13 +132,6 @@ type SharedCounters = Arc<Mutex<HashMap<String, RateLimitEntry>>>;
 
 #[allow(dead_code)]
 impl RateLimitMiddleware {
-    pub fn new(config: RateLimitConfig) -> Self {
-        Self {
-            config,
-            counters: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
     pub fn default_config() -> Self {
         Self {
             counters: Arc::new(Mutex::new(HashMap::new())),

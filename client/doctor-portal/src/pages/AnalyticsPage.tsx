@@ -256,9 +256,16 @@ const AnalyticsPage: React.FC = () => {
           {
             title: t('docAnalytics.metricTotalPatients'),
             value: Number(dash.total_patients ?? 0),
-            change: t('docAnalytics.changeRecordsOnFile', {
-              count: Number(dash.total_medical_records ?? 0),
-            }),
+            // The period buttons above do not narrow this figure: the
+            // dashboard endpoint counts everything on file and says so in
+            // `date_range_applied`. Saying it here beats letting the selected
+            // period imply a filter the number never had.
+            change: t(
+              (dash as Record<string, unknown>).date_range_applied === false
+                ? 'docAnalytics.changeRecordsOnFileAllTime'
+                : 'docAnalytics.changeRecordsOnFile',
+              { count: Number(dash.total_medical_records ?? 0) }
+            ),
             trend: 'stable',
             icon: <Users className="w-6 h-6" />,
             color: 'blue',

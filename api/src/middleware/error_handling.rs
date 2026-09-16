@@ -5,7 +5,17 @@
 //!
 //! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-/// Common error codes
+/// Common error codes.
+///
+/// Every constant here is unused *as a constant*, and most of these codes are
+/// nonetheless live: handlers write the string literal instead --  `"FORBIDDEN"`
+/// 53 times, `"PATIENT_NOT_FOUND"` 41, `"INVALID_INPUT"` 5. That duplication is
+/// the debt; the module is the fix waiting to be adopted, so it stays. Adopting
+/// it is a mechanical edit across a hundred call sites and belongs in its own
+/// change.
+///
+/// `LOCK_ERROR` and `DUPLICATE_ENTRY` were removed: unlike the rest, neither
+/// appeared anywhere in the codebase in any form.
 #[allow(dead_code)]
 pub mod error_codes {
     pub const UNAUTHORIZED: &str = "UNAUTHORIZED";
@@ -13,11 +23,9 @@ pub mod error_codes {
     pub const NOT_FOUND: &str = "NOT_FOUND";
     pub const VALIDATION_ERROR: &str = "VALIDATION_ERROR";
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
-    pub const LOCK_ERROR: &str = "LOCK_ERROR";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
     pub const RATE_LIMIT_EXCEEDED: &str = "RATE_LIMIT_EXCEEDED";
     pub const INVALID_INPUT: &str = "INVALID_INPUT";
-    pub const DUPLICATE_ENTRY: &str = "DUPLICATE_ENTRY";
     pub const INSUFFICIENT_ROLE: &str = "INSUFFICIENT_ROLE";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
     pub const PATIENT_NOT_FOUND: &str = "PATIENT_NOT_FOUND";

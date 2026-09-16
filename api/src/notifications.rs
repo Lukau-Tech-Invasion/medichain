@@ -21,9 +21,6 @@ pub enum NotificationError {
     #[error("API error: {0}")]
     Api(String),
 
-    #[error("Service disabled")]
-    Disabled,
-
     #[error("Repository error: {0}")]
     Repository(String),
 
@@ -263,11 +260,20 @@ pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
 /// and compliance review tractable.
 #[derive(Debug, Clone)]
 pub enum SmsTemplate {
-    MedicationReminder { medication: String },
-    AppointmentReminder { provider: String, when: String },
-    LabResultReady { test_name: String },
-    CriticalAlert { message: String },
-    VerificationCode { code: String },
+    MedicationReminder {
+        medication: String,
+    },
+    /// Both of these omit the opt-out footer, which is the compliance rule
+    /// `render` exists to encode. Appointment reminders and lab results are
+    /// deliberately absent: they are delivered by push (`notify_patient`), and
+    /// a template for an SMS nothing sends is a claim about a channel that is
+    /// not wired.
+    CriticalAlert {
+        message: String,
+    },
+    VerificationCode {
+        code: String,
+    },
 }
 
 /// Footer appended to non-critical, non-OTP messages so recipients always have
@@ -282,14 +288,6 @@ impl SmsTemplate {
             SmsTemplate::MedicationReminder { medication } => format!(
                 "MediChain: It's time to take your {}.{}",
                 medication, SMS_OPT_OUT_FOOTER
-            ),
-            SmsTemplate::AppointmentReminder { provider, when } => format!(
-                "MediChain: Reminder — your appointment with {} is on {}.{}",
-                provider, when, SMS_OPT_OUT_FOOTER
-            ),
-            SmsTemplate::LabResultReady { test_name } => format!(
-                "MediChain: Your {} results are ready. Open the app to view.{}",
-                test_name, SMS_OPT_OUT_FOOTER
             ),
             SmsTemplate::CriticalAlert { message } => format!("MediChain ALERT: {}", message),
             SmsTemplate::VerificationCode { code } => {
@@ -766,8 +764,20 @@ mod tests {
         assert_eq!(result.regulator_emails_notified, 0);
     }
 
+    /// Configured recipients, and no transport to reach them.
+    ///
+    /// This test used to assert `regulator_emails_notified == 2`, which is what
+    /// the old `send_email` reported: it slept 150ms, logged "Email
+    /// successfully queued for delivery", and returned `Ok(())` without an SMTP
+    /// client anywhere in the binary. So the test was pinning the fiction --
+    /// a POPIA / HIPAA regulator notification counted as delivered, and a
+    /// statutory deadline reported as met, by a function that had sent nothing.
+    ///
+    /// Zero is the honest count until a transport exists, and it is the number
+    /// an operator must see after declaring a breach: it tells them the
+    /// notification is still theirs to send.
     #[tokio::test]
-    async fn dispatch_breach_notification_dispatches_regulator_email_when_configured() {
+    async fn dispatch_breach_notification_reports_no_regulator_email_without_a_transport() {
         let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         std::env::remove_var("SECURITY_OFFICER_PHONE");
         std::env::set_var(
@@ -777,8 +787,26 @@ mod tests {
         let repos = RepositoryContainer::new_memory();
         let result = dispatch_breach_notification(&repos, "test breach", None).await;
         assert_eq!(result.security_officers_notified, 0);
-        assert_eq!(result.regulator_emails_notified, 2);
+        assert_eq!(
+            result.regulator_emails_notified, 0,
+            "no SMTP transport is linked into this binary, so nothing can be delivered;              reporting a delivery here is how the deadline came to be reported as met"
+        );
         std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
+    }
+
+    /// And the failure is a typed one, not a silent `Ok`.
+    #[tokio::test]
+    async fn send_email_refuses_rather_than_reporting_success() {
+        let outcome = send_email(EmailNotification {
+            to: "privacy@example.test".to_string(),
+            subject: "Breach".to_string(),
+            body: "body".to_string(),
+        })
+        .await;
+        assert!(
+            matches!(outcome, Err(NotificationError::Smtp(_))),
+            "an unimplemented channel returns a typed error, never Ok"
+        );
     }
 }
 

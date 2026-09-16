@@ -3863,6 +3863,7 @@ const en_US: TranslationRecord = {
     changeOfAppointments: 'of appointments',
     changeAccepted: '{{count}} accepted',
     changeRecordsOnFile: '{{count}} records on file',
+    changeRecordsOnFileAllTime: '{{count}} records on file (all time — not filtered by the selected period)',
     changeCritical: '{{count}} critical',
     noDataSourceShort: 'No data source',
     departmentNoSource:

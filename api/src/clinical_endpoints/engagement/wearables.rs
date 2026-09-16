@@ -312,6 +312,10 @@ pub struct SubmitWearableReadingRequest {
     pub value: f64,
     pub unit: String,
     pub timestamp: Option<i64>,
+    /// Accepted and not stored: `clinical::WearableReading` has no metadata
+    /// field, so there is nowhere for it to go. Kept on the request so an
+    /// existing client's body still deserialises, and named here so the next
+    /// reader knows it is dropped rather than assuming it is persisted.
     #[allow(dead_code)]
     pub metadata: Option<serde_json::Value>,
 }
@@ -737,6 +741,13 @@ pub async fn get_wearable_readings(
 /// Create alert rule request
 #[derive(Debug, Deserialize)]
 pub struct CreateAlertRuleRequest {
+    /// Which device the clinician picked -- and **the rule is not scoped to
+    /// it**. `WearableAlertRule` carries no device: a rule watches a patient's
+    /// readings of one data type, whichever device reports them. That is the
+    /// right scope for a clinical threshold (a dangerous heart rate is
+    /// dangerous whichever strap measured it), but a form that asks for a
+    /// device and a server that ignores the answer is not. The create response
+    /// states the rule's actual coverage.
     #[allow(dead_code)]
     pub device_id: String,
     pub data_type: String,
@@ -866,6 +877,11 @@ pub async fn create_wearable_alert_rule(
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "rule_id": rule_id,
+        // The scope the rule actually has, said out loud. The form asks which
+        // device; `WearableAlertRule` has no device field, so the rule watches
+        // every device reporting this measurement. A clinician who picked one
+        // strap needs to know the alert is not limited to it.
+        "applies_to": "all_devices_reporting_this_data_type",
         "message": "Alert rule created successfully"
     }))
 }
