@@ -8,7 +8,16 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, getApiClient, useTranslation, clickable } from '@medichain/shared';
+import {
+  apiUrl,
+  getApiClient,
+  useTranslation,
+  clickable,
+  Textarea,
+  useValidatedForm,
+  progressNoteSchema,
+  progressNoteDraftSchema,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient } from '../components/PatientSelect';
 
@@ -198,9 +207,19 @@ const ProgressNotePage: React.FC = () => {
     }));
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(progressNoteSchema);
+  // A draft asks only who the note is about.
+  const { validate: validateDraft } = useValidatedForm(progressNoteDraftSchema);
+
   const saveNote = async (status: 'draft' | 'signed') => {
-    if (!user || !form.patientId || !form.subjective || !form.objective || !form.assessment || !form.plan) {
-      setError(t('docProgressNote.patientRequired'));
+    if (!user) return;
+    // Two things were wrong here. The message said "patient required" whatever
+    // was actually missing -- a clinician who left the plan blank was told to
+    // pick a patient they had already picked. And the same requirement applied
+    // to a draft, so an interrupted note could not be saved at all, which is
+    // precisely what a draft is for and the reason notes end up on paper.
+    const ready = status === 'signed' ? validate(form) : validateDraft(form);
+    if (!ready) {
       return;
     }
 
@@ -423,53 +442,53 @@ const ProgressNotePage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">{t('docProgressNote.subjectiveRequired')}</label>
-                <textarea
-                  id="progress-subjective"
-                  value={form.subjective}
-                  onChange={e => updateForm('subjective', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.subjectivePlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-subjective"
+                label={t('docProgressNote.subjectiveRequired')}
+                value={form.subjective}
+                onChange={e => { clearField('subjective'); updateForm('subjective', e.target.value); }}
+                onBlur={() => validateField('subjective', form)}
+                error={errors.subjective}
+                rows={3}
+                placeholder={t('docProgressNote.subjectivePlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">{t('docProgressNote.objectiveRequired')}</label>
-                <textarea
-                  id="progress-objective"
-                  value={form.objective}
-                  onChange={e => updateForm('objective', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.objectivePlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-objective"
+                label={t('docProgressNote.objectiveRequired')}
+                value={form.objective}
+                onChange={e => { clearField('objective'); updateForm('objective', e.target.value); }}
+                onBlur={() => validateField('objective', form)}
+                error={errors.objective}
+                rows={3}
+                placeholder={t('docProgressNote.objectivePlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">{t('docProgressNote.assessmentRequired')}</label>
-                <textarea
-                  id="progress-assessment"
-                  value={form.assessment}
-                  onChange={e => updateForm('assessment', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={2}
-                  placeholder={t('docProgressNote.assessmentPlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-assessment"
+                label={t('docProgressNote.assessmentRequired')}
+                value={form.assessment}
+                onChange={e => { clearField('assessment'); updateForm('assessment', e.target.value); }}
+                onBlur={() => validateField('assessment', form)}
+                error={errors.assessment}
+                rows={2}
+                placeholder={t('docProgressNote.assessmentPlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">{t('docProgressNote.planRequired')}</label>
-                <textarea
-                  id="progress-plan"
-                  value={form.plan}
-                  onChange={e => updateForm('plan', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.planPlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-plan"
+                label={t('docProgressNote.planRequired')}
+                value={form.plan}
+                onChange={e => { clearField('plan'); updateForm('plan', e.target.value); }}
+                onBlur={() => validateField('plan', form)}
+                error={errors.plan}
+                rows={3}
+                placeholder={t('docProgressNote.planPlaceholder')}
+                required
+              />
 
               <div className="flex gap-2">
                 <button type="button" disabled={saving} onClick={() => saveNote('draft')}

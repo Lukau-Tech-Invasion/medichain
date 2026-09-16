@@ -304,17 +304,32 @@ export const carePlanSchema = z.object({
  * `hospital_day` is bounded: a stay of 400 days is a typo far more often than an
  * admission, and the note is a legal record of when care happened.
  */
+/**
+ * A progress note, ready to sign.
+ *
+ * All four SOAP sections are required *to sign*, because a signed note is the
+ * legal record of the encounter and a missing assessment cannot be reconstructed
+ * later.
+ */
 export const progressNoteSchema = z.object({
-  patient_id: patientIdSchema,
-  hospital_day: z.coerce
-    .number({ error: 'Enter the hospital day as a number' })
-    .int('Enter a whole number of days')
-    .min(1, 'Enter a hospital day of 1 or more')
-    .max(365, 'Enter a hospital day of 365 or fewer'),
+  patientId: requiredText('a patient', 64),
+  noteType: requiredText('a note type', 32),
   subjective: requiredText('what the patient reports', 5_000),
   objective: requiredText('your examination findings', 5_000),
   assessment: requiredText('your assessment', 5_000),
   plan: requiredText('the plan', 5_000),
+});
+
+/**
+ * The same note, saved as a draft.
+ *
+ * A draft needs only to know whose note it is. The page used to apply the full
+ * requirement to both, so a clinician interrupted mid-note could not save what
+ * they had — which is the entire purpose of a draft, and the reason notes get
+ * written on paper instead.
+ */
+export const progressNoteDraftSchema = progressNoteSchema.partial().extend({
+  patientId: requiredText('a patient', 64),
 });
 
 /**
@@ -397,3 +412,55 @@ export const woundAssessmentSchema = z.object({
   widthCm: woundDimension('width'),
   depthCm: woundDimension('depth'),
 });
+
+/**
+ * A SOAP note's required core.
+ *
+ * `SOAPNotePage` holds 26 separate `useState` variables rather than one form
+ * object, so this validates an assembled subset: the four fields the note
+ * cannot be filed without. The rest are optional by design — a note is written
+ * across an encounter, not in one pass.
+ */
+export const soapNoteSchema = z.object({
+  selectedPatientId: requiredText('a patient', 64),
+  chiefComplaint: requiredText('the chief complaint', 500),
+  clinicalSummary: requiredText('your clinical summary', 5_000),
+  treatmentPlan: requiredText('the treatment plan', 5_000),
+});
+
+/**
+ * Administering (or not administering) a dose.
+ *
+ * The requirements are conditional, and both directions matter clinically:
+ *
+ * * **Given** requires the five rights to have been verified. That check is the
+ *   whole safety procedure — right patient, drug, dose, route, time — and a MAR
+ *   entry claiming a dose was given without it records a verification that did
+ *   not happen.
+ * * **Not given, held or refused** requires a reason. A blank is the difference
+ *   between "the nurse decided to hold this" and "nobody knows what happened to
+ *   the 08:00 dose", and only the first is a clinical record.
+ */
+export const medicationAdministrationSchema = z
+  .object({
+    actualTime: requiredText('the time the dose was given', 16),
+    status: z.enum(['given', 'not-given', 'held', 'refused']),
+    fiveRightsVerified: z.boolean(),
+    reasonNotGiven: z.string(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === 'given' && !value.fiveRightsVerified) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fiveRightsVerified'],
+        message: 'Confirm the five rights before recording this dose as given',
+      });
+    }
+    if (value.status !== 'given' && !value.reasonNotGiven.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reasonNotGiven'],
+        message: 'Enter why the dose was not given',
+      });
+    }
+  });

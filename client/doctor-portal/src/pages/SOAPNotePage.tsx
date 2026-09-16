@@ -7,6 +7,10 @@ import {
   getApiErrorMessage,
   getSoapNote,
   useTranslation,
+  Input,
+  Textarea,
+  useValidatedForm,
+  soapNoteSchema,
 } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
@@ -316,6 +320,20 @@ function SOAPNotePage() {
     setMedications(medications.filter((_, i) => i !== index));
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(soapNoteSchema);
+
+  /**
+   * The subset of this page's 26 state variables that a note cannot be filed
+   * without. Assembled on demand because the page never had a form object and
+   * introducing one would mean rewriting every control on it.
+   */
+  const soapCore = () => ({
+    selectedPatientId,
+    chiefComplaint,
+    clinicalSummary,
+    treatmentPlan,
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -324,23 +342,12 @@ function SOAPNotePage() {
       return;
     }
 
-    if (!selectedPatientId) {
-      setError(t('docSOAPNote.errorSelectPatient'));
-      return;
-    }
-
-    if (!chiefComplaint.trim()) {
-      setError(t('docSOAPNote.errorChiefComplaintRequired'));
-      return;
-    }
-
-    if (!clinicalSummary.trim()) {
-      setError(t('docSOAPNote.errorClinicalSummaryRequired'));
-      return;
-    }
-
-    if (!treatmentPlan.trim()) {
-      setError(t('docSOAPNote.errorTreatmentPlanRequired'));
+    // These four checks already gave field-specific messages, which is better
+    // than most of this codebase managed -- but they set a banner at the top of
+    // a 1,200-line form. Naming the field in prose is not the same as binding
+    // the message to the control, which is what WCAG 3.3.1 asks for and what a
+    // screen reader needs to move the user to it.
+    if (!validate(soapCore())) {
       return;
     }
 
@@ -636,13 +643,14 @@ function SOAPNotePage() {
               <label htmlFor="soap-chief-complaint" className="block text-sm font-medium text-content-secondary mb-2">
                 {t('docSOAPNote.chiefComplaintRequired')} *
               </label>
-              <input
+              <Input
                 id="soap-chief-complaint"
                 type="text"
                 value={chiefComplaint}
-                onChange={(e) => setChiefComplaint(e.target.value)}
+                onChange={(e) => { clearField('chiefComplaint'); setChiefComplaint(e.target.value); }}
+                onBlur={() => validateField('chiefComplaint', soapCore())}
+                error={errors.chiefComplaint}
                 placeholder={t('docSOAPNote.chiefComplaintPh')}
-                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>
@@ -927,11 +935,14 @@ function SOAPNotePage() {
               <label htmlFor="soap-clinical-summary" className="block text-sm font-medium text-content-secondary mb-2">
                 {t('docSOAPNote.clinicalSummaryRequired')} *
               </label>
-              <textarea                id="soap-clinical-summary"                value={clinicalSummary}
-                onChange={(e) => setClinicalSummary(e.target.value)}
+              <Textarea
+                id="soap-clinical-summary"
+                value={clinicalSummary}
+                onChange={(e) => { clearField('clinicalSummary'); setClinicalSummary(e.target.value); }}
+                onBlur={() => validateField('clinicalSummary', soapCore())}
+                error={errors.clinicalSummary}
                 placeholder={t('docSOAPNote.clinicalSummaryPh')}
                 rows={4}
-                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>
@@ -951,13 +962,14 @@ function SOAPNotePage() {
               <label htmlFor="soap-treatment-plan" className="block text-sm font-medium text-content-secondary mb-2">
                 {t('docSOAPNote.treatmentPlanRequired')} *
               </label>
-              <textarea
+              <Textarea
                 id="soap-treatment-plan"
                 value={treatmentPlan}
-                onChange={(e) => setTreatmentPlan(e.target.value)}
+                onChange={(e) => { clearField('treatmentPlan'); setTreatmentPlan(e.target.value); }}
+                onBlur={() => validateField('treatmentPlan', soapCore())}
+                error={errors.treatmentPlan}
                 placeholder={t('docSOAPNote.treatmentPlanPh')}
                 rows={3}
-                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
               />
             </div>

@@ -9,6 +9,10 @@ import {
   LoadingSpinner,
   useScoringCatalog,
   isDoseOverdue,
+  Input,
+  Textarea,
+  useValidatedForm,
+  medicationAdministrationSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
@@ -169,21 +173,32 @@ const MedicationAdminPage: React.FC = () => {
     setActiveTab('administerMed');
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    medicationAdministrationSchema
+  );
+
+  /** What the MAR entry asserts, assembled from this page's separate state. */
+  const marEntry = () => ({ actualTime, status, fiveRightsVerified, reasonNotGiven });
+
   const handleSubmitAdministration = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedMed || !actualTime) {
+    // Selecting a medication is a prerequisite for the form existing at all,
+    // not a field error, so it keeps its toast.
+    if (!selectedMed) {
       showError(t('docMedicationAdmin.errorRequiredFields'));
       return;
     }
 
-    if (status === 'given' && !fiveRightsVerified) {
-      showError(t('docMedicationAdmin.errorFiveRights'));
-      return;
-    }
-
-    if ((status === 'not-given' || status === 'held' || status === 'refused') && !reasonNotGiven) {
-      showError(t('docMedicationAdmin.errorReasonNotGiven'));
+    // The rest were three toasts. The five-rights and reason rules are
+    // conditional on the status, which a toast cannot express and a schema can:
+    // the message now appears on the control the nurse has to act on. The
+    // five-rights message still also surfaces as a toast, because that checkbox
+    // is in a different card from the submit button.
+    if (!validate(marEntry())) {
+      if (errors.fiveRightsVerified) {
+        showError(t('docMedicationAdmin.errorFiveRights'));
+      }
       return;
     }
 
@@ -642,12 +657,13 @@ const MedicationAdminPage: React.FC = () => {
                 <label htmlFor="medadmin-actual-time" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docMedicationAdmin.actualTimeRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="medadmin-actual-time"
                   type="time"
                   value={actualTime}
-                  onChange={(e) => setActualTime(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('actualTime'); setActualTime(e.target.value); }}
+                  onBlur={() => validateField('actualTime', marEntry())}
+                  error={errors.actualTime}
                   required
                 />
               </div>
@@ -657,13 +673,14 @@ const MedicationAdminPage: React.FC = () => {
                   <label htmlFor="medadmin-reason-not-given" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docMedicationAdmin.reasonNotGivenRequired')} <span className="text-critical">*</span>
                   </label>
-                  <textarea
+                  <Textarea
                     id="medadmin-reason-not-given"
                     value={reasonNotGiven}
-                    onChange={(e) => setReasonNotGiven(e.target.value)}
+                    onChange={(e) => { clearField('reasonNotGiven'); setReasonNotGiven(e.target.value); }}
+                    onBlur={() => validateField('reasonNotGiven', marEntry())}
+                    error={errors.reasonNotGiven}
                     rows={3}
                     placeholder={t('docMedicationAdmin.reasonNotGivenPh')}
-                    className="w-full px-3 py-2 border rounded-md"
                     required
                   />
                 </div>
