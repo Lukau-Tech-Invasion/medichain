@@ -39,26 +39,151 @@ pub struct EmailNotification {
     pub body: String,
 }
 
+/// How this deployment reaches an SMTP server, if it has one.
+///
+/// Read per send rather than cached: a deployment that fixes its mail
+/// configuration should not have to be restarted to notify a regulator, and
+/// these are read once per breach, not per request.
+struct SmtpSettings {
+    host: String,
+    port: u16,
+    from: String,
+    credentials: Option<(String, String)>,
+    /// `true` for implicit TLS on connect (port 465). `false` uses STARTTLS,
+    /// which is the usual submission path on 587.
+    implicit_tls: bool,
+    /// Plaintext, for a local capture or a trusted in-cluster relay. Never in
+    /// production: `validate_production_secrets` rejects it.
+    allow_plaintext: bool,
+}
+
+fn smtp_settings() -> Option<SmtpSettings> {
+    let host = std::env::var("SMTP_HOST")
+        .ok()
+        .filter(|h| !h.trim().is_empty())?;
+    let from = std::env::var("SMTP_FROM")
+        .ok()
+        .filter(|f| !f.trim().is_empty())
+        // Falling back to a from-address derived from the host is worse than
+        // refusing: a regulator notification arriving from `noreply@` at a
+        // guessed domain is likely to be filtered before anyone reads it.
+        .or_else(|| {
+            warn!("[smtp] SMTP_HOST is set but SMTP_FROM is not; email cannot be sent");
+            None
+        })?;
+
+    let allow_plaintext = std::env::var("SMTP_ALLOW_PLAINTEXT")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let implicit_tls = std::env::var("SMTP_IMPLICIT_TLS")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let port = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|p| p.trim().parse::<u16>().ok())
+        .unwrap_or(if implicit_tls { 465 } else { 587 });
+
+    let credentials = match (
+        std::env::var("SMTP_USER").ok(),
+        std::env::var("SMTP_PASS").ok(),
+    ) {
+        (Some(user), Some(pass)) if !user.trim().is_empty() => Some((user, pass)),
+        // A relay that authenticates by IP is a normal arrangement; a half-set
+        // pair is a misconfiguration and is said out loud rather than ignored.
+        (Some(_), None) | (None, Some(_)) => {
+            warn!("[smtp] only one of SMTP_USER / SMTP_PASS is set; connecting unauthenticated");
+            None
+        }
+        _ => None,
+    };
+
+    Some(SmtpSettings {
+        host,
+        port,
+        from,
+        credentials,
+        implicit_tls,
+        allow_plaintext,
+    })
+}
+
 /// Send an email notification.
 ///
-/// **There is no SMTP transport in this binary, so this always fails.** That is
-/// deliberate and it is the fix, not the bug. The previous implementation slept
-/// 150ms and logged "Email successfully queued for delivery"; its only caller is
-/// `dispatch_breach_notification`, which counted each simulated send as a
-/// delivered POPIA / HIPAA regulator notification. A statutory deadline was
-/// reported as met by a function that had sent nothing.
+/// **Unconfigured is a typed error, never a silent success.** The version of
+/// this function before the campaign slept 150ms, logged "Email successfully
+/// queued for delivery" and returned `Ok(())` with no SMTP client in the binary
+/// at all — so `dispatch_breach_notification`, its only caller, counted every
+/// simulated send as a delivered POPIA / HIPAA regulator notification and a
+/// statutory deadline was reported as met. That rule still holds here: a
+/// deployment with no `SMTP_HOST` gets an error it can act on.
 ///
-/// Wiring a real transport (`lettre`, credentials from `SMTP_HOST` /
-/// `SMTP_USER` / `SMTP_PASS`) is a feature. Until it exists the honest answer
-/// is an error, so every caller reports the delivery it actually achieved.
+/// TLS is required unless `SMTP_ALLOW_PLAINTEXT=true` is set deliberately. A
+/// breach notification names the breach, so sending it in clear text across an
+/// untrusted network is its own disclosure.
 pub async fn send_email(email: EmailNotification) -> Result<(), NotificationError> {
-    warn!(
-        "[smtp] No SMTP transport is configured in this build; email to {} ({}) NOT sent",
-        email.to, email.subject
-    );
-    Err(NotificationError::Smtp(
-        "no SMTP transport is configured in this build".to_string(),
-    ))
+    use lettre::transport::smtp::authentication::Credentials;
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+
+    let Some(settings) = smtp_settings() else {
+        warn!(
+            "[smtp] No SMTP transport is configured; email to {} ({}) NOT sent. \
+             Set SMTP_HOST and SMTP_FROM.",
+            email.to, email.subject
+        );
+        return Err(NotificationError::Smtp(
+            "no SMTP transport is configured (set SMTP_HOST and SMTP_FROM)".to_string(),
+        ));
+    };
+
+    let message =
+        Message::builder()
+            .from(settings.from.parse().map_err(|e| {
+                NotificationError::Smtp(format!("SMTP_FROM is not an address: {e}"))
+            })?)
+            .to(email.to.parse().map_err(|e| {
+                NotificationError::Smtp(format!("recipient is not an address: {e}"))
+            })?)
+            .subject(&email.subject)
+            .body(email.body.clone())
+            .map_err(|e| NotificationError::Smtp(format!("message could not be built: {e}")))?;
+
+    let mut builder = if settings.allow_plaintext {
+        warn!(
+            "[smtp] SMTP_ALLOW_PLAINTEXT is set; {} will be contacted without TLS. \
+             Intended for a local capture or a trusted in-cluster relay only.",
+            settings.host
+        );
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.host)
+    } else if settings.implicit_tls {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.host)
+            .map_err(|e| NotificationError::Smtp(format!("TLS relay setup failed: {e}")))?
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.host)
+            .map_err(|e| NotificationError::Smtp(format!("STARTTLS setup failed: {e}")))?
+    };
+
+    builder = builder.port(settings.port);
+    if let Some((user, pass)) = settings.credentials {
+        builder = builder.credentials(Credentials::new(user, pass));
+    }
+
+    match builder.build().send(message).await {
+        Ok(response) => {
+            // The recipient is logged; the body is not. A breach notification
+            // names the breach, and the log is not where that belongs.
+            info!(
+                "[smtp] Delivered to {} ({}): {}",
+                email.to,
+                email.subject,
+                response.code()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            warn!("[smtp] Delivery to {} failed: {error}", email.to);
+            Err(NotificationError::Smtp(error.to_string()))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -780,6 +905,11 @@ mod tests {
     async fn dispatch_breach_notification_reports_no_regulator_email_without_a_transport() {
         let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         std::env::remove_var("SECURITY_OFFICER_PHONE");
+        // Cleared explicitly. This test asserts the *unconfigured* case, and a
+        // developer with SMTP_HOST exported would otherwise see it fail for the
+        // best possible reason -- which is confusing rather than informative.
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
         std::env::set_var(
             "REGULATOR_NOTIFICATION_EMAIL",
             "privacy@example.test,dpo@example.test",
@@ -796,7 +926,11 @@ mod tests {
 
     /// And the failure is a typed one, not a silent `Ok`.
     #[tokio::test]
-    async fn send_email_refuses_rather_than_reporting_success() {
+    async fn an_unconfigured_transport_refuses_rather_than_reporting_success() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
+
         let outcome = send_email(EmailNotification {
             to: "privacy@example.test".to_string(),
             subject: "Breach".to_string(),
@@ -805,8 +939,81 @@ mod tests {
         .await;
         assert!(
             matches!(outcome, Err(NotificationError::Smtp(_))),
-            "an unimplemented channel returns a typed error, never Ok"
+            "an unconfigured channel returns a typed error, never Ok"
         );
+    }
+
+    /// A host with no from-address is a misconfiguration, not a default.
+    ///
+    /// Deriving one would send a regulator notification from a guessed
+    /// `noreply@` address, which is likely to be filtered before anybody reads
+    /// it -- a silent failure of exactly the message that must not fail
+    /// silently.
+    #[tokio::test]
+    async fn a_host_without_a_from_address_is_refused() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::set_var("SMTP_HOST", "localhost");
+        std::env::remove_var("SMTP_FROM");
+
+        let outcome = send_email(EmailNotification {
+            to: "privacy@example.test".to_string(),
+            subject: "Breach".to_string(),
+            body: "body".to_string(),
+        })
+        .await;
+        std::env::remove_var("SMTP_HOST");
+        assert!(matches!(outcome, Err(NotificationError::Smtp(_))));
+    }
+
+    /// TLS is not optional by accident.
+    ///
+    /// A breach notification names the breach, so sending it in clear text
+    /// across an untrusted network is its own disclosure. Plaintext requires
+    /// `SMTP_ALLOW_PLAINTEXT=true` to be set deliberately.
+    // Async and lock-taking like its neighbours: these read and write
+    // process-global environment variables, and Rust runs tests in parallel, so
+    // a sibling setting SMTP_IMPLICIT_TLS is visible here mid-assertion. That
+    // is what failed first time.
+    #[tokio::test]
+    async fn plaintext_is_off_unless_asked_for() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        let previous = std::env::var("SMTP_ALLOW_PLAINTEXT").ok();
+        std::env::remove_var("SMTP_ALLOW_PLAINTEXT");
+        std::env::remove_var("SMTP_IMPLICIT_TLS");
+        // These assert the *defaults*, so an explicit port has to be out of the
+        // way -- otherwise the test fails on any machine that exports one.
+        std::env::remove_var("SMTP_PORT");
+        std::env::set_var("SMTP_HOST", "mail.example.test");
+        std::env::set_var("SMTP_FROM", "breach@example.test");
+
+        let settings = smtp_settings().expect("configured");
+        assert!(!settings.allow_plaintext);
+        // STARTTLS submission, not implicit TLS, and the port follows.
+        assert!(!settings.implicit_tls);
+        assert_eq!(settings.port, 587);
+
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
+        if let Some(value) = previous {
+            std::env::set_var("SMTP_ALLOW_PLAINTEXT", value);
+        }
+    }
+
+    #[tokio::test]
+    async fn implicit_tls_moves_the_default_port() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::remove_var("SMTP_PORT");
+        std::env::set_var("SMTP_HOST", "mail.example.test");
+        std::env::set_var("SMTP_FROM", "breach@example.test");
+        std::env::set_var("SMTP_IMPLICIT_TLS", "true");
+
+        let settings = smtp_settings().expect("configured");
+        assert!(settings.implicit_tls);
+        assert_eq!(settings.port, 465);
+
+        std::env::remove_var("SMTP_IMPLICIT_TLS");
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
     }
 }
 

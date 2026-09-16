@@ -94,6 +94,25 @@ base64 = "0.22"
 # IPFS client
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 
+# SMTP, for the POPIA/HIPAA breach notification to the regulator.
+#
+# Added deliberately and narrowly. The previous `send_email` slept 150ms and
+# logged "Email successfully queued for delivery" with no SMTP client in the
+# binary at all, so `dispatch_breach_notification` counted every simulated send
+# as a delivered statutory notification. It was made to fail closed; this makes
+# it able to succeed.
+#
+# `rustls-tls` rather than native-tls: the graph already carries rustls (via
+# reqwest and subxt), so this adds a protocol implementation rather than a
+# second TLS stack. `default-features = false` drops the file/sendmail
+# transports and the blocking runtime, none of which this uses.
+lettre = { version = "0.11", default-features = false, features = [
+    "smtp-transport",
+    "tokio1-rustls-tls",
+    "builder",
+    "hostname",
+] }
+
 # Crypto module
 medichain-crypto = { path = "../crypto" }
 

@@ -65,6 +65,43 @@ pub fn validate_runtime_posture(
     Ok(())
 }
 
+/// Refuse to start in production with an SMTP transport that would send a
+/// breach notification in clear text.
+///
+/// `SMTP_ALLOW_PLAINTEXT` exists for a local capture server or a trusted
+/// in-cluster relay. A breach notification names the breach, so sending one
+/// unencrypted across an untrusted network is its own disclosure -- the
+/// notification about the incident becomes a second incident.
+fn validate_smtp_configuration(app_env: &str) -> Result<(), String> {
+    if app_env != "production" {
+        return Ok(());
+    }
+    let plaintext = std::env::var("SMTP_ALLOW_PLAINTEXT")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if plaintext {
+        return Err(
+            "SMTP_ALLOW_PLAINTEXT=true is refused in production: a breach notification names              the breach, and sending it without TLS is its own disclosure. Use STARTTLS (the              default) or SMTP_IMPLICIT_TLS=true."
+                .to_string(),
+        );
+    }
+    // A host without a from-address cannot send at all, and discovering that
+    // while declaring a breach is the worst possible moment.
+    let host = std::env::var("SMTP_HOST")
+        .ok()
+        .filter(|h| !h.trim().is_empty());
+    let from = std::env::var("SMTP_FROM")
+        .ok()
+        .filter(|f| !f.trim().is_empty());
+    if host.is_some() && from.is_none() {
+        return Err(
+            "SMTP_HOST is set but SMTP_FROM is not, so no email can be sent. A regulator              notification would fail at the moment it is needed."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Validate that the running configuration is not using demo/default secrets.
 ///
 /// Secure by default: `IS_DEMO` is treated as `false` (production) when unset, so a
@@ -88,6 +125,7 @@ pub fn validate_production_secrets() -> Result<(), String> {
     validate_runtime_posture(&app_env, is_demo, require_signatures)?;
     validate_telehealth_configuration(&app_env)?;
     validate_identity_verification_configuration(&app_env)?;
+    validate_smtp_configuration(&app_env)?;
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -712,5 +750,88 @@ mod dev_account_tests {
         assert!(!error.contains("another-wallet"));
         assert!(error.contains("2 well-known"));
         assert!(error.contains("Admin, Doctor"));
+    }
+}
+
+#[cfg(test)]
+mod smtp_posture_tests {
+    use super::validate_smtp_configuration;
+
+    /// Serialised by hand: these read process-global environment variables and
+    /// Rust runs tests in parallel.
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_env<T>(pairs: &[(&str, Option<&str>)], body: impl FnOnce() -> T) -> T {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous: Vec<_> = pairs
+            .iter()
+            .map(|(key, _)| (*key, std::env::var(key).ok()))
+            .collect();
+        for (key, value) in pairs {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+        let outcome = body();
+        for (key, value) in previous {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+        outcome
+    }
+
+    #[test]
+    fn production_refuses_plaintext_smtp() {
+        with_env(&[("SMTP_ALLOW_PLAINTEXT", Some("true"))], || {
+            assert!(validate_smtp_configuration("production").is_err());
+        });
+    }
+
+    #[test]
+    fn development_permits_plaintext_for_a_local_capture() {
+        with_env(&[("SMTP_ALLOW_PLAINTEXT", Some("true"))], || {
+            assert!(validate_smtp_configuration("development").is_ok());
+        });
+    }
+
+    #[test]
+    fn a_host_without_a_from_address_is_refused_in_production() {
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", Some("mail.example.test")),
+                ("SMTP_FROM", None),
+            ],
+            || assert!(validate_smtp_configuration("production").is_err()),
+        );
+    }
+
+    #[test]
+    fn a_complete_tls_configuration_is_accepted() {
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", Some("mail.example.test")),
+                ("SMTP_FROM", Some("breach@example.test")),
+            ],
+            || assert!(validate_smtp_configuration("production").is_ok()),
+        );
+    }
+
+    #[test]
+    fn no_smtp_at_all_is_accepted() {
+        // Not every deployment sends email; the breach path reports the zero it
+        // actually achieved rather than being blocked from starting.
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", None),
+                ("SMTP_FROM", None),
+            ],
+            || assert!(validate_smtp_configuration("production").is_ok()),
+        );
     }
 }
