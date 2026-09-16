@@ -15,7 +15,6 @@ use crate::types::*;
 use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_256};
 use uuid::Uuid;
 
 mod access_control;

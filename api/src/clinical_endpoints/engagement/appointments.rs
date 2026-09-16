@@ -287,21 +287,23 @@ pub async fn book_appointment(
         };
     }
 
-    // FCM push: appointment booking confirmation.
+    // FCM push: appointment booking confirmation. Fire-and-forget, and
+    // addressed to the patient's account rather than their record id -- see
+    // `notify_patient` for why that distinction decided whether any of these
+    // messages could be delivered at all.
     {
-        let repos = data.repositories.clone();
+        let state = data.clone();
         tokio::spawn(async move {
-            let _ = crate::notifications::send_push_to_user(
-                &repos,
-                crate::notifications::PushNotification {
-                    user_id: appointment_patient_id,
-                    title: "Appointment Confirmed".to_string(),
-                    body: format!(
-                        "Your appointment with {} has been booked.",
-                        appointment_provider_name
-                    ),
-                    data: Some([("type".to_string(), "appointment_confirmed".to_string())].into()),
-                },
+            crate::notifications::notify_patient(
+                &state,
+                &appointment_patient_id,
+                &["appointmentReminders", "pushNotifications"],
+                "Appointment Confirmed",
+                &format!(
+                    "Your appointment with {} has been booked.",
+                    appointment_provider_name
+                ),
+                "appointment_confirmed",
             )
             .await;
         });
@@ -1097,41 +1099,26 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
             &format!("Appointment with {}", appointment.provider_name),
         );
 
-        // The patient's own setting, finally read by something. A reminder is
-        // suppressed rather than merely unsent: the difference matters to an
-        // operator looking at why a patient says they were never told.
-        if !crate::notifications::patient_wants(
+        // The patient's own setting and the record-id-to-account bridge both
+        // live in `notify_patient`. It reports whether the message was actually
+        // attempted, and that is what gets recorded: this loop used to write
+        // `Sent` for a push addressed to a `PAT-` id that matched no device
+        // token, so the reminder history asserted a delivery that could not
+        // have happened.
+        let provider_name = appointment.provider_name.clone();
+        let delivered = crate::notifications::notify_patient(
             data,
             &appointment.patient_id,
             &["appointmentReminders", "pushNotifications"],
+            "Upcoming Appointment",
+            &format!("You have an appointment with {} tomorrow.", provider_name),
+            "appointment_reminder",
         )
-        .await
-        {
-            log::info!(
-                "APPOINTMENT_REMINDER_SUPPRESSED: patient={} opted out",
-                appointment.patient_id
-            );
-            continue;
-        }
-
-        let patient_id = appointment.patient_id.clone();
-        let provider_name = appointment.provider_name.clone();
-        let delivery_status = match crate::notifications::send_push_to_user(
-            &data.repositories,
-            crate::notifications::PushNotification {
-                user_id: patient_id,
-                title: "Upcoming Appointment".to_string(),
-                body: format!("You have an appointment with {} tomorrow.", provider_name),
-                data: Some([("type".to_string(), "appointment_reminder".to_string())].into()),
-            },
-        )
-        .await
-        {
-            Ok(()) => crate::clinical::ReminderStatus::Sent,
-            Err(error) => {
-                log::error!("Appointment reminder delivery failed: {error}");
-                crate::clinical::ReminderStatus::Failed
-            }
+        .await;
+        let delivery_status = if delivered {
+            crate::clinical::ReminderStatus::Sent
+        } else {
+            crate::clinical::ReminderStatus::Failed
         };
 
         appointment

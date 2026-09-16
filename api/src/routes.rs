@@ -75,8 +75,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(staff_login) // POST /api/auth/staff/login
         .service(enrol_credentials) // POST /api/auth/credentials
         // Session token endpoints
-        .service(create_session_token) // POST /api/auth/session
-        .service(verify_session_token) // GET  /api/auth/verify
         // JWT auth (Phase 9.4)
         .service(issue_jwt) // POST /api/auth/jwt
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
@@ -392,12 +390,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_blood_type_screen)
         .service(clinical_endpoints::create_transfusion)
         .service(clinical_endpoints::get_transfusion)
-        // Phase 16: E-Prescribing endpoints
-        .service(clinical_endpoints::create_e_prescription)
-        .service(clinical_endpoints::get_e_prescription)
-        // Phase 17: Appointment endpoints
-        .service(clinical_endpoints::create_appointment)
-        .service(clinical_endpoints::get_surgical_appointment)
         // Phase 18: Death Certificate & Autopsy endpoints
         .service(clinical_endpoints::create_death_certificate)
         .service(clinical_endpoints::get_death_certificate)

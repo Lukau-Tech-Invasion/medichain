@@ -1344,13 +1344,18 @@ pub trait FallRiskAssessmentRepository: Send + Sync + fmt::Debug {
 pub struct CodeBlueEntity {
     pub id: String,
     pub patient_id: String,
-    pub location: String,
+    /// `Option` throughout for the fields `CodeBluePage` does not collect.
+    /// A resuscitation record that says the initial rhythm was `""` or that
+    /// the arrest was un-witnessed, when nobody was asked, is asserting a
+    /// clinical finding of its own (Rule 11). Stored as JSONB in
+    /// `ep_code_blue_records.record_json`, so this needs no migration.
+    pub location: Option<String>,
     pub code_called_at: i64,
     pub team_arrived_at: Option<i64>,
-    pub initial_rhythm: String,
-    pub witnessed: bool,
+    pub initial_rhythm: Option<String>,
+    pub witnessed: Option<bool>,
     pub outcome: String,
-    pub code_leader: String,
+    pub code_leader: Option<String>,
     pub documented_by: String,
     pub documented_at: i64,
     pub data: serde_json::Value,
@@ -1364,10 +1369,10 @@ pub struct TraumaAssessmentEntity {
     pub id: String,
     pub patient_id: String,
     pub mechanism: String,
-    pub gcs: u8,
+    pub gcs: Option<u8>,
     pub trauma_level: Option<u8>,
-    pub mtp_activated: bool,
-    pub disposition: String,
+    pub mtp_activated: Option<bool>,
+    pub disposition: Option<String>,
     pub assessed_by: String,
     pub assessed_at: i64,
     pub data: serde_json::Value,
@@ -1380,12 +1385,15 @@ pub struct TraumaAssessmentEntity {
 pub struct StrokeAssessmentEntity {
     pub id: String,
     pub patient_id: String,
-    pub nihss_total: u8,
-    pub stroke_type: String,
-    pub tpa_eligible: bool,
-    pub tpa_given: bool,
-    pub hemorrhage: bool,
-    pub lvo_suspected: bool,
+    pub nihss_total: Option<u8>,
+    /// `StrokePage` records a CT *interpretation* in free text; it never asks
+    /// whether there is blood on the scan. Deriving `hemorrhage` from that
+    /// string would be the API inventing a radiology finding.
+    pub stroke_type: Option<String>,
+    pub tpa_eligible: Option<bool>,
+    pub tpa_given: Option<bool>,
+    pub hemorrhage: Option<bool>,
+    pub lvo_suspected: Option<bool>,
     pub assessed_by: String,
     pub assessed_at: i64,
     pub data: serde_json::Value,

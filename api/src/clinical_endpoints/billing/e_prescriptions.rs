@@ -181,12 +181,18 @@ pub async fn create_esignature_prescription(
     }
 
     // Fire-and-forget FCM push notification to the patient.
-    let repos = data.repositories.clone();
+    let state = data.clone();
     tokio::spawn(async move {
-        crate::notifications::notify_prescription(
-            &repos,
+        crate::notifications::notify_patient(
+            &state,
             &patient_id_for_notify,
-            &medication_name_for_notify,
+            &["recordUpdates", "pushNotifications"],
+            "New Prescription",
+            &format!(
+                "A new prescription for {} has been issued. Please check MediChain.",
+                medication_name_for_notify
+            ),
+            "prescription",
         )
         .await;
     });

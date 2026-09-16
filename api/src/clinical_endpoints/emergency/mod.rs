@@ -341,13 +341,6 @@ fn require_emergency_list_access(
     }
 }
 
-fn json_label<T: serde::Serialize>(value: &T) -> String {
-    match json_value(value) {
-        Value::String(label) => label,
-        other => other.to_string(),
-    }
-}
-
 fn timestamp_to_datetime(value: i64) -> DateTime<Utc> {
     DateTime::<Utc>::from_timestamp(value, 0).unwrap_or_else(Utc::now)
 }
@@ -376,36 +369,57 @@ fn access_log_entity(
     }
 }
 
-fn code_blue_entity(record: &CodeBlueRecord, data: Value) -> CodeBlueEntity {
+fn code_blue_entity(
+    record: &crate::clinical_endpoints::CreateCodeBlueRequest,
+    data: Value,
+) -> CodeBlueEntity {
     let now = Utc::now();
     CodeBlueEntity {
         id: record.event_id.clone(),
         patient_id: record.patient_id.clone(),
-        location: record.location.clone(),
+        location: blank_to_none(record.location.as_deref()),
         code_called_at: record.code_called_at,
         team_arrived_at: record.team_arrived_at,
-        initial_rhythm: json_label(&record.initial_rhythm),
+        // Not asked for by any screen. `None`, not `""`.
+        initial_rhythm: blank_to_none(record.initial_rhythm.as_deref()),
         witnessed: record.witnessed,
-        outcome: json_label(&record.outcome),
-        code_leader: record.code_leader.clone(),
-        documented_by: record.documented_by.clone(),
-        documented_at: record.documented_at,
+        outcome: record.outcome.clone(),
+        code_leader: blank_to_none(record.code_leader.as_deref()),
+        // The page sends who called the code; that is who is documenting it.
+        documented_by: record.code_called_by.clone(),
+        documented_at: record.code_called_at,
         data,
         created_at: now,
         updated_at: now,
     }
 }
 
-fn trauma_entity(assessment: &TraumaAssessment, data: Value) -> TraumaAssessmentEntity {
+/// `Some(text)` only when there is text. A form that submits an untouched
+/// optional field sends `""`, and `""` stored in a clinical column reads as a
+/// recorded blank rather than as "not asked".
+fn blank_to_none(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn trauma_entity(
+    assessment: &crate::clinical_endpoints::CreateTraumaRequest,
+    data: Value,
+) -> TraumaAssessmentEntity {
     let now = Utc::now();
     TraumaAssessmentEntity {
         id: assessment.assessment_id.clone(),
         patient_id: assessment.patient_id.clone(),
-        mechanism: json_label(&assessment.mechanism),
-        gcs: assessment.gcs,
-        trauma_level: assessment.trauma_level,
-        mtp_activated: assessment.mtp_activated,
-        disposition: json_label(&assessment.disposition),
+        mechanism: assessment.mechanism_of_injury.clone(),
+        gcs: assessment.gcs_score,
+        // Trauma level, massive-transfusion activation and disposition are
+        // decided downstream of this form; `TraumaPage` has no input for any
+        // of them.
+        trauma_level: None,
+        mtp_activated: None,
+        disposition: None,
         assessed_by: assessment.assessed_by.clone(),
         assessed_at: assessment.assessed_at,
         data,
@@ -414,17 +428,29 @@ fn trauma_entity(assessment: &TraumaAssessment, data: Value) -> TraumaAssessment
     }
 }
 
-fn stroke_entity(assessment: &StrokeAssessment, data: Value) -> StrokeAssessmentEntity {
+fn stroke_entity(
+    assessment: &crate::clinical_endpoints::CreateStrokeRequest,
+    data: Value,
+) -> StrokeAssessmentEntity {
     let now = Utc::now();
     StrokeAssessmentEntity {
         id: assessment.assessment_id.clone(),
         patient_id: assessment.patient_id.clone(),
-        nihss_total: assessment.nihss_total,
-        stroke_type: json_label(&assessment.stroke_type),
-        tpa_eligible: assessment.tpa_eligible,
-        tpa_given: assessment.tpa_given,
-        hemorrhage: assessment.hemorrhage,
-        lvo_suspected: assessment.lvo_suspected,
+        nihss_total: assessment.nihss_score,
+        // Classification, haemorrhage, LVO and whether tPA was given are all
+        // decided after this screen. The form records eligibility as a
+        // three-way clinical judgement (`eligible` / `not_eligible` /
+        // `evaluating`), so only an explicit answer becomes a boolean --
+        // "still evaluating" is not "not eligible".
+        stroke_type: None,
+        tpa_eligible: match assessment.tpa_eligibility.as_deref() {
+            Some("eligible") | Some("yes") | Some("true") => Some(true),
+            Some("not_eligible") | Some("ineligible") | Some("no") | Some("false") => Some(false),
+            _ => None,
+        },
+        tpa_given: None,
+        hemorrhage: None,
+        lvo_suspected: None,
         assessed_by: assessment.assessed_by.clone(),
         assessed_at: assessment.assessed_at,
         data,

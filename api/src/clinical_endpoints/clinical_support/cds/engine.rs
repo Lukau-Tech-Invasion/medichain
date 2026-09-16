@@ -184,18 +184,17 @@ pub async fn run_and_persist_cds_alerts(
             alert.severity,
             crate::clinical::CDSSeverity::High | crate::clinical::CDSSeverity::Critical
         ) {
-            let repos = data.repositories.clone();
+            let state = data.clone();
             let recipient = patient_id.to_string();
             let title = alert.title.clone();
             tokio::spawn(async move {
-                let _ = crate::notifications::send_push_to_user(
-                    &repos,
-                    crate::notifications::PushNotification {
-                        user_id: recipient,
-                        title: "Clinical Alert".to_string(),
-                        body: title,
-                        data: Some([("type".to_string(), "cds_alert".to_string())].into()),
-                    },
+                crate::notifications::notify_patient(
+                    &state,
+                    &recipient,
+                    &["emergencyAlerts", "pushNotifications"],
+                    "Clinical Alert",
+                    &title,
+                    "cds_alert",
                 )
                 .await;
             });

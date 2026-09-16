@@ -32,7 +32,7 @@ pub enum NotificationError {
 }
 
 // ---------------------------------------------------------------------------
-// SMTP Structures (Phase 11.4)
+// Email
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,37 +42,26 @@ pub struct EmailNotification {
     pub body: String,
 }
 
-pub fn smtp_enabled() -> bool {
-    std::env::var("SMTP_ENABLED")
-        .ok()
-        .map(|v| v.trim().eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
-/// Send an email notification (Phase 33.1: SMTP Scaffold)
+/// Send an email notification.
+///
+/// **There is no SMTP transport in this binary, so this always fails.** That is
+/// deliberate and it is the fix, not the bug. The previous implementation slept
+/// 150ms and logged "Email successfully queued for delivery"; its only caller is
+/// `dispatch_breach_notification`, which counted each simulated send as a
+/// delivered POPIA / HIPAA regulator notification. A statutory deadline was
+/// reported as met by a function that had sent nothing.
+///
+/// Wiring a real transport (`lettre`, credentials from `SMTP_HOST` /
+/// `SMTP_USER` / `SMTP_PASS`) is a feature. Until it exists the honest answer
+/// is an error, so every caller reports the delivery it actually achieved.
 pub async fn send_email(email: EmailNotification) -> Result<(), NotificationError> {
-    if !smtp_enabled() {
-        info!(
-            "[smtp] Email logged (SMTP disabled) for {}: {}",
-            email.to, email.subject
-        );
-        return Ok(());
-    }
-
-    // In a production environment, this would use a crate like `lettre`
-    // combined with credentials from `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`.
-    info!("[smtp] Dispatching email to {} via SMTP...", email.to);
-
-    // Simulate SMTP network interaction
-    tokio::time::sleep(Duration::from_millis(150)).await;
-
-    // Log the successful dispatch
-    info!(
-        "[smtp] Email successfully queued for delivery to {}",
-        email.to
+    warn!(
+        "[smtp] No SMTP transport is configured in this build; email to {} ({}) NOT sent",
+        email.to, email.subject
     );
-
-    Ok(())
+    Err(NotificationError::Smtp(
+        "no SMTP transport is configured in this build".to_string(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -475,10 +464,19 @@ pub async fn dispatch_breach_notification(
                 }
                 email_count += 1;
             }
-            info!(
-                "[breach] Dispatched breach email notification to {} regulator/compliance recipient(s)",
-                email_count
-            );
+            if email_count == 0 {
+                warn!(
+                    "[breach] NO regulator/compliance email was delivered. \
+                     Recipients are configured but this build has no SMTP transport: \
+                     the POPIA Information Regulator / HHS OCR notification due by {deadline} \
+                     must be sent by hand. See docs/INCIDENT_RESPONSE.md."
+                );
+            } else {
+                info!(
+                    "[breach] Dispatched breach email notification to {} regulator/compliance recipient(s)",
+                    email_count
+                );
+            }
         }
         _ => warn!(
             "[breach] REGULATOR_NOTIFICATION_EMAIL not set; regulator/data-subject email not dispatched"
@@ -534,6 +532,60 @@ pub async fn patient_wants(data: &crate::AppState, patient_id: &str, keys: &[&st
         .all(|key| block.get(key).and_then(serde_json::Value::as_bool) != Some(false))
 }
 
+/// Send a push to a patient, if they want it and we can address them.
+///
+/// The only correct way to notify a patient. Two things have to happen before
+/// a message can reach one, and every dispatcher used to get at least one of
+/// them wrong:
+///
+///   1. **Namespace.** Device tokens are registered under the caller's wallet
+///      address (`register_device` stores `require_registered_caller(..)
+///      .wallet_address`). A dispatcher holds a `PAT-...` record id. Passing
+///      the record id to `send_push_to_user` matches no token, logs
+///      "No device tokens for user", and returns `Ok(())` -- indistinguishable
+///      from a delivered message, which is why five dispatchers did it and the
+///      appointment reminder recorded `Sent`. `linked_patient_id` is the
+///      bridge and this is where it gets crossed.
+///   2. **Consent.** `keys` names the settings that have to be on: the
+///      category (`appointmentReminders`, `recordUpdates`, `emergencyAlerts`)
+///      and the channel (`pushNotifications`). Absent means yes; only an
+///      explicit `false` suppresses. See `patient_wants`.
+///
+/// Returns whether the push was attempted, so a caller that records a delivery
+/// status can record the truth. Never fails a request: a notification is not
+/// part of any clinical decision.
+pub async fn notify_patient(
+    data: &crate::AppState,
+    patient_id: &str,
+    keys: &[&str],
+    title: &str,
+    body: &str,
+    kind: &str,
+) -> bool {
+    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+        // Said out loud rather than dropped. A patient record with no linked
+        // account has nobody to notify, and an operator asking "why was this
+        // patient not told" needs to be able to find that out.
+        info!("[push] {patient_id} has no linked account; {kind} not delivered");
+        return false;
+    };
+    if !patient_wants(data, patient_id, keys).await {
+        info!("[push] {kind} suppressed for {patient_id}: opted out");
+        return false;
+    }
+    let notification = PushNotification {
+        user_id: wallet,
+        title: title.to_string(),
+        body: body.to_string(),
+        data: Some([("type".to_string(), kind.to_string())].into()),
+    };
+    if let Err(error) = send_push_to_user(&data.repositories, notification).await {
+        warn!("[push] {kind} for {patient_id} failed: {error}");
+        return false;
+    }
+    true
+}
+
 /// The wallet address of the account linked to this patient record.
 ///
 /// Reads the authorization cache rather than the database: it is already in
@@ -545,33 +597,6 @@ fn wallet_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String
         .values()
         .find(|user| user.linked_patient_id.as_deref() == Some(patient_id))
         .map(|user| user.wallet_address.clone())
-}
-
-pub async fn notify_prescription(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    medication_name: &str,
-) {
-    let title = "New Prescription";
-    let body = format!(
-        "A new prescription for {} has been issued. Please check MediChain.",
-        medication_name
-    );
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "prescription".to_string());
-    data.insert("medication".to_string(), medication_name.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
 }
 
 pub async fn notify_critical_alert(

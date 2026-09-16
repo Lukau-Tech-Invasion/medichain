@@ -1130,7 +1130,7 @@ const en_US: TranslationRecord = {
     biometricLogin: 'Biometric Login',
     biometricDesc: 'Requires device registration and is not enabled yet',
     emailNotif: 'Email Notifications',
-    emailNotifDesc: 'Receive updates via email',
+    emailNotifDesc: 'Email delivery is not available yet; alerts arrive in the app',
     smsNotif: 'SMS Notifications',
     smsNotifDesc: 'Receive text messages',
     pushNotif: 'Push Notifications',

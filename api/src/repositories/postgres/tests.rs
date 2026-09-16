@@ -624,13 +624,15 @@ async fn test_pg_code_blue_round_trip_survives_restart() {
     let record = CodeBlueEntity {
         id: id.clone(),
         patient_id: patient_id.clone(),
-        location: "ED Bay 3".to_string(),
+        location: Some("ED Bay 3".to_string()),
         code_called_at: 1_700_000_000,
         team_arrived_at: Some(1_700_000_120),
-        initial_rhythm: "VF".to_string(),
-        witnessed: true,
+        initial_rhythm: Some("VF".to_string()),
+        witnessed: Some(true),
         outcome: "ROSC".to_string(),
-        code_leader: "DR-001".to_string(),
+        // Left unrecorded on purpose: the assertion below is that a field
+        // nobody filled in comes back as `None` and not as an empty string.
+        code_leader: None,
         documented_by: "NURSE-007".to_string(),
         documented_at: 1_700_000_300,
         data: serde_json::json!({ "rounds": 3, "shocks": 2 }),
@@ -647,8 +649,12 @@ async fn test_pg_code_blue_round_trip_survives_restart() {
     let fetched = reader.get_by_id(&id).await.expect("record lost on restart");
     assert_eq!(fetched.id, id);
     assert_eq!(fetched.outcome, "ROSC");
-    assert!(fetched.witnessed);
+    assert_eq!(fetched.witnessed, Some(true));
     assert_eq!(fetched.team_arrived_at, Some(1_700_000_120));
+    assert_eq!(
+        fetched.code_leader, None,
+        "an unrecorded field must not come back as a value"
+    );
     assert_eq!(fetched.data["rounds"], serde_json::json!(3));
 
     // And it is queryable by patient.
@@ -675,10 +681,10 @@ async fn test_pg_trauma_round_trip_survives_restart() {
         id: id.clone(),
         patient_id: "PAT-TRAUMA-RESTART".into(),
         mechanism: "motor_vehicle_collision".into(),
-        gcs: 12,
+        gcs: Some(12),
         trauma_level: Some(1),
-        mtp_activated: true,
-        disposition: "operating_theatre".into(),
+        mtp_activated: Some(true),
+        disposition: Some("operating_theatre".into()),
         assessed_by: "DR-1".into(),
         assessed_at: 1_700_000_001,
         data: serde_json::json!({"airway":"secured"}),
@@ -691,9 +697,9 @@ async fn test_pg_trauma_round_trip_survives_restart() {
         .expect("create failed");
     let reader = PgTraumaAssessmentRepository::new(pool.clone());
     let fetched = reader.get_by_id(&id).await.expect("record lost on restart");
-    assert_eq!(fetched.gcs, 12);
+    assert_eq!(fetched.gcs, Some(12));
     assert_eq!(fetched.trauma_level, Some(1));
-    assert!(fetched.mtp_activated);
+    assert_eq!(fetched.mtp_activated, Some(true));
     reader.delete(&id).await.ok();
     pool.close().await;
 }
@@ -707,12 +713,14 @@ async fn test_pg_stroke_round_trip_survives_restart() {
     let record = StrokeAssessmentEntity {
         id: id.clone(),
         patient_id: "PAT-STROKE-RESTART".into(),
-        nihss_total: 18,
-        stroke_type: "ischemic".into(),
-        tpa_eligible: true,
-        tpa_given: true,
-        hemorrhage: false,
-        lvo_suspected: true,
+        nihss_total: Some(18),
+        stroke_type: Some("ischemic".into()),
+        tpa_eligible: Some(true),
+        tpa_given: Some(true),
+        // `None`, not `Some(false)`. Nobody looked at a scan; that is a
+        // different record from one that shows no blood.
+        hemorrhage: None,
+        lvo_suspected: Some(true),
         assessed_by: "DR-2".into(),
         assessed_at: 1_700_000_002,
         data: serde_json::json!({"last_known_well":"08:30"}),
@@ -725,9 +733,13 @@ async fn test_pg_stroke_round_trip_survives_restart() {
         .expect("create failed");
     let reader = PgStrokeAssessmentRepository::new(pool.clone());
     let fetched = reader.get_by_id(&id).await.expect("record lost on restart");
-    assert_eq!(fetched.nihss_total, 18);
-    assert!(fetched.tpa_given);
-    assert!(fetched.lvo_suspected);
+    assert_eq!(fetched.nihss_total, Some(18));
+    assert_eq!(fetched.tpa_given, Some(true));
+    assert_eq!(fetched.lvo_suspected, Some(true));
+    assert_eq!(
+        fetched.hemorrhage, None,
+        "an unassessed finding must not round-trip into a negative one"
+    );
     reader.delete(&id).await.ok();
     pool.close().await;
 }

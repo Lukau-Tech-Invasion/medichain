@@ -793,18 +793,17 @@ pub async fn review_lab_results_impl(
         // Notification, deliberately after the obligations and deliberately
         // best-effort: telling a patient their results are ready is not part
         // of the decision, and a push outage must not un-approve a result.
-        let repos = data.repositories.clone();
+        let state = data.clone();
         let recipient = patient_id.clone();
         let test_name = submission.test_name.clone();
         tokio::spawn(async move {
-            let _ = crate::notifications::send_push_to_user(
-                &repos,
-                crate::notifications::PushNotification {
-                    user_id: recipient,
-                    title: "Lab Results Ready".to_string(),
-                    body: format!("Your {} results are now available.", test_name),
-                    data: Some([("type".to_string(), "lab_results_ready".to_string())].into()),
-                },
+            crate::notifications::notify_patient(
+                &state,
+                &recipient,
+                &["recordUpdates", "pushNotifications"],
+                "Lab Results Ready",
+                &format!("Your {} results are now available.", test_name),
+                "lab_results_ready",
             )
             .await;
         });

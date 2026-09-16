@@ -47,35 +47,6 @@ pub struct WalletRegisterResponse {
     pub message: String,
 }
 
-/// Request body for POST /api/auth/session
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub struct SessionCreateRequest {
-    /// SS58 encoded wallet address
-    pub wallet_address: String,
-    /// Optional signature over the challenge (for future verification)
-    pub signature: Option<String>,
-    /// Optional challenge string that was signed
-    pub challenge: Option<String>,
-}
-
-/// Response for POST /api/auth/session
-#[derive(Debug, Serialize)]
-pub struct SessionCreateResponse {
-    pub success: bool,
-    pub token: String,
-    pub expires_at: i64,
-    pub wallet_address: String,
-}
-
-/// Response for GET /api/auth/verify
-#[derive(Debug, Serialize)]
-pub struct SessionVerifyResponse {
-    pub success: bool,
-    pub wallet_address: String,
-    pub expires_at: i64,
-}
-
 /// User info returned on login.
 ///
 /// Deliberately thin: this shape is also used to describe *other* people (the

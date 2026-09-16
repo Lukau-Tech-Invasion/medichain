@@ -519,24 +519,21 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
         );
 
         // FCM Push notification
+        // Two gates, and they are not the same question. The reminder's own
+        // `push_notification` is this reminder's channel choice; the account's
+        // `pushNotifications` is "no app notifications at all", which outranks
+        // it. `notify_patient` asks the second and bridges the record id to the
+        // account that owns the device.
         if reminder.notification_prefs.push_notification {
-            let repos = data.repositories.clone();
-            let patient_id = reminder.patient_id.clone();
-            let med_name = reminder.medication_name.clone();
-            tokio::spawn(async move {
-                let _ = crate::notifications::send_push_to_user(
-                    &repos,
-                    crate::notifications::PushNotification {
-                        user_id: patient_id,
-                        title: "Medication Reminder".to_string(),
-                        body: format!("It's time to take your {}.", med_name),
-                        data: Some(
-                            [("type".to_string(), "medication_reminder".to_string())].into(),
-                        ),
-                    },
-                )
-                .await;
-            });
+            crate::notifications::notify_patient(
+                data,
+                &reminder.patient_id,
+                &["pushNotifications"],
+                "Medication Reminder",
+                &format!("It's time to take your {}.", reminder.medication_name),
+                "medication_reminder",
+            )
+            .await;
         }
 
         // Africa's Talking SMS integration (when SMS_ENABLED=true)
@@ -546,7 +543,17 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
         // `phone != "Redacted"`, so it could never be taken: a patient who
         // opted into SMS medication reminders received nothing, silently and
         // permanently, and the log line above still reported `sms=true`.
-        if reminder.notification_prefs.sms {
+        // Same two-gate rule as the push above: the reminder's own `sms` flag
+        // is this reminder's channel choice, and the account's
+        // `smsNotifications` is "no text messages at all", which outranks it.
+        if reminder.notification_prefs.sms
+            && crate::notifications::patient_wants(
+                data,
+                &reminder.patient_id,
+                &["smsNotifications"],
+            )
+            .await
+        {
             let patient_phone = match data
                 .repositories
                 .patients

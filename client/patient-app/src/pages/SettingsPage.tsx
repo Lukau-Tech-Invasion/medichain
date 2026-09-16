@@ -366,6 +366,7 @@ export function SettingsPage() {
               label={t('settings.emailNotif')}
               enabled={notifications.emailNotifications}
               onChange={() => setNotifications(n => ({ ...n, emailNotifications: !n.emailNotifications }))}
+              disabled
             />
           </SettingRow>
 

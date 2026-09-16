@@ -22,6 +22,7 @@ pub async fn require_durable_audit(
     data: &web::Data<AppState>,
     entry: crate::repositories::traits::AccessLogEntity,
 ) -> Result<(), HttpResponse> {
+    let alert = access_alert_for(&entry);
     if let Err(error) = data.repositories.access_logs.create(entry).await {
         log::error!("required audit persistence failed: {error}");
         return Err(HttpResponse::ServiceUnavailable().json(serde_json::json!({
@@ -30,7 +31,78 @@ pub async fn require_durable_audit(
             "code": "AUDIT_PERSISTENCE_UNAVAILABLE"
         })));
     }
+    // After the audit is durable, never before: a patient must not be told
+    // about an access the record does not have. Spawned because a notification
+    // is not part of the decision the caller is waiting on, and a push outage
+    // must not delay the release of a record to a clinician.
+    if let Some((patient_id, accessor_role, emergency)) = alert {
+        let state = data.clone();
+        tokio::spawn(async move {
+            let body = if emergency {
+                format!("{accessor_role} opened your emergency record.")
+            } else {
+                format!("{accessor_role} viewed your records.")
+            };
+            crate::notifications::notify_patient(
+                &state,
+                &patient_id,
+                &["accessAlerts", "pushNotifications"],
+                "Record Accessed",
+                &body,
+                "access_alert",
+            )
+            .await;
+        });
+    }
     Ok(())
+}
+
+/// The access alert this audit entry warrants, if any.
+///
+/// Returns `(patient_id, accessor_role, is_emergency)`.
+///
+/// **An allowlist, not a denylist.** Reads alert; writes do not. A denylist
+/// would silently enrol every action added later -- the next `create_*` handler
+/// would start telling patients their records had been *viewed* by the person
+/// who wrote to them, which is both wrong and the kind of noise that makes a
+/// real break-glass alert invisible.
+///
+/// Emergency access alerts regardless of action: a record opened under
+/// break-glass is precisely what the patient most needs to hear about, and the
+/// flag is set independently of what the action is called.
+fn access_alert_for(
+    entry: &crate::repositories::traits::AccessLogEntity,
+) -> Option<(String, String, bool)> {
+    let patient_id = entry.patient_id.clone()?;
+    let action = entry.action.as_str();
+    // `is_emergency_access` is deliberately NOT part of this test. The
+    // emergency module stamps it on every audit it writes, documentation
+    // included, where it means "during an emergency workflow" rather than
+    // "opened under break-glass" -- so trusting it alerted the patient every
+    // time somebody wrote up their resuscitation. Every genuine break-glass
+    // read is already named here: `nfc_tap` and `nfc_self_verify` under the
+    // `nfc_` prefix, plus `emergency` itself.
+    let is_read = action.starts_with("view")
+        || action.starts_with("download")
+        || action.starts_with("nfc_")
+        || action == "list_records"
+        || action == "qr_verification"
+        || action == "emergency";
+    if !is_read {
+        return None;
+    }
+    // Reading your own record is not an access alert. The accessor is a wallet
+    // address and the subject is a `PAT-` id, so this is the same namespace
+    // bridge `notify_patient` documents -- compared here rather than there
+    // because only this caller knows who the accessor was.
+    if entry.accessor_id == patient_id {
+        return None;
+    }
+    Some((
+        patient_id,
+        entry.accessor_role.clone(),
+        entry.is_emergency_access,
+    ))
 }
 
 // ============================================================================
@@ -995,5 +1067,104 @@ mod tests {
             Some(v) => std::env::set_var("IS_DEMO", v),
             None => std::env::remove_var("IS_DEMO"),
         }
+    }
+}
+
+#[cfg(test)]
+mod access_alert_rule_tests {
+    use super::access_alert_for;
+    use crate::repositories::traits::AccessLogEntity;
+    use chrono::Utc;
+
+    fn entry(action: &str, emergency: bool, accessor: &str) -> AccessLogEntity {
+        AccessLogEntity {
+            id: "AL-1".to_string(),
+            accessor_id: accessor.to_string(),
+            accessor_role: "Doctor".to_string(),
+            patient_id: Some("PAT-1".to_string()),
+            resource_type: "medical_record".to_string(),
+            resource_id: None,
+            action: action.to_string(),
+            access_reason: None,
+            is_emergency_access: emergency,
+            ip_address: None,
+            user_agent: None,
+            blockchain_tx_hash: None,
+            accessed_at: Utc::now(),
+            facility_id: None,
+        }
+    }
+
+    #[test]
+    fn reads_alert() {
+        for action in [
+            "view_medical_id",
+            "download_record",
+            "nfc_tap",
+            "list_records",
+            "qr_verification",
+            "emergency",
+        ] {
+            let alert = access_alert_for(&entry(action, false, "5Doctor"));
+            assert!(alert.is_some(), "{action} should alert the patient");
+        }
+    }
+
+    #[test]
+    fn writes_do_not_alert() {
+        for action in [
+            "create",
+            "create_soap_note",
+            "add_vital_signs",
+            "upload_record",
+            "log_symptom",
+            "lab_submission",
+        ] {
+            assert!(
+                access_alert_for(&entry(action, false, "5Doctor")).is_none(),
+                "{action} is a write; alerting on it would drown the real ones"
+            );
+        }
+    }
+
+    #[test]
+    fn emergency_flag_alone_does_not_make_a_write_a_read() {
+        // `emergency/mod.rs` stamps `is_emergency_access: true` on every audit
+        // it writes, documentation included. Three emergency writes alerted
+        // the patient before this was fixed.
+        for action in [
+            "create_stroke_assessment",
+            "create_code_blue",
+            "create_trauma_assessment",
+        ] {
+            assert!(
+                access_alert_for(&entry(action, true, "5Doctor")).is_none(),
+                "{action} documents care; it is not somebody viewing the record"
+            );
+        }
+    }
+
+    #[test]
+    fn break_glass_read_still_alerts_and_says_so() {
+        let (patient, role, emergency) = access_alert_for(&entry("nfc_tap", true, "5Paramedic"))
+            .expect("break-glass must alert");
+        assert_eq!(patient, "PAT-1");
+        assert_eq!(role, "Doctor");
+        assert!(
+            emergency,
+            "the alert must be able to say it was an emergency open"
+        );
+    }
+
+    #[test]
+    fn reading_your_own_record_is_not_an_access_alert() {
+        assert!(access_alert_for(&entry("view_medical_id", false, "PAT-1")).is_none());
+    }
+
+    #[test]
+    fn an_entry_with_no_patient_alerts_nobody() {
+        let mut e = entry("download_record", false, "5Doctor");
+        e.patient_id = None;
+        assert!(access_alert_for(&e).is_none());
     }
 }

@@ -4,12 +4,58 @@ use super::*;
 // ACUTE CRISIS EVENTS
 // ============================================================================
 
+/// What `CodeBluePage` submits.
+///
+/// The handler used to take `clinical::CodeBlueRecord` straight off the wire:
+/// a full resuscitation record whose `team_members` is `Vec<CodeTeamMember>`
+/// and whose `initial_rhythm`, `code_leader`, `witnessed` and `documented_at`
+/// are all required. The page sends team members as a comma-separated list of
+/// names and collects none of the rest, so every submission was rejected with
+/// `invalid type: string "...", expected struct CodeTeamMember`.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateCodeBlueRequest {
+    pub event_id: String,
+    pub patient_id: String,
+    #[serde(default)]
+    pub code_called_at: i64,
+    #[serde(default)]
+    pub code_called_by: String,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub primary_cause: Option<String>,
+    #[serde(default)]
+    pub outcome: String,
+    #[serde(default)]
+    pub narrative: Option<String>,
+    /// Names, as typed. Structured `CodeTeamMember` records are what a roster
+    /// integration would supply; this form asks for a line of names.
+    #[serde(default)]
+    pub team_members: Vec<String>,
+    #[serde(default)]
+    pub medications_administered: Vec<String>,
+    #[serde(default)]
+    pub shocks_delivered: u32,
+    #[serde(default)]
+    pub cpr_cycles: u32,
+    /// Not on the form today; accepted so a monitor integration can supply them
+    /// without another contract change.
+    #[serde(default)]
+    pub initial_rhythm: Option<String>,
+    #[serde(default)]
+    pub witnessed: Option<bool>,
+    #[serde(default)]
+    pub code_leader: Option<String>,
+    #[serde(default)]
+    pub team_arrived_at: Option<i64>,
+}
+
 /// Create code blue record
 #[post("/api/emergency/code-blue")]
 pub async fn create_code_blue(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<CodeBlueRecord>,
+    req: web::Json<CreateCodeBlueRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,

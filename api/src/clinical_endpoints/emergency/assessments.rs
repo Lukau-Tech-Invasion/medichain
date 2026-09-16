@@ -5,11 +5,45 @@ use super::*;
 // ============================================================================
 
 /// Create trauma assessment
+/// What `TraumaPage` submits.
+///
+/// Replaces `clinical::TraumaAssessment` on the wire, which required
+/// `mechanism` (a `TraumaMechanism` enum), `gcs`, `trauma_level`,
+/// `mtp_activated`, `disposition`, a `PrimarySurvey` struct and a
+/// `SecondarySurvey` struct. The page sends `mechanism_of_injury` as free text
+/// and folds its A/B/C/D/E primary survey into `notes`, so every submission was
+/// rejected with `missing field `mechanism``.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateTraumaRequest {
+    pub assessment_id: String,
+    pub patient_id: String,
+    #[serde(default)]
+    pub trauma_type: String,
+    /// Free text: the form's `<select>` values are not the stored enum's
+    /// spellings and the vocabulary is not settled.
+    #[serde(default)]
+    pub mechanism_of_injury: String,
+    #[serde(default)]
+    pub injury_severity_score: Option<u32>,
+    #[serde(default)]
+    pub gcs_score: Option<u8>,
+    #[serde(default)]
+    pub injuries: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub interventions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub assessed_by: String,
+    #[serde(default)]
+    pub assessed_at: i64,
+}
+
 #[post("/api/emergency/trauma")]
 pub async fn create_trauma(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<TraumaAssessment>,
+    req: web::Json<CreateTraumaRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -98,12 +132,56 @@ pub async fn list_patient_trauma(
     }
 }
 
+/// What `StrokePage` submits.
+///
+/// Replaces `clinical::StrokeAssessment` on the wire, which required
+/// `door_time`, an 11-component `NIHStrokeScale`, `nihss_total`,
+/// `ct_findings`, `hemorrhage`, `lvo_suspected`, `tpa_eligible`,
+/// `tpa_contraindications`, `tpa_given`, `thrombectomy_candidate`,
+/// `neuro_ir_activated`, `bp_management` and `stroke_type`. The page collects
+/// none of them, so every submission was rejected with
+/// `missing field `door_time``.
+///
+/// The screen records the NIHSS **total**, which is how the scale is
+/// administered at the bedside, and a FAST exam. Both are carried; neither is
+/// derived from the other.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateStrokeRequest {
+    pub assessment_id: String,
+    pub patient_id: String,
+    /// The page computes these from `<input type="datetime-local">` via
+    /// `getTime() / 1000`, which is a JavaScript float. Accepted as `f64` so a
+    /// fractional second is not a 400.
+    #[serde(default)]
+    pub last_known_well: Option<f64>,
+    #[serde(default)]
+    pub symptom_onset: Option<f64>,
+    #[serde(default)]
+    pub fast_exam: serde_json::Value,
+    #[serde(default)]
+    pub nihss_score: Option<u8>,
+    #[serde(default)]
+    pub blood_glucose: Option<f64>,
+    #[serde(default)]
+    pub ct_head_interpretation: Option<String>,
+    /// `eligible` / `not_eligible` / `evaluating`. Three states on purpose --
+    /// see `stroke_entity` for why "evaluating" must not collapse to `false`.
+    #[serde(default)]
+    pub tpa_eligibility: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub assessed_by: String,
+    #[serde(default)]
+    pub assessed_at: i64,
+}
+
 /// Create stroke assessment
 #[post("/api/emergency/stroke")]
 pub async fn create_stroke(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<StrokeAssessment>,
+    req: web::Json<CreateStrokeRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(u) => u.wallet_address,
