@@ -3711,3 +3711,86 @@ across the whole codebase; all five are cleared and the settings are now on.
 **Method note.** A removal pass verified with `cargo check` alone is not
 verified — `cfg(test)` code only compiles under `--all-targets`, and two
 deletions broke tests that `cargo check` reported as clean.
+
+
+## 2026-09-16 — CLOSED: the rest of the sweep, and a lint that was wrong
+
+Continued from the entry above, across the areas the first pass had not touched.
+
+### Two more endpoints presented invented data as real
+
+Found by searching for the *shape* of the lab-trend fabricator rather than for
+dead code — an endpoint that returns a plausible result instead of saying it
+cannot produce one.
+
+  * **`POST /api/platform/translate`** answered 200 with
+    `[TRANSLATED to fr]: <the original English>`. No screen calls it yet, but
+    `translateContent` already exists in the shared client, so the first one to
+    wire it would have shown a patient their own medication instructions in
+    English and told them they were reading French. Now
+    `503 TRANSLATION_PROVIDER_UNAVAILABLE`, the same rule the blockchain writes
+    follow: a disabled capability returns a typed error, never a fake result.
+  * **`GET /api/appointments/slots/{provider}/{date}`** offers the same ten
+    times for every provider, because nothing stores working hours —
+    `ProviderSchedule`, `WorkingDay` and `BlockedTime` are types with no storage
+    behind them. Real bookings ARE excluded so it cannot double-book, but it can
+    offer 09:00 with someone who starts at 14:00, and the patient app rendered
+    that as "available". The response now declares
+    `slots_source: "default_clinic_hours"` and the booking screen says so.
+    Building provider schedules is a feature, not debt removal.
+
+### A lint that contradicted the project's own rule
+
+`scripts/lint-no-dollar-placeholders.sh` (and its `.ps1` twin) prohibited `$1`
+positional placeholders and demanded `sqlx::QueryBuilder`. Rule 4 of CLAUDE.md
+says the opposite — "All SQL via `sqlx::query_as` with bound parameters" — and
+`$1` with `.bind()` IS the parameterized, safe form. The lint's prescribed
+replacement builds SQL by string concatenation
+(`QueryBuilder::new("SELECT ... WHERE id = ")`), which is strictly easier to get
+wrong. It was never wired into CI, which is the only reason it never pushed
+anyone that way. Removed.
+
+`crossref_endpoints.py` reads `docs/server-endpoints.csv`, which does not exist
+and which nothing produces — it could not run. `repo_inventory.py` and
+`export_federation_inventory.ps1` went with it as completed one-offs.
+
+**Four orphaned scripts were kept**, because each serves a release blocker named
+in CLAUDE.md rather than being spare: `run-synthetic-chain.sh` and
+`synthetic-chain-e2e-test.sh` (external Substrate runtime qualification), and
+`suggest-test-label.py` and `repair-test-subtitles.py` (the 173 failing
+generated frontend tests). Deleting tooling for a campaign that has not run only
+means writing it again.
+
+### Dependencies
+
+`medichain-api` declared `tracing-log`, referenced only in comments — the bridge
+comes through `tracing-subscriber`'s feature. `medichain-crypto` declared
+`ss58-registry` and decodes SS58 by hand with `bs58`. Neither removal shrinks
+the graph (both still arrive transitively, `ss58-registry` via `sp-core`), but a
+direct dependency declares intent and pins a version the crate does not need —
+in the PHI crypto crate, a supply-chain surface claimed for no reason.
+
+All 73 npm dependencies across the four workspaces are referenced. The three
+pallets and the crypto crate contain no dead code at all.
+
+### A regression of mine, and how it surfaced
+
+`4bfaf79` gave `signIn` two 30-second waits, which is right for what sign-in
+costs and does not fit Playwright's default 30-second per-test timeout — hooks
+inherit it, and three specs sign in from `beforeAll`. The failure read
+`"beforeAll" hook timeout of 30000ms exceeded`, which names nothing useful.
+Both configs now set `timeout: 90_000` with the measurement behind it.
+
+It was caught by re-running the suite rather than trusting the earlier green
+run. That is the same lesson as the `cargo check` note above: a change verified
+once is not verified after the next change.
+
+### Final state
+
+649 API, 411 doctor-portal, 99 patient-app, 78 doctor-portal browser, 60 pallet,
+32 crypto. `clippy --all-targets -D warnings` clean, `cargo fmt` clean, 23 static
+gates pass, `cargo deny check` reports advisories/bans/licenses/sources all ok.
+
+Dead items reported by `--force-warn dead_code`: **141 → 113**, of which 90 are
+the `clinical.rs` domain model discussed above and 23 are individually accounted
+for.
