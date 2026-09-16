@@ -3794,3 +3794,148 @@ gates pass, `cargo deny check` reports advisories/bans/licenses/sources all ok.
 Dead items reported by `--force-warn dead_code`: **141 → 113**, of which 90 are
 the `clinical.rs` domain model discussed above and 23 are individually accounted
 for.
+
+
+## 2026-09-16 (later) — Nine clinical pages could not save anything at all
+
+The cleanup found a defect class instead. Listed here because the *method*
+generalises: none of these were visible to any check the project already had.
+
+### The class
+
+A handler deserialises into `web::Json<T>`. If `T` has a required field the page
+does not send, Actix answers **400 before the handler runs**. So:
+
+  * no handler test fires — the handler never executes;
+  * `scripts/unused-endpoints.py` is green — the route resolves and is called;
+  * the route-drift catalogue is green — the path exists;
+  * TypeScript is blind — 83 of `endpoints.ts`'s wrappers take `data: unknown`;
+  * the page shows its own generic "could not save" toast.
+
+Nine pages were in this state. Two causes:
+
+  1. **The handler took a `clinical.rs` domain type off the wire.**
+     `StrokeAssessment` requires `door_time`, an 11-component `NIHStrokeScale`,
+     `nihss_total`, `ct_findings`, `hemorrhage`, `lvo_suspected`, `tpa_eligible`,
+     `tpa_contraindications`, `tpa_given`, `thrombectomy_candidate`,
+     `neuro_ir_activated`, `bp_management` and `stroke_type`. `StrokePage`
+     collects a FAST exam, an NIHSS total and a CT interpretation.
+  2. **The page submits camelCase.** `clinical.rs` contains no `rename_all`
+     anywhere; it is snake_case throughout. `OperativeNotePage` sends
+     `patientId`, `preOpDiagnosis`, `procedureName`, `cptCodes`. Not one field
+     name matched.
+
+| Page | Endpoint | What the server said |
+| --- | --- | --- |
+| Stroke | `POST /api/emergency/stroke` | `missing field door_time` |
+| Code Blue | `POST /api/emergency/code-blue` | `invalid type: string, expected CodeTeamMember` |
+| Trauma | `POST /api/emergency/trauma` | `missing field mechanism` |
+| Operative note | `POST /api/surgical/operative-note` | `missing field note_id` |
+| Post-op note | `POST /api/surgical/post-op` | `missing field note_id` |
+| Autopsy report | `POST /api/surgical/autopsy/report` | `missing field report_id` |
+| Language settings | `POST /api/platform/languages/preference` | `missing field language_code` |
+
+All now take request types shaped like their forms, following
+`CreateCardiacRequest`, which sits in the same module and got it right. Each was
+verified by POSTing the page's own payload at a live server **and reading the
+record back** — which is how the next defect surfaced: all four surgical readers
+rebuilt a `clinical.rs` type from the stored blob, so a note that saved with 201
+came back `RECORD_UNREADABLE`. They now return the stored document.
+
+`LanguageSettingsPage` deserves its own line. Its save has never worked, and the
+page catches the failure and leaves the choice applied locally, so the patient
+watches it succeed. The handler also hardcoded `reading_proficiency: Fluent` and
+`needs_interpreter: false` for every patient — while the form was sending the
+real answers.
+
+### The gate, and four rounds of being wrong
+
+`scripts/check-payload-contracts.py` maps each page's payload keys to the fields
+of the Rust type its route deserialises. Getting it trustworthy took four
+corrections, each of which had it accusing correct code:
+
+  * a JSX `{/* the patient's age */}` opens a brace and contains an apostrophe,
+    so a walker treating that apostrophe as a string delimiter swallowed the
+    rest of the file (BurnPage was reported as submitting `err`, `saved`, `2000`);
+  * `#[serde(alias = "specimenId")] pub specimen_id` is satisfied by a page
+    sending `specimenId` — tracking names individually called `specimen_id`
+    missing *and* `specimenId` stray, both wrong (PathologyPage);
+  * a multi-line `#[serde(...)]` hides its `default` on a continuation line
+    (ChainOfCustodyPage);
+  * a spread (`...newEntry`) carries keys the gate cannot see, so it must report
+    nothing rather than guess (IntakeOutputPage).
+
+It also caught a bug in the fix itself: the first version of
+`CreateOperativeNoteRequest` aliased `anesthesia_type` to itself, which accepts
+nothing new and silently drops what the form sends. `rename_all = "camelCase"`
+is the accurate bridge.
+
+Findings are split into "cannot save" and "keys the handler discards", because
+a type whose fields are all `#[serde(default)]` accepts a mismatched body and
+acts on nothing — a different defect from a 400. `OfflineSyncPage` posts
+`{patient_id}` to `/api/sync` and gets a 200 for a sync of zero items on device
+`""`; it is listed, not failed.
+
+### Notifications: nothing could reach a patient
+
+Separately, and with the same shape.
+
+**No push notification to a patient could ever be delivered.** `register_device`
+stores FCM tokens under the caller's **wallet address**; all five dispatchers
+passed a `PAT-` record id. `get_by_user` matched nothing, `send_push_to_user`
+logged "No device tokens for user" and returned `Ok(())` — indistinguishable
+from delivery — and the appointment reminder wrote `ReminderStatus::Sent` to the
+patient's record. One `notify_patient` now bridges the namespaces and reports
+whether delivery was attempted, so the reminder history records the truth.
+
+**The patient's notification settings were stored and never read.** Four of the
+five dispatchers consulted nothing. "SMS Notifications" gated no SMS. "Access
+Alerts — when someone views your records" had no notification behind it anywhere
+in the API. Access alerts now hang off `require_durable_audit`, the single
+chokepoint every PHI release already passes through — reads alert, writes do
+not. `is_emergency_access` is deliberately not part of that test: the emergency
+module stamps it on every audit it writes, documentation included, and trusting
+it produced three false alerts for a documented resuscitation before six tests
+pinned the rule down.
+
+**Email reported success for mail it never sent.** `send_email` slept 150ms and
+logged "Email successfully queued for delivery" with no SMTP client in the
+binary. Its one caller is `dispatch_breach_notification`, which counted each
+simulated send as a delivered POPIA / HIPAA regulator notification — a statutory
+deadline reported as met. Worse, a test asserted it. `send_email` now returns a
+typed error, the breach path warns that the notification must be sent by hand,
+and the test asserts zero.
+
+### Removed
+
+`POST /api/auth/session` and `GET /api/auth/verify` minted a bearer token for
+any well-formed SS58 address while accepting and discarding a `signature` field.
+No middleware consumed the token and no client called it, so it authorised
+nothing — but it is registered, publicly reachable and named like
+authentication, and CLAUDE.md's own rule is that a verified sr25519 challenge is
+mandatory before any credential is issued. The register had flagged this pair as
+"worth a decision"; this is the decision.
+
+`EmergencyAccessRequest::accessor_id` and `accessor_role`: the handler always
+read the accessor from the authenticated caller. Ignoring them was safe;
+accepting them invites the next reader to start trusting a role named in a
+break-glass request body.
+
+29 `clinical.rs` types (630 lines) across the code-blue, trauma and stroke
+clusters, dead the moment those three endpoints stopped deserialising them.
+
+### A correction worth keeping
+
+Dead-code counts in this repository need care. `cargo check --bin` misses
+`cfg(test)` users — that is how `parse_blood_type`, `blood_type_compatible` and
+`mean_arterial_pressure` were nearly removed while `property_tests.rs` uses all
+three. But `--all-targets` is worse for a *binary* crate: it replaces `main()`
+with the test harness, so `routes.rs::configure` loses its caller and every
+handler transitively reads as dead — 561 items against a true 27. The production
+build plus a grep for test usage is the combination that answers the question.
+
+**Dead items: 27 → 19, each of the 19 accounted for in code** — test-used and
+annotated, an external wire shape, a documented provider seam, a field accepted
+and explicitly documented as not stored, or the `error_codes` module whose
+constants are unused while their values appear as literals 100+ times (the
+duplication is the debt; adopting the module is its own change).
