@@ -125,6 +125,7 @@ const CDSAlertsPage = lazy(() => import('./pages/CDSAlertsPage'));
 
 // Scheduling
 const AppointmentSchedulerPage = lazy(() => import('./pages/AppointmentSchedulerPage'));
+const ProviderSchedulePage = lazy(() => import('./pages/ProviderSchedulePage'));
 
 // Telehealth & Messaging
 const TelehealthPage = lazy(() => import('./pages/TelehealthPage'));
@@ -328,6 +329,7 @@ function App() {
 
         {/* Scheduling */}
         <Route path="appointments" element={<LazyRoute element={<AppointmentSchedulerPage />} />} />
+        <Route path="working-hours" element={<LazyRoute element={<ProviderSchedulePage />} />} />
 
         {/* Telehealth & Messaging */}
         <Route path="telehealth" element={<LazyRoute element={<TelehealthPage />} />} />

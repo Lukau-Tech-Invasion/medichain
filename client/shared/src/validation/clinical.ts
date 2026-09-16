@@ -861,3 +861,134 @@ export const custodyHandoverSchema = z.object({
   transferredTo: requiredText('who is taking custody', 200),
   location: requiredText('where the transfer happened', 200),
 });
+
+/**
+ * `HH:MM`, 24-hour, facility wall-clock.
+ *
+ * Strict on purpose, matching `parse_hhmm` on the server. A schedule that read
+ * `"9am"` as midnight would publish a surgeon as available from 00:00, and the
+ * patient app would render that as availability.
+ */
+const hhmm = z
+  .string()
+  .trim()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Enter a time as HH:MM, 24-hour — for example 14:30');
+
+/** `YYYY-MM-DD`, the spelling the API and the date input both use. */
+const isoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date as YYYY-MM-DD');
+
+/**
+ * One weekday a provider works.
+ *
+ * A break needs both ends or neither: one end alone silently blocks either
+ * nothing or the whole day on the server, and neither is what was meant. The
+ * server refuses the same shape — this exists to say so at the field instead of
+ * after the save.
+ */
+export const workingDaySchema = z
+  .object({
+    weekday: z
+      .number()
+      .int()
+      .min(1, 'Choose a day of the week')
+      .max(7, 'Choose a day of the week'),
+    start: hhmm,
+    end: hhmm,
+    break_start: hhmm.optional().nullable(),
+    break_end: hhmm.optional().nullable(),
+  })
+  .superRefine((day, ctx) => {
+    if (day.start && day.end && day.end <= day.start) {
+      // String comparison is safe for zero-padded HH:MM and avoids a parse.
+      ctx.addIssue({
+        code: 'custom',
+        path: ['end'],
+        message: 'The finish time must be later than the start time',
+      });
+    }
+    const hasStart = Boolean(day.break_start);
+    const hasEnd = Boolean(day.break_end);
+    if (hasStart !== hasEnd) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasStart ? 'break_end' : 'break_start'],
+        message: 'Give both ends of the break, or neither',
+      });
+    }
+    if (hasStart && hasEnd && day.break_end! <= day.break_start!) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['break_end'],
+        message: 'The break must end after it starts',
+      });
+    }
+  });
+
+/**
+ * A dated exception: leave, a conference, an operating list.
+ *
+ * Absent start and end mean the whole day, which is the common case and is why
+ * the times are optional rather than required.
+ */
+export const blockedTimeSchema = z
+  .object({
+    date: isoDate,
+    start: hhmm.optional().nullable(),
+    end: hhmm.optional().nullable(),
+    reason: z.string().trim().max(200, 'Keep the reason under 200 characters').optional(),
+  })
+  .superRefine((block, ctx) => {
+    const hasStart = Boolean(block.start);
+    const hasEnd = Boolean(block.end);
+    if (hasStart !== hasEnd) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasStart ? 'end' : 'start'],
+        message: 'Give both ends of the blocked period, or leave both empty to block the whole day',
+      });
+    }
+    if (hasStart && hasEnd && block.end! <= block.start!) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['end'],
+        message: 'The blocked period must end after it starts',
+      });
+    }
+  });
+
+/**
+ * A provider's bookable time.
+ *
+ * `working_days` may legitimately be empty: a provider who publishes no days is
+ * saying "book me through the default clinic grid", which is what the server
+ * does for a provider with no schedule at all. It is NOT "works no hours" — a
+ * booking system that read it that way would refuse everybody.
+ */
+export const providerScheduleSchema = z
+  .object({
+    working_days: z.array(workingDaySchema),
+    blocked: z.array(blockedTimeSchema),
+    slot_minutes: z
+      .number()
+      .int()
+      .min(5, 'An appointment cannot be shorter than 5 minutes')
+      .max(240, 'Enter an appointment length of 240 minutes or less'),
+  })
+  .superRefine((schedule, ctx) => {
+    const seen = new Set<number>();
+    schedule.working_days.forEach((day, index) => {
+      if (seen.has(day.weekday)) {
+        // Two rows for one weekday: the server keeps the first and silently
+        // discards the second, so the hours saved would not be the hours shown.
+        ctx.addIssue({
+          code: 'custom',
+          path: ['working_days', index, 'weekday'],
+          message: 'This day is already listed — edit the existing row instead',
+        });
+      }
+      seen.add(day.weekday);
+    });
+  });

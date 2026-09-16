@@ -2277,6 +2277,72 @@ export async function getAvailableSlots(
   return getApiClient().get(`/api/appointments/slots/${providerId}/${date}`);
 }
 
+/** One weekday a provider works. `weekday` is ISO-8601: 1 = Monday … 7 = Sunday. */
+export interface ProviderWorkingDay {
+  weekday: number;
+  /** `HH:MM`, facility wall-clock — the same clock an appointment carries. */
+  start: string;
+  end: string;
+  /** An unavailable span inside the day. Both ends or neither; the API refuses one. */
+  break_start?: string | null;
+  break_end?: string | null;
+}
+
+/** A dated exception: leave, a conference, an operating list. */
+export interface ProviderBlockedTime {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** Absent start and end mean the whole day. */
+  start?: string | null;
+  end?: string | null;
+  reason?: string | null;
+}
+
+export interface ProviderSchedule {
+  provider_id: string;
+  working_days: ProviderWorkingDay[];
+  blocked: ProviderBlockedTime[];
+  slot_minutes: number;
+  updated_by?: string | null;
+  updated_at?: number | null;
+}
+
+/**
+ * Read a provider's published working hours.
+ *
+ * Answers 200 with `has_schedule: false` rather than 404 when none is set.
+ * "This provider has not published hours" is a real answer and a booking screen
+ * has to tell it apart from "no such provider": with no schedule the default
+ * clinic grid still applies, so the provider is bookable, not unavailable.
+ */
+export async function getProviderSchedule(providerId: string): Promise<{
+  success: boolean;
+  has_schedule: boolean;
+  schedule?: ProviderSchedule;
+  provider_id?: string;
+  message?: string;
+}> {
+  return getApiClient().get(`/api/providers/${providerId}/schedule`);
+}
+
+/**
+ * Publish a provider's working hours.
+ *
+ * A provider may set their own; an administrator may set anyone's. A clinician
+ * setting a colleague's is refused `403 FORBIDDEN` — a diary somebody else can
+ * quietly rewrite is one nobody can rely on.
+ */
+export async function setProviderSchedule(
+  providerId: string,
+  data: {
+    working_days: ProviderWorkingDay[];
+    blocked: ProviderBlockedTime[];
+    slot_minutes?: number;
+  }
+): Promise<{ success: boolean; provider_id: string; working_days: number; message: string }> {
+  return getApiClient().put(`/api/providers/${providerId}/schedule`, data);
+}
+
 // ============================================================================
 // Death Certificate & Autopsy (Phase 18)
 // ============================================================================

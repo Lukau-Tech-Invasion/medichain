@@ -25,6 +25,7 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'patient-search', label: 'Patient Search', to: '/patient-search', category: 'Main', icon: <Users size={16} />, keywords: ['find', 'lookup'] },
   { id: 'register', label: 'Register Patient', to: '/register-patient', category: 'Main', icon: <Users size={16} />, keywords: ['new', 'add'] },
   { id: 'appointments', label: 'Appointments', to: '/appointments', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule'] },
+  { id: 'working-hours', label: 'Working Hours', to: '/working-hours', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule', 'availability', 'rota', 'hours', 'leave'] },
   
   // Clinical
   { id: 'triage', label: 'Triage', to: '/triage', category: 'Clinical', icon: <FileText size={16} />, keywords: ['esi'] },

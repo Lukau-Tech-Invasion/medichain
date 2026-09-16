@@ -273,6 +273,11 @@ export const DOCTOR_NAV: NavSection[] = [
       // administrative section.
       { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard },
       { id: 'appointments', to: '/appointments', label: 'Appointments', icon: Calendar },
+      // The hours the slots on the Appointments screen are generated from.
+      // Without them booking falls back to a default grid that is the same for
+      // every provider, which is how a 09:00 gets offered with a surgeon whose
+      // list starts at 14:00.
+      { id: 'working-hours', to: '/working-hours', label: 'Working Hours', icon: Clock },
     ],
   },
   {
