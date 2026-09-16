@@ -5,6 +5,7 @@ import {
   getApiClient,
   useTranslation,
   setAppointmentStatus,
+  checkInAppointment,
   createAppointment,
   getProviders,
   getAvailableSlots,
@@ -241,6 +242,32 @@ export function AppointmentsPage() {
         if (!reason.trim()) return;
       }
       await setAppointmentStatus(id, to, reason);
+      await loadAppointments();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('appointments.actionFailed'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /**
+   * Tell the clinic you have arrived.
+   *
+   * `POST /api/appointments/{id}/check-in` has always permitted the patient --
+   * the handler resolves the caller through `linked_patient_id` precisely so a
+   * patient can check themselves in -- and no patient screen has ever called
+   * it. Reception did it for them or nobody did.
+   *
+   * Offered only from `confirmed`, because that is the only transition the
+   * server's own state machine allows: "a booking is a proposal until the party
+   * who did not make it agrees", so `scheduled -> checked_in` is refused. A
+   * button that is always a 400 is worse than no button.
+   */
+  const checkIn = async (id: string) => {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await checkInAppointment(id);
       await loadAppointments();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t('appointments.actionFailed'));
@@ -755,6 +782,27 @@ export function AppointmentsPage() {
                     which this app cannot do yet. Cancel is offered instead
                     because it is a transition the server genuinely permits a
                     patient to make. */}
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(appointment.id, 'cancelled')}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:opacity-50"
+                >
+                  {t('appointments.cancelAppointment')}
+                </button>
+              </div>
+            )}
+
+            {appointment.status === 'confirmed' && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => void checkIn(appointment.id)}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:opacity-50"
+                >
+                  {t('appointments.checkIn')}
+                </button>
                 <button
                   type="button"
                   onClick={() => void changeStatus(appointment.id, 'cancelled')}
