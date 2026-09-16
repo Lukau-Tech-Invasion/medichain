@@ -62,7 +62,12 @@ test.describe('Login Flow', () => {
     // alert carries a dark tint in dark mode instead of a glaring pale patch.
     // Asserting on a palette class would have quietly stopped matching.
     const errorAlert = page.locator('.bg-critical-subtle');
-    await expect(errorAlert).toBeVisible();
+    // Longer than the 5s default, because the thing being waited on is an
+    // Argon2id verification that is slow *on purpose*. Under the full suite the
+    // form was still showing "Signing in..." at 5s and this failed; run alone it
+    // finishes in under nine seconds. A password check fast enough to assert in
+    // five would be the actual defect.
+    await expect(errorAlert).toBeVisible({ timeout: 20_000 });
     // Deliberately NOT asserting which of identifier/password was wrong: the
     // server answers both identically so the form cannot be used to enumerate
     // valid accounts.
