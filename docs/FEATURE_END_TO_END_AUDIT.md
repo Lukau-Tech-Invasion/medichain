@@ -307,28 +307,64 @@ route scan is not by itself end-to-end proof.
 
 ### P1 — policy consumption and external services
 
+> **Status reconciled 2026-09-17.** Items 2 and 3 are closed; 1 is closed for
+> push and partially closed elsewhere; 4 and 5 need things only the project
+> owner can supply. Each is annotated below rather than deleted, because a
+> backlog that loses its own history gets re-litigated.
+
 1. Make notification, privacy and research preferences authoritative in every
    email, SMS, push, research export and secondary-use path.
-2. Replace or persist the process-memory federation/security compatibility
-   stores: identity contexts, organisation keys, managed-device lifecycle,
-   emergency grants, mobile-record sessions and telehealth-retention artifacts.
-3. Qualify real SMTP/SMS/push, telehealth, speech-to-text and key-management/HSM
-   integrations with safe failure behavior and auditable retry handling.
+   **Push: closed** — `notifications::notify_patient` bridges `PAT-` to the
+   linked wallet and consults `patient_wants` before every send.
+   **SMS: closed by a different mechanism** — the global opt-out list is
+   enforced inside `send_sms_with_retry`, and the medication-reminder path is
+   additionally gated on the reminder's own SMS opt-in, which is the more
+   specific preference. **Research export and secondary use remain open.**
+2. ~~Replace or persist the process-memory federation/security compatibility
+   stores.~~ **Closed 2026-09-17.** All seven were checked against what they do
+   rather than against the fact that they hold a map. Five were already durable
+   (`emergency_grants`, `mobile_records`, `device_lifecycle`, `security`,
+   `card_registry`); `audit_outbox` is only used when there is no pool at all.
+   One was a real defect — `organization_keys` answered `201 Created` while its
+   table stayed at zero rows — and is fixed. Two stay volatile deliberately:
+   `identity_contexts` (contexts are minted immediately before use and expire
+   hourly anyway) and `telehealth_retention` (no caller at all; a "designed,
+   not adopted" decision, not a durability one). The reasoning for each is in
+   `TECHNICAL_DEBT_REGISTER.md` under 2026-09-17 so this is not re-opened.
+3. ~~Qualify real SMTP/SMS/push, telehealth, speech-to-text and
+   key-management/HSM integrations.~~ **Closed 2026-09-17.** SMTP is `lettre`
+   with TLS by default and plaintext refused in production, verified by
+   capturing a real SMTP conversation. SMS is Africa's Talking, push is FCM v1,
+   telehealth selects among `jitsi|internal|daily|twilio`, speech-to-text has a
+   real Google Cloud Speech v1 client behind `TRANSCRIPTION_PROVIDER`, and
+   translation gained the same shape (`TRANSLATION_PROVIDER`). Key management
+   is not an integration gap: private wrapping keys deliberately never enter
+   this process, which is the design, not a missing feature.
 4. Deploy and qualify the required Substrate runtime calls on an independent
    multi-validator environment and prove finalized writes and outbox replay.
+   **Open, and not closable here** — it needs validator hosts and a consortium
+   governance decision. See the unchecked list at the top of
+   `IMPLEMENTATION_PLAN.md`.
 5. Publish reviewed Terms, Privacy/PAIA information and the data-subject contact
-   path before enabling those links in production.
+   path before enabling those links in production. **Open** — legal content,
+   not code.
 
 ### P2 — completeness and experience
 
-1. Replace the pathology slide-viewer placeholder with an approved DICOM/WSI
-   integration and realistic access controls.
-2. Reconcile every remaining generated frontend test with the real product
-   contract, adding focused negative-path coverage where the generated fixture
-   exposed a real defect.
-3. Add direct component coverage for production pages that still rely only on
+1. ~~Replace the pathology slide-viewer placeholder.~~ **The premise is stale.**
+   `PathologyPage` uploads, decrypts and renders real slide images keyed by
+   `pathslide__{specimenId}__`; there is no placeholder left to replace. A
+   tiled deep-zoom DICOM/WSI viewer is a separate product decision with a
+   licence attached, not a gap in this codebase.
+2. ~~Reconcile every remaining generated frontend test with the real product
+   contract.~~ **Closed.** Both suites are green: 425 doctor-portal across 94
+   files, 105 patient-app across 27.
+3. ~~Add direct component coverage for production pages that rely only on
    route/type/static-contract validation, starting with the appointment
-   scheduler.
+   scheduler.~~ **Closed for the named page** — `AppointmentSchedulerPage.test.tsx`
+   exists, and `check-payload-contracts.py` now reports its own blind spots
+   instead of hiding them, so any page in that state is named rather than
+   assumed.
 
 ## Proof still required
 
