@@ -4226,3 +4226,95 @@ polkadot-sdk. `git diff` confirms that workspace is unchanged since its green
 run on 2026-09-15. Docker's data disk on this host is 65 GB and `docker ps`
 hangs; `docker system prune` would reclaim most of it, but that is an owner
 decision, not a judgement call.
+
+## 2026-09-17 — The last in-process stores, and which of them mattered
+
+`scripts/check-state-durability.py` reports 0 live references, but it only
+scans `AppState`'s own fields. Seven modules keep their own
+`RwLock<HashMap>` outside that scan, and the P1 backlog in
+`docs/FEATURE_END_TO_END_AUDIT.md` names them: "identity contexts, organisation
+keys, managed-device lifecycle, emergency grants, mobile-record sessions and
+telehealth-retention artifacts". Each was checked against what it actually does
+rather than against the fact that it holds a map.
+
+**Durable already**, hydrated or pool-backed in `AppState::new_with_*`:
+
+  * `emergency_grants` — `with_pool`
+  * `mobile_records` — `with_pool`
+  * `device_lifecycle` — `load_from_pool`
+  * `security` (MFA enrolments, alerts) — `load_security_from_db`
+  * `card_registry` — `hydrate_card_registry`
+  * `audit_outbox` — only used when `db_pool.is_none()`; on PostgreSQL the
+    events go to the database directly. Correct by construction.
+
+**One real defect: `organization_keys`.** Fixed; see the commit and the entry
+below.
+
+**`identity_contexts` is volatile and that is correct.** It looked like the
+worst of them, because `POST /api/emergency/access` refuses without a live
+professional work context and a restart empties the store — a `403
+WORK_CONTEXT_REQUIRED` in the break-glass path is as expensive as a refusal
+gets. It cannot happen. `NFCTapSimulator` mints a fresh context immediately
+before every emergency call ("Always mint a fresh work context. This prevents
+personal-health or stale professional tokens from being reused for emergency
+access"), so the context is created and consumed inside the same interaction.
+The derived maps are rebuilt from the live `User` record by
+`register_legacy_user` on every issue, and a context carries a 60-minute TTL,
+so a restart is equivalent to every context expiring at once — which the
+clients already handle because it happens hourly anyway. Persisting them would
+add a `login_contexts` write to the emergency path in exchange for nothing.
+
+**`telehealth_retention` has no caller at all.** 221 lines, tested, complete —
+`register`, `apply_legal_hold`, `due_for_deletion`, `mark_deleted` — and
+nothing in the binary calls any of them. It is not a durability problem; it is
+the "designed, not adopted" class, and it may well be superseded: a transcript
+produced by `append_transcript_on_stop` is appended to the session's
+`visit_notes`, so it lives inside the session record and under that record's
+retention regime rather than as a separate artifact. Adopting the module or
+removing it is a decision, not a judgement call, and removal needs
+authorisation. Recorded here rather than acted on.
+
+### The organisation key directory lost every key on restart
+
+`organization_keys` has had a table since `20260727000002` and nothing ever
+wrote to it. Probed against a live PostgreSQL-backed server:
+
+    POST /api/organizations/legacy-organization/keys    201 Created
+    SELECT count(*) FROM organization_keys               0
+
+The 201 carried the key in its body. The row count stayed at zero.
+
+What makes this worse than an ordinary lost record is what a missing key
+*means*. `active()` answering `None` is indistinguishable from "this
+organisation has not published a wrapping key yet", so the loss reads as a
+configuration gap rather than as data loss — and the fix somebody reaches for
+is to register the key again, which papers over the defect every time it
+happens.
+
+The revocation direction is the dangerous one. Before this, a revoked key read
+as revoked until the process restarted, and then it was active again.
+
+Fixed on the managed-device pattern already in `device_lifecycle`: hydrate at
+startup with `load_from_pool`, write through in the handler, roll the
+in-memory copy back when the durable write fails. Memory must never claim more
+than the database holds — a directory listing a key the database does not have
+lies until the next restart, and nobody re-registers a key that is already
+listed.
+
+`status` needed a spelling the CHECK constraint accepts. It is written out by
+hand rather than derived from the serde rename, so adding a variant is a
+compile error here instead of a runtime constraint violation on a key nobody
+can then register. A status the process cannot read resolves to `Revoked`,
+never `Active`: the safe reading of a key whose state is unknown is that it
+must not be used.
+
+Hydration failure fails closed and says so. An empty registry refuses every
+lookup; the unsafe direction is a directory that silently omits a revoked key.
+
+5 unit tests. Verified end to end against a live server and a real database:
+
+    register             201, and 1 row in organization_keys
+    activate             200, status 'active' in the table
+    RESTART THE SERVER
+    GET .../keys/active  200, the same key, still active
+    revoke               200, status 'revoked' and revoked_at set in the table
