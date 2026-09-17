@@ -57,14 +57,98 @@ pub async fn register_organization_key(
         replaced_by: None,
         created_at: Utc::now(),
     });
-    match result {
-        Ok(key) => HttpResponse::Created().json(key),
-        Err(message) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: message.into(),
-            code: "KEY_REGISTRATION_REJECTED".into(),
-        }),
+    let key = match result {
+        Ok(key) => key,
+        Err(message) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: message.into(),
+                code: "KEY_REGISTRATION_REJECTED".into(),
+            })
+        }
+    };
+
+    // Before this, the 201 above was the whole story: the key lived in process
+    // memory and the `organization_keys` table stayed at zero rows. Rolling the
+    // in-memory copy back on failure matters more here than the insert does —
+    // a registry listing a key the database does not hold is a directory that
+    // lies until the next restart, and nobody re-registers a key that is
+    // already listed.
+    if let Err(error) = persist_registration(&data, &key).await {
+        let _ = data.organization_keys.remove(&key.id);
+        log::error!("organisation-key registration persistence failed: {error}");
+        return key_persistence_failed();
     }
+
+    HttpResponse::Created().json(key)
+}
+
+fn key_persistence_failed() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: "Organisation key storage is unavailable; the key was not registered".into(),
+        code: "KEY_PERSISTENCE_REQUIRED".into(),
+    })
+}
+
+async fn persist_registration(
+    data: &web::Data<AppState>,
+    key: &OrganizationPublicKey,
+) -> Result<(), String> {
+    let Some(pool) = data.db_pool.as_ref() else {
+        return Ok(());
+    };
+    sqlx::query(
+        "INSERT INTO organization_keys (id, organization_id, facility_id, key_id, version, \
+         purpose, algorithm, public_key, status, proof_of_possession, valid_from, valid_until, \
+         retired_at, revoked_at, replaced_by, created_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+    )
+    .bind(&key.id)
+    .bind(&key.organization_id)
+    .bind(&key.facility_id)
+    .bind(&key.key_id)
+    .bind(key.version)
+    .bind(&key.purpose)
+    .bind(&key.algorithm)
+    .bind(&key.public_key)
+    .bind(key.status.as_str())
+    .bind(&key.proof_of_possession)
+    .bind(key.valid_from)
+    .bind(key.valid_until)
+    .bind(key.retired_at)
+    .bind(key.revoked_at)
+    .bind(&key.replaced_by)
+    .bind(key.created_at)
+    .execute(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+async fn persist_transition(
+    data: &web::Data<AppState>,
+    key: &OrganizationPublicKey,
+) -> Result<(), String> {
+    let Some(pool) = data.db_pool.as_ref() else {
+        return Ok(());
+    };
+    let result = sqlx::query(
+        "UPDATE organization_keys SET status=$2, retired_at=$3, revoked_at=$4 WHERE id=$1",
+    )
+    .bind(&key.id)
+    .bind(key.status.as_str())
+    .bind(key.retired_at)
+    .bind(key.revoked_at)
+    .execute(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+    if result.rows_affected() != 1 {
+        // The registry held a key the table does not. Saying so is the point:
+        // the alternative is a revocation that appears to have worked.
+        return Err("organisation key was not persisted before this transition".into());
+    }
+    Ok(())
 }
 
 /// Change a key lifecycle state through the registry's guarded transition graph.
@@ -79,17 +163,35 @@ pub async fn transition_organization_key(
         return response;
     }
     let (organization_id, key_id) = path.into_inner();
-    match data
+    // Captured before the transition, because rolling back needs the state the
+    // key was in, not the state the failed write was trying to reach.
+    let previous = data.organization_keys.find(&organization_id, &key_id);
+    let key = match data
         .organization_keys
         .transition(&organization_id, &key_id, body.status)
     {
-        Ok(key) => HttpResponse::Ok().json(key),
-        Err(message) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: message.into(),
-            code: "KEY_TRANSITION_REJECTED".into(),
-        }),
+        Ok(key) => key,
+        Err(message) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: message.into(),
+                code: "KEY_TRANSITION_REJECTED".into(),
+            })
+        }
+    };
+
+    // A revocation that only happened in memory is the dangerous direction of
+    // this defect: the key reads as revoked until the process restarts, and
+    // then it is active again.
+    if let Err(error) = persist_transition(&data, &key).await {
+        if let Some(previous) = previous {
+            let _ = data.organization_keys.restore(previous);
+        }
+        log::error!("organisation-key transition persistence failed: {error}");
+        return key_persistence_failed();
     }
+
+    HttpResponse::Ok().json(key)
 }
 
 /// Resolve the current public wrapping/signing key for a specific purpose.

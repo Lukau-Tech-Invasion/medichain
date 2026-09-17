@@ -392,6 +392,29 @@ impl AppState {
             }
             _ => crate::mobile_records::MobileRecordStore::new(),
         };
+        // The key directory had no durable reader at all: rows sat in
+        // `organization_keys` (a table since 20260727000002) while the registry
+        // started every process empty, so `active()` answered `None` for an
+        // organisation that had published a key months earlier.
+        let organization_keys = match (repositories.backend, db_pool.as_ref()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                match crate::organization_keys::OrganizationKeyRegistry::load_from_pool(pool).await
+                {
+                    Ok(registry) => registry,
+                    Err(error) => {
+                        // Fail closed, loudly. An empty registry refuses every
+                        // wrapping-key lookup, which is the safe direction; the
+                        // unsafe one is carrying on with a directory that
+                        // silently omits a revoked key.
+                        log::error!(
+                            "Organisation-key reload failed; key lookups will fail closed: {error}"
+                        );
+                        crate::organization_keys::OrganizationKeyRegistry::new()
+                    }
+                }
+            }
+            _ => crate::organization_keys::OrganizationKeyRegistry::new(),
+        };
         let device_lifecycle = match (repositories.backend, db_pool.as_ref()) {
             (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
                 match crate::device_lifecycle::DeviceLifecycleStore::load_from_pool(pool).await {
@@ -423,7 +446,7 @@ impl AppState {
             encryption_keyring,
             security,
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
-            organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
+            organization_keys,
             device_lifecycle,
             emergency_grants,
             patient_access,
