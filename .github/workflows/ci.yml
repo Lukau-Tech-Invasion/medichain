@@ -151,6 +151,15 @@ jobs:
             - name: No handler writes clinical state into process memory
               run: python scripts/check-state-durability.py
 
+            # Its sibling, and the blind spot it left. The gate above ratchets
+            # `AppState`'s own fields; seven modules keep their own
+            # `RwLock<HashMap>` outside that scan, and `organization_keys` sat
+            # in the gap from 2026-07-27 to 2026-09-17 answering 201 Created
+            # over a table that stayed at zero rows. A store must have a
+            # durable seam or a written reason it does not need one.
+            - name: Every module store is durable or accounted for
+              run: python scripts/check-store-durability.py
+
             # Frontend paths must match registered backend routes. Whole feature
             # clusters once pointed at endpoints that did not exist.
             - name: Frontend calls resolve to registered endpoints
