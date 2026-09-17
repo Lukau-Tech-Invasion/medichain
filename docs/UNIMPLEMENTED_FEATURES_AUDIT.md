@@ -365,3 +365,33 @@ Worth saying, because the absence is evidence too:
 * No button or toggle without a handler — the last of those was the wearables
   settings tab, closed 2026-09-16.
 * Analytics and dashboards compute from repositories, not from literals.
+
+---
+
+## Where the library covers these decisions, and where it does not
+
+The owner's engineering library
+(`C:\Users\Admin\Downloads\Books-master\Books-master`) is the standard for
+design decisions in this repository — see the "second brain" section of
+`CLAUDE.md`. Searched while writing this audit, so the next person does not
+repeat the lookup:
+
+| Finding | Library coverage |
+| --- | --- |
+| §2 search, indexing strategy | *Designing Data-Intensive Applications* (clustered vs non-clustered indexes); *Introduction to Information Retrieval* in `free-library/10-ai-ml-llm/` for the retrieval side |
+| §3 FHIR ingest, integration contracts | *Patterns of Enterprise Application Architecture* (Fowler); *The Pragmatic Programmer* |
+| §7 two API client layers | *Refactoring* — this is textbook duplication with a named cure |
+| §11 typed tables vs JSON blobs | *Designing Data-Intensive Applications* on schema-on-read vs schema-on-write |
+
+**Named gaps — the library does not cover these, so go to primary sources:**
+
+* **Searchable encryption / blind indexes** (§2). Nothing in the corpus. The
+  authoritative material is the CryptDB and Song–Wagner–Perrig literature plus
+  current guidance on deterministic-encryption leakage; this needs a written
+  design decision, not a recalled pattern.
+* **Envelope encryption and key wrapping** (§5). Searching returns only
+  incidental ML hits. Go to the AWS KMS and Google Cloud KMS envelope-encryption
+  documentation, and to the NIST SP 800-57 key-management guidance.
+* **FHIR R4 itself** (§3). Not in the library; HL7's specification is the source.
+* **Substrate / polkadot-sdk validator operation** (§4). Not in the library;
+  the Polkadot wiki and `docs/BLOCKCHAIN_NODE.md` are the sources.
