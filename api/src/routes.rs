@@ -458,6 +458,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Quick Note Templates endpoints
         .service(clinical_endpoints::get_note_templates)
         .service(clinical_endpoints::use_note_template)
+        .service(clinical_endpoints::create_note_template)
+        .service(clinical_endpoints::deactivate_note_template)
         // Medical ID Card endpoints
         .service(clinical_endpoints::get_medical_id)
         .service(clinical_endpoints::get_medical_id_qr)

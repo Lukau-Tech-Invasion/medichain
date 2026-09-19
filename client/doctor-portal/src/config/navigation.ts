@@ -291,6 +291,11 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'discharge', to: '/discharge', label: 'Discharge', icon: FileCheck },
       { id: 'consult', to: '/consult', label: 'Consult', icon: Users },
       { id: 'ama', to: '/ama', label: 'AMA', icon: FileText },
+      // Doctors and nurses are who the templates API serves; this lived only
+      // in the admin navigation, which the router enforces, so the people who
+      // could use templates could not open the page and the one role that
+      // could open it was refused by the API.
+      { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
     ],
   },
   {
@@ -446,6 +451,7 @@ export const NURSE_NAV: NavSection[] = [
     icon: FileText,
     items: [
       { id: 'progress', to: '/progress-note', label: 'Progress Notes', icon: FileText },
+      { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
       { id: 'nursing-hub', to: '/nursing', label: 'Nursing Hub', icon: Stethoscope },
       { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
     ],

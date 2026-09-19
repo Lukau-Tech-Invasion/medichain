@@ -1103,7 +1103,9 @@ pub async fn get_note_templates(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    // Documenting clinicians use templates; administrators list them to retire
+    // one. Other roles have no use for a note template.
+    if !(current_user.role.can_edit_medical_records() || current_user.role.is_admin()) {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -1111,7 +1113,24 @@ pub async fn get_note_templates(
         });
     }
 
-    let templates = builtin_note_templates();
+    // Built-ins first, flagged read-only, then every active template a
+    // clinician in this facility has saved. A failed read of the latter is an
+    // error, not a shorter list: "no shared templates" would be a claim.
+    let mut templates = builtin_note_templates();
+    for template in &mut templates {
+        template["built_in"] = serde_json::json!(true);
+    }
+    match super::note_templates::active_custom_templates(&data).await {
+        Ok(custom) => templates.extend(custom),
+        Err(error) => {
+            log::error!("note template registry read failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Saved note templates could not be read".to_string(),
+                code: "TEMPLATES_UNAVAILABLE".to_string(),
+            });
+        }
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -1140,158 +1159,283 @@ pub async fn use_note_template(
         .unwrap_or_default();
     let variables = body.get("variables").and_then(|v| v.as_object());
 
-    let content = match note_template_content(template_id) {
-        Some(content) => content,
-        None => {
+    let sections = match note_template_sections(&data, template_id).await {
+        Ok(Some(sections)) => sections,
+        Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Unknown note template".to_string(),
                 code: "TEMPLATE_NOT_FOUND".to_string(),
             })
         }
+        Err(error) => {
+            log::error!("note template read failed: {error}");
+            return HttpResponse::ServiceUnavailable().finish();
+        }
     };
-    let rendered_content = render_note_template(content, variables);
+    let rendered_sections = render_sections(&sections, variables);
+    // `rendered_content` keeps the object shape earlier clients read;
+    // `rendered_sections` is the one to display, because an object does not
+    // keep the order the sections were written in.
+    let rendered_content: serde_json::Map<String, serde_json::Value> = rendered_sections
+        .iter()
+        .map(|section| {
+            (
+                section["title"].as_str().unwrap_or_default().to_string(),
+                section["content"].clone(),
+            )
+        })
+        .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "template_id": template_id,
         "rendered_content": rendered_content,
+        "rendered_sections": rendered_sections,
         "timestamp": chrono::Utc::now().timestamp()
     }))
 }
 
-/// The built-in note templates: the one definition both the registry listing
-/// and the renderer read.
+/// The ordered `(title, text)` sections of a built-in or an active
+/// clinician-authored template; `None` when the id names neither.
+async fn note_template_sections(
+    data: &web::Data<AppState>,
+    template_id: &str,
+) -> RepositoryResult<Option<Vec<(String, String)>>> {
+    if let Some(sections) = builtin_sections(template_id) {
+        return Ok(Some(sections));
+    }
+    let Some(template) =
+        super::note_templates::find_active_custom_template(data, template_id).await?
+    else {
+        return Ok(None);
+    };
+    let sections = template["sections"]
+        .as_array()
+        .map(|sections| {
+            sections
+                .iter()
+                .map(|section| {
+                    (
+                        section["title"].as_str().unwrap_or_default().to_string(),
+                        section["content"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(Some(sections))
+}
+
+/// Whether `template_id` names a built-in, read-only template.
+pub(super) fn is_builtin_note_template(template_id: &str) -> bool {
+    note_template_content(template_id).is_some()
+}
+
+/// A built-in template: sections in the order a clinician writes them.
+struct BuiltinTemplate {
+    id: &'static str,
+    name: &'static str,
+    category: &'static str,
+    sections: &'static [(&'static str, &'static str)],
+}
+
+/// The built-in note templates: the one definition the registry listing, the
+/// `content` object and the renderer all read.
 ///
-/// There used to be two copies -- one here for `GET /api/templates/notes`, one
-/// in the renderer -- and they had already drifted: the renderer's copy wrote
-/// the Rust escape `\\n` where this one writes `\n`, so a rendered draft showed
-/// a literal backslash-n where the listed template showed a line break.
+/// There used to be two copies -- one for `GET /api/templates/notes`, one in
+/// the renderer -- and they had already drifted: the renderer's copy wrote the
+/// Rust escape `\\n` where the other wrote `\n`, so a rendered draft showed a
+/// literal backslash-n where the listed template showed a line break.
 ///
-/// Every `content` is a flat object of strings. The renderer depends on that,
-/// and `every_template_body_is_a_flat_object_of_strings` holds it.
+/// A table of ordered pairs rather than `json!` objects, because a JSON object
+/// here keeps no order: every built-in SOAP note was served as Assessment,
+/// Objective, Plan, Subjective.
+const BUILTIN_NOTE_TEMPLATES: [BuiltinTemplate; 6] = [
+    BuiltinTemplate {
+        id: "TPL-SOAP-ROUTINE",
+        name: "Routine Follow-up SOAP",
+        category: "SOAP",
+        sections: &[
+            ("subjective", "Patient presents for routine follow-up. Reports [SYMPTOMS]. Denies [NEGATIVE_SYMPTOMS]. Medications are being taken as prescribed."),
+            ("objective", "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]. General: Alert and oriented, no acute distress. [SYSTEM_EXAM]"),
+            ("assessment", "1. [PRIMARY_DIAGNOSIS] - [STATUS]\n2. [SECONDARY_DIAGNOSIS] - [STATUS]"),
+            ("plan", "1. Continue current medications\n2. [ADDITIONAL_ORDERS]\n3. Follow-up in [TIMEFRAME]"),
+        ],
+    },
+    BuiltinTemplate {
+        id: "TPL-SOAP-ED",
+        name: "Emergency Department SOAP",
+        category: "SOAP",
+        sections: &[
+            ("subjective", "Chief Complaint: [CC]\nHPI: [AGE] y/o [SEX] presents with [SYMPTOMS] x [DURATION]. Onset: [ONSET]. Quality: [QUALITY]. Severity: [SEVERITY]/10. Associated symptoms: [ASSOCIATED]. Denies: [PERTINENT_NEGATIVES]."),
+            ("objective", "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]\nGeneral: [GENERAL]\nHEENT: [HEENT]\nCardio: [CARDIO]\nPulm: [PULM]\nAbd: [ABD]\nExt: [EXT]\nNeuro: [NEURO]"),
+            ("assessment", "1. [DIAGNOSIS] - [DIFFERENTIAL_CONSIDERATIONS]"),
+            ("plan", "1. [WORKUP]\n2. [TREATMENT]\n3. [DISPOSITION]"),
+        ],
+    },
+    BuiltinTemplate {
+        id: "TPL-HP-ADMISSION",
+        name: "Admission H&P",
+        category: "H&P",
+        sections: &[
+            ("chief_complaint", "[CC]"),
+            ("hpi", "[AGE] y/o [SEX] with PMH of [PMH] presenting with [SYMPTOMS]..."),
+            ("pmh", "[PMH_LIST]"),
+            ("psh", "[SURGICAL_HISTORY]"),
+            ("medications", "[MEDICATION_LIST]"),
+            ("allergies", "[ALLERGY_LIST]"),
+            ("social_history", "Smoking: [SMOKING]\nAlcohol: [ALCOHOL]\nDrugs: [DRUGS]\nOccupation: [OCCUPATION]"),
+            ("family_history", "[FAMILY_HISTORY]"),
+            ("ros", "Constitutional: [CONST]\nCardiovascular: [CV]\nRespiratory: [RESP]\nGI: [GI]\nGU: [GU]\nMSK: [MSK]\nNeuro: [NEURO]\nPsych: [PSYCH]"),
+            ("physical_exam", "[EXAM_FINDINGS]"),
+            ("assessment_plan", "[ASSESSMENT_AND_PLAN]"),
+        ],
+    },
+    BuiltinTemplate {
+        id: "TPL-PROC-CENTRAL",
+        name: "Central Line Procedure Note",
+        category: "Procedure",
+        sections: &[
+            ("procedure", "Central Venous Catheter Placement"),
+            ("indication", "[INDICATION]"),
+            ("consent", "Informed consent obtained"),
+            ("site", "[SITE] - [IJ/SC/FEMORAL]"),
+            ("technique", "Sterile technique with full barrier precautions. Ultrasound-guided. Local anesthesia with [LIDOCAINE_DOSE]. [CATHETER_TYPE] catheter placed using Seldinger technique. [ATTEMPTS] attempt(s). Blood aspirated from all ports. Catheter secured at [CM] cm."),
+            ("complications", "[NONE/COMPLICATIONS]"),
+            ("post_procedure", "CXR ordered for placement confirmation"),
+            ("attending", "[ATTENDING_NAME]"),
+        ],
+    },
+    BuiltinTemplate {
+        id: "TPL-PROC-LP",
+        name: "Lumbar Puncture Procedure Note",
+        category: "Procedure",
+        sections: &[
+            ("procedure", "Lumbar Puncture"),
+            ("indication", "[INDICATION]"),
+            ("consent", "Informed consent obtained"),
+            ("position", "[LATERAL_DECUBITUS/SITTING]"),
+            ("site", "[L3-L4/L4-L5]"),
+            ("technique", "Sterile technique. Local anesthesia with [LIDOCAINE]. [NEEDLE_SIZE] spinal needle. Opening pressure: [OP] cm H2O. [VOLUME] mL CSF collected in [TUBES] tubes."),
+            ("csf_appearance", "[CLEAR/CLOUDY/BLOODY/XANTHOCHROMIC]"),
+            ("closing_pressure", "[CP] cm H2O"),
+            ("complications", "[NONE/COMPLICATIONS]"),
+            ("post_procedure", "Patient instructed to remain supine for [DURATION]"),
+        ],
+    },
+    BuiltinTemplate {
+        id: "TPL-DC-STANDARD",
+        name: "Standard Discharge Summary",
+        category: "Discharge",
+        sections: &[
+            ("admission_date", "[ADMIT_DATE]"),
+            ("discharge_date", "[DC_DATE]"),
+            ("admitting_diagnosis", "[ADMIT_DX]"),
+            ("discharge_diagnoses", "[DC_DX_LIST]"),
+            ("hospital_course", "[COURSE_SUMMARY]"),
+            ("discharge_condition", "[STABLE/IMPROVED]"),
+            ("discharge_medications", "[NEW_MED_LIST]"),
+            ("follow_up_instructions", "[FOLLOW_UP_PLAN]"),
+        ],
+    },
+];
+
+fn find_builtin(template_id: &str) -> Option<&'static BuiltinTemplate> {
+    BUILTIN_NOTE_TEMPLATES
+        .iter()
+        .find(|template| template.id == template_id)
+}
+
+/// The listing shape: `content` for clients that read the object, and an
+/// ordered `sections` array (the same shape clinician templates use) for
+/// clients that display them.
 fn builtin_note_templates() -> Vec<serde_json::Value> {
-    vec![
-        // SOAP Note Templates
-        serde_json::json!({
-            "template_id": "TPL-SOAP-ROUTINE",
-            "name": "Routine Follow-up SOAP",
-            "category": "SOAP",
-            "content": {
-                "subjective": "Patient presents for routine follow-up. Reports [SYMPTOMS]. Denies [NEGATIVE_SYMPTOMS]. Medications are being taken as prescribed.",
-                "objective": "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]. General: Alert and oriented, no acute distress. [SYSTEM_EXAM]",
-                "assessment": "1. [PRIMARY_DIAGNOSIS] - [STATUS]\n2. [SECONDARY_DIAGNOSIS] - [STATUS]",
-                "plan": "1. Continue current medications\n2. [ADDITIONAL_ORDERS]\n3. Follow-up in [TIMEFRAME]"
-            }
-        }),
-        serde_json::json!({
-            "template_id": "TPL-SOAP-ED",
-            "name": "Emergency Department SOAP",
-            "category": "SOAP",
-            "content": {
-                "subjective": "Chief Complaint: [CC]\nHPI: [AGE] y/o [SEX] presents with [SYMPTOMS] x [DURATION]. Onset: [ONSET]. Quality: [QUALITY]. Severity: [SEVERITY]/10. Associated symptoms: [ASSOCIATED]. Denies: [PERTINENT_NEGATIVES].",
-                "objective": "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]\nGeneral: [GENERAL]\nHEENT: [HEENT]\nCardio: [CARDIO]\nPulm: [PULM]\nAbd: [ABD]\nExt: [EXT]\nNeuro: [NEURO]",
-                "assessment": "1. [DIAGNOSIS] - [DIFFERENTIAL_CONSIDERATIONS]",
-                "plan": "1. [WORKUP]\n2. [TREATMENT]\n3. [DISPOSITION]"
-            }
-        }),
-        // H&P Templates
-        serde_json::json!({
-            "template_id": "TPL-HP-ADMISSION",
-            "name": "Admission H&P",
-            "category": "H&P",
-            "content": {
-                "chief_complaint": "[CC]",
-                "hpi": "[AGE] y/o [SEX] with PMH of [PMH] presenting with [SYMPTOMS]...",
-                "pmh": "[PMH_LIST]",
-                "psh": "[SURGICAL_HISTORY]",
-                "medications": "[MEDICATION_LIST]",
-                "allergies": "[ALLERGY_LIST]",
-                "social_history": "Smoking: [SMOKING]\nAlcohol: [ALCOHOL]\nDrugs: [DRUGS]\nOccupation: [OCCUPATION]",
-                "family_history": "[FAMILY_HISTORY]",
-                "ros": "Constitutional: [CONST]\nCardiovascular: [CV]\nRespiratory: [RESP]\nGI: [GI]\nGU: [GU]\nMSK: [MSK]\nNeuro: [NEURO]\nPsych: [PSYCH]",
-                "physical_exam": "[EXAM_FINDINGS]",
-                "assessment_plan": "[ASSESSMENT_AND_PLAN]"
-            }
-        }),
-        // Procedure Notes
-        serde_json::json!({
-            "template_id": "TPL-PROC-CENTRAL",
-            "name": "Central Line Procedure Note",
-            "category": "Procedure",
-            "content": {
-                "procedure": "Central Venous Catheter Placement",
-                "indication": "[INDICATION]",
-                "consent": "Informed consent obtained",
-                "site": "[SITE] - [IJ/SC/FEMORAL]",
-                "technique": "Sterile technique with full barrier precautions. Ultrasound-guided. Local anesthesia with [LIDOCAINE_DOSE]. [CATHETER_TYPE] catheter placed using Seldinger technique. [ATTEMPTS] attempt(s). Blood aspirated from all ports. Catheter secured at [CM] cm.",
-                "complications": "[NONE/COMPLICATIONS]",
-                "post_procedure": "CXR ordered for placement confirmation",
-                "attending": "[ATTENDING_NAME]"
-            }
-        }),
-        serde_json::json!({
-            "template_id": "TPL-PROC-LP",
-            "name": "Lumbar Puncture Procedure Note",
-            "category": "Procedure",
-            "content": {
-                "procedure": "Lumbar Puncture",
-                "indication": "[INDICATION]",
-                "consent": "Informed consent obtained",
-                "position": "[LATERAL_DECUBITUS/SITTING]",
-                "site": "[L3-L4/L4-L5]",
-                "technique": "Sterile technique. Local anesthesia with [LIDOCAINE]. [NEEDLE_SIZE] spinal needle. Opening pressure: [OP] cm H2O. [VOLUME] mL CSF collected in [TUBES] tubes.",
-                "csf_appearance": "[CLEAR/CLOUDY/BLOODY/XANTHOCHROMIC]",
-                "closing_pressure": "[CP] cm H2O",
-                "complications": "[NONE/COMPLICATIONS]",
-                "post_procedure": "Patient instructed to remain supine for [DURATION]"
-            }
-        }),
-        // Discharge Templates
-        serde_json::json!({
-            "template_id": "TPL-DC-STANDARD",
-            "name": "Standard Discharge Summary",
-            "category": "Discharge",
-            "content": {
-                "admission_date": "[ADMIT_DATE]",
-                "discharge_date": "[DC_DATE]",
-                "admitting_diagnosis": "[ADMIT_DX]",
-                "discharge_diagnoses": "[DC_DX_LIST]",
-                "hospital_course": "[COURSE_SUMMARY]",
-                "discharge_condition": "[STABLE/IMPROVED]",
-                "discharge_medications": "[NEW_MED_LIST]",
-                "follow_up_instructions": "[FOLLOW_UP_PLAN]"
-            }
-        }),
-    ]
+    BUILTIN_NOTE_TEMPLATES
+        .iter()
+        .map(|template| {
+            let sections: Vec<serde_json::Value> = template
+                .sections
+                .iter()
+                .enumerate()
+                .map(|(index, (title, text))| {
+                    serde_json::json!({
+                        "sectionId": format!("{}-{title}", template.id),
+                        "title": title,
+                        "content": text,
+                        "required": false,
+                        "order": index + 1,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "template_id": template.id,
+                "name": template.name,
+                "category": template.category,
+                "content": builtin_content(template),
+                "sections": sections,
+            })
+        })
+        .collect()
+}
+
+fn builtin_content(template: &BuiltinTemplate) -> serde_json::Value {
+    serde_json::Value::Object(
+        template
+            .sections
+            .iter()
+            .map(|(title, text)| (title.to_string(), serde_json::json!(text)))
+            .collect(),
+    )
 }
 
 /// The body of a built-in template. Server-owned, so a caller cannot select an
 /// arbitrary document shape by merely naming an id.
 fn note_template_content(template_id: &str) -> Option<serde_json::Value> {
-    builtin_note_templates()
-        .into_iter()
-        .find(|template| template["template_id"] == template_id)
-        .map(|mut template| template["content"].take())
+    find_builtin(template_id).map(builtin_content)
 }
 
-/// Fill a template body's `[KEY]` placeholders from explicit variables.
+/// A built-in template's sections as ordered `(title, text)` pairs.
+fn builtin_sections(template_id: &str) -> Option<Vec<(String, String)>> {
+    find_builtin(template_id).map(|template| {
+        template
+            .sections
+            .iter()
+            .map(|(title, text)| (title.to_string(), text.to_string()))
+            .collect()
+    })
+}
+
+/// Fill each section's `[KEY]` placeholders from explicit variables.
 ///
 /// A placeholder with no string variable stays as written, so the clinician
 /// sees what is still to be completed rather than a guessed value.
-fn render_note_template(
-    mut content: serde_json::Value,
+fn render_sections(
+    sections: &[(String, String)],
     variables: Option<&serde_json::Map<String, serde_json::Value>>,
-) -> serde_json::Value {
-    let (Some(variables), Some(sections)) = (variables, content.as_object_mut()) else {
-        return content;
-    };
-    for section in sections.values_mut() {
-        if let serde_json::Value::String(text) = section {
-            *text = substitute_placeholders(text, variables);
-        }
-    }
-    content
+) -> Vec<serde_json::Value> {
+    let empty = serde_json::Map::new();
+    let variables = variables.unwrap_or(&empty);
+    sections
+        .iter()
+        .map(|(title, content)| {
+            serde_json::json!({
+                "title": title,
+                "content": substitute_placeholders(content, variables),
+            })
+        })
+        .collect()
+}
+
+/// The rendered text of the section titled `title`.
+#[cfg(test)]
+fn rendered(sections: &[serde_json::Value], title: &str) -> String {
+    sections
+        .iter()
+        .find(|section| section["title"] == title)
+        .and_then(|section| section["content"].as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// Replace each `[KEY]` in one left-to-right pass.
@@ -1330,24 +1474,20 @@ mod note_template_rendering_tests {
     #[test]
     fn renders_only_explicit_variables_in_structured_template_content() {
         let variables = serde_json::json!({ "SYMPTOMS": "fatigue", "BP": "120/80" });
-        let rendered = render_note_template(
-            note_template_content("TPL-SOAP-ROUTINE").expect("built-in template"),
+        let sections = render_sections(
+            &builtin_sections("TPL-SOAP-ROUTINE").expect("built-in template"),
             variables.as_object(),
         );
 
-        assert!(rendered["subjective"].as_str().unwrap().contains("fatigue"));
-        assert!(rendered["objective"].as_str().unwrap().contains("120/80"));
-        assert!(rendered["assessment"]
-            .as_str()
-            .unwrap()
-            .contains("[PRIMARY_DIAGNOSIS]"));
+        assert!(rendered(&sections, "subjective").contains("fatigue"));
+        assert!(rendered(&sections, "objective").contains("120/80"));
+        assert!(rendered(&sections, "assessment").contains("[PRIMARY_DIAGNOSIS]"));
     }
 
     #[test]
     fn rendered_line_breaks_are_line_breaks() {
-        let rendered =
-            render_note_template(note_template_content("TPL-SOAP-ROUTINE").unwrap(), None);
-        let assessment = rendered["assessment"].as_str().unwrap();
+        let sections = render_sections(&builtin_sections("TPL-SOAP-ROUTINE").unwrap(), None);
+        let assessment = rendered(&sections, "assessment");
 
         assert!(assessment.contains('\n'));
         assert!(
@@ -1360,15 +1500,12 @@ mod note_template_rendering_tests {
     fn a_substituted_value_is_not_itself_substituted() {
         let variables =
             serde_json::json!({ "SYMPTOMS": "reports [BP] readings at home", "BP": "120/80" });
-        let rendered = render_note_template(
-            note_template_content("TPL-SOAP-ROUTINE").unwrap(),
+        let sections = render_sections(
+            &builtin_sections("TPL-SOAP-ROUTINE").unwrap(),
             variables.as_object(),
         );
 
-        assert!(rendered["subjective"]
-            .as_str()
-            .unwrap()
-            .contains("reports [BP] readings at home"));
+        assert!(rendered(&sections, "subjective").contains("reports [BP] readings at home"));
     }
 
     #[test]
@@ -1381,6 +1518,21 @@ mod note_template_rendering_tests {
                 template["template_id"]
             );
         }
+    }
+
+    #[test]
+    fn built_in_sections_keep_the_order_they_are_written_in() {
+        let titles: Vec<String> = builtin_sections("TPL-SOAP-ROUTINE")
+            .unwrap()
+            .into_iter()
+            .map(|(title, _)| title)
+            .collect();
+        assert_eq!(titles, ["subjective", "objective", "assessment", "plan"]);
+
+        let listed = builtin_note_templates();
+        let soap = &listed[0]["sections"];
+        assert_eq!(soap[0]["title"], "subjective");
+        assert_eq!(soap[3]["title"], "plan");
     }
 
     #[test]

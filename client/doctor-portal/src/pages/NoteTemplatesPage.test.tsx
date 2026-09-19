@@ -8,6 +8,14 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getNoteTemplates: vi.fn(),
   useNoteTemplate: vi.fn(),
+  createNoteTemplate: vi.fn(),
+  deactivateNoteTemplate: vi.fn(),
+}));
+
+const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
+vi.mock('../components/Toast', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useToastActions: () => toast,
 }));
 
 // Templates come from the API — this page ships no built-in set, so a run with
@@ -132,4 +140,97 @@ describe('NoteTemplatesPage', () => {
     await waitFor(() => expect(shared.useNoteTemplate).toHaveBeenCalledWith({ template_id: 'TMP-001', variables: {} }));
     expect(await screen.findByText(/Rendered draft/i)).toBeInTheDocument();
   });
+
+  describe('templates saved on the server', () => {
+    // The server's shape: built-ins flagged, clinician templates with ordered sections.
+    const SERVER_TEMPLATES = [
+      {
+        template_id: 'TPL-SOAP-ROUTINE', name: 'Routine Follow-up SOAP', category: 'SOAP', built_in: true,
+        content: { subjective: 'Reports [SYMPTOMS].' },
+      },
+      {
+        template_id: 'TPL-USR-mine', name: 'Asthma review', type: 'soap', category: 'medicine',
+        description: 'After an exacerbation', built_in: false, is_active: true, created_by: '5GrwvaEF...mock',
+        sections: [{ sectionId: 'TPL-USR-mine-S01', title: 'Subjective', content: 'Night symptoms', required: true, order: 1 }],
+      },
+      {
+        template_id: 'TPL-USR-theirs', name: 'Wound check', type: 'procedure', category: 'surgery',
+        description: 'Post-op wound', built_in: false, is_active: true, created_by: '5Colleague',
+        sections: [{ sectionId: 'TPL-USR-theirs-S01', title: 'Site', content: 'Clean', required: false, order: 1 }],
+      },
+    ];
+
+    beforeEach(() => {
+      vi.mocked(shared.getNoteTemplates).mockResolvedValue({ success: true, templates: SERVER_TEMPLATES, count: 3 });
+    });
+
+    it('offers Deactivate only on a template the user wrote', async () => {
+      render(<NoteTemplatesPage />);
+      await screen.findByText('Asthma review');
+
+      // Built-ins are read-only and a colleague's template is theirs to retire.
+      expect(screen.getAllByRole('button', { name: /Deactivate/i })).toHaveLength(1);
+      expect(screen.getByText('Built-in')).toBeInTheDocument();
+    });
+
+    it('saves a duplicate on the server and reloads the list from it', async () => {
+      vi.mocked(shared.createNoteTemplate).mockResolvedValue({ success: true, template: {} });
+      render(<NoteTemplatesPage />);
+      await screen.findByText('Wound check');
+
+      fireEvent.click(screen.getAllByRole('button', { name: /Duplicate/i })[2]);
+
+      await waitFor(() => expect(shared.createNoteTemplate).toHaveBeenCalledTimes(1));
+      const payload = vi.mocked(shared.createNoteTemplate).mock.calls[0][0];
+      expect(payload.name).toMatch(/^Wound check/);
+      expect(payload.sections).toEqual([{ title: 'Site', content: 'Clean', required: false }]);
+      await waitFor(() => expect(shared.getNoteTemplates).toHaveBeenCalledTimes(2));
+      expect(toast.showSuccess).toHaveBeenCalled();
+    });
+
+    it('says so when the server refuses, and claims no success', async () => {
+      vi.mocked(shared.createNoteTemplate).mockRejectedValue(new Error('down'));
+      render(<NoteTemplatesPage />);
+      await screen.findByText('Wound check');
+
+      fireEvent.click(screen.getAllByRole('button', { name: /Duplicate/i })[0]);
+
+      await waitFor(() => expect(toast.showError).toHaveBeenCalled());
+      expect(toast.showSuccess).not.toHaveBeenCalled();
+      expect(shared.getNoteTemplates).toHaveBeenCalledTimes(1);
+    });
+
+    it('deactivates through the server after confirmation', async () => {
+      vi.mocked(shared.deactivateNoteTemplate).mockResolvedValue({ success: true, template_id: 'TPL-USR-mine' });
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(<NoteTemplatesPage />);
+      await screen.findByText('Asthma review');
+
+      fireEvent.click(screen.getByRole('button', { name: /Deactivate/i }));
+
+      await waitFor(() => expect(shared.deactivateNoteTemplate).toHaveBeenCalledWith('TPL-USR-mine'));
+      await waitFor(() => expect(shared.getNoteTemplates).toHaveBeenCalledTimes(2));
+    });
+
+    it('shows a rendered draft section by section, in order', async () => {
+      vi.mocked(shared.useNoteTemplate).mockResolvedValue({
+        success: true, template_id: 'TPL-USR-mine', timestamp: 1,
+        rendered_content: { Plan: 'Review in 2 weeks', Subjective: 'Night symptoms' },
+        rendered_sections: [
+          { title: 'Subjective', content: 'Night symptoms' },
+          { title: 'Plan', content: 'Review in 2 weeks' },
+        ],
+      });
+      render(<NoteTemplatesPage />);
+      await screen.findByText('Asthma review');
+
+      fireEvent.click(screen.getAllByRole('button', { name: /Use template/i })[1]);
+
+      const draft = (await screen.findByText(/Rendered draft/i)).parentElement!;
+      const text = draft.textContent ?? '';
+      expect(text.indexOf('Subjective')).toBeLessThan(text.indexOf('Plan'));
+      expect(text).toContain('Review in 2 weeks');
+    });
+  });
 });
+

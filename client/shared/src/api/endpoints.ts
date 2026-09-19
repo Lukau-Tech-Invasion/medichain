@@ -3308,8 +3308,40 @@ export async function getNoteTemplates(): Promise<{
 
 export async function useNoteTemplate(
   data: unknown
-): Promise<{ success: boolean; template_id: string; rendered_content: Record<string, unknown>; timestamp: number }> {
+): Promise<{
+  success: boolean;
+  template_id: string;
+  rendered_content: Record<string, unknown>;
+  /** The same text in the order it was written; an object does not keep order. */
+  rendered_sections?: { title: string; content: string }[];
+  timestamp: number;
+}> {
   return getApiClient().post('/api/templates/notes/use', data);
+}
+
+/** What `POST /api/templates/notes` accepts (`CreateNoteTemplateRequest`). */
+export interface CreateNoteTemplatePayload {
+  name: string;
+  type: string;
+  category: string;
+  description?: string;
+  sections: { title: string; content: string; required?: boolean }[];
+  macros?: string[];
+  tags?: string[];
+}
+
+/** Save a template every clinician in the facility can use. */
+export async function createNoteTemplate(
+  data: CreateNoteTemplatePayload
+): Promise<{ success: boolean; template: Record<string, unknown> }> {
+  return getApiClient().post('/api/templates/notes', data);
+}
+
+/** Retire a clinician-authored template. It is hidden, not deleted. */
+export async function deactivateNoteTemplate(
+  templateId: string
+): Promise<{ success: boolean; template_id: string }> {
+  return getApiClient().post(`/api/templates/notes/${encodeURIComponent(templateId)}/deactivate`, {});
 }
 
 export async function generateBarcode(

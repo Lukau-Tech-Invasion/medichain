@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getNoteTemplates, useNoteTemplate, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  createNoteTemplate,
+  deactivateNoteTemplate,
+  getApiErrorMessage,
+  getNoteTemplates,
+  useNoteTemplate,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+} from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
@@ -28,6 +37,8 @@ interface NoteTemplate {
   lastModified: string;
   usageCount: number;
   isActive: boolean;
+  /** Server-owned and read-only; only clinician-authored templates can be retired. */
+  builtIn: boolean;
   tags: string[];
 }
 
@@ -70,6 +81,7 @@ export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => 
     lastModified: typeof record.updated_at === 'string' ? record.updated_at : String(record.lastModified ?? ''),
     usageCount: typeof record.usage_count === 'number' ? record.usage_count : Number(record.usageCount ?? 0),
     isActive: record.is_active !== false && record.isActive !== false,
+    builtIn: record.built_in === true,
     tags: Array.isArray(record.tags) ? record.tags.filter((item): item is string => typeof item === 'string') : [],
   };
 };
@@ -89,7 +101,7 @@ const NoteTemplatesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'macros'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TemplateType | 'all'>('all');
-  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; content: Record<string, unknown> } | null>(null);
+  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; sections: { title: string; content: string }[] } | null>(null);
   const [newTemplate, setNewTemplate] = useState<Partial<NoteTemplate>>({
     name: '',
     type: 'soap',
@@ -131,29 +143,36 @@ const NoteTemplatesPage: React.FC = () => {
     fetchTemplates();
   }, [fetchTemplates]);
 
-  const handleCreateTemplate = () => {
+  // Create, Duplicate and Deactivate used to change only this list and
+  // announce success, so every template vanished on reload and "Use" was
+  // refused as unknown. Each now saves on the server and reloads the list from
+  // it; success is shown only after the server has confirmed.
+  const saveTemplate = async (template: Partial<NoteTemplate>): Promise<boolean> => {
+    try {
+      await createNoteTemplate({
+        name: template.name ?? '',
+        type: template.type ?? 'soap',
+        category: template.category ?? 'general',
+        description: template.description ?? '',
+        sections: (template.sections ?? []).map(({ title, content, required }) => ({ title, content, required })),
+        macros: template.macros ?? [],
+        tags: template.tags ?? [],
+      });
+      await fetchTemplates();
+      return true;
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docNoteTemplates.createFailed')));
+      return false;
+    }
+  };
+
+  const handleCreateTemplate = async () => {
     if (!newTemplate.name || !newTemplate.description || !newTemplate.sections?.length) {
       showError(t('docNoteTemplates.errorCreateFields'));
       return;
     }
+    if (!(await saveTemplate(newTemplate))) return;
 
-    const template: NoteTemplate = {
-      templateId: `TMP-${String(templates.length + 1).padStart(3, '0')}`,
-      name: newTemplate.name!,
-      type: newTemplate.type!,
-      category: newTemplate.category!,
-      description: newTemplate.description!,
-      sections: newTemplate.sections!,
-      macros: newTemplate.macros || [],
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-      isActive: true,
-      tags: newTemplate.tags || [],
-    };
-
-    setTemplates([...templates, template]);
     setNewTemplate({
       name: '',
       type: 'soap',
@@ -202,31 +221,38 @@ const NoteTemplatesPage: React.FC = () => {
     });
   };
 
-  const handleDuplicateTemplate = (template: NoteTemplate) => {
-    const duplicated: NoteTemplate = {
+  const handleDuplicateTemplate = async (template: NoteTemplate) => {
+    const saved = await saveTemplate({
       ...template,
-      templateId: `TMP-${String(templates.length + 1).padStart(3, '0')}`,
       name: `${template.name}${t('docNoteTemplates.copySuffix')}`,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-    };
-
-    setTemplates([...templates, duplicated]);
-    showSuccess(t('docNoteTemplates.duplicatedSuccess'));
+    });
+    if (saved) showSuccess(t('docNoteTemplates.duplicatedSuccess'));
   };
 
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm(t('docNoteTemplates.confirmDelete'))) {
-      setTemplates(templates.filter((t) => t.templateId !== templateId));
+  /** Doctors and nurses write templates; an administrator only retires them. */
+  const canCreate = user?.role === 'Doctor' || user?.role === 'Nurse';
+
+  /** Its author or an administrator may retire a clinician-authored template. */
+  const canDeactivate = (template: NoteTemplate) =>
+    !template.builtIn && (template.createdBy === user?.walletAddress || user?.role === 'Admin');
+
+  const handleDeactivateTemplate = async (templateId: string) => {
+    if (!confirm(t('docNoteTemplates.confirmDelete'))) return;
+    try {
+      await deactivateNoteTemplate(templateId);
+      await fetchTemplates();
+      showSuccess(t('docNoteTemplates.deactivatedSuccess'));
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docNoteTemplates.deactivateFailed')));
     }
   };
 
   const handleUseTemplate = async (template: NoteTemplate) => {
     try {
       const result = await useNoteTemplate({ template_id: template.templateId, variables: {} });
-      setRenderedTemplate({ name: template.name, content: result.rendered_content });
+      const sections = result.rendered_sections
+        ?? Object.entries(result.rendered_content).map(([title, content]) => ({ title, content: String(content) }));
+      setRenderedTemplate({ name: template.name, sections });
     } catch (err) {
       console.error('Failed to render note template:', err);
       showError(t('docNoteTemplates.renderFailed'));
@@ -332,16 +358,18 @@ const NoteTemplatesPage: React.FC = () => {
         >
           {t('docNoteTemplates.tabAllTemplates', { count: templates.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('new')}
-          className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new'
-              ? 'border-b-2 border-indigo-600 text-content-secondary'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docNoteTemplates.tabNewTemplate')}
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setActiveTab('new')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'new'
+                ? 'border-b-2 border-indigo-600 text-content-secondary'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docNoteTemplates.tabNewTemplate')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('macros')}
           className={`px-6 py-3 font-semibold transition-colors ${
@@ -409,6 +437,11 @@ const NoteTemplatesPage: React.FC = () => {
                           <span className={`px-2 py-1 rounded-md text-xs font-medium ${getCategoryBadge(template.category)}`}>
                             {t(`docNoteTemplates.category_${template.category}`).toUpperCase()}
                           </span>
+                          {template.builtIn && (
+                            <span className="px-2 py-1 rounded-md text-xs font-medium bg-surface-sunken text-content-muted">
+                              {t('docNoteTemplates.builtInBadge')}
+                            </span>
+                          )}
                           {!template.isActive && (
                             <span className="px-2 py-1 rounded-md text-xs font-medium bg-surface-sunken text-content-muted">
                               {t('docNoteTemplates.inactiveBadge')}
@@ -421,32 +454,43 @@ const NoteTemplatesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => void handleUseTemplate(template)}
-                        className="px-3 py-2 bg-primary-500 text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2 text-sm"
+                        className="px-3 py-2 bg-brand text-brand-fg rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 text-sm"
                       >
                         <FileText className="w-4 h-4" />
                         {t('docNoteTemplates.useTemplate')}
                       </button>
-                      <button
-                        onClick={() => handleDuplicateTemplate(template)}
-                        className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm"
-                      >
-                        <Copy className="w-4 h-4" />
-                        {t('docNoteTemplates.duplicateButton')}
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTemplate(template.templateId)}
-                        className="px-3 py-2 bg-red-500 text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2 text-sm"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        {t('docNoteTemplates.deleteButton')}
-                      </button>
+                      {canCreate && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDuplicateTemplate(template)}
+                          className="px-3 py-2 bg-surface-sunken text-content border border-border rounded-lg hover:bg-surface transition-colors flex items-center gap-2 text-sm"
+                        >
+                          <Copy className="w-4 h-4" />
+                          {t('docNoteTemplates.duplicateButton')}
+                        </button>
+                      )}
+                      {canDeactivate(template) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeactivateTemplate(template.templateId)}
+                          className="px-3 py-2 bg-critical text-critical-fg rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 text-sm"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {t('docNoteTemplates.deleteButton')}
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {renderedTemplate?.name === template.name && (
                     <div className="mt-4 border border-border rounded-lg p-3 bg-surface-sunken">
                       <p className="text-sm font-medium text-content mb-2">{t('docNoteTemplates.renderedDraft')}</p>
-                      <pre className="text-sm text-content-muted whitespace-pre-wrap">{JSON.stringify(renderedTemplate.content, null, 2)}</pre>
+                      {renderedTemplate.sections.map((section) => (
+                        <div key={section.title} className="mb-2">
+                          <p className="text-xs font-semibold uppercase text-content-secondary">{section.title}</p>
+                          <pre className="text-sm text-content-muted whitespace-pre-wrap font-sans">{section.content}</pre>
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -512,6 +556,9 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Built-ins ship with the product and have no creation record;
+                      showing their dates rendered "Invalid Date" twice per card. */}
+                  {!template.builtIn && (
                   <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4 text-sm">
                     <div className="bg-notice-subtle rounded p-2">
                       <div className="flex items-center gap-1 text-notice-subtle-fg">
@@ -528,6 +575,7 @@ const NoteTemplatesPage: React.FC = () => {
                       <div className="text-ok-subtle-fg ml-5">{formatDate(template.lastModified)}</div>
                     </div>
                   </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -541,7 +589,7 @@ const NoteTemplatesPage: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'new' && (
+      {activeTab === 'new' && canCreate && (
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold text-content mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
 

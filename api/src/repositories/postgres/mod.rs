@@ -211,6 +211,7 @@ pub use phase7::{
     PgLabTrendResultRepository,
     PgLanguagePreferenceRepository,
     PgMessageRepository,
+    PgNoteTemplateRepository,
     PgPrescriptionVerificationEventRepository,
     PgProviderScheduleRepository,
     PgSatisfactionSurveyRepository,

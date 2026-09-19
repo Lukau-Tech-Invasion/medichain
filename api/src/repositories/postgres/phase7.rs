@@ -176,6 +176,9 @@ pg_json_repo!(PgMessageRepository, "messages");
 pg_json_repo!(PgSymptomEntryRepository, "symptom_entries");
 pg_json_repo!(PgBarcodeScanRepository, "barcode_scans");
 
+// Clinician-authored note templates (migration 20260919000002).
+pg_json_repo!(PgNoteTemplateRepository, "note_templates");
+
 // Final durability sweep (migration 20260811000002): the last process-memory
 // clinical maps. The first three are shape-mismatch domains whose typed tables
 // require columns the API types do not carry — see the migration for why.
