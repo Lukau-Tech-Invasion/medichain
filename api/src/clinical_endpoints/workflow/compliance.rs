@@ -1111,7 +1111,67 @@ pub async fn get_note_templates(
         });
     }
 
-    let templates = vec![
+    let templates = builtin_note_templates();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "templates": templates,
+        "count": templates.len()
+    }))
+}
+
+/// Use a template to generate a note
+#[post("/api/templates/notes/use")]
+pub async fn use_note_template(
+    // Was `_data`. Clinical note templates are staff tooling, so this now
+    // resolves the caller and requires a clinical role rather than accepting
+    // any request that carries a header.
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+
+    let template_id = body
+        .get("template_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let variables = body.get("variables").and_then(|v| v.as_object());
+
+    let content = match note_template_content(template_id) {
+        Some(content) => content,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Unknown note template".to_string(),
+                code: "TEMPLATE_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let rendered_content = render_note_template(content, variables);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "template_id": template_id,
+        "rendered_content": rendered_content,
+        "timestamp": chrono::Utc::now().timestamp()
+    }))
+}
+
+/// The built-in note templates: the one definition both the registry listing
+/// and the renderer read.
+///
+/// There used to be two copies -- one here for `GET /api/templates/notes`, one
+/// in the renderer -- and they had already drifted: the renderer's copy wrote
+/// the Rust escape `\\n` where this one writes `\n`, so a rendered draft showed
+/// a literal backslash-n where the listed template showed a line break.
+///
+/// Every `content` is a flat object of strings. The renderer depends on that,
+/// and `every_template_body_is_a_flat_object_of_strings` holds it.
+fn builtin_note_templates() -> Vec<serde_json::Value> {
+    vec![
         // SOAP Note Templates
         serde_json::json!({
             "template_id": "TPL-SOAP-ROUTINE",
@@ -1203,48 +1263,152 @@ pub async fn get_note_templates(
                 "follow_up_instructions": "[FOLLOW_UP_PLAN]"
             }
         }),
-    ];
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "templates": templates,
-        "count": templates.len()
-    }))
+    ]
 }
 
-/// Use a template to generate a note
-#[post("/api/templates/notes/use")]
-pub async fn use_note_template(
-    // Was `_data`. Clinical note templates are staff tooling, so this now
-    // resolves the caller and requires a clinical role rather than accepting
-    // any request that carries a header.
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
+/// The body of a built-in template. Server-owned, so a caller cannot select an
+/// arbitrary document shape by merely naming an id.
+fn note_template_content(template_id: &str) -> Option<serde_json::Value> {
+    builtin_note_templates()
+        .into_iter()
+        .find(|template| template["template_id"] == template_id)
+        .map(|mut template| template["content"].take())
+}
+
+/// Fill a template body's `[KEY]` placeholders from explicit variables.
+///
+/// A placeholder with no string variable stays as written, so the clinician
+/// sees what is still to be completed rather than a guessed value.
+fn render_note_template(
+    mut content: serde_json::Value,
+    variables: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
+    let (Some(variables), Some(sections)) = (variables, content.as_object_mut()) else {
+        return content;
+    };
+    for section in sections.values_mut() {
+        if let serde_json::Value::String(text) = section {
+            *text = substitute_placeholders(text, variables);
+        }
+    }
+    content
+}
+
+/// Replace each `[KEY]` in one left-to-right pass.
+///
+/// One pass, not a `replace` per variable: repeated replacement would rewrite a
+/// clinician's own value when it happens to contain another placeholder's name
+/// (an entered `[BP]` becoming the blood pressure).
+fn substitute_placeholders(
+    text: &str,
+    variables: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        rendered.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find(']') else {
+            rest = &rest[open..];
+            break;
+        };
+        let key = &after_open[..close];
+        match variables.get(key).and_then(|value| value.as_str()) {
+            Some(replacement) => rendered.push_str(replacement),
+            None => rendered.push_str(&rest[open..open + close + 2]),
+        }
+        rest = &after_open[close + 1..];
+    }
+    rendered.push_str(rest);
+    rendered
+}
+
+#[cfg(test)]
+mod note_template_rendering_tests {
+    use super::*;
+
+    #[test]
+    fn renders_only_explicit_variables_in_structured_template_content() {
+        let variables = serde_json::json!({ "SYMPTOMS": "fatigue", "BP": "120/80" });
+        let rendered = render_note_template(
+            note_template_content("TPL-SOAP-ROUTINE").expect("built-in template"),
+            variables.as_object(),
+        );
+
+        assert!(rendered["subjective"].as_str().unwrap().contains("fatigue"));
+        assert!(rendered["objective"].as_str().unwrap().contains("120/80"));
+        assert!(rendered["assessment"]
+            .as_str()
+            .unwrap()
+            .contains("[PRIMARY_DIAGNOSIS]"));
     }
 
-    let template_id = body
-        .get("template_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("UNKNOWN");
-    let variables = body.get("variables").and_then(|v| v.as_object());
+    #[test]
+    fn rendered_line_breaks_are_line_breaks() {
+        let rendered =
+            render_note_template(note_template_content("TPL-SOAP-ROUTINE").unwrap(), None);
+        let assessment = rendered["assessment"].as_str().unwrap();
 
-    // Simple template variable replacement logic (Simulated)
-    let generated_note = format!(
-        "Generated note from template {} with {} variables filled.",
-        template_id,
-        variables.map(|v| v.len()).unwrap_or(0)
-    );
+        assert!(assessment.contains('\n'));
+        assert!(
+            !assessment.contains("\\n"),
+            "a literal backslash-n reached the draft"
+        );
+    }
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "template_id": template_id,
-        "generated_note": generated_note,
-        "timestamp": chrono::Utc::now().timestamp()
-    }))
+    #[test]
+    fn a_substituted_value_is_not_itself_substituted() {
+        let variables =
+            serde_json::json!({ "SYMPTOMS": "reports [BP] readings at home", "BP": "120/80" });
+        let rendered = render_note_template(
+            note_template_content("TPL-SOAP-ROUTINE").unwrap(),
+            variables.as_object(),
+        );
+
+        assert!(rendered["subjective"]
+            .as_str()
+            .unwrap()
+            .contains("reports [BP] readings at home"));
+    }
+
+    #[test]
+    fn every_template_body_is_a_flat_object_of_strings() {
+        for template in builtin_note_templates() {
+            let content = template["content"].as_object().expect("object body");
+            assert!(
+                content.values().all(serde_json::Value::is_string),
+                "{} has a non-string section",
+                template["template_id"]
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_unknown_template_id() {
+        assert!(note_template_content("TPL-UNKNOWN").is_none());
+    }
+
+    #[test]
+    fn rendered_body_retains_every_listed_admission_template_section() {
+        let content = note_template_content("TPL-HP-ADMISSION").expect("built-in template");
+        let object = content.as_object().expect("structured template content");
+
+        for section in [
+            "chief_complaint",
+            "hpi",
+            "pmh",
+            "psh",
+            "medications",
+            "allergies",
+            "social_history",
+            "family_history",
+            "ros",
+            "physical_exam",
+            "assessment_plan",
+        ] {
+            assert!(object.contains_key(section), "missing {section}");
+        }
+    }
 }
 
 #[cfg(test)]

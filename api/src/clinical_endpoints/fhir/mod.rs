@@ -9,9 +9,11 @@
 pub use super::*;
 
 mod clinical_resources;
+mod ingest;
 mod patient_resources;
 mod procedures_and_meta;
 
 pub use clinical_resources::*;
+pub use ingest::*;
 pub use patient_resources::*;
 pub use procedures_and_meta::*;

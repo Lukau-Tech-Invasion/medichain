@@ -39,6 +39,10 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
         "SMS_INBOUND_WEBHOOK_SECRET",
         "medichain-dev-sms-webhook-secret-change-in-production",
     ),
+    (
+        "PATIENT_SEARCH_INDEX_KEY",
+        "medichain-dev-patient-search-index-key-change-in-production",
+    ),
 ];
 
 /// Reject contradictory runtime posture before authentication middleware is built.
@@ -228,8 +232,7 @@ pub fn validate_telehealth_configuration(app_env: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The deterministic ID verifier is restricted to explicit demo/test use. A
-/// production response must never label a non-empty placeholder as verified.
+/// A production deployment must explicitly opt into live ID verification.
 pub fn validate_identity_verification_configuration(app_env: &str) -> Result<(), String> {
     let mode = std::env::var("NATIONAL_ID_VERIFICATION_MODE").ok();
     validate_identity_verification_mode(app_env, mode.as_deref())
@@ -250,7 +253,7 @@ fn validate_identity_verification_mode(
         Some(mode) if mode.eq_ignore_ascii_case("live") => Ok(()),
         _ => Err(
             "Refusing production startup: NATIONAL_ID_VERIFICATION_MODE=live is required; \
-             the deterministic stub is demo/test only"
+             live authority verification is required"
                 .into(),
         ),
     }
@@ -259,10 +262,8 @@ fn validate_identity_verification_mode(
 /// Env vars for the 5 national-ID verifiers (Horizon HZ-004). Unlike
 /// `DEMO_SECRET_MARKERS`, an unset key here is not necessarily wrong — a soft
 /// launch may legitimately not have every country's key yet — so this warns
-/// loudly rather than refusing to boot. Before this check existed, a missing key
-/// silently degraded that country's identity verification to "any non-empty
-/// string is verified" (see `national_id::StubVerifier`) with only an
-/// invisible-by-default `log::debug!` line.
+/// loudly rather than refusing to boot. A missing key leaves that country's
+/// identities explicitly unverified and awaiting manual review.
 pub const NATIONAL_ID_API_KEY_VARS: &[&str] = &[
     "FAYDA_API_KEY",
     "GHANA_CARD_API_KEY",
@@ -274,9 +275,8 @@ pub const NATIONAL_ID_API_KEY_VARS: &[&str] = &[
 /// Warn at startup for every national-ID API key that is unset in non-demo mode.
 ///
 /// Deliberately warn-only (not `validate_production_secrets`'s fail-closed
-/// behavior): identity verification degrading to the stub for one missing
-/// country is a real gap, but it should not take down verification for every
-/// other country by refusing to boot.
+/// behavior): a missing key creates manual-review cases for one country but
+/// should not take down live verification for every other country.
 pub fn warn_missing_national_id_keys() {
     let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
     if is_demo {
@@ -291,10 +291,9 @@ pub fn warn_missing_national_id_keys() {
 
     if !missing.is_empty() {
         log::warn!(
-            "National-ID verification will silently use the deterministic stub for {} \
-             country/countries whose API key is unset: {}. Any non-empty ID string will be \
-             reported as verified for these countries until the key is configured. Set the \
-             corresponding key or accept this explicitly for now.",
+            "National-ID verification requires manual review for {} country/countries whose \
+             API key is unset: {}. No identifier will be marked verified until the \
+             corresponding live verifier is configured.",
             missing.len(),
             missing.join(", ")
         );

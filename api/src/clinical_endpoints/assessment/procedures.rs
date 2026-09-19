@@ -1097,6 +1097,7 @@ mod procedure_worklist_tests {
             is_verified: false,
             is_active: true,
             profile_extras_encrypted: None,
+            name_search_tokens: Vec::new(),
             key_version: 1,
         };
         let _ = data.repositories.patients.create(patient).await;

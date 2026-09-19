@@ -80,6 +80,7 @@ services:
       # and clinical workflow disappear on the next API restart.
       MEDICHAIN_STORAGE: postgres
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-}
+      PATIENT_SEARCH_INDEX_KEY: ${PATIENT_SEARCH_INDEX_KEY:-}
       IPFS_API_URL: http://ipfs:5001
       IPFS_GATEWAY_URL: http://ipfs:8080
       # Production secrets — set these in .env (no insecure defaults baked in).

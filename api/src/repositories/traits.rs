@@ -225,6 +225,13 @@ pub struct PatientEntity {
     #[serde(default)]
     pub profile_extras_encrypted: Option<Vec<u8>>,
 
+    /// Keyed blind-index tokens for the patient's name. These are not
+    /// reversible plaintext, but do reveal equality of equal name tokens to a
+    /// party that can read this column; never serialize them to clients.
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub name_search_tokens: Vec<String>,
+
     /// Which `ENCRYPTION_KEYS` version the encrypted fields above were sealed
     /// with (Phase 6.3 — key rotation). Rows written before this column existed
     /// default to `1`. New writes stamp the keyring's current version; reads
@@ -439,11 +446,30 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
 
-    /// Search patients by criteria
+    /// List a stable page ordered by `updated_at DESC, id ASC`.
+    ///
+    /// The cursor is the final row from the preceding page. Keeping this at
+    /// the repository boundary prevents a roster handler from loading and
+    /// decrypting an arbitrary national register just to paginate it.
+    async fn list_keyset(
+        &self,
+        cursor: Option<(DateTime<Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
+
+    /// Search patients by identifier or keyed name-token equality.
     async fn search(
         &self,
         query: &str,
         pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
+
+    /// Search a stable page by identifier or keyed name-token equality.
+    async fn search_keyset(
+        &self,
+        query: &str,
+        cursor: Option<(DateTime<Utc>, String)>,
+        limit: u32,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
 
     /// Get patients by provider
@@ -455,6 +481,23 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
 
     /// Count total patients
     async fn count(&self) -> RepositoryResult<u64>;
+
+    /// Patients whose name index is empty, ordered by id, after `after_id`.
+    ///
+    /// Rows written before the blind index existed have no tokens, and SQL
+    /// cannot compute them: the name is sealed under the application keyring.
+    /// `patient_name_index::backfill_missing_name_index` pages through these.
+    async fn list_unindexed_names(
+        &self,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<PatientEntity>>;
+
+    /// Set a patient's name-search tokens and nothing else.
+    ///
+    /// Not even `updated_at`: indexing is not a change to the patient, and the
+    /// roster is ordered by it.
+    async fn set_name_search_tokens(&self, id: &str, tokens: &[String]) -> RepositoryResult<()>;
 
     /// Count active patients grouped by administrative gender.
     ///
@@ -1137,6 +1180,17 @@ pub trait HistoryPhysicalRepository: Send + Sync + fmt::Debug {
         &self,
         history: HistoryPhysicalEntity,
     ) -> RepositoryResult<HistoryPhysicalEntity>;
+    /// Replace the record only if nobody has written it since it was read.
+    ///
+    /// Compare-and-set on `updated_at`: `Ok(None)` means another write landed
+    /// first and the caller's copy is stale. A signed H&P is immutable, so an
+    /// unconditional read-check-write could turn a record signed in between
+    /// back into a draft, or drop one of two concurrent addenda.
+    async fn update_if_unchanged(
+        &self,
+        history: HistoryPhysicalEntity,
+        expected_updated_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<HistoryPhysicalEntity>>;
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
     async fn get_by_exam_type(
         &self,

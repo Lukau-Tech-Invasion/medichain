@@ -58,6 +58,7 @@ mod notifications;
 mod organization_keys;
 mod pagination;
 mod patient_access;
+mod patient_name_index;
 mod pdf;
 mod privacy_logging;
 mod retention;
@@ -385,6 +386,29 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
 /// Start the periodic jobs. None of them can fail startup, by design: a
 /// reminder that does not fire is not a reason to refuse to serve records.
 fn spawn_background_jobs(app_state: &web::Data<AppState>) {
+    // One pass, not periodic: every save indexes its own row, so only rows
+    // older than the index need this, and a pass leaves none behind.
+    {
+        let index_state = app_state.clone();
+        tokio::spawn(async move {
+            match crate::patient_name_index::backfill_missing_name_index(
+                index_state.repositories.patients.as_ref(),
+                &index_state.encryption_keyring,
+            )
+            .await
+            {
+                Ok(report) if report == Default::default() => {}
+                Ok(report) => log::info!(
+                    "patient name index backfill: {} indexed, {} undecryptable, {} with no indexable name",
+                    report.indexed,
+                    report.undecryptable,
+                    report.nameless
+                ),
+                Err(error) => log::error!("patient name index backfill failed: {error}"),
+            }
+        });
+    }
+
     if let (Some(pool), Some(client)) = (
         app_state.db_pool.clone(),
         app_state.substrate_client.clone(),

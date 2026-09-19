@@ -77,16 +77,23 @@ pub async fn register_organization_key(
     if let Err(error) = persist_registration(&data, &key).await {
         let _ = data.organization_keys.remove(&key.id);
         log::error!("organisation-key registration persistence failed: {error}");
-        return key_persistence_failed();
+        return key_persistence_failed("the key was not registered");
     }
 
     HttpResponse::Created().json(key)
 }
 
-fn key_persistence_failed() -> HttpResponse {
+/// The durable write failed and the in-memory change has been rolled back.
+///
+/// `what_did_not_happen` names the action, because the two callers fail
+/// differently and "the key was not registered" is actively misleading on a
+/// revocation that did not take effect -- an administrator who reads it
+/// believes the key is still active, which is the opposite of the truth they
+/// need.
+fn key_persistence_failed(what_did_not_happen: &str) -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
         success: false,
-        error: "Organisation key storage is unavailable; the key was not registered".into(),
+        error: format!("Organisation key storage is unavailable; {what_did_not_happen}"),
         code: "KEY_PERSISTENCE_REQUIRED".into(),
     })
 }
@@ -188,7 +195,7 @@ pub async fn transition_organization_key(
             let _ = data.organization_keys.restore(previous);
         }
         log::error!("organisation-key transition persistence failed: {error}");
-        return key_persistence_failed();
+        return key_persistence_failed("the key status was NOT changed");
     }
 
     HttpResponse::Ok().json(key)

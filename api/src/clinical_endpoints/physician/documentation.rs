@@ -453,6 +453,262 @@ pub async fn create_hp(
     }
 }
 
+/// How many times an addendum is re-applied when another write lands between
+/// reading the H&P and storing it. Appending is order-independent, so a retry
+/// is safe; the bound keeps a hot record from looping forever.
+const HP_ADDENDUM_ATTEMPTS: usize = 3;
+
+/// Read an H&P that is about to be written, mapping a failure to a response.
+async fn load_hp_for_write(
+    data: &web::Data<AppState>,
+    hp_id: &str,
+) -> Result<HistoryPhysicalEntity, HttpResponse> {
+    match data.repositories.history_physicals.get_by_id(hp_id).await {
+        Ok(entity) => Ok(entity),
+        Err(RepositoryError::NotFound(_)) => Err(HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "H&P not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        })),
+        Err(error) => {
+            log::error!("history and physical read for a write failed: {error}");
+            Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The history and physical is temporarily unavailable".to_string(),
+                code: "REPO_ERROR".to_string(),
+            }))
+        }
+    }
+}
+
+fn hp_is_signed(entity: &HistoryPhysicalEntity) -> bool {
+    entity.data.get("status").and_then(|value| value.as_str()) == Some("signed")
+}
+
+/// Append one addendum to a stored H&P document.
+fn append_hp_addendum(
+    entity: &mut HistoryPhysicalEntity,
+    addendum: serde_json::Value,
+) -> Result<(), HttpResponse> {
+    let invalid = |error: &str| {
+        HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: error.to_string(),
+            code: "DOCUMENT_INVALID".to_string(),
+        })
+    };
+    let Some(document) = entity.data.as_object_mut() else {
+        return Err(invalid("The stored H&P document is invalid"));
+    };
+    let addenda = document
+        .entry("addenda")
+        .or_insert_with(|| serde_json::json!([]));
+    let Some(addenda) = addenda.as_array_mut() else {
+        return Err(invalid("The stored H&P amendments are invalid"));
+    };
+    addenda.push(addendum);
+    Ok(())
+}
+
+/// Update an unsigned history and physical draft.
+///
+/// A signed H&P is a clinical record, not an editable form. Corrections must be
+/// expressed as a separate addendum workflow; this endpoint only permits the
+/// draft state so a browser retry or edit cannot silently rewrite a signature.
+///
+/// Only the clinician who started the draft may edit it, and the draft keeps
+/// them as its author: an edit used to restamp `performed_by` with whoever
+/// saved last, so the record stopped saying who had examined the patient. The
+/// write is conditional on the draft being unchanged since it was read -- the
+/// status check alone could not stop a record signed in between from being
+/// turned back into a draft.
+#[put("/api/clinical/hp/{hp_id}")]
+pub async fn update_hp_draft(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    req: web::Json<CreateHpRequest>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let hp_id = path.into_inner();
+    let mut entity = match load_hp_for_write(&data, &hp_id).await {
+        Ok(entity) => entity,
+        Err(response) => return response,
+    };
+    if hp_is_signed(&entity) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "Signed H&Ps cannot be edited; create an addendum instead".to_string(),
+            code: "SIGNED_RECORD_IMMUTABLE".to_string(),
+        });
+    }
+    if entity.performed_by != current_user.wallet_address {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the clinician who started this draft can edit it".to_string(),
+            code: "NOT_DRAFT_AUTHOR".to_string(),
+        });
+    }
+
+    let mut hp = req.into_inner();
+    if hp.patient_id != entity.patient_id || hp.chief_complaint.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id must match the existing record and chief_complaint is required"
+                .to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    let read_at = entity.updated_at;
+    let join = |items: &[String]| (!items.is_empty()).then(|| items.join("\n"));
+    hp.hp_id = Some(hp_id.clone());
+    hp.provider = entity.performed_by.clone();
+    hp.status = "in-progress".to_string();
+    hp.date_of_exam = hp
+        .date_of_exam
+        .or_else(|| Some(entity.performed_at.to_rfc3339()));
+    entity.chief_complaint = hp.chief_complaint.clone();
+    entity.history_present_illness = hp.history_of_present_illness.clone();
+    entity.past_medical_history = join(&hp.past_medical_history);
+    entity.family_history = join(&hp.family_history);
+    entity.social_history = Some(hp.social_history.to_string());
+    entity.medications = join(&hp.medications);
+    entity.allergies = join(&hp.allergies);
+    entity.review_of_systems = Some(hp.review_of_systems.clone());
+    entity.physical_exam = hp.physical_exam.clone();
+    entity.vital_signs = Some(hp.vital_signs.clone());
+    entity.assessment = hp.assessment.clone();
+    entity.plan_content = hp.plan.clone();
+    entity.exam_type = Some(hp.exam_type.clone());
+    entity.data = serde_json::to_value(&hp).unwrap_or_default();
+
+    match data
+        .repositories
+        .history_physicals
+        .update_if_unchanged(entity, read_at)
+        .await
+    {
+        Ok(Some(_)) => {
+            HttpResponse::Ok().json(serde_json::json!({ "success": true, "hp_id": hp_id }))
+        }
+        Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "This H&P changed after it was opened (it may have been signed). Reload it \
+                    before editing."
+                .to_string(),
+            code: "STALE_DRAFT".to_string(),
+        }),
+        Err(error) => {
+            log::error!("history and physical draft update failed: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to update the history and physical draft".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Append an attributable amendment to a signed H&P without rewriting it.
+///
+/// Amending a signed record is a documentation act, so it takes the role that
+/// may write records (`can_edit_medical_records`), not merely one that may read
+/// them. Each attempt is a compare-and-set, so two clinicians amending at once
+/// both land -- a plain read-append-write kept only the later of the two.
+#[post("/api/clinical/hp/{hp_id}/addendum")]
+pub async fn add_hp_addendum(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only clinicians who document records can amend them".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+    let content = body
+        .get("content")
+        .and_then(|value| value.as_str())
+        .map(str::trim);
+    let Some(content) = content.filter(|content| !content.is_empty()) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Addendum content is required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    };
+    let hp_id = path.into_inner();
+    let addendum_id = format!("HPA-{}", uuid::Uuid::new_v4().simple());
+    let addendum = serde_json::json!({
+        "addendum_id": addendum_id,
+        "content": content,
+        "author_id": current_user.wallet_address,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+
+    for _ in 0..HP_ADDENDUM_ATTEMPTS {
+        let mut entity = match load_hp_for_write(&data, &hp_id).await {
+            Ok(entity) => entity,
+            Err(response) => return response,
+        };
+        if !hp_is_signed(&entity) {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "Only signed H&Ps can receive an addendum".to_string(),
+                code: "RECORD_NOT_SIGNED".to_string(),
+            });
+        }
+        let read_at = entity.updated_at;
+        if let Err(response) = append_hp_addendum(&mut entity, addendum.clone()) {
+            return response;
+        }
+        match data
+            .repositories
+            .history_physicals
+            .update_if_unchanged(entity, read_at)
+            .await
+        {
+            Ok(Some(_)) => {
+                return HttpResponse::Ok()
+                    .json(serde_json::json!({ "success": true, "addendum_id": addendum_id }))
+            }
+            Ok(None) => continue,
+            Err(error) => {
+                log::error!("history and physical addendum persistence failed: {error}");
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Failed to save the H&P addendum".to_string(),
+                    code: "REPO_ERROR".to_string(),
+                });
+            }
+        }
+    }
+    HttpResponse::Conflict().json(ErrorResponse {
+        success: false,
+        error: "The H&P is being amended by someone else. The addendum was not saved; try again."
+            .to_string(),
+        code: "CONCURRENT_AMENDMENT".to_string(),
+    })
+}
+
 #[get("/api/clinical/hp/{hp_id}")]
 pub async fn get_hp(
     data: web::Data<AppState>,
@@ -482,10 +738,11 @@ pub async fn get_hp(
 
     match data.repositories.history_physicals.get_by_id(&hp_id).await {
         Ok(entity) => {
-            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
-            // on every one of these entities, so on PostgreSQL it is always
-            // `Value::Null` — this endpoint returned a literal `null` with a
-            // 200 for every record ever saved. The typed columns are the record.
+            // The stored record, not `entity.data` alone. This endpoint once
+            // returned `entity.data` while it was `#[sqlx(skip)]`, i.e. a
+            // literal `null` on PostgreSQL for every record. `data` has its own
+            // column now and is read (an H&P's status and addenda live there),
+            // but the typed columns are still the record.
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
@@ -937,10 +1194,11 @@ pub async fn get_consult(
         .await
     {
         Ok(entity) => {
-            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
-            // on every one of these entities, so on PostgreSQL it is always
-            // `Value::Null` — this endpoint returned a literal `null` with a
-            // 200 for every record ever saved. The typed columns are the record.
+            // The stored record, not `entity.data` alone. This endpoint once
+            // returned `entity.data` while it was `#[sqlx(skip)]`, i.e. a
+            // literal `null` on PostgreSQL for every record. `data` has its own
+            // column now and is read (an H&P's status and addenda live there),
+            // but the typed columns are still the record.
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
@@ -956,11 +1214,76 @@ pub async fn get_consult(
     }
 }
 
+/// What the progress-note form submits.
+///
+/// `clinical::ProgressNote` requires a hospital day, a code status and a status
+/// for every problem. The form collects none of them, so the page invented
+/// them: every note filed said hospital day 1, "Full code" and "stable" -- a
+/// resuscitation decision and a clinical trajectory nobody recorded, stored as
+/// findings in the note a covering clinician reads. Here a field the form does
+/// not collect is optional, and absent means "not recorded".
+#[derive(Debug, Deserialize, serde::Serialize)]
+pub struct CreateProgressNoteRequest {
+    pub note_id: String,
+    pub patient_id: String,
+    /// Older clients did not send it; daily remains the default.
+    #[serde(default = "default_progress_note_type")]
+    pub note_type: String,
+    pub note_date: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hospital_day: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_op_day: Option<u16>,
+    #[serde(default)]
+    pub subjective: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overnight_events: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vital_signs: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub io_summary: Option<String>,
+    #[serde(default)]
+    pub exam: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labs_studies: Option<String>,
+    #[serde(default)]
+    pub assessment: Vec<ProgressProblemInput>,
+    #[serde(default)]
+    pub plan: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disposition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discussed_with: Option<String>,
+    #[serde(default)]
+    pub author: String,
+    pub note_time: i64,
+    #[serde(default)]
+    pub cosigned_by: Option<String>,
+}
+
+/// One problem in a progress note's assessment, as the form submits it.
+#[derive(Debug, Deserialize, serde::Serialize)]
+pub struct ProgressProblemInput {
+    pub problem_number: u8,
+    pub problem: String,
+    /// Improving / stable / worsening, when the clinician said so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub plan: String,
+}
+
+fn default_progress_note_type() -> String {
+    "daily".to_string()
+}
+
 /// Create progress note
 #[post("/api/clinical/progress-note")]
 pub async fn create_progress_note(
     data: web::Data<AppState>,
-    req: web::Json<clinical::ProgressNote>,
+    req: web::Json<CreateProgressNoteRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -988,7 +1311,7 @@ pub async fn create_progress_note(
     let entity = ProgressNoteEntity {
         id: note_id.clone(),
         patient_id: note.patient_id.clone(),
-        note_type: "daily".to_string(),
+        note_type: note.note_type.clone(),
         subjective: Some(note.subjective.clone()),
         objective: Some(note.exam.clone()),
         assessment: Some(
@@ -1061,10 +1384,11 @@ pub async fn get_progress_note(
 
     match data.repositories.progress_notes.get_by_id(&note_id).await {
         Ok(entity) => {
-            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
-            // on every one of these entities, so on PostgreSQL it is always
-            // `Value::Null` — this endpoint returned a literal `null` with a
-            // 200 for every record ever saved. The typed columns are the record.
+            // The stored record, not `entity.data` alone. This endpoint once
+            // returned `entity.data` while it was `#[sqlx(skip)]`, i.e. a
+            // literal `null` on PostgreSQL for every record. `data` has its own
+            // column now and is read (an H&P's status and addenda live there),
+            // but the typed columns are still the record.
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
@@ -1085,7 +1409,7 @@ mod consult_response_tests {
     use super::*;
     use actix_web::test;
 
-    fn register(state: &AppState, wallet: &str, role: crate::Role) {
+    pub(super) fn register(state: &AppState, wallet: &str, role: crate::Role) {
         state.users.write().unwrap().insert(
             wallet.to_string(),
             crate::User {
@@ -1114,7 +1438,7 @@ mod consult_response_tests {
     /// had ever created — and passed, which is exactly the state the refusal
     /// exists to prevent: a consult request attached to nobody, discoverable by
     /// no query and belonging to no chart.
-    async fn seed_patient(state: &AppState, patient_id: &str) {
+    pub(super) async fn seed_patient(state: &AppState, patient_id: &str) {
         let now = chrono::Utc::now();
         state
             .repositories
@@ -1148,6 +1472,7 @@ mod consult_response_tests {
                 is_verified: false,
                 is_active: true,
                 profile_extras_encrypted: None,
+                name_search_tokens: Vec::new(),
                 key_version: 1,
             })
             .await
@@ -1324,5 +1649,175 @@ mod consult_response_tests {
         )
         .await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    }
+}
+
+#[cfg(test)]
+mod hp_amendment_tests {
+    use super::consult_response_tests::{register, seed_patient};
+    use super::*;
+    use actix_web::test;
+
+    /// Files an H&P as `author` with the given status and yields its id.
+    macro_rules! create_hp_id {
+        ($app:expr, $author:expr, $status:expr) => {{
+            let created: serde_json::Value = test::call_and_read_body_json(
+                $app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/hp")
+                    .insert_header(("x-user-id", $author))
+                    .set_json(serde_json::json!({
+                        "patient_id": "PAT-HP-1",
+                        "chief_complaint": "Shortness of breath",
+                        "status": $status
+                    }))
+                    .to_request(),
+            )
+            .await;
+            created["hp_id"].as_str().expect("hp id").to_string()
+        }};
+    }
+
+    macro_rules! app {
+        ($state:expr) => {
+            test::init_service(
+                actix_web::App::new()
+                    .app_data($state.clone())
+                    .service(create_hp)
+                    .service(update_hp_draft)
+                    .service(add_hp_addendum)
+                    .service(get_hp),
+            )
+            .await
+        };
+    }
+
+    async fn state() -> web::Data<AppState> {
+        let state = crate::AppState::new();
+        register(&state, "doctor_a", crate::Role::Doctor);
+        register(&state, "doctor_b", crate::Role::Doctor);
+        register(&state, "pharmacist", crate::Role::Pharmacist);
+        seed_patient(&state, "PAT-HP-1").await;
+        web::Data::new(state)
+    }
+
+    fn draft_edit() -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": "PAT-HP-1",
+            "chief_complaint": "Shortness of breath on exertion"
+        })
+    }
+
+    /// An edit used to restamp the author with whoever saved last. Another
+    /// clinician is refused, and the author's own edit keeps them as author.
+    #[actix_web::test]
+    async fn a_draft_belongs_to_the_clinician_who_started_it() {
+        let state = state().await;
+        let app = app!(state);
+        let hp_id = create_hp_id!(&app, "doctor_a", "in-progress");
+
+        let by_other = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!("/api/clinical/hp/{hp_id}"))
+                .insert_header(("x-user-id", "doctor_b"))
+                .set_json(draft_edit())
+                .to_request(),
+        )
+        .await;
+        assert_eq!(by_other.status(), actix_web::http::StatusCode::FORBIDDEN);
+
+        let by_author = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!("/api/clinical/hp/{hp_id}"))
+                .insert_header(("x-user-id", "doctor_a"))
+                .set_json(draft_edit())
+                .to_request(),
+        )
+        .await;
+        assert!(by_author.status().is_success());
+        let stored = state
+            .repositories
+            .history_physicals
+            .get_by_id(&hp_id)
+            .await
+            .unwrap();
+        assert_eq!(stored.performed_by, "doctor_a");
+        assert_eq!(stored.chief_complaint, "Shortness of breath on exertion");
+    }
+
+    #[actix_web::test]
+    async fn a_signed_hp_is_not_editable_as_a_draft() {
+        let state = state().await;
+        let app = app!(state);
+        let hp_id = create_hp_id!(&app, "doctor_a", "signed");
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!("/api/clinical/hp/{hp_id}"))
+                .insert_header(("x-user-id", "doctor_a"))
+                .set_json(draft_edit())
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::CONFLICT);
+    }
+
+    /// Reading records is not writing them: a pharmacist may view an H&P and
+    /// may not amend a signed one.
+    #[actix_web::test]
+    async fn a_role_that_only_reads_records_cannot_amend_one() {
+        let state = state().await;
+        let app = app!(state);
+        let hp_id = create_hp_id!(&app, "doctor_a", "signed");
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/clinical/hp/{hp_id}/addendum"))
+                .insert_header(("x-user-id", "pharmacist"))
+                .set_json(serde_json::json!({ "content": "Dose adjusted" }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    /// Each addendum is attributable and none replaces another.
+    #[actix_web::test]
+    async fn successive_addenda_all_survive_with_their_authors() {
+        let state = state().await;
+        let app = app!(state);
+        let hp_id = create_hp_id!(&app, "doctor_a", "signed");
+
+        for (author, content) in [("doctor_a", "First"), ("doctor_b", "Second")] {
+            let resp = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri(&format!("/api/clinical/hp/{hp_id}/addendum"))
+                    .insert_header(("x-user-id", author))
+                    .set_json(serde_json::json!({ "content": content }))
+                    .to_request(),
+            )
+            .await;
+            assert!(resp.status().is_success(), "{author} could not amend");
+        }
+
+        let stored = state
+            .repositories
+            .history_physicals
+            .get_by_id(&hp_id)
+            .await
+            .unwrap();
+        let addenda = stored.data["addenda"].as_array().expect("addenda");
+        assert_eq!(addenda.len(), 2);
+        assert_eq!(addenda[0]["author_id"], "doctor_a");
+        assert_eq!(addenda[1]["author_id"], "doctor_b");
+        assert_eq!(
+            stored.data["status"], "signed",
+            "an addendum unsigned the record"
+        );
     }
 }

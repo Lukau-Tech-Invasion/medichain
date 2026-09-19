@@ -1,8 +1,8 @@
 //! # National ID Verification Module
 //!
 //! Provides trait-based national ID verification with per-country implementations.
-//! Uses a deterministic stub only in explicit demo/test mode. Production
-//! returns a typed configuration failure when a live verifier is unavailable.
+//! A missing live integration returns an explicit manual-review requirement;
+//! it never treats a non-empty identifier as verified.
 //!
 //! ## Supported Countries
 //! - Ethiopia — Fayda ID (`FAYDA_API_KEY` / `FAYDA_API_URL`)
@@ -15,7 +15,6 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_256};
 use thiserror::Error;
 
 // ============================================================================
@@ -80,19 +79,17 @@ impl std::fmt::Display for Country {
 
 /// Which path produced a [`VerificationResult`].
 ///
-/// Added for Horizon finding HZ-004: previously `verified: true` looked
-/// identical whether a real government API confirmed the ID or the
-/// deterministic stub (used when no API key is configured) rubber-stamped any
-/// non-empty string. Callers that care about verification strength — not just
-/// its boolean outcome — can now branch on this field.
+/// Callers must distinguish an authority confirmation from a case awaiting a
+/// qualified human reviewer; neither an HTTP configuration gap nor demo mode
+/// is evidence that an identity is genuine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerificationMethod {
     /// Confirmed against the country's real government verification API.
     Live,
-    /// Produced by the deterministic SHA3-256 stub — no government authority
-    /// was contacted. Any non-empty ID string yields `verified: true` here.
-    Stub,
+    /// No live authority was available. The identifier is unverified and must
+    /// be reviewed through the facility's identity-review process.
+    ManualReviewRequired,
 }
 
 /// Result of a national ID verification attempt
@@ -100,7 +97,7 @@ pub enum VerificationMethod {
 pub struct VerificationResult {
     /// Whether the ID was successfully verified
     pub verified: bool,
-    /// Which path produced this result — real government API, or the stub.
+    /// Which path produced this result — a real authority or manual review.
     pub verification_method: VerificationMethod,
     /// Country the ID belongs to
     pub country: Country,
@@ -149,78 +146,19 @@ pub trait NationalIdVerifier: Send + Sync {
 }
 
 // ============================================================================
-// Stub Verifier (SHA3-256 based — used when no API key is configured)
+// Manual review when no live verifier is configured
 // ============================================================================
 
-/// Stub verifier that deterministically "verifies" IDs using SHA3-256.
-/// The result is reproducible: the same ID always returns the same synthetic
-/// full_name and date_of_birth, which is useful for integration tests.
-pub struct StubVerifier {
-    pub country: Country,
-}
-
-impl StubVerifier {
-    pub fn new(country: Country) -> Self {
-        StubVerifier { country }
-    }
-
-    /// Derive synthetic personal details from the ID's hash bytes so that
-    /// the stub behaves deterministically without requiring a real API call.
-    fn derive_details(id: &str) -> (String, String) {
-        let hash = Sha3_256::digest(id.as_bytes());
-        let bytes = hash.as_slice();
-
-        // Use specific bytes to build a reproducible fake name
-        let first_names = ["Amara", "Kofi", "Emeka", "Siya", "Wanjiru"];
-        let last_names = ["Tesfaye", "Mensah", "Okafor", "Dlamini", "Kamau"];
-        let first = first_names[(bytes[0] as usize) % first_names.len()];
-        let last = last_names[(bytes[1] as usize) % last_names.len()];
-        let full_name = format!("{} {}", first, last);
-
-        // Build a deterministic date-of-birth between 1950 and 2005
-        let year = 1950 + (bytes[2] as u16 % 55);
-        let month = 1 + (bytes[3] % 12);
-        let day = 1 + (bytes[4] % 28);
-        let dob = format!("{:04}-{:02}-{:02}", year, month, day);
-
-        (full_name, dob)
-    }
-}
-
-#[async_trait]
-impl NationalIdVerifier for StubVerifier {
-    async fn verify(
-        &self,
-        id: &str,
-        country: &Country,
-    ) -> Result<VerificationResult, NationalIdError> {
-        if id.trim().is_empty() {
-            return Ok(VerificationResult {
-                verified: false,
-                verification_method: VerificationMethod::Stub,
-                country: country.clone(),
-                id_number: id.to_string(),
-                full_name: None,
-                date_of_birth: None,
-                error: Some("ID number cannot be empty".to_string()),
-            });
-        }
-
-        // Stub: treat any non-empty ID as valid
-        let (full_name, dob) = Self::derive_details(id);
-        Ok(VerificationResult {
-            verified: true,
-            verification_method: VerificationMethod::Stub,
-            country: country.clone(),
-            id_number: id.to_string(),
-            full_name: Some(full_name),
-            date_of_birth: Some(dob),
-            error: None,
-        })
-    }
-
-    fn supported_country(&self) -> Country {
-        self.country.clone()
+/// Build the only safe outcome when a country has no available live verifier.
+fn manual_review_required(id: &str, country: &Country) -> VerificationResult {
+    VerificationResult {
+        verified: false,
+        verification_method: VerificationMethod::ManualReviewRequired,
+        country: country.clone(),
+        id_number: id.to_string(),
+        full_name: None,
+        date_of_birth: None,
+        error: Some("Live identity verification is unavailable; manual review is required".into()),
     }
 }
 
@@ -229,8 +167,8 @@ impl NationalIdVerifier for StubVerifier {
 // ============================================================================
 
 /// Generic HTTP-based verifier for a specific country's government API.
-/// If the configured API key env var is absent the verifier falls back to
-/// `StubVerifier`.
+/// If the configured API key env var is absent, the result explicitly requires
+/// manual review rather than fabricating a successful verification.
 struct HttpVerifier {
     country: Country,
     /// Env var name for the API key
@@ -274,18 +212,7 @@ impl NationalIdVerifier for HttpVerifier {
     ) -> Result<VerificationResult, NationalIdError> {
         let api_key = match self.api_key() {
             Some(k) => k,
-            None => {
-                if crate::support::is_demo_mode() {
-                    log::debug!(
-                        "No API key for {} (env var {}); using demo verifier",
-                        self.country,
-                        self.api_key_env
-                    );
-                    let stub = StubVerifier::new(self.country.clone());
-                    return stub.verify(id, country).await;
-                }
-                return Err(NationalIdError::ServiceUnavailable);
-            }
+            None => return Ok(manual_review_required(id, country)),
         };
 
         let url = self.api_url();
@@ -465,40 +392,17 @@ pub struct VerifyIdRequest {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_stub_verifier_returns_verified() {
-        let verifier = StubVerifier::new(Country::Ethiopia);
-        let result = verifier
-            .verify("FAN123456", &Country::Ethiopia)
-            .await
-            .unwrap();
-        assert!(result.verified);
-        assert!(result.full_name.is_some());
-        assert!(result.date_of_birth.is_some());
-        assert!(result.error.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_stub_verifier_rejects_empty_id() {
-        let verifier = StubVerifier::new(Country::Ghana);
-        let result = verifier.verify("", &Country::Ghana).await.unwrap();
+    #[test]
+    fn manual_review_never_verifies_or_invents_identity_data() {
+        let result = manual_review_required("NIN9876543210", &Country::Nigeria);
         assert!(!result.verified);
+        assert_eq!(
+            result.verification_method,
+            VerificationMethod::ManualReviewRequired
+        );
+        assert!(result.full_name.is_none());
+        assert!(result.date_of_birth.is_none());
         assert!(result.error.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_stub_verifier_deterministic() {
-        let verifier = StubVerifier::new(Country::Nigeria);
-        let r1 = verifier
-            .verify("NIN9876543210", &Country::Nigeria)
-            .await
-            .unwrap();
-        let r2 = verifier
-            .verify("NIN9876543210", &Country::Nigeria)
-            .await
-            .unwrap();
-        assert_eq!(r1.full_name, r2.full_name);
-        assert_eq!(r1.date_of_birth, r2.date_of_birth);
     }
 
     #[test]
@@ -518,21 +422,11 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn production_service_rejects_missing_live_verifier_configuration() {
-        // The default test posture is production-like. A missing live key must
-        // not transform a non-empty identifier into a verified identity.
-        std::env::remove_var("FAYDA_API_KEY");
-        let service = NationalIdService::new();
-        let result = service.verify("FAN-TEST-001", &Country::Ethiopia).await;
-        assert!(matches!(result, Err(NationalIdError::ServiceUnavailable)));
-    }
-
-    /// HZ-004 regression: a real HTTP-verifier path (even one that fails to
-    /// reach a live API) must never be tagged as `Stub` — only the actual
-    /// fallback branch may report `Stub`.
     #[test]
     fn test_verification_method_variants_are_distinct() {
-        assert_ne!(VerificationMethod::Live, VerificationMethod::Stub);
+        assert_ne!(
+            VerificationMethod::Live,
+            VerificationMethod::ManualReviewRequired
+        );
     }
 }

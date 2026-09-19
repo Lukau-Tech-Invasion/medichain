@@ -123,13 +123,38 @@ pub async fn get_family_history(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    // Registered caller, NOT clinical-staff-only: a patient must be able to
-    // read their own record here. The staff gate rejected them with
-    // INSUFFICIENT_ROLE before the self-or-provider check below could run.
-    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
     let id = path.into_inner();
+
+    // The path key is the patient id. A registered identity alone is never
+    // permission to read another patient's genetic history: allow the patient,
+    // an authorised guardian/admin, or clinical staff with a current access
+    // grant. Fail closed if the grant store cannot be consulted.
+    let guardian_or_admin = crate::support::caller_may_access_patient(
+        &data,
+        &caller,
+        &id,
+        crate::repositories::traits::GuardianPermission::ViewRecords,
+    )
+    .await;
+    let provider_grant = if caller.role.can_view_medical_records() {
+        data.patient_access
+            .provider_has_active_grant(&id, &caller.wallet_address, Utc::now())
+            .await
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    if !guardian_or_admin && !provider_grant {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "You are not authorised to view this family history".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
     match data
         .repositories
         .family_history_records
@@ -158,6 +183,62 @@ pub async fn get_family_history(
         Err(e) => {
             log::error!("family-history lookup failed: {e}");
             HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Get the authenticated patient's family history.
+///
+/// This endpoint deliberately takes no patient identifier. Patient-facing
+/// clients must not be able to turn a URL parameter into another patient's
+/// genetic and family-health information. Clinical staff that need a specific
+/// record continue to use the explicitly authorised record endpoint above.
+#[get("/api/clinical/family-history")]
+pub async fn get_my_family_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let patient_id = caller
+        .linked_patient_id
+        .clone()
+        .unwrap_or(caller.wallet_address);
+
+    match data
+        .repositories
+        .family_history_records
+        .get_by_id(&patient_id)
+        .await
+    {
+        Ok(Some(record)) => match serde_json::from_value::<FamilyMedicalHistory>(record.data) {
+            Ok(history) => HttpResponse::Ok().json(history),
+            Err(error) => {
+                log::error!("caller-scoped family-history payload is unreadable: {error}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored family history could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "family_members": [],
+            "genetic_conditions": [],
+            "three_gen_complete": false,
+            "last_updated": 0,
+            "updated_by": "",
+        })),
+        Err(error) => {
+            log::error!("caller-scoped family-history lookup failed: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Family history could not be loaded".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
     }
 }

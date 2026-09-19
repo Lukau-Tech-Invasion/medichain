@@ -129,6 +129,53 @@ fn national_id_hash_key() -> String {
         .unwrap_or_else(|_| "medichain-dev-national-id-key-change-in-production".to_string())
 }
 
+/// Resolve the independent key for patient-name blind indexes.
+///
+/// This must never reuse `NATIONAL_ID_HASH_KEY`: rotating a name-search key is
+/// an operationally independent event, and key reuse couples two unrelated
+/// equality-leakage domains. The fixed fallback is development-only and is
+/// rejected by `validate_production_secrets`.
+fn patient_search_index_key() -> String {
+    std::env::var("PATIENT_SEARCH_INDEX_KEY").unwrap_or_else(|_| {
+        "medichain-dev-patient-search-index-key-change-in-production".to_string()
+    })
+}
+
+/// Return keyed equality tokens for a patient name without retaining plaintext.
+///
+/// Names are case-folded, split on non-alphanumeric boundaries, de-duplicated,
+/// and independently domain-separated before hashing. Search therefore supports
+/// whole-name-token equality (for example `"Ama"` or `"Ama Mensah"`), not
+/// substring/prefix search. That limitation is deliberate: prefix indexes add
+/// substantially more frequency information about a sensitive name.
+pub fn patient_name_search_tokens(name: &str) -> Vec<String> {
+    name_search_tokens_with_key(name, &patient_search_index_key())
+}
+
+/// The token construction itself, with the key passed in.
+///
+/// Separate so a test can compare two keys without writing
+/// `PATIENT_SEARCH_INDEX_KEY` into the process environment: tests run in
+/// parallel, and a test that changed the key between indexing a patient and
+/// searching for them made any concurrent name-search test fail at random.
+fn name_search_tokens_with_key(name: &str, key: &str) -> Vec<String> {
+    let normalized = name
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect::<std::collections::BTreeSet<_>>();
+    normalized
+        .into_iter()
+        .map(|token| {
+            let mut hasher = Sha3_256::new();
+            hasher.update(key.as_bytes());
+            hasher.update(b":patient-name-token:");
+            hasher.update(token.as_bytes());
+            hex::encode(hasher.finalize())
+        })
+        .collect()
+}
+
 /// Hash a national ID number for storage/indexing (Horizon HZ-005).
 ///
 /// National ID numbers are short, structured, and low-entropy relative to a
@@ -142,8 +189,15 @@ fn national_id_hash_key() -> String {
 /// `national_index`) keep working — the key, not the algorithm, is what makes the
 /// digest non-reversible without server-side knowledge.
 pub fn hash_national_id(id: &str) -> String {
+    hash_national_id_with_key(id, &national_id_hash_key())
+}
+
+/// The digest itself, with the key passed in, so tests can compare keys
+/// without writing `NATIONAL_ID_HASH_KEY` into the shared process environment
+/// (see `name_search_tokens_with_key`).
+fn hash_national_id_with_key(id: &str, key: &str) -> String {
     let mut hasher = Sha3_256::new();
-    hasher.update(national_id_hash_key().as_bytes());
+    hasher.update(key.as_bytes());
     hasher.update(b":");
     hasher.update(id.as_bytes());
     hex::encode(hasher.finalize())
@@ -934,35 +988,45 @@ mod attributed_provider_tests {
 mod tests {
     use super::*;
 
-    /// HZ-005 regression, run as one test (not three) to avoid cross-test races
-    /// on the shared `NATIONAL_ID_HASH_KEY` env var — the same reason
-    /// `blockchain.rs::test_operator_signer_fail_closed` does the same thing.
+    /// HZ-005 regression. Keys are passed explicitly: this test used to set
+    /// `NATIONAL_ID_HASH_KEY` in the process environment, which every other
+    /// test that registers or looks up a patient by national ID also reads.
     #[test]
     fn hash_national_id_is_keyed_deterministic_and_not_bare_sha3() {
         let id = "8001015009087";
 
         // Depends on the key, not just the ID.
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "key-one");
-        let with_key_one = hash_national_id(id);
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "key-two");
-        let with_key_two = hash_national_id(id);
         assert_ne!(
-            with_key_one, with_key_two,
+            hash_national_id_with_key(id, "key-one"),
+            hash_national_id_with_key(id, "key-two"),
             "same ID under two different keys must produce different digests"
         );
 
         // Deterministic per (key, id) — required so equality-based lookups
         // (e.g. `national_index`) keep working.
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "fixed-key");
-        let first = hash_national_id(id);
-        let second = hash_national_id(id);
-        assert_eq!(first, second);
+        let first = hash_national_id_with_key(id, "fixed-key");
+        assert_eq!(first, hash_national_id_with_key(id, "fixed-key"));
 
         // Never degrades to the bare, unkeyed construction the finding named.
         let bare = hex::encode(Sha3_256::digest(id.as_bytes()));
         assert_ne!(first, bare);
+        assert_eq!(
+            hash_national_id(id),
+            hash_national_id_with_key(id, &national_id_hash_key())
+        );
+    }
 
-        std::env::remove_var("NATIONAL_ID_HASH_KEY");
+    #[test]
+    fn patient_name_tokens_are_normalized_keyed_and_distinct() {
+        let first = name_search_tokens_with_key("Ama-Mensah Ama", "name-index-key-one");
+        let normalized = name_search_tokens_with_key("  ama   mensah ", "name-index-key-one");
+        assert_eq!(first, normalized);
+        assert_eq!(first.len(), 2, "duplicate words must not leak frequency");
+
+        assert_ne!(
+            first,
+            name_search_tokens_with_key("Ama Mensah", "name-index-key-two")
+        );
     }
 
     // ------------------------------------------------------------------

@@ -66,7 +66,6 @@ PUBLIC_ROUTES = {
     '/api/emergency/nfc-token': 'break-glass: validates the NFC card hash as its credential',
     '/api/emergency/grants': 'break-glass grant issuance; validates work context internally',
     '/api/simulate-nfc-tap': 'demo-only, gated by require_demo_mode (HZ-019)',
-    '/api/national-id/verify': 'identity verification utility; no stored data returned',
     '/api/notifications/sms/inbound': 'inbound SMS webhook, authenticated by provider signature',
     '/api/appointments/slots/{provider_id}/{date}': 'public availability lookup, no patient data',
     '/api/telehealth/join/{session_id}': 'redirect to the telehealth app; session validated there',

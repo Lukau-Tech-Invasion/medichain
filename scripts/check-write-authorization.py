@@ -86,6 +86,7 @@ REVIEWED: dict[str, str] = {
     "create_medication_reminder": "pharmacist-appropriate; the handler also permits the patient",
     "create_patient_access_request": "requesting access is not receiving it; the grant is approved separately",
     "register_patient": "registration is a front-desk action in a small clinic; narrowing it would break real intake workflows",
+    "fhir_ingest_transaction": "owner decision 2026-09-19: the same single-patient registration as register_patient, through the same build_new_patient path, arriving as FHIR -- so the same roles",
     "create_telehealth_session": "pharmacist-led medication-review consultations are a real workflow",
 }
 

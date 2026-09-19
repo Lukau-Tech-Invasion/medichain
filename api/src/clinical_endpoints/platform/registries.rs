@@ -77,17 +77,20 @@ async fn require_registry_reader(
 /// Map a registry read failure to a response.
 ///
 /// A registry whose repository has no `list_all` on the active storage backend
-/// is **empty, not broken**. Returning 500 made the page look like a server
-/// fault (`/api/platform/list/lab-qc` did exactly this), when the honest answer
-/// is "there are no records here". Genuine failures still surface as 500.
+/// is unavailable, not empty. Reporting an empty clinical worklist hides
+/// existing records whenever a production repository misses an implementation.
 fn registry_read_error(http_req: &HttpRequest, e: impl std::fmt::Display) -> HttpResponse {
     let msg = e.to_string();
     if msg.contains("not implemented") {
-        log::warn!(
-            "registry {} has no list_all on this storage backend; returning an empty list",
+        log::error!(
+            "registry {} has no list_all on this storage backend",
             http_req.path()
         );
-        return HttpResponse::Ok().json(Vec::<serde_json::Value>::new());
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "This clinical registry is temporarily unavailable".to_string(),
+            code: "REGISTRY_UNAVAILABLE".to_string(),
+        });
     }
     log::error!("registry read failed on {}: {}", http_req.path(), msg);
     HttpResponse::InternalServerError().finish()

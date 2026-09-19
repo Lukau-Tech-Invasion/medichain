@@ -652,6 +652,7 @@ pub(crate) fn patient_profile_to_entity(
         is_verified: false,
         is_active: true,
         profile_extras_encrypted: extras_encrypted,
+        name_search_tokens: crate::support::patient_name_search_tokens(&profile.full_name),
         key_version: keyring.current_version() as i32,
     }
 }

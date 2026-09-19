@@ -222,11 +222,31 @@ pub struct UpdateOrderStatusRequest {
     pub status: String,
 }
 
-/// Update a physician order's status (doctor-portal OrdersPage).
+/// Convert UI and API status spellings into the database lifecycle vocabulary.
+fn canonical_order_status(status: &str) -> Option<&'static str> {
+    match status
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "pending" => Some("pending"),
+        // The portal historically called this `in_progress`; the database and
+        // all durable readers call the same state `active`.
+        "in_progress" | "active" => Some("active"),
+        "completed" => Some("completed"),
+        "discontinued" => Some("discontinued"),
+        "cancelled" => Some("cancelled"),
+        "on_hold" => Some("on_hold"),
+        _ => None,
+    }
+}
+
+/// Update a physician order's durable lifecycle status (doctor-portal OrdersPage).
 ///
-/// The status lives inside the order's `data` blob; this reads the order,
-/// rewrites `status` (stamping `completed_at` on completion), and persists via
-/// the repository's `update`. Edit-medical-records role required.
+/// The typed `status` column is the source of truth. The legacy JSON payload is
+/// updated as a compatibility mirror, and completion time is stamped there for
+/// readers that still need it. Edit-medical-records role required.
 #[actix_web::put("/api/clinical/orders/{order_id}/status")]
 pub async fn update_order_status(
     data: web::Data<AppState>,
@@ -294,10 +314,16 @@ pub async fn update_order_status(
     // Normalised to the vocabulary the CHECK permits (`pending`, `active`,
     // `completed`, `discontinued`, `cancelled`, `on_hold`): `OrdersPage` sends
     // "Completed" with a capital, and the constraint is lowercase.
-    let canonical_status = new_status
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['-', ' '], "_");
+    let canonical_status = match canonical_order_status(&new_status) {
+        Some(status) => status.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "Unsupported order status".to_string(),
+                code: "INVALID_STATUS".to_string(),
+            });
+        }
+    };
     entity.status = canonical_status.clone();
     if let Some(obj) = entity.data.as_object_mut() {
         obj.insert(
@@ -323,6 +349,23 @@ pub async fn update_order_status(
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod order_status_tests {
+    use super::canonical_order_status;
+
+    #[test]
+    fn maps_legacy_in_progress_to_the_persisted_active_state() {
+        assert_eq!(canonical_order_status("In Progress"), Some("active"));
+        assert_eq!(canonical_order_status("active"), Some("active"));
+    }
+
+    #[test]
+    fn rejects_statuses_outside_the_order_lifecycle() {
+        assert_eq!(canonical_order_status("ready"), None);
+        assert_eq!(canonical_order_status(""), None);
     }
 }
 

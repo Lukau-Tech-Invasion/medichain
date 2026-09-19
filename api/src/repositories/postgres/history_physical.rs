@@ -1,6 +1,7 @@
 //! PostgreSQL History Physical repository using QueryBuilder pattern for dynamic query construction.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::repositories::traits::{
@@ -16,6 +17,35 @@ impl PgHistoryPhysicalRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+}
+
+/// `UPDATE ... SET <every column> WHERE id = <id>`, for callers to extend with
+/// a further predicate and a `RETURNING` clause.
+fn update_statement(hp: &HistoryPhysicalEntity) -> QueryBuilder<'_, Postgres> {
+    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE history_physicals SET ");
+    qb.push("chief_complaint = ").push_bind(&hp.chief_complaint);
+    qb.push(", history_present_illness = ")
+        .push_bind(&hp.history_present_illness);
+    qb.push(", past_medical_history = ")
+        .push_bind(&hp.past_medical_history);
+    qb.push(", family_history = ").push_bind(&hp.family_history);
+    qb.push(", social_history = ").push_bind(&hp.social_history);
+    qb.push(", medications = ").push_bind(&hp.medications);
+    qb.push(", allergies = ").push_bind(&hp.allergies);
+    qb.push(", review_of_systems = ")
+        .push_bind(&hp.review_of_systems);
+    qb.push(", physical_exam = ").push_bind(&hp.physical_exam);
+    qb.push(", vital_signs = ").push_bind(&hp.vital_signs);
+    qb.push(", assessment = ").push_bind(&hp.assessment);
+    qb.push(", plan_content = ").push_bind(&hp.plan_content);
+    qb.push(", exam_type = ").push_bind(&hp.exam_type);
+    qb.push(", performed_by = ").push_bind(&hp.performed_by);
+    qb.push(", performed_at = ").push_bind(hp.performed_at);
+    qb.push(", facility_id = ").push_bind(&hp.facility_id);
+    qb.push(", data = ").push_bind(&hp.data);
+    qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
+        .push_bind(&hp.id);
+    qb
 }
 
 #[async_trait]
@@ -110,35 +140,34 @@ impl HistoryPhysicalRepository for PgHistoryPhysicalRepository {
     }
 
     async fn update(&self, hp: HistoryPhysicalEntity) -> RepositoryResult<HistoryPhysicalEntity> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE history_physicals SET ");
-        qb.push("chief_complaint = ").push_bind(&hp.chief_complaint);
-        qb.push(", history_present_illness = ")
-            .push_bind(&hp.history_present_illness);
-        qb.push(", past_medical_history = ")
-            .push_bind(&hp.past_medical_history);
-        qb.push(", family_history = ").push_bind(&hp.family_history);
-        qb.push(", social_history = ").push_bind(&hp.social_history);
-        qb.push(", medications = ").push_bind(&hp.medications);
-        qb.push(", allergies = ").push_bind(&hp.allergies);
-        qb.push(", review_of_systems = ")
-            .push_bind(&hp.review_of_systems);
-        qb.push(", physical_exam = ").push_bind(&hp.physical_exam);
-        qb.push(", vital_signs = ").push_bind(&hp.vital_signs);
-        qb.push(", assessment = ").push_bind(&hp.assessment);
-        qb.push(", plan_content = ").push_bind(&hp.plan_content);
-        qb.push(", exam_type = ").push_bind(&hp.exam_type);
-        qb.push(", performed_by = ").push_bind(&hp.performed_by);
-        qb.push(", performed_at = ").push_bind(hp.performed_at);
-        qb.push(", facility_id = ").push_bind(&hp.facility_id);
-        qb.push(", data = ").push_bind(&hp.data);
-        qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
-            .push_bind(&hp.id);
+        let mut qb = update_statement(&hp);
         qb.push(" RETURNING *");
 
         let updated = qb
             .build_query_as::<HistoryPhysicalEntity>()
             .fetch_one(&self.pool)
             .await?;
+
+        Ok(updated)
+    }
+
+    async fn update_if_unchanged(
+        &self,
+        hp: HistoryPhysicalEntity,
+        expected_updated_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<HistoryPhysicalEntity>> {
+        let mut qb = update_statement(&hp);
+        qb.push(" AND updated_at = ").push_bind(expected_updated_at);
+        qb.push(" RETURNING *");
+
+        let updated = qb
+            .build_query_as::<HistoryPhysicalEntity>()
+            .fetch_optional(&self.pool)
+            .await?;
+        if updated.is_none() {
+            // Distinguish "somebody wrote first" from "there is no such record".
+            self.get_by_id(&hp.id).await?;
+        }
 
         Ok(updated)
     }

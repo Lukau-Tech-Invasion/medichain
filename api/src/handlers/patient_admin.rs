@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::pagination::{paginate_cursor, CursorQuery, Cursorable};
+use crate::pagination::{decode_cursor, encode_cursor_ms, CursorQuery, Cursorable, MAX_LIMIT};
 
 impl Cursorable for PatientProfile {
     fn cursor_ts(&self) -> i64 {
@@ -84,7 +84,11 @@ fn unreadable_roster_row(
 
 /// Get all registered patients (paginated)
 /// Requires authentication: Only healthcare providers can list all patients
-/// Query params: ?limit=20&cursor=<opaque>
+/// Query params: ?limit=20&cursor=<opaque>&q=<name-or-identifier>
+///
+/// `q` is evaluated server-side. Names use keyed whole-token blind indexes;
+/// identifiers retain their existing lookup behavior. No plaintext name is
+/// stored or returned solely to make search work.
 #[get("/api/patients")]
 pub async fn list_patients(
     data: web::Data<AppState>,
@@ -123,15 +127,34 @@ pub async fn list_patients(
         });
     }
 
-    // List patients via repository.
-    // Decrypts each profile blob; capped at 1000 for this cursor pass.
-    let entities = match data
-        .repositories
-        .patients
-        .list(crate::repositories::Pagination::new(0, 1000))
-        .await
-    {
-        Ok(result) => result.items,
+    let requested_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
+    let cursor = match query.cursor.as_deref() {
+        Some(encoded) => match decode_cursor(encoded).and_then(|(ts, id)| {
+            chrono::DateTime::<Utc>::from_timestamp_millis(ts).map(|at| (at, id))
+        }) {
+            Some(cursor) => Some(cursor),
+            None => {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    success: false,
+                    error: "Invalid patient roster cursor".to_string(),
+                    code: "INVALID_CURSOR".to_string(),
+                });
+            }
+        },
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(50).clamp(1, MAX_LIMIT) as u32;
+    let repository_result = match requested_query {
+        Some(search_query) => {
+            data.repositories
+                .patients
+                .search_keyset(search_query, cursor, limit)
+                .await
+        }
+        None => data.repositories.patients.list_keyset(cursor, limit).await,
+    };
+    let (entities, total) = match repository_result {
+        Ok(result) => (result.items, result.total),
         Err(e) => {
             log::error!("Patient list failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -160,7 +183,7 @@ pub async fn list_patients(
                     );
                 }
                 rows.push(RosterRow {
-                    ts: profile.last_updated.timestamp_millis(),
+                    ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
                     value,
                 });
@@ -177,12 +200,12 @@ pub async fn list_patients(
         }
     }
 
-    // Sort: timestamp DESC, then ID ASC (stable tiebreaker)
-    rows.sort_by(|a, b| b.ts.cmp(&a.ts).then_with(|| a.id.cmp(&b.id)));
-
-    let total = rows.len();
-    let (page, next_cursor) = paginate_cursor(&rows, query.cursor.as_deref(), query.limit);
-    let page: Vec<serde_json::Value> = page.into_iter().map(|r| r.value).collect();
+    let next_cursor = if rows.len() == limit as usize {
+        rows.last().map(|row| encode_cursor_ms(row.ts, &row.id))
+    } else {
+        None
+    };
+    let page: Vec<serde_json::Value> = rows.into_iter().map(|row| row.value).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

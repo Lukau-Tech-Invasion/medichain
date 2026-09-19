@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use crate::repositories::patient_search::PatientSearchCriteria;
 use crate::repositories::traits::*;
 
 /// In-memory patient repository
@@ -168,21 +169,49 @@ impl PatientRepository for MemoryPatientRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
+    async fn list_keyset(
+        &self,
+        cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let mut patients: Vec<PatientEntity> = storage
+            .values()
+            .filter(|patient| patient.is_active)
+            .cloned()
+            .collect();
+        patients.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let total = patients.len() as u64;
+        if let Some((updated_at, id)) = cursor {
+            patients.retain(|patient| {
+                patient.updated_at < updated_at
+                    || (patient.updated_at == updated_at && patient.id > id)
+            });
+        }
+        let page = patients.into_iter().take(limit as usize).collect();
+        Ok(PaginatedResult::new(
+            page,
+            total,
+            &Pagination::new(0, limit),
+        ))
+    }
+
     async fn search(
         &self,
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
         let storage = self.storage.read().map_err(Self::lock_error)?;
-        let query_lower = query.to_lowercase();
+        let criteria = PatientSearchCriteria::new(query);
 
         let mut patients: Vec<PatientEntity> = storage
             .values()
-            .filter(|p| {
-                p.is_active
-                    && (p.health_id.to_lowercase().contains(&query_lower)
-                        || p.id.to_lowercase().contains(&query_lower))
-            })
+            .filter(|p| criteria.matches(p))
             .cloned()
             .collect();
 
@@ -195,6 +224,40 @@ impl PatientRepository for MemoryPatientRepository {
         let items: Vec<PatientEntity> = patients.into_iter().skip(offset).take(limit).collect();
 
         Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn search_keyset(
+        &self,
+        query: &str,
+        cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let criteria = PatientSearchCriteria::new(query);
+        let mut patients: Vec<PatientEntity> = storage
+            .values()
+            .filter(|patient| criteria.matches(patient))
+            .cloned()
+            .collect();
+        patients.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let total = patients.len() as u64;
+        if let Some((updated_at, id)) = cursor {
+            patients.retain(|patient| {
+                patient.updated_at < updated_at
+                    || (patient.updated_at == updated_at && patient.id > id)
+            });
+        }
+        let page = patients.into_iter().take(limit as usize).collect();
+        Ok(PaginatedResult::new(
+            page,
+            total,
+            &Pagination::new(0, limit),
+        ))
     }
 
     async fn get_by_provider(
@@ -225,6 +288,32 @@ impl PatientRepository for MemoryPatientRepository {
         let storage = self.storage.read().map_err(Self::lock_error)?;
         let count = storage.values().filter(|p| p.is_active).count() as u64;
         Ok(count)
+    }
+
+    async fn list_unindexed_names(
+        &self,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<PatientEntity>> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let mut patients: Vec<PatientEntity> = storage
+            .values()
+            .filter(|p| p.name_search_tokens.is_empty())
+            .filter(|p| after_id.is_none_or(|after| p.id.as_str() > after))
+            .cloned()
+            .collect();
+        patients.sort_by(|left, right| left.id.cmp(&right.id));
+        patients.truncate(limit as usize);
+        Ok(patients)
+    }
+
+    async fn set_name_search_tokens(&self, id: &str, tokens: &[String]) -> RepositoryResult<()> {
+        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let patient = storage
+            .get_mut(id)
+            .ok_or_else(|| RepositoryError::NotFound(format!("Patient {id} not found")))?;
+        patient.name_search_tokens = tokens.to_vec();
+        Ok(())
     }
 
     async fn count_by_gender(&self) -> RepositoryResult<HashMap<String, u64>> {
@@ -282,6 +371,7 @@ mod tests {
             is_verified: false,
             is_active: true,
             profile_extras_encrypted: None,
+            name_search_tokens: Vec::new(),
             key_version: 1,
         }
     }
@@ -296,6 +386,47 @@ mod tests {
 
         let fetched = repo.get_by_id("PAT-001").await.unwrap();
         assert_eq!(fetched.health_id, "HID-PAT-001");
+    }
+
+    #[tokio::test]
+    async fn keyed_name_search_returns_only_all_matching_tokens() {
+        let repo = MemoryPatientRepository::new();
+        let mut patient = create_test_patient("PAT-NAME-001");
+        patient.name_search_tokens = crate::support::patient_name_search_tokens("Ama Mensah");
+        repo.create(patient).await.unwrap();
+
+        let found = repo.search_keyset("Ama Mensah", None, 10).await.unwrap();
+        assert_eq!(found.total, 1);
+        assert_eq!(found.items[0].id, "PAT-NAME-001");
+        assert_eq!(
+            repo.search_keyset("Unknown", None, 10).await.unwrap().total,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn keyset_page_does_not_repeat_or_hide_later_patients() {
+        let repo = MemoryPatientRepository::new();
+        let base = Utc::now();
+        for (id, offset) in [("PAT-ONE", 3_i64), ("PAT-TWO", 2), ("PAT-THREE", 1)] {
+            let mut patient = create_test_patient(id);
+            patient.updated_at = base - chrono::Duration::seconds(offset);
+            repo.create(patient).await.unwrap();
+        }
+
+        let first = repo.list_keyset(None, 2).await.unwrap();
+        assert_eq!(first.items.len(), 2);
+        let final_first = first.items.last().unwrap();
+        let second = repo
+            .list_keyset(Some((final_first.updated_at, final_first.id.clone())), 2)
+            .await
+            .unwrap();
+        assert_eq!(first.total, 3);
+        assert_eq!(second.items.len(), 1);
+        assert!(first
+            .items
+            .iter()
+            .all(|patient| patient.id != second.items[0].id));
     }
 
     #[tokio::test]

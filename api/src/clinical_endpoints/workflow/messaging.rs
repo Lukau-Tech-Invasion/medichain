@@ -47,11 +47,30 @@ pub async fn log_symptom(
             .unwrap_or(current_user_id.clone())
     };
 
-    let symptom = body
+    let Some(symptom) = body
         .get("symptom")
         .and_then(|s| s.as_str())
-        .unwrap_or("Unknown");
-    let severity = body.get("severity").and_then(|s| s.as_u64()).unwrap_or(5) as u8;
+        .map(str::trim)
+        .filter(|symptom| !symptom.is_empty())
+    else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A symptom is required".to_string(),
+            code: "SYMPTOM_REQUIRED".to_string(),
+        });
+    };
+    let Some(severity) = body
+        .get("severity")
+        .and_then(|s| s.as_u64())
+        .filter(|severity| (1..=10).contains(severity))
+        .map(|severity| severity as u8)
+    else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Severity must be between 1 and 10".to_string(),
+            code: "INVALID_SYMPTOM_SEVERITY".to_string(),
+        });
+    };
     let notes = body
         .get("notes")
         .and_then(|n| n.as_str())
@@ -82,7 +101,7 @@ pub async fn log_symptom(
         "patient_id": patient_id,
         "symptom": symptom,
         "category": body.get("category").and_then(|c| c.as_str()),
-        "severity": severity.min(10), // 0-10 scale
+        "severity": severity,
         "duration": body.get("duration").and_then(|d| d.as_str()),
         "notes": notes,
         "triggers": triggers,
@@ -90,7 +109,10 @@ pub async fn log_symptom(
         "logged_by": current_user_id,
         "logged_at": now.timestamp(),
         "timestamp": now.to_rfc3339(),
-        "date": now.format("%Y-%m-%d").to_string()
+        "date": now.format("%Y-%m-%d").to_string(),
+        // Retraction is an atomic active -> retracted state transition. Keeping
+        // the original entry preserves clinical provenance and its audit trail.
+        "status": "active"
     });
 
     // Horizon HZ-023: the entry used to be built and returned but never
@@ -188,7 +210,11 @@ pub async fn get_symptom_history(
             });
         }
     };
-    let mut entries: Vec<serde_json::Value> = records.into_iter().map(|r| r.data).collect();
+    let mut entries: Vec<serde_json::Value> = records
+        .into_iter()
+        .map(|r| r.data)
+        .filter(|entry| entry.get("status").and_then(|v| v.as_str()) != Some("retracted"))
+        .collect();
     entries.sort_by_key(|e| std::cmp::Reverse(e.get("logged_at").and_then(|v| v.as_i64())));
 
     // `entries` is what the patient app's SymptomTrackerPage reads;
@@ -199,6 +225,119 @@ pub async fn get_symptom_history(
         "entries": entries,
         "symptom_history": entries,
         "total_entries": entries.len()
+    }))
+}
+
+/// Retract a symptom diary entry without destroying the clinical record.
+///
+/// A retraction is deliberately not a hard delete: the original report, who
+/// withdrew it, and when remain available to authorised audit workflows. The
+/// conditional replacement also prevents two concurrent requests from both
+/// treating the same active entry as newly retracted.
+#[post("/api/symptoms/{patient_id}/{entry_id}/retract")]
+pub async fn retract_symptom(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (patient_id, entry_id) = path.into_inner();
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user.wallet_address,
+        Err(response) => return response,
+    };
+    let Some(current_user) = get_user(&data, &current_user_id) else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        });
+    };
+
+    if !matches!(current_user.role, crate::Role::Patient)
+        || !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
+        return HttpResponse::Forbidden().finish();
+    }
+
+    let Some(record) = (match data.repositories.symptom_entries.get_by_id(&entry_id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("symptom entry load for retraction failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not update the symptom entry".to_string(),
+                code: "SYMPTOM_RETRACTION_FAILED".to_string(),
+            });
+        }
+    }) else {
+        return HttpResponse::NotFound().finish();
+    };
+
+    if record.owner_id != patient_id {
+        return HttpResponse::NotFound().finish();
+    }
+
+    let now = chrono::Utc::now();
+    let mut retracted_entry = record.data;
+    retracted_entry["status"] = serde_json::Value::String("retracted".to_string());
+    retracted_entry["retracted_at"] = serde_json::Value::String(now.to_rfc3339());
+    retracted_entry["retracted_by"] = serde_json::Value::String(current_user_id.clone());
+    let retracted_record = crate::repositories::traits::JsonRecordEntity {
+        id: entry_id.clone(),
+        owner_id: patient_id.clone(),
+        data: retracted_entry,
+        created_at: record.created_at,
+        updated_at: now,
+    };
+
+    match data
+        .repositories
+        .symptom_entries
+        .replace_if_field_eq(&entry_id, "status", "active", retracted_record)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "This symptom entry has already been changed and cannot be retracted"
+                    .to_string(),
+                code: "SYMPTOM_RETRACTION_CONFLICT".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("symptom entry retraction failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not update the symptom entry".to_string(),
+                code: "SYMPTOM_RETRACTION_FAILED".to_string(),
+            });
+        }
+    }
+
+    if let Err(response) = crate::support::require_durable_audit(
+        &data,
+        crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id,
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "retract_symptom".to_string(),
+            location: None,
+            timestamp: now,
+            emergency: false,
+        }
+        .into(),
+    )
+    .await
+    {
+        return response;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "entry_id": entry_id,
+        "message": "Symptom entry retracted"
     }))
 }
 

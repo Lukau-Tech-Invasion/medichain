@@ -224,6 +224,19 @@ pub struct RespondCDSAlertRequest {
     pub notes: Option<String>,
 }
 
+fn parse_cds_action(action: &str) -> Option<crate::clinical::CDSActionTaken> {
+    match action {
+        "accepted" => Some(crate::clinical::CDSActionTaken::Accepted),
+        "accepted_modified" => Some(crate::clinical::CDSActionTaken::AcceptedWithModification),
+        "overridden" => Some(crate::clinical::CDSActionTaken::Overridden),
+        "deferred" => Some(crate::clinical::CDSActionTaken::Deferred),
+        "escalated" => Some(crate::clinical::CDSActionTaken::EscalatedToPharmacy),
+        "patient_refused" => Some(crate::clinical::CDSActionTaken::PatientRefused),
+        "not_applicable" => Some(crate::clinical::CDSActionTaken::NotApplicable),
+        _ => None,
+    }
+}
+
 /// Respond to CDS alert
 #[post("/api/cds/alerts/{alert_id}/respond")]
 pub async fn respond_to_cds_alert(
@@ -267,15 +280,15 @@ pub async fn respond_to_cds_alert(
         });
     }
 
-    let action_taken = match req.action_taken.as_str() {
-        "accepted" => crate::clinical::CDSActionTaken::Accepted,
-        "accepted_modified" => crate::clinical::CDSActionTaken::AcceptedWithModification,
-        "overridden" => crate::clinical::CDSActionTaken::Overridden,
-        "deferred" => crate::clinical::CDSActionTaken::Deferred,
-        "escalated" => crate::clinical::CDSActionTaken::EscalatedToPharmacy,
-        "patient_refused" => crate::clinical::CDSActionTaken::PatientRefused,
-        "not_applicable" => crate::clinical::CDSActionTaken::NotApplicable,
-        _ => crate::clinical::CDSActionTaken::NotApplicable,
+    let action_taken = match parse_cds_action(&req.action_taken) {
+        Some(action) => action,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "action_taken is invalid".to_string(),
+                code: "INVALID_ACTION".to_string(),
+            })
+        }
     };
 
     let now = chrono::Utc::now().timestamp();
@@ -317,6 +330,31 @@ pub async fn respond_to_cds_alert(
         "status": format!("{:?}", alert.status),
         "message": "CDS alert response recorded"
     }))
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::parse_cds_action;
+    use crate::clinical::CDSActionTaken;
+
+    #[test]
+    fn accepts_only_documented_response_actions() {
+        assert_eq!(parse_cds_action("accepted"), Some(CDSActionTaken::Accepted));
+        assert_eq!(
+            parse_cds_action("accepted_modified"),
+            Some(CDSActionTaken::AcceptedWithModification)
+        );
+        assert_eq!(
+            parse_cds_action("not_applicable"),
+            Some(CDSActionTaken::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_response_action_instead_of_inventing_one() {
+        assert_eq!(parse_cds_action("looks_fine"), None);
+        assert_eq!(parse_cds_action(""), None);
+    }
 }
 
 /// Get patient's CDS alert history

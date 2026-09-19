@@ -4385,6 +4385,10 @@ pub struct ProgressNote {
     pub note_id: String,
     /// Patient ID
     pub patient_id: String,
+    /// Clinical workflow classification selected by the author. Older clients
+    /// did not send it, so daily remains the backward-compatible default.
+    #[serde(default = "default_progress_note_type")]
+    pub note_type: String,
     /// Note date
     pub note_date: String,
     /// Hospital day
@@ -4419,6 +4423,10 @@ pub struct ProgressNote {
     pub note_time: i64,
     /// Cosigned by
     pub cosigned_by: Option<String>,
+}
+
+fn default_progress_note_type() -> String {
+    "daily".to_string()
 }
 
 /// Progress note problem

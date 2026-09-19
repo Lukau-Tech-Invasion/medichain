@@ -172,8 +172,8 @@ impl Transcriber for GoogleSpeechTranscriber {
 
 /// Build the active transcriber from `TRANSCRIPTION_PROVIDER`. Only `none`
 /// (default) and `google` are wired in-tree; `aws`/`azure` still require
-/// their own SDK + credentials. Unknown/unset values, and `google` without
-/// `GOOGLE_STT_API_KEY` set, fall back to the no-op.
+/// their own SDK + credentials. Unsupported and invalid configured values are
+/// reported at startup selection time before safely using the no-op.
 pub fn transcriber_from_env() -> Box<dyn Transcriber> {
     transcriber_from_configuration(
         &std::env::var("TRANSCRIPTION_PROVIDER").unwrap_or_default(),
@@ -198,10 +198,26 @@ fn transcriber_from_configuration(
                     "https://speech.googleapis.com/v1/speech:recognize".to_string()
                 }),
             )),
-            _ => Box::new(NoopTranscriber),
+            _ => {
+                log::warn!(
+                    "TRANSCRIPTION_PROVIDER=google requires GOOGLE_STT_API_KEY; transcription disabled"
+                );
+                Box::new(NoopTranscriber)
+            }
         },
-        // "aws" | "azure" => external SDK + credentials required.
-        _ => Box::new(NoopTranscriber),
+        "" | "none" => Box::new(NoopTranscriber),
+        "aws" | "azure" => {
+            log::warn!(
+                "TRANSCRIPTION_PROVIDER={provider} is not implemented; transcription disabled"
+            );
+            Box::new(NoopTranscriber)
+        }
+        _ => {
+            log::warn!(
+                "TRANSCRIPTION_PROVIDER={provider} is not recognised; transcription disabled"
+            );
+            Box::new(NoopTranscriber)
+        }
     }
 }
 

@@ -178,6 +178,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(update_insurance_card) // PUT    /api/insurance/cards/{id}
         .service(delete_insurance_card) // DELETE /api/insurance/cards/{id}
         .service(upload_insurance_card_image) // POST /api/insurance/cards/{id}/image
+        .service(download_insurance_card_image) // GET /api/insurance/cards/{id}/image/{side}
         // PDF export (Phase 13.3)
         .service(export_pdf_document) // POST /api/pdf/document
         .service(register_device)
@@ -344,6 +345,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_ama)
         .service(clinical_endpoints::get_ama)
         .service(clinical_endpoints::create_hp)
+        .service(clinical_endpoints::update_hp_draft)
+        .service(clinical_endpoints::add_hp_addendum)
         .service(clinical_endpoints::get_hp)
         .service(clinical_endpoints::list_hps)
         .service(clinical_endpoints::create_consult)
@@ -385,6 +388,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 14: Family History endpoints
         .service(clinical_endpoints::create_family_history)
         .service(clinical_endpoints::get_family_history)
+        .service(clinical_endpoints::get_my_family_history)
         // Phase 15: Blood Bank endpoints
         .service(clinical_endpoints::create_blood_type_screen)
         .service(clinical_endpoints::get_blood_type_screen)
@@ -410,6 +414,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::fhir_get_diagnostic_reports)
         .service(clinical_endpoints::fhir_get_procedures)
         .service(clinical_endpoints::fhir_get_immunizations)
+        .service(clinical_endpoints::fhir_ingest_transaction)
         .service(clinical_endpoints::fhir_capability_statement)
         // Insurance Verification endpoints
         .service(clinical_endpoints::verify_insurance)
@@ -436,6 +441,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Symptom Tracker endpoints
         .service(clinical_endpoints::log_symptom)
         .service(clinical_endpoints::get_symptom_history)
+        .service(clinical_endpoints::retract_symptom)
         // Secure Messaging endpoints
         .service(clinical_endpoints::send_message)
         .service(clinical_endpoints::get_messages)
@@ -602,5 +608,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // SSE push-notification endpoint
         .service(crate::websocket::sse_events)
         // Item 5: National ID verification
-        .service(verify_national_id);
+        .service(verify_national_id)
+        .service(list_national_id_manual_reviews)
+        .service(decide_national_id_manual_review);
 }

@@ -37,6 +37,7 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod patient_search;
 pub mod traits;
 
 #[cfg(feature = "postgres")]
@@ -702,7 +703,8 @@ impl RepositoryContainer {
              blood_type, phone_encrypted, email_encrypted, address_encrypted, \
              emergency_contact_name_encrypted, emergency_contact_phone_encrypted, \
              emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, \
-             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) ",
+             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, \
+             name_search_tokens, key_version) ",
         );
         patient_q.push_values([&patient], |mut b, p| {
             b.push_bind(&p.id)
@@ -727,7 +729,9 @@ impl RepositoryContainer {
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)
-                .push_bind(&p.profile_extras_encrypted);
+                .push_bind(&p.profile_extras_encrypted)
+                .push_bind(&p.name_search_tokens)
+                .push_bind(p.key_version);
         });
         patient_q.build().execute(&mut *tx).await?;
 

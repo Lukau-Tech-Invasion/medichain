@@ -736,6 +736,18 @@ pub struct RecordingRequest {
     pub consent: Option<bool>,
 }
 
+fn parse_recording_action(action: &str) -> Result<bool, &'static str> {
+    match action {
+        "start" => Ok(true),
+        "stop" => Ok(false),
+        _ => Err("Recording action must be 'start' or 'stop'"),
+    }
+}
+
+fn is_assigned_recording_provider(actor: &str, provider_id: &str) -> bool {
+    actor == provider_id
+}
+
 /// Start/stop recording for a session (Phase 6). Moderator-only; starting
 /// requires explicit consent. Updates the session, audits, and broadcasts.
 #[post("/api/telehealth/sessions/{session_id}/recording")]
@@ -791,7 +803,28 @@ pub async fn telehealth_recording(
         }
     };
 
-    let starting = body.action == "start";
+    let starting = match parse_recording_action(&body.action) {
+        Ok(starting) => starting,
+        Err(error) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: error.to_string(),
+                code: "INVALID_RECORDING_ACTION".to_string(),
+            })
+        }
+    };
+
+    // Being a moderator controls a room; it does not grant authority to
+    // capture another clinician's consultation. The assigned provider is the
+    // only moderator allowed to change this session's recording state.
+    if !is_assigned_recording_provider(&actor, &session.provider_id) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the assigned provider can control this session's recording".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
     if starting && body.consent != Some(true) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
@@ -1290,7 +1323,7 @@ mod join_window_tests {
     }
 }
 
-/// Who may control recording of a consultation.
+/// Who clears the role gate before a session-specific recording check.
 ///
 /// The handler asks `role_is_moderator(&user.role.to_string())`. That
 /// composition — `Role`'s `Display` feeding the Jitsi moderator mapping — is
@@ -1300,6 +1333,7 @@ mod join_window_tests {
 /// API disagreed about who the moderator was.
 #[cfg(test)]
 mod recording_authority_tests {
+    use super::{is_assigned_recording_provider, parse_recording_action};
     use crate::telehealth::role_is_moderator;
     use crate::Role;
 
@@ -1361,5 +1395,19 @@ mod recording_authority_tests {
             !may_control_recording(&Role::Pharmacist),
             "but that does not make them a session moderator"
         );
+    }
+
+    #[test]
+    fn only_start_and_stop_are_valid_recording_actions() {
+        assert_eq!(parse_recording_action("start"), Ok(true));
+        assert_eq!(parse_recording_action("stop"), Ok(false));
+        assert!(parse_recording_action("pause").is_err());
+        assert!(parse_recording_action("").is_err());
+    }
+
+    #[test]
+    fn a_moderator_cannot_control_another_providers_session() {
+        assert!(is_assigned_recording_provider("doctor-a", "doctor-a"));
+        assert!(!is_assigned_recording_provider("doctor-b", "doctor-a"));
     }
 }

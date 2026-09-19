@@ -358,6 +358,7 @@ fn create_test_patient(id: &str) -> PatientEntity {
         is_verified: false,
         is_active: true,
         profile_extras_encrypted: None,
+        name_search_tokens: Vec::new(),
         key_version: 1,
     }
 }
@@ -5379,5 +5380,72 @@ async fn test_pg_health_id_card_survives_restart_with_its_status() {
         "a suspended card must not be indistinguishable from a revoked one"
     );
 
+    pool.close().await;
+}
+
+/// The compare-and-set the H&P draft and addendum endpoints depend on, against
+/// a real `updated_at` column: a copy read before another write must not be
+/// able to overwrite it, and the NotFound case must stay distinguishable.
+#[tokio::test]
+async fn test_pg_history_physical_update_if_unchanged_refuses_a_stale_copy() {
+    use crate::repositories::postgres::PgHistoryPhysicalRepository;
+    use crate::repositories::traits::{HistoryPhysicalEntity, HistoryPhysicalRepository};
+    let pool = get_test_pool().await;
+    let patients = PgPatientRepository::new(pool.clone());
+    let patient_id = format!("TEST-PAT-HP-{}", Utc::now().timestamp_millis());
+    patients
+        .create(create_test_patient(&patient_id))
+        .await
+        .expect("seed patient");
+    let repo = PgHistoryPhysicalRepository::new(pool.clone());
+    let id = format!("HP-CAS-{}", uuid::Uuid::new_v4().simple());
+    let now = Utc::now();
+    repo.create(HistoryPhysicalEntity {
+        id: id.clone(),
+        patient_id: patient_id.clone(),
+        chief_complaint: "Chest pain".into(),
+        history_present_illness: String::new(),
+        physical_exam: serde_json::json!({}),
+        assessment: String::new(),
+        plan_content: String::new(),
+        performed_by: "DR-1".into(),
+        performed_at: now,
+        created_at: now,
+        updated_at: now,
+        is_active: true,
+        data: serde_json::json!({"status": "in-progress"}),
+        ..Default::default()
+    })
+    .await
+    .expect("create");
+
+    let read = repo.get_by_id(&id).await.expect("read");
+    let mut signed = read.clone();
+    signed.data = serde_json::json!({"status": "signed"});
+    let first = repo
+        .update_if_unchanged(signed, read.updated_at)
+        .await
+        .expect("first write");
+    assert!(first.is_some(), "an unchanged record must accept the write");
+
+    // The same stale copy, as a second editor would hold it.
+    let mut stale = read.clone();
+    stale.data = serde_json::json!({"status": "in-progress"});
+    let second = repo
+        .update_if_unchanged(stale, read.updated_at)
+        .await
+        .expect("second write");
+    assert!(second.is_none(), "a stale copy overwrote a newer record");
+    let stored = repo.get_by_id(&id).await.expect("re-read");
+    assert_eq!(stored.data["status"], "signed");
+
+    let mut missing = read.clone();
+    missing.id = "HP-DOES-NOT-EXIST".into();
+    assert!(repo
+        .update_if_unchanged(missing, read.updated_at)
+        .await
+        .is_err());
+
+    repo.delete(&id).await.ok();
     pool.close().await;
 }

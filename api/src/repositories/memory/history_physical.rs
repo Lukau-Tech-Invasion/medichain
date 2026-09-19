@@ -5,7 +5,7 @@ use crate::repositories::traits::{
     RepositoryResult,
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -91,6 +91,29 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         history.updated_at = Utc::now();
         storage.insert(history.id.clone(), history.clone());
         Ok(history)
+    }
+
+    async fn update_if_unchanged(
+        &self,
+        mut history: HistoryPhysicalEntity,
+        expected_updated_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<HistoryPhysicalEntity>> {
+        let mut storage = self.data.write().unwrap();
+        let Some(current) = storage.get(&history.id) else {
+            return Err(RepositoryError::NotFound(format!(
+                "History and physical with ID {} not found",
+                history.id
+            )));
+        };
+        if current.updated_at != expected_updated_at {
+            return Ok(None);
+        }
+        // Strictly later than the value compared against, so a second writer
+        // holding the same stale copy cannot match it.
+        history.updated_at =
+            Utc::now().max(expected_updated_at + chrono::Duration::microseconds(1));
+        storage.insert(history.id.clone(), history.clone());
+        Ok(Some(history))
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
