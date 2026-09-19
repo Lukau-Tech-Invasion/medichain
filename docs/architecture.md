@@ -2,7 +2,7 @@
 
 © 2025–2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-**Last verified against the codebase: 2026-07-29.** Every count in this document
+**Last verified against the codebase: 2026-09-17.** Every count in this document
 is reproducible — see [Verifying these numbers](#verifying-these-numbers).
 
 This document follows the [C4 model](https://c4model.com/): system context, then
@@ -54,15 +54,17 @@ graph TB
     PATIENT -->|"grants / withdraws consent"| MC
     ADMIN -->|"governs"| MC
 
-    MC -->|"verify identity<br/>(stub fallback if absent)"| NID
+    MC -->|"verify identity<br/>or queue manual review"| NID
     MC -->|"notify"| SMS
     MC -->|"anchor hashes"| CHAIN
     MC -->|"store encrypted blobs"| IPFS
 ```
 
 Demo-only integrations may be disabled, but production dependencies fail closed.
-Absent a national-ID API key the verifier reports `verification_method: Stub`
-rather than implying a verification happened. Blockchain-disabled demo flows
+Absent a national-ID API key the verifier reports
+`verification_method: manual_review_required`, persists a privacy-minimised
+manual-review case, and never implies that an identity was verified.
+Blockchain-disabled demo flows
 report `disabled`; production requires a qualified node. A failed chain write is
 reported as `pending` only after its exact operation is durably stored for retry,
 and no code path fabricates a transaction hash.

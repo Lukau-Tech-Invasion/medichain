@@ -1,5 +1,13 @@
 # MediChain Hybrid Architecture Research
 
+> **Historical research, not the current trust boundary.** This document
+> describes an earlier proposal in which consent and role changes would be
+> primary blockchain operations. MediChain now enforces consent, access grants,
+> and roles in PostgreSQL; the blockchain is an optional audit and commitment
+> anchor for the operations that are explicitly submitted. Do not use the
+> diagrams below as an implementation or compliance claim. See `CLAUDE.md` and
+> ADR-0004 for the current architecture.
+
 ## Executive Summary
 
 This document provides comprehensive research on implementing a **hybrid blockchain-database architecture** for MediChain. The current implementation has:

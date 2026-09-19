@@ -86,8 +86,12 @@
 | Medical record metadata | PostgreSQL | Complex queries, relationships |
 | **Record hashes** | **Blockchain** | **Immutability, proof of integrity** |
 | **Access logs** | **Blockchain** | **Audit trail, tamper-proof** |
-| **Consent transactions** | **Blockchain** | **Legal compliance** |
+| **Consent transactions** | **PostgreSQL** | **Authoritative access enforcement and legal workflow** |
 | Large documents (PDFs, X-rays) | IPFS | Storage efficiency |
+
+> **Current boundary:** roles, consent, and access grants are enforced from
+> PostgreSQL. Blockchain submission provides selected audit/commitment anchors
+> only; it is not the authorization decision point.
 
 ---
 

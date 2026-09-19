@@ -9,32 +9,7 @@
   },
   {
     "method": "POST",
-    "url": "/api/admin/retention/approvals",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/retention/approvals/{token}/decide",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/retention/approvals/{token}/execute",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/retention/holds",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/retention/holds/{id}/release",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/retention/restrictions/{id}/lift",
+    "url": "/api/admin/national-id-reviews/{review_id}/decision",
     "shared_functions": []
   },
   {
@@ -53,13 +28,6 @@
   },
   {
     "method": "POST",
-    "url": "/api/appointments/{appointment_id}/check-in",
-    "shared_functions": [
-      "checkInAppointment"
-    ]
-  },
-  {
-    "method": "POST",
     "url": "/api/auth/bootstrap",
     "shared_functions": [
       "bootstrapAdmin"
@@ -71,44 +39,6 @@
     "shared_functions": [
       "enrolCredentials"
     ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/login",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/mfa/challenge",
-    "shared_functions": [
-      "mfaChallenge"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/mfa/disable",
-    "shared_functions": [
-      "mfaDisable"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/mfa/enroll",
-    "shared_functions": [
-      "mfaEnroll"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/mfa/verify",
-    "shared_functions": [
-      "mfaVerify"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/auth/session",
-    "shared_functions": []
   },
   {
     "method": "POST",
@@ -141,29 +71,10 @@
   },
   {
     "method": "POST",
-    "url": "/api/clinical/discharge-instructions",
-    "shared_functions": [
-      "createDischargeInstructions"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/clinical/gcs",
-    "shared_functions": [
-      "createGCS"
-    ]
-  },
-  {
-    "method": "POST",
     "url": "/api/clinical/sample",
     "shared_functions": [
       "createSampleHistory"
     ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/clinical/soap/{note_id}/addendum",
-    "shared_functions": []
   },
   {
     "method": "POST",
@@ -181,28 +92,10 @@
   },
   {
     "method": "POST",
-    "url": "/api/consent/{id}/revoke",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/devices/enroll",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/devices/{id}/revoke",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/devices/{id}/rotate",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
     "url": "/api/e-prescriptions/{prescription_id}/verification/revoke",
-    "shared_functions": []
+    "shared_functions": [
+      "revokeSecondaryVerification"
+    ]
   },
   {
     "method": "POST",
@@ -213,11 +106,6 @@
   },
   {
     "method": "POST",
-    "url": "/api/emergency/administer-med",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
     "url": "/api/emergency/ems-handoff",
     "shared_functions": [
       "createEmsHandoff"
@@ -225,18 +113,10 @@
   },
   {
     "method": "POST",
-    "url": "/api/emergency/grants",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/emergency/grants/{id}/revoke",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
     "url": "/api/emergency/nfc-token",
-    "shared_functions": []
+    "shared_functions": [
+      "exchangeNfcHashForToken"
+    ]
   },
   {
     "method": "POST",
@@ -254,23 +134,24 @@
   },
   {
     "method": "POST",
-    "url": "/api/guardians/revoke",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/guardians/verify",
-    "shared_functions": []
+    "url": "/api/fhir/r4/Bundle",
+    "shared_functions": [
+      "fhirCreatePatient"
+    ]
   },
   {
     "method": "PUT",
     "url": "/api/guardians/{id}/permissions",
-    "shared_functions": []
+    "shared_functions": [
+      "updateGuardianPermissions"
+    ]
   },
   {
     "method": "POST",
     "url": "/api/identity/claim",
-    "shared_functions": []
+    "shared_functions": [
+      "claimMedicalIdentity"
+    ]
   },
   {
     "method": "POST",
@@ -340,10 +221,8 @@
   },
   {
     "method": "POST",
-    "url": "/api/lab/submit",
-    "shared_functions": [
-      "submitLabResults"
-    ]
+    "url": "/api/lab/submissions/{submission_id}/review",
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -355,27 +234,23 @@
   {
     "method": "POST",
     "url": "/api/mobile/devices/register",
-    "shared_functions": []
+    "shared_functions": [
+      "registerMobileDevice"
+    ]
   },
   {
     "method": "POST",
     "url": "/api/mobile/devices/{id}/lockscreen-token",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/mobile/devices/{id}/revoke",
-    "shared_functions": []
+    "shared_functions": [
+      "issueLockscreenToken"
+    ]
   },
   {
     "method": "POST",
     "url": "/api/mobile/records/authorise",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/national-id/verify",
-    "shared_functions": []
+    "shared_functions": [
+      "authoriseMobileRecord"
+    ]
   },
   {
     "method": "POST",
@@ -420,22 +295,16 @@
   {
     "method": "POST",
     "url": "/api/organizations/{organization_id}/keys",
-    "shared_functions": []
+    "shared_functions": [
+      "registerOrganizationKey"
+    ]
   },
   {
     "method": "POST",
     "url": "/api/organizations/{organization_id}/keys/{key_id}/status",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/patients/{patient_id}/emergency-capsule",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
-    "url": "/api/patients/{patient_id}/emergency-capsule/revoke",
-    "shared_functions": []
+    "shared_functions": [
+      "transitionOrganizationKey"
+    ]
   },
   {
     "method": "POST",
@@ -458,11 +327,6 @@
   },
   {
     "method": "POST",
-    "url": "/api/surgical/appointment",
-    "shared_functions": []
-  },
-  {
-    "method": "POST",
     "url": "/api/surgical/autopsy",
     "shared_functions": [
       "createAutopsyRequest"
@@ -470,8 +334,10 @@
   },
   {
     "method": "POST",
-    "url": "/api/surgical/e-prescription",
-    "shared_functions": []
+    "url": "/api/sync",
+    "shared_functions": [
+      "performSync"
+    ]
   },
   {
     "method": "POST",
@@ -492,13 +358,6 @@
     "url": "/api/templates/notes/use",
     "shared_functions": [
       "useNoteTemplate"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/wearables/alerts/rules",
-    "shared_functions": [
-      "createWearableAlertRule"
     ]
   },
   {

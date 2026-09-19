@@ -8,9 +8,10 @@
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 MediChain is a national health-ID and emergency medical records system for African
-healthcare. Patients control who reads their records through blockchain-verified
-consent; first responders get the handful of facts that decide whether someone
-lives, without waiting on a network or a login.
+healthcare. Patient consent and role enforcement are durable PostgreSQL controls;
+the blockchain anchors emergency-capsule commitments and audit evidence when a
+qualified chain is configured. First responders get the handful of facts that
+decide whether someone lives, without waiting on a network or a login.
 
 > **Origin:** Rust Africa Hackathon 2026 (2nd place). Now being engineered toward
 > production, including a formal POPIA legal review and a multi-week internal

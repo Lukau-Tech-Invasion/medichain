@@ -11,6 +11,24 @@ would reasonably assume work and which are absent, partial, or reachable only
 under configuration nobody has set. Items already tracked elsewhere are
 cross-referenced rather than restated.
 
+## Continuation status — 2026-09-18
+
+This document remains the point-in-time audit from 2026-09-17. The entries
+below prevent it from being used as a current implementation register where
+later source changes have closed or narrowed a finding:
+
+| Original finding | Current status | Source of truth |
+| --- | --- | --- |
+| §1, six advertised locales | Resolved safely: `ACTIVE_LOCALES` exposes only `en-US` until qualified clinical translations are available. | `client/shared/src/i18n/react.tsx` |
+| §2, no server-side patient search | Resolved: `GET /api/patients?q=` uses bounded keyset pagination and keyed name-token blind indexes; it does not decrypt an unbounded roster to search it. | `api/src/handlers/patient_admin.rs`, `api/src/repositories/postgres/patient.rs` |
+| §3, FHIR is read-only | Partially resolved: `POST /api/fhir/r4/Bundle` accepts one validated Patient transaction entry. Multi-entry transactions and the other resource types remain intentionally rejected and are still open scope. | `api/src/clinical_endpoints/fhir/ingest.rs`, CapabilityStatement metadata |
+| §6, national-ID verifier stubs | Resolved to the stated safe fallback: an unavailable authority returns `verified: false` with `manual_review_required`; it never produces synthetic verification data. Live-provider credentials and facility review operations remain deployment work. | `api/src/national_id.rs` |
+| §9, unsupported transcription providers silently fall back | Partially resolved: `aws`, `azure`, invalid providers, and an unconfigured Google key all log an explicit warning before transcription is disabled. Recording upload, consent, and BAA-backed transcription remain open scope. | `api/src/services/transcription.rs` |
+
+All other entries below remain open unless a newer evidence-backed register
+states otherwise. `handoff.md` is the active implementation register for this
+continuation.
+
 Severity is about **clinical and regulatory consequence**, not effort:
 
 | | |
