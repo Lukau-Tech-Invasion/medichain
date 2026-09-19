@@ -430,7 +430,7 @@ const IncidentReportPage: React.FC = () => {
                     <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="View incident details">
                       <Eye className="w-5 h-5 text-content-muted" />
                     </button>
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
+                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>

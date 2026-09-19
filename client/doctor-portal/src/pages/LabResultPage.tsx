@@ -51,6 +51,23 @@ interface LabResult {
   notes?: string;
 }
 
+export const labResultCsv = (result: LabResult) => {
+  const quote = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  return [['Panel', result.panelName], ['Patient ID', result.mrn], [], ['Test', 'Result', 'Unit', 'Reference range', 'Flag'],
+    ...result.tests.map(test => [test.testCode, test.result, test.unit, test.referenceRange, test.flag])]
+    .map(row => row.map(value => quote(value ?? '')).join(',')).join('\r\n');
+};
+
+const downloadLabResult = (result: LabResult) => {
+  const csv = labResultCsv(result);
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `lab-result-${result.id}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
 /** A lab submission row, in either of the two casings it is stored under. */
 interface RawLabSubmission {
   id?: string; submission_id?: string;
@@ -309,8 +326,8 @@ const LabResultPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
-                <button className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={() => downloadLabResult(selectedResult)} aria-label="Download lab result as CSV" className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
+                <button type="button" onClick={() => window.print()} aria-label="Print lab result" className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
                 <button onClick={() => setSelectedResult(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>

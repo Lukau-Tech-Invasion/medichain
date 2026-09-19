@@ -4,6 +4,10 @@ import {
   debugLog,
   getApiErrorMessage,
   listMyMobileDevices,
+  mfaDisable,
+  mfaEnroll,
+  mfaStatus,
+  mfaVerify,
   revokeMobileDevice,
   getUserSettings,
   saveUserSettings,
@@ -107,6 +111,13 @@ export function SettingsPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [supportNotice, setSupportNotice] = useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [mfaEnrolled, setMfaEnrolled] = useState<boolean | null>(null);
+  const [mfaSecret, setMfaSecret] = useState<string | null>(null);
+  const [mfaQr, setMfaQr] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaNotice, setMfaNotice] = useState<string | null>(null);
 
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [privacy, setPrivacy] = useState(DEFAULT_PRIVACY);
@@ -132,6 +143,12 @@ export function SettingsPage() {
     };
     void loadSettings();
   }, [loadErrorMessage]);
+
+  useEffect(() => {
+    mfaStatus()
+      .then((status) => setMfaEnrolled(Boolean(status.enabled ?? status.enrolled)))
+      .catch(() => setMfaEnrolled(null));
+  }, []);
 
   useEffect(() => {
     if (!isLoading) setSaveSucceeded(false);
@@ -161,6 +178,57 @@ export function SettingsPage() {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const beginMfaEnrollment = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      const enrollment = await mfaEnroll();
+      setMfaSecret(enrollment.secret);
+      setMfaQr(enrollment.qr_code_base64 ?? null);
+    } catch (error) {
+      setMfaError(getApiErrorMessage(error, t('settings.mfaEnrollFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const confirmMfaEnrollment = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      await mfaVerify(mfaCode.trim());
+      const status = await mfaStatus();
+      setMfaEnrolled(Boolean(status.enabled ?? status.enrolled));
+      setMfaSecret(null);
+      setMfaQr(null);
+      setMfaCode('');
+      setMfaNotice(t('settings.mfaEnabledNotice'));
+    } catch (error) {
+      setMfaError(getApiErrorMessage(error, t('settings.mfaVerifyFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const turnOffMfa = async () => {
+    setMfaError(null);
+    setMfaNotice(null);
+    setMfaBusy(true);
+    try {
+      await mfaDisable(mfaCode.trim());
+      const status = await mfaStatus();
+      setMfaEnrolled(Boolean(status.enabled ?? status.enrolled));
+      setMfaCode('');
+      setMfaNotice(t('settings.mfaDisabledNotice'));
+    } catch (error) {
+      setMfaError(getApiErrorMessage(error, t('settings.mfaDisableFailed')));
+    } finally {
+      setMfaBusy(false);
+    }
   };
 
   const languages = [
@@ -328,11 +396,71 @@ export function SettingsPage() {
             description={t('settings.changePasswordDesc')}
           />
 
-          <SettingRow
-            icon={Key}
-            label={t('settings.twoFactor')}
-            description={t('settings.twoFactorDesc')}
-          />
+          <div className="py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-surface-sunken rounded-xl flex items-center justify-center">
+                  <Key className="w-5 h-5 text-content-muted" />
+                </div>
+                <div>
+                  <div className="font-medium text-content">{t('settings.twoFactor')}</div>
+                  <div className="text-sm text-content-muted">{t('settings.twoFactorDesc')}</div>
+                </div>
+              </div>
+              <span
+                data-testid="mfa-status"
+                className={`rounded-full px-2 py-1 text-xs whitespace-nowrap ${
+                  mfaEnrolled === null
+                    ? 'bg-surface-sunken text-content-secondary'
+                    : mfaEnrolled
+                      ? 'bg-ok-subtle text-ok-subtle-fg'
+                      : 'bg-caution-subtle text-caution-subtle-fg'
+                }`}
+              >
+                {mfaEnrolled === null
+                  ? t('settings.mfaStatusUnknown')
+                  : mfaEnrolled
+                    ? t('settings.mfaStatusOn')
+                    : t('settings.mfaStatusOff')}
+              </span>
+            </div>
+
+            {mfaError && <div role="alert" className="mt-3 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{mfaError}</div>}
+            {mfaNotice && <div role="status" className="mt-3 rounded-lg border border-ok bg-ok-subtle p-3 text-sm text-ok-subtle-fg">{mfaNotice}</div>}
+
+            {mfaEnrolled === false && !mfaSecret && (
+              <button type="button" onClick={beginMfaEnrollment} disabled={mfaBusy} className="mt-3 min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:opacity-60">
+                {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaSetUp')}
+              </button>
+            )}
+
+            {mfaSecret && (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-content-secondary">{t('settings.mfaScanInstruction')}</p>
+                {mfaQr && <img src={`data:image/png;base64,${mfaQr}`} alt={t('settings.mfaQrAlt')} className="h-40 w-40 rounded-lg border border-border bg-surface" />}
+                <p className="break-all font-mono text-sm text-content-secondary">{mfaSecret}</p>
+                <div>
+                  <label htmlFor="mfa-enrollment-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaCodeLabel')}</label>
+                  <input id="mfa-enrollment-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
+                </div>
+                <button type="button" onClick={confirmMfaEnrollment} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:opacity-60">
+                  {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaConfirm')}
+                </button>
+              </div>
+            )}
+
+            {mfaEnrolled === true && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label htmlFor="mfa-disable-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaDisableCodeLabel')}</label>
+                  <input id="mfa-disable-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
+                </div>
+                <button type="button" onClick={turnOffMfa} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg border border-critical px-4 py-2 text-critical-subtle-fg disabled:opacity-60">
+                  {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaTurnOff')}
+                </button>
+              </div>
+            )}
+          </div>
 
           <SettingRow
             icon={Smartphone}

@@ -753,26 +753,42 @@ export interface ConsultationNote {
   signature_time: number | null;
 }
 
+/**
+ * A progress note as `POST /api/clinical/progress-note` accepts it
+ * (`CreateProgressNoteRequest`). Everything the form does not collect is
+ * optional and left out when nobody entered it -- a required `code_status`
+ * is how every note came to say "Full code".
+ */
 export interface ProgressNote {
   note_id: string;
   patient_id: string;
+  /** Clinical workflow classification; legacy API callers default to daily. */
+  note_type?: string;
   note_date: string;
-  hospital_day: number;
-  post_op_day: number | null;
+  hospital_day?: number;
+  post_op_day?: number;
   subjective: string;
-  overnight_events: string;
-  vital_signs: string;
-  io_summary: string | null;
+  overnight_events?: string;
+  vital_signs?: string;
+  io_summary?: string;
   exam: string;
-  labs_studies: string;
-  assessment: Record<string, unknown>[];
+  labs_studies?: string;
+  assessment: ProgressNoteProblem[];
   plan: string[];
-  disposition: string | null;
-  code_status: string;
-  discussed_with: string | null;
+  disposition?: string;
+  code_status?: string;
+  discussed_with?: string;
   author: string;
   note_time: number;
   cosigned_by: string | null;
+}
+
+export interface ProgressNoteProblem {
+  problem_number: number;
+  problem: string;
+  /** improving | stable | worsening -- only when the clinician said so. */
+  status?: string;
+  plan: string;
 }
 
 // ============================================================================
@@ -989,11 +1005,34 @@ export interface ImmunizationRecord {
 
 export interface FamilyMedicalHistory {
   patient_id: string;
-  family_members: Record<string, unknown>[];
-  genetic_conditions: Record<string, unknown>[];
+  family_members: FamilyHistoryMember[];
+  genetic_conditions: GeneticCondition[];
   three_gen_complete: boolean;
   last_updated: number;
   updated_by: string;
+}
+
+export interface FamilyHistoryMember {
+  relationship: string;
+  living: boolean;
+  current_age: number | null;
+  age_at_death: number | null;
+  cause_of_death: string | null;
+  conditions: FamilyHistoryCondition[];
+}
+
+export interface FamilyHistoryCondition {
+  condition: string;
+  age_at_diagnosis: number | null;
+  notes: string | null;
+}
+
+export interface GeneticCondition {
+  condition_name: string;
+  inheritance_pattern: string;
+  affected_members: string[];
+  genetic_testing_done: boolean;
+  test_results: string | null;
 }
 
 export interface BloodTypeScreen {
@@ -1033,33 +1072,43 @@ export interface TransfusionRecord {
 // ============================================================================
 
 export interface ElectronicPrescription {
-  rx_id: string;
+  prescription_id: string;
   patient_id: string;
-  medication_name: string;
-  generic_name: string;
-  ndc_code: string | null;
-  rxnorm_code: string | null;
-  strength: string;
-  form: string;
-  directions: string;
-  quantity: number;
-  quantity_unit: string;
-  days_supply: number;
-  refills: number;
-  daw: boolean;
-  prescriber: Record<string, unknown>;
+  prescriber_id: string;
+  prescriber_name: string;
+  prescriber_npi: string;
+  prescriber_dea: string | null;
+  medication: {
+    rxcui: string | null;
+    ndc: string | null;
+    name: string;
+    generic_name: string | null;
+    strength: string;
+    form: string;
+    quantity: number;
+    quantity_unit: string;
+    days_supply: number;
+    directions: string;
+    daw_code: number;
+  };
   pharmacy: Record<string, unknown>;
-  written_date: string;
-  effective_date: string;
-  expiration_date: string;
-  diagnosis_codes: string[];
-  prior_auth: Record<string, unknown> | null;
-  schedule: string | null;
   status: string;
+  created_at: number;
+  signed_at: number | null;
+  signature: Record<string, unknown> | null;
   transmitted_at: number | null;
-  pharmacist_notes: string | null;
-  override_interactions: boolean;
-  override_reason: string | null;
+  transmission_status: string | null;
+  is_controlled: boolean;
+  dea_schedule: string | null;
+  dispensed_quantity: number;
+  secondary_verification: Record<string, unknown>;
+  refills_allowed: number;
+  refills_remaining: number;
+  last_filled: number | null;
+  expires_at: number;
+  pharmacy_notes: string | null;
+  patient_instructions: string;
+  diagnosis_codes: string[];
 }
 
 export interface Appointment {

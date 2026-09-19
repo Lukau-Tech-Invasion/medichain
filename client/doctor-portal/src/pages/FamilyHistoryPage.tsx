@@ -11,6 +11,7 @@ import {
   familyHistoryMemberSchema,
 } from '@medichain/shared';
 import type {
+  FamilyMedicalHistory,
   PatientProfile,
   FamilyHistoryAssessmentResult,
   AffectedRelativeInput,
@@ -97,6 +98,46 @@ interface FamilyMember {
 }
 
 /**
+ * Adapt the compact persisted family-history shape for the richer portal view.
+ *
+ * The API intentionally stores clinical relationship, mortality, and condition
+ * facts.  It does not store a per-relative display id, patient name, condition
+ * category, or per-relative author/timestamp.  Those must not be fabricated:
+ * the display id is local and stable for this response, while an uncategorised
+ * condition remains in the `other` bucket and is consequently not presented as
+ * a disease-specific risk classification.
+ */
+function toPortalFamilyMembers(
+  history: FamilyMedicalHistory,
+  patientId: string,
+  patientName: string,
+): FamilyMember[] {
+  const recordedAt = history.last_updated > 0
+    ? new Date(history.last_updated).toISOString()
+    : '';
+  return history.family_members.map((member, index) => ({
+    memberId: `${patientId}-FM-${index + 1}`,
+    patientId,
+    patientName,
+    relationship: member.relationship.toLowerCase().split(' ').join('-') as RelationshipType,
+    vitalStatus: member.living
+      ? 'alive'
+      : member.age_at_death !== null || member.cause_of_death ? 'deceased' : 'unknown',
+    currentAge: member.current_age ?? undefined,
+    ageAtDeath: member.age_at_death ?? undefined,
+    causeOfDeath: member.cause_of_death ?? undefined,
+    conditions: member.conditions.map((condition) => ({
+      conditionName: condition.condition,
+      category: 'other',
+      ageOfOnset: condition.age_at_diagnosis ?? undefined,
+      notes: condition.notes ?? undefined,
+    })),
+    recordedBy: history.updated_by,
+    recordedAt,
+  }));
+}
+
+/**
  * A family-history assessment for one condition category.
  *
  * `assessment` is `null` until the scoring catalog loads — the page shows the
@@ -172,14 +213,9 @@ const FamilyHistoryPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       const response = await getFamilyHistory(patientId);
-      // The endpoint returns `FamilyMedicalHistory`, whose array is
-      // `family_members`. This checked for `members`, then `items`, then a bare
-      // array — three shapes the handler does not send — so the setter was
-      // never reached and the pedigree stayed empty no matter what was stored.
-      const members = Array.isArray(response)
-        ? (response as FamilyMember[])
-        : ((response?.family_members ?? []) as unknown as FamilyMember[]);
-      setFamilyMembers(members);
+      const patientName = patients.find((patient) => patient.patient_id === patientId)?.full_name
+        ?? t('docFamilyHistory.patientFallback');
+      setFamilyMembers(toPortalFamilyMembers(response, patientId, patientName));
     } catch (err) {
       console.error('Error fetching family history:', err);
       setError(t('docFamilyHistory.errorLoadHistory'));

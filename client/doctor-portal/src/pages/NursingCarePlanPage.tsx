@@ -9,7 +9,6 @@ import {
   User,
   Target,
   Activity,
-  Edit,
   ChevronDown,
   ChevronUp,
   Loader2,
@@ -69,6 +68,61 @@ interface CarePlan {
   updatedAt: Date;
 }
 
+interface CarePlanTemplate {
+  id: string;
+  name: string;
+  diagnosis: string;
+  priority: Priority;
+  goals: string[];
+  interventions: string[];
+}
+
+interface CarePlanApiRecord {
+  id: string;
+  patient_id: string;
+  plan_name: string;
+  care_level?: string | null;
+  goals?: unknown;
+  interventions?: unknown;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  status?: string | null;
+}
+
+const planItems = (value: unknown, kind: 'goal' | 'intervention') =>
+  Array.isArray(value)
+    ? value.map((item, index) => {
+      const row = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {};
+      return {
+        id: typeof row.id === 'string' ? row.id : `${kind}-${index + 1}`,
+        description: typeof row.description === 'string' ? row.description : String(item),
+        ...(kind === 'goal'
+          ? { targetDate: new Date(typeof row.target_date === 'string' ? row.target_date : Date.now()), status: 'not-met' as GoalStatus }
+          : { frequency: typeof row.frequency === 'string' ? row.frequency : '', completed: Boolean(row.completed) }),
+      };
+    })
+    : [];
+
+/** Map the repository's snake-case record to the portal's display model. */
+export const mapNursingCarePlan = (plan: CarePlanApiRecord): CarePlan => ({
+  id: plan.id,
+  patientId: plan.patient_id,
+  // The list API does not expose decrypted demographics. Patient id is an
+  // honest fallback, unlike a plausible name invented by the browser.
+  patientName: plan.patient_id,
+  mrn: plan.patient_id,
+  room: '',
+  diagnosis: plan.plan_name,
+  priority: (plan.care_level === 'high' || plan.care_level === 'low' ? plan.care_level : 'medium'),
+  status: (plan.status === 'on-hold' || plan.status === 'completed' || plan.status === 'discontinued' ? plan.status : 'active'),
+  goals: planItems(plan.goals, 'goal') as Goal[],
+  interventions: planItems(plan.interventions, 'intervention') as Intervention[],
+  createdBy: plan.created_by,
+  createdAt: new Date(plan.created_at),
+  updatedAt: new Date(plan.updated_at),
+});
+
 const NursingCarePlanPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'plans' | 'new' | 'templates'>('plans');
@@ -84,7 +138,9 @@ const NursingCarePlanPage: React.FC = () => {
   const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [form, setForm] = useState({ patientId: '', diagnosis: '', priority: 'medium' });
+  const [form, setForm] = useState({
+    patientId: '', diagnosis: '', priority: 'medium' as Priority, goals: '', interventions: '',
+  });
   const { user } = useAuthStore();
 
   useEffect(() => {
@@ -126,13 +182,15 @@ const NursingCarePlanPage: React.FC = () => {
           patient_id: form.patientId,
           diagnosis: form.diagnosis.trim(),
           priority: form.priority,
-          goals: [],
-          interventions: [],
+          goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
+            .map((description, index) => ({ id: `goal-${index + 1}`, description })),
+          interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
+            .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
         }),
       });
       if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docNursingCarePlan.savedOk'));
-      setForm({ patientId: '', diagnosis: '', priority: 'medium' });
+      setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
     } catch (err) {
       console.error('Failed to create care plan:', err);
       setSaveMessage(t('docNursingCarePlan.errSaveFailed'));
@@ -152,22 +210,8 @@ const NursingCarePlanPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const data = await getApiClient().get<CarePlan[]>('/api/emergency/care-plan/list');
-        // Convert date strings to Date objects
-        const plansWithDates = (data || []).map((plan: CarePlan) => ({
-          ...plan,
-          createdAt: new Date(plan.createdAt),
-          updatedAt: new Date(plan.updatedAt),
-          goals: (plan.goals || []).map((goal: Goal) => ({
-            ...goal,
-            targetDate: new Date(goal.targetDate)
-          })),
-          interventions: (plan.interventions || []).map((intervention: Intervention) => ({
-            ...intervention,
-            lastPerformed: intervention.lastPerformed ? new Date(intervention.lastPerformed) : undefined
-          }))
-        }));
-        setPlans(plansWithDates);
+        const data = await getApiClient().get<CarePlanApiRecord[]>('/api/emergency/care-plan/list');
+        setPlans((data || []).map(mapNursingCarePlan));
       } catch (err) {
         console.error('Error fetching care plans:', err);
         setError(err instanceof Error ? err.message : t('docNursingCarePlan.failLoad'));
@@ -262,14 +306,26 @@ const NursingCarePlanPage: React.FC = () => {
     (p.diagnosis?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
-  const templates = [
-    { id: 'T1', name: t('docNursingCarePlan.tpl1Name'), diagnosis: t('docNursingCarePlan.tpl1Dx'), interventions: 5 },
-    { id: 'T2', name: t('docNursingCarePlan.tpl2Name'), diagnosis: t('docNursingCarePlan.tpl2Dx'), interventions: 6 },
-    { id: 'T3', name: t('docNursingCarePlan.tpl3Name'), diagnosis: t('docNursingCarePlan.tpl3Dx'), interventions: 4 },
-    { id: 'T4', name: t('docNursingCarePlan.tpl4Name'), diagnosis: t('docNursingCarePlan.tpl4Dx'), interventions: 5 },
-    { id: 'T5', name: t('docNursingCarePlan.tpl5Name'), diagnosis: t('docNursingCarePlan.tpl5Dx'), interventions: 4 },
-    { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), interventions: 6 }
+  const templates: CarePlanTemplate[] = [
+    { id: 'T1', name: t('docNursingCarePlan.tpl1Name'), diagnosis: t('docNursingCarePlan.tpl1Dx'), priority: 'high', goals: [t('docNursingCarePlan.tplFallGoal')], interventions: [t('docNursingCarePlan.tplFallIntervention1'), t('docNursingCarePlan.tplFallIntervention2')] },
+    { id: 'T2', name: t('docNursingCarePlan.tpl2Name'), diagnosis: t('docNursingCarePlan.tpl2Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplSkinGoal')], interventions: [t('docNursingCarePlan.tplSkinIntervention1'), t('docNursingCarePlan.tplSkinIntervention2')] },
+    { id: 'T3', name: t('docNursingCarePlan.tpl3Name'), diagnosis: t('docNursingCarePlan.tpl3Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplPainGoal')], interventions: [t('docNursingCarePlan.tplPainIntervention1'), t('docNursingCarePlan.tplPainIntervention2')] },
+    { id: 'T4', name: t('docNursingCarePlan.tpl4Name'), diagnosis: t('docNursingCarePlan.tpl4Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplInfectionGoal')], interventions: [t('docNursingCarePlan.tplInfectionIntervention1'), t('docNursingCarePlan.tplInfectionIntervention2')] },
+    { id: 'T5', name: t('docNursingCarePlan.tpl5Name'), diagnosis: t('docNursingCarePlan.tpl5Dx'), priority: 'high', goals: [t('docNursingCarePlan.tplAspirationGoal')], interventions: [t('docNursingCarePlan.tplAspirationIntervention1'), t('docNursingCarePlan.tplAspirationIntervention2')] },
+    { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplMobilityGoal')], interventions: [t('docNursingCarePlan.tplMobilityIntervention1'), t('docNursingCarePlan.tplMobilityIntervention2')] },
   ];
+
+  const useTemplate = (template: CarePlanTemplate) => {
+    setForm(current => ({
+      ...current,
+      diagnosis: template.diagnosis,
+      priority: template.priority,
+      goals: template.goals.join('\n'),
+      interventions: template.interventions.join('\n'),
+    }));
+    clearField('diagnosis');
+    setActiveTab('new');
+  };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -416,11 +472,6 @@ const NursingCarePlanPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 flex gap-2">
-                      <button className="flex-1 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1">
-                        <Edit className="w-4 h-4" /> {t('docNursingCarePlan.editPlan')}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -465,6 +516,19 @@ const NursingCarePlanPage: React.FC = () => {
                 error={errors.diagnosis}
                 required
               />
+              <div>
+                <label htmlFor="ncp-goals" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.goals')}</label>
+                <textarea id="ncp-goals" value={form.goals} onChange={(e) => setForm(f => ({ ...f, goals: e.target.value }))}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" rows={3}
+                  placeholder={t('docNursingCarePlan.goalsPlaceholder')} />
+              </div>
+              <div>
+                <label htmlFor="ncp-interventions" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.interventions')}</label>
+                <textarea id="ncp-interventions" value={form.interventions} onChange={(e) => setForm(f => ({ ...f, interventions: e.target.value }))}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" rows={3}
+                  placeholder={t('docNursingCarePlan.interventionsPlaceholder')} />
+                <p className="mt-1 text-xs text-content-muted">{t('docNursingCarePlan.templateReviewHint')}</p>
+              </div>
               <div role="group" aria-labelledby="ncp-priority-label">
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
@@ -504,9 +568,9 @@ const NursingCarePlanPage: React.FC = () => {
                 <div>
                   <h3 className="font-semibold">{tpl.name}</h3>
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
-                  <p className="text-xs text-content-muted">{t('docNursingCarePlan.interventionsCount', { count: tpl.interventions })}</p>
+                  <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsCount', { count: tpl.goals.length })} · {t('docNursingCarePlan.interventionsCount', { count: tpl.interventions.length })}</p>
                 </div>
-                <button className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button type="button" onClick={() => useTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

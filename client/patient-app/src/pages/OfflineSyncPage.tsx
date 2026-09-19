@@ -25,6 +25,7 @@ import {
   getAllSyncItems,
   getStorageInfo,
   clearStore,
+  clearCachedDataByCategory,
   clearCompletedSyncItems,
   clearExpiredCache,
   STORES,
@@ -119,6 +120,7 @@ const OfflineSyncPage: React.FC = () => {
   const [lastReplay, setLastReplay] = useState<ReplayOutcome | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
+  const [offlineDataUnavailable, setOfflineDataUnavailable] = useState(false);
 
   // --- Devices holding a copy of my records ----------------------------------
   //
@@ -183,8 +185,9 @@ const OfflineSyncPage: React.FC = () => {
       // Load storage info
       const storage = await getStorageInfo();
       
-      setCachedItems(mappedItems.length > 0 ? mappedItems : getDefaultCachedItems());
+      setCachedItems(mappedItems);
       setSyncQueue(mappedQueue);
+      setOfflineDataUnavailable(false);
       setStorageInfo({
         used: storage.used || storage.cachedItemsSize + storage.syncQueueSize + storage.documentsSize,
         available: storage.available,
@@ -197,40 +200,26 @@ const OfflineSyncPage: React.FC = () => {
 
     } catch (error) {
       console.error('Failed to load offline data:', error);
-      // Use demo data as fallback
-      setCachedItems(getDefaultCachedItems());
-      setSyncQueue(getDefaultSyncQueue());
+      // A read failure is not evidence that this device contains demo records
+      // or no pending clinical updates. Keep the screen empty and state the
+      // uncertainty instead of rendering made-up health data.
+      setCachedItems([]);
+      setSyncQueue([]);
+      setOfflineDataUnavailable(true);
       
       // Estimate storage
       if (navigator.storage && navigator.storage.estimate) {
         const estimate = await navigator.storage.estimate();
         setStorageInfo({
-          used: estimate.usage || 2500000,
-          available: (estimate.quota || 50000000) - (estimate.usage || 2500000),
-          quota: estimate.quota || 50000000
+          used: estimate.usage ?? 0,
+          available: Math.max(0, (estimate.quota ?? 0) - (estimate.usage ?? 0)),
+          quota: estimate.quota ?? 0
         });
       }
     } finally {
       setLoading(false);
     }
   }, []);
-
-  // Default demo data helpers
-  const getDefaultCachedItems = (): CachedItem[] => [
-    { id: '1', category: 'medical-records', name: 'Medical History Summary', size: 256000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '2', category: 'medications', name: 'Current Medications List', size: 12000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '3', category: 'appointments', name: 'Upcoming Appointments', size: 8000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '4', category: 'lab-results', name: 'Recent Lab Results', size: 145000, lastSynced: '2026-01-25T09:00:00Z', status: 'pending', priority: 'medium' },
-    { id: '5', category: 'documents', name: 'Insurance Cards', size: 320000, lastSynced: '2026-01-24T15:00:00Z', status: 'synced', priority: 'medium' },
-    { id: '6', category: 'images', name: 'Profile Photo', size: 180000, lastSynced: '2026-01-20T12:00:00Z', status: 'synced', priority: 'low' },
-    { id: '7', category: 'documents', name: 'Vaccination Records', size: 95000, lastSynced: '2026-01-22T08:00:00Z', status: 'synced', priority: 'medium' },
-    { id: '8', category: 'medical-records', name: 'Allergy Information', size: 5000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' }
-  ];
-
-  const getDefaultSyncQueue = (): SyncQueue[] => [
-    { id: 'q1', action: 'upload', description: 'Symptom diary entry', timestamp: '2026-01-25T11:00:00Z', status: 'pending', retryCount: 0 },
-    { id: 'q2', action: 'download', description: 'Lab results update', timestamp: '2026-01-25T10:45:00Z', status: 'pending', retryCount: 0 }
-  ];
 
   // Load server-detected sync conflicts (last-write-wins, from /api/sync/conflicts)
   const loadConflicts = useCallback(async () => {
@@ -345,8 +334,8 @@ const OfflineSyncPage: React.FC = () => {
   const handleClearCache = async (category?: DataCategory) => {
     try {
       if (category) {
+        await clearCachedDataByCategory(category);
         setCachedItems(prev => prev.filter(item => item.category !== category));
-        // Note: Would need to implement category-specific clearing in IndexedDB
       } else {
         await clearStore(STORES.CACHED_DATA);
         setCachedItems([]);
@@ -378,7 +367,9 @@ const OfflineSyncPage: React.FC = () => {
   };
 
   const pendingCount = cachedItems.filter(i => i.status === 'pending').length + syncQueue.length;
-  const storagePercent = (storageInfo.used / storageInfo.quota) * 100;
+  const storagePercent = storageInfo.quota > 0
+    ? Math.min(100, (storageInfo.used / storageInfo.quota) * 100)
+    : 0;
 
   if (loading) {
     return (
@@ -551,6 +542,11 @@ const OfflineSyncPage: React.FC = () => {
           )}
 
           {/* Last Sync Info */}
+          {offlineDataUnavailable && (
+            <div className="bg-critical-subtle text-critical-subtle-fg rounded-lg p-4" role="alert">
+              {t('offlineSync.dataUnavailable')}
+            </div>
+          )}
           <div className="bg-surface rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -688,7 +684,9 @@ const OfflineSyncPage: React.FC = () => {
               <h3 className="font-medium text-content">{t('offlineSync.allCached')}</h3>
             </div>
             <div className="divide-y divide-border">
-              {cachedItems.map(item => (
+              {cachedItems.length === 0 ? (
+                <p className="p-4 text-sm text-content-muted">{t('offlineSync.noCachedData')}</p>
+              ) : cachedItems.map(item => (
                 <div key={item.id} className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {getCategoryIcon(item.category)}

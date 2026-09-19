@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiUrl, getApiClient, useTranslation, clickable } from '@medichain/shared';
+import { apiUrl, getApiClient, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -20,7 +20,6 @@ import {
   Shield,
   CheckCircle,
 } from 'lucide-react';
-import type { LabResultSubmission } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface MedicalRecord {
@@ -58,27 +57,6 @@ interface SoapNoteResponse {
       primary_diagnosis?: { description?: string; icd10_code?: string | null; status?: string };
       clinical_summary?: string;
     };
-  }>;
-}
-
-interface PrescriptionResponse {
-  prescriptions?: Array<{
-    prescription_id: string;
-    medication_name?: string;
-    prescriber_id?: string;
-    created_at?: number | string;
-    dosage?: string;
-    directions?: string;
-  }>;
-}
-
-interface TriageResponse {
-  assessments?: Array<{
-    assessment_id: string;
-    chief_complaint?: string;
-    performed_by?: string;
-    performed_at?: number;
-    esi_level?: string;
   }>;
 }
 
@@ -161,18 +139,18 @@ export function MyRecordsPage() {
         amaData,
         gcsData,
       ] = await Promise.all([
-        fetchJson(`/api/lab/patient/${patientId}`, headers),
-        fetchJson(`/api/records/${patientId}`, headers),
+        getPatientLabSubmissions(patientId),
+        getPatientRecords(patientId),
         fetchJson(`/api/clinical/patient/${patientId}/soap`, headers),
-        fetchJson(`/api/e-prescriptions/patient/${patientId}`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/triage`, headers),
+        getPatientEPrescriptions(patientId),
+        getPatientTriageAssessments(patientId),
         // A History & Physical, a progress note, a wound assessment and a
         // vitals reading are all written about the patient, and none of them
         // were reachable from this page before.
         fetchJson(`/api/clinical/patient/${patientId}/history-physicals`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/progress-notes`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/wounds`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/vitals`, headers),
+        getPatientVitals(patientId),
         // The document a patient physically leaves hospital with. It was
         // reachable only by an id the patient has never seen, so it could be
         // written, approved by a second clinician, stored — and never read by
@@ -204,10 +182,10 @@ export function MyRecordsPage() {
         // Neurological observations. `POST /api/clinical/gcs` and this read had
         // both existed with no caller at either end: nothing wrote a GCS
         // assessment and nothing displayed one.
-        fetchJson(`/api/clinical/patient/${patientId}/gcs`, headers),
+        getPatientGCS(patientId),
       ]);
 
-      const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
+      const labRecords = labData.map(sub => ({
           id: sub.id,
           type: 'lab_result' as const,
           title: sub.test_name,
@@ -222,12 +200,12 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...labRecords);
 
-      const medRecords = ((genericData.records as Array<{
+      const medRecords = (genericData as Array<{
           content_hash: string;
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
-        }> | undefined) || []).map(rec => ({
+        }>).map(rec => ({
           id: rec.content_hash,
           type: medicalRecordType(rec.record_type),
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
@@ -253,12 +231,13 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...soapRecords);
 
-      const prescriptionRecords = ((prescriptionData as PrescriptionResponse).prescriptions || []).map(rx => ({
+      const prescriptionRecords = (prescriptionData.prescriptions ?? []).map(rx => ({
         id: rx.prescription_id,
         type: 'prescription' as const,
-        title: rx.medication_name || 'Prescription',
-        description: [rx.dosage, rx.directions].filter(Boolean).join(' — ') || 'Electronic prescription',
-        provider: rx.prescriber_id || 'MediChain provider',
+        title: rx.medication.name || 'Prescription',
+        description: [rx.medication.strength, rx.medication.directions, rx.patient_instructions]
+          .filter(Boolean).join(' — ') || 'Electronic prescription',
+        provider: rx.prescriber_name || rx.prescriber_id || 'MediChain provider',
         date: timestampDate(rx.created_at),
         contentHash: `rx-${rx.prescription_id}`,
         metadataHash: rx.prescription_id,
@@ -266,7 +245,7 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...prescriptionRecords);
 
-      const triageRecords = ((triageData as TriageResponse).assessments || []).map(assessment => ({
+      const triageRecords = (triageData.assessments ?? []).map(assessment => ({
         id: assessment.assessment_id,
         type: 'consultation' as const,
         title: 'Triage Assessment',
@@ -502,19 +481,17 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...amaRecords);
 
-      const gcsRecords = (((gcsData as {
-        assessments?: Array<Record<string, unknown>>;
-      }).assessments) || []).map(assessment => ({
-        id: String(assessment.assessment_id),
+      const gcsRecords = (gcsData.assessments ?? []).map(assessment => ({
+        id: assessment.assessment_id,
         type: 'consultation' as const,
         title: `Glasgow Coma Scale ${assessment.total_score ?? ''}`.trim(),
         // The server's interpretation, not a phrase composed here. The total
         // and its meaning are scored server-side and displayed as returned.
-        description: String(assessment.interpretation || 'Neurological assessment'),
-        provider: String(assessment.assessed_by || 'MediChain clinician'),
-        date: timestampDate(assessment.assessed_at as string | number | undefined),
+        description: assessment.interpretation || 'Neurological assessment',
+        provider: assessment.assessed_by || 'MediChain clinician',
+        date: timestampDate(assessment.assessed_at),
         contentHash: `gcs-${assessment.assessment_id}`,
-        metadataHash: String(assessment.assessment_id),
+        metadataHash: assessment.assessment_id,
         verified: true,
       }));
       allRecords.push(...gcsRecords);
@@ -561,22 +538,23 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...woundRecords);
 
-      const vitalsRecords = (((vitalsData as { vital_signs?: Array<Record<string, unknown>>; vitals?: Array<Record<string, unknown>> })
-        .vital_signs || (vitalsData as { vitals?: Array<Record<string, unknown>> }).vitals) || []).map(v => ({
-        id: String(v.id),
+      const vitalsRecords = vitalsData.readings.map(v => ({
+        id: v.reading_id,
         type: 'lab_result' as const,
         title: 'Vital signs',
         description: [
           v.heart_rate ? `HR ${v.heart_rate}` : null,
-          v.blood_pressure_systolic && v.blood_pressure_diastolic
-            ? `BP ${v.blood_pressure_systolic}/${v.blood_pressure_diastolic}`
+          v.systolic_bp != null && v.diastolic_bp != null
+            ? `BP ${v.systolic_bp}/${v.diastolic_bp}`
             : null,
-          v.temperature ? `${Number(v.temperature).toFixed(1)} C` : null,
+          v.temperature_celsius != null
+            ? `${v.temperature_celsius.toFixed(1)} C`
+            : null,
         ].filter(Boolean).join(' · ') || 'Recorded observations',
         provider: String(v.recorded_by || 'MediChain provider'),
         date: timestampDate(v.recorded_at as string | number | undefined),
-        contentHash: `vitals-${v.id}`,
-        metadataHash: String(v.id),
+        contentHash: `vitals-${v.reading_id}`,
+        metadataHash: v.reading_id,
         verified: true,
       }));
       allRecords.push(...vitalsRecords);

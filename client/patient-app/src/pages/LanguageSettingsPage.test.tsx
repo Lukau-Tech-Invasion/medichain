@@ -8,7 +8,11 @@ describe('LanguageSettingsPage (Patient)', () => {
 
     expect(screen.getByText(/Language & Region/i)).toBeInTheDocument();
     expect(screen.getAllByText(/English \(US\)/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Spanish \(Spain\)/i)).toBeInTheDocument();
+    // A locale that is ~1% translated is listed so patients know it is coming,
+    // but it cannot be chosen: selecting it would put a Kiswahili Save button
+    // on an English medication list.
+    const kiswahili = screen.getAllByText(/Kiswahili/i)[0].closest('button');
+    expect(kiswahili).toBeDisabled();
   });
 
   it('allows searching for a language', () => {
@@ -18,7 +22,7 @@ describe('LanguageSettingsPage (Patient)', () => {
     fireEvent.change(searchInput, { target: { value: 'French' } });
 
     expect(screen.getByText(/French/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Spanish \(Spain\)/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Kiswahili/i)).not.toBeInTheDocument();
   });
 
   it('allows toggling regional settings', () => {

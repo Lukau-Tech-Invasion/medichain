@@ -18,7 +18,8 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
-  apiUrl: (path: string) => path,
+  listProgressNotes: vi.fn(),
+  createProgressNote: vi.fn(),
 }));
 
 describe('ProgressNotePage', () => {
@@ -33,6 +34,7 @@ describe('ProgressNotePage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listProgressNotes).mockResolvedValue([]);
   });
 
   it('renders progress note page', async () => {
@@ -61,6 +63,34 @@ describe('ProgressNotePage', () => {
     expect(screen.getByText(/Objective \*/i)).toBeInTheDocument();
     expect(screen.getByText(/Assessment \*/i)).toBeInTheDocument();
     expect(screen.getByText(/Plan \*/i)).toBeInTheDocument();
+  });
+
+  it('files only what the form collected', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      { patient_id: 'PAT-1', full_name: 'Ama Mensah', health_id: 'HID-1' },
+    ] as unknown as Awaited<ReturnType<typeof shared.getPatients>>);
+    vi.mocked(shared.createProgressNote).mockResolvedValue(
+      {} as Awaited<ReturnType<typeof shared.createProgressNote>>,
+    );
+    render(<ProgressNotePage />);
+
+    await waitFor(() => expect(screen.getByText(/New Note/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/New Note/i));
+    fireEvent.focus(document.getElementById('progress-patient')!);
+    fireEvent.click(await screen.findByRole('button', { name: /Ama Mensah/i }));
+    fireEvent.change(screen.getByLabelText(/Subjective/i), {
+      target: { value: 'Slept poorly.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save as Draft/i }));
+
+    await waitFor(() => expect(shared.createProgressNote).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(shared.createProgressNote).mock.calls[0][0];
+    expect(payload.patient_id).toBe('PAT-1');
+    expect(payload.subjective).toBe('Slept poorly.');
+    // Nobody entered these. They used to be sent as 1, 'Full code' and 'stable'.
+    expect(payload).not.toHaveProperty('hospital_day');
+    expect(payload).not.toHaveProperty('code_status');
+    expect(payload.assessment[0]).not.toHaveProperty('status');
   });
 
   it('allows entering subjective note', async () => {

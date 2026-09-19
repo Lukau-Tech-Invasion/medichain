@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   getPatientIntakeOutput,
   getPatientVitals,
-  IS_DEMO,
   useTranslation,
 } from '@medichain/shared';
+import type { PatientVitalReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -23,21 +23,7 @@ import {
   Scale,
 } from 'lucide-react';
 
-interface VitalReading {
-  reading_id?: string;
-  id?: string;
-  recorded_at?: string;
-  created_at?: string;
-  heart_rate?: number;
-  systolic_bp?: number;
-  diastolic_bp?: number;
-  respiratory_rate?: number;
-  oxygen_saturation?: number;
-  temperature_celsius?: number;
-  weight_kg?: number;
-  pain_scale?: number;
-  notes?: string;
-}
+type VitalReading = PatientVitalReading;
 
 /**
  * VitalsPage - Patient vital signs history and latest readings
@@ -100,46 +86,12 @@ export function VitalsPage() {
     setLoading(true);
     try {
       const data = await getPatientVitals(patient.healthId);
-      const list: VitalReading[] = (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).readings || (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).vitals || (Array.isArray(data) ? data : []);
+      const list = data.readings;
       
-      if (list.length === 0 && IS_DEMO) {
-        // Fallback to demo data only if IS_DEMO is true and API returned empty
-        const demoData: VitalReading[] = [
-          {
-            id: 'demo-1',
-            recorded_at: new Date().toISOString(),
-            heart_rate: 72,
-            systolic_bp: 120,
-            diastolic_bp: 80,
-            temperature_celsius: 36.6,
-            oxygen_saturation: 98,
-            respiratory_rate: 16,
-            weight_kg: 70
-          },
-          {
-            id: 'demo-2',
-            recorded_at: new Date(Date.now() - 86400000).toISOString(),
-            heart_rate: 75,
-            systolic_bp: 125,
-            diastolic_bp: 82,
-            temperature_celsius: 36.8,
-            oxygen_saturation: 97,
-            respiratory_rate: 18,
-            weight_kg: 70.5
-          }
-        ];
-        setReadings(demoData);
-        setLatest(demoData[0]);
-        setPrevious(demoData[1]);
-        setApiConnected(false);
-      } else {
-        setReadings(list);
-        setApiConnected(true);
-        if (list.length > 0) {
-          setLatest(list[0]);
-          setPrevious(list[1] || null);
-        }
-      }
+      setReadings(list);
+      setLatest(list[0] ?? null);
+      setPrevious(list[1] ?? null);
+      setApiConnected(true);
     } catch (err) {
       console.error('Failed to load vitals:', err);
       setApiConnected(false);
@@ -252,7 +204,7 @@ export function VitalsPage() {
         <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
           <h2 className="text-lg font-semibold mb-1">{t('vitals.latestReading')}</h2>
           <p className="text-white/70 text-sm mb-4">
-            {formatDate(latest.recorded_at || latest.created_at)}
+            {formatDate(latest.recorded_at)}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {latest.systolic_bp != null && latest.diastolic_bp != null && (
@@ -332,8 +284,8 @@ export function VitalsPage() {
         ) : (
           <div className="space-y-3">
             {readings.map((r, idx) => (
-              <div key={r.reading_id || r.id || idx} className="patient-card">
-                <p className="text-xs text-content-muted mb-2">{formatDate(r.recorded_at || r.created_at)}</p>
+              <div key={r.reading_id || idx} className="patient-card">
+                <p className="text-xs text-content-muted mb-2">{formatDate(r.recorded_at)}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                   {r.systolic_bp != null && r.diastolic_bp != null && (
                     <div className="flex items-center gap-1 text-content-secondary">
@@ -372,9 +324,6 @@ export function VitalsPage() {
                     </div>
                   )}
                 </div>
-                {r.notes && (
-                  <p className="text-xs text-content-muted mt-2 italic">{r.notes}</p>
-                )}
               </div>
             ))}
           </div>

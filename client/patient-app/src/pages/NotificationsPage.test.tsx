@@ -4,15 +4,17 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { NotificationsPage } from './NotificationsPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
+
+vi.mock('@medichain/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return { ...actual, getNotifications: vi.fn(), getPatientCdsAlerts: vi.fn() };
+});
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
-
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 describe('NotificationsPage (Patient)', () => {
   const mockPatient = {
@@ -30,45 +32,30 @@ describe('NotificationsPage (Patient)', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/notifications')) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: () => Promise.resolve({
-            notifications: [
-              {
-                id: 'notif1',
-                message: 'Your lab results are ready',
-                timestamp: new Date().toISOString(),
-                read: false,
-              }
-            ],
-          }),
-        });
-      }
-      if (url.includes('/api/cds/patient/')) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: () => Promise.resolve({
-            alerts: [
-              {
-                id: 'alert1',
-                title: 'High Blood Pressure',
-                description: 'Your last reading was high',
-                severity: 'medium',
-                created_at: new Date().toISOString(),
-              }
-            ],
-          }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({}),
-      });
+    vi.mocked(shared.getNotifications).mockResolvedValue({
+      success: true,
+      count: 1,
+      notifications: [{
+        id: 'notif1',
+        type: 'lab_result',
+        priority: 'low',
+        title: 'Your lab results are ready',
+        timestamp: Math.floor(Date.now() / 1000),
+      }],
+    });
+    vi.mocked(shared.getPatientCdsAlerts).mockResolvedValue({
+      success: true,
+      patient_id: 'HEALTH123',
+      count: 1,
+      alerts: [{
+        alert_id: 'alert1',
+        title: 'High Blood Pressure',
+        description: 'Your last reading was high',
+        severity: 'Medium',
+        alert_type: 'VitalSignAbnormal',
+        created_at: Math.floor(Date.now() / 1000),
+        status: 'Active',
+      }],
     });
   });
 

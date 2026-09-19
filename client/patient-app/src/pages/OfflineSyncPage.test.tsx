@@ -84,4 +84,18 @@ describe('OfflineSyncPage (Patient)', () => {
       expect(screen.getByText(/Online/i)).toBeInTheDocument();
     });
   });
+
+  it('does not substitute demo clinical data when IndexedDB cannot be read', async () => {
+    vi.mocked(shared.getAllCachedItems).mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+
+    render(<OfflineSyncPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/Offline data could not be loaded/i);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cache$/i }));
+    expect(screen.getByText(/No data is cached on this device/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Medical History Summary/i)).not.toBeInTheDocument();
+  });
 });

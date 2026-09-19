@@ -195,8 +195,22 @@ export async function registerPatient(
   return getApiClient().post('/api/register', data);
 }
 
-export async function getPatients(): Promise<PatientProfile[]> {
-  const response = await getApiClient().get<{ data: PatientProfile[]; pagination: unknown }>('/api/patients');
+export interface PatientListOptions {
+  /** Server-side whole-token name or identifier search. */
+  query?: string;
+  /** Bounded roster page size; the API clamps this to its own maximum. */
+  limit?: number;
+  /** Opaque continuation cursor returned by the preceding page. */
+  cursor?: string;
+}
+
+export async function getPatients(options: PatientListOptions = {}): Promise<PatientProfile[]> {
+  const params = new URLSearchParams();
+  if (options.query?.trim()) params.set('q', options.query.trim());
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  const suffix = params.size ? `?${params.toString()}` : '';
+  const response = await getApiClient().get<{ data: PatientProfile[]; pagination: unknown }>(`/api/patients${suffix}`);
   // Handle both paginated response and direct array for backward compatibility
   if (Array.isArray(response)) {
     return response;
@@ -831,6 +845,66 @@ export async function revokeEmergencyGrant(
 }
 
 // ============================================================================
+// Patient-controlled record access
+// ============================================================================
+
+// camelCase because the server's `AccessGrantEntity` / `AccessRequestEntity`
+// carry `#[serde(rename_all = "camelCase")]`. A snake_case description of them
+// type-checks and reads `undefined` for every field.
+
+export interface PatientAccessGrant {
+  id: string;
+  providerId: string;
+  providerName: string;
+  providerRole: string;
+  organization: string;
+  accessType: 'full' | 'limited' | 'emergency';
+  grantedAt: string;
+  expiresAt: string | null;
+  status: 'active' | 'expired' | 'revoked';
+  lastAccessed: string | null;
+  accessCount: number;
+  sourceRequestId?: string | null;
+}
+
+export interface PatientAccessRequest {
+  id: string;
+  providerId: string;
+  providerName: string;
+  providerRole: string;
+  organization: string;
+  requestedAt: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'denied';
+}
+
+export async function listPatientAccessGrants(patientId: string): Promise<{ grants: PatientAccessGrant[] }> {
+  return getApiClient().get(`/api/access/patient/${encodeURIComponent(patientId)}/grants`);
+}
+
+export async function listPatientAccessRequests(patientId: string): Promise<{ requests: PatientAccessRequest[] }> {
+  return getApiClient().get(`/api/access/patient/${encodeURIComponent(patientId)}/requests`);
+}
+
+/** Approve a provider request for a user-selected, server-bounded time window. */
+export async function approvePatientAccessRequest(
+  requestId: string,
+  expiresAt: string
+): Promise<{ request: PatientAccessRequest; grant: PatientAccessGrant }> {
+  return getApiClient().post(`/api/access/requests/${encodeURIComponent(requestId)}/approve`, {
+    expires_at: expiresAt,
+  });
+}
+
+export async function denyPatientAccessRequest(requestId: string): Promise<{ request: PatientAccessRequest }> {
+  return getApiClient().post(`/api/access/requests/${encodeURIComponent(requestId)}/deny`, {});
+}
+
+export async function revokePatientAccessGrant(grantId: string): Promise<{ grant: PatientAccessGrant }> {
+  return getApiClient().post(`/api/access/grants/${encodeURIComponent(grantId)}/revoke`, {});
+}
+
+// ============================================================================
 // Guardianship — who may act for a patient
 // ============================================================================
 
@@ -1069,13 +1143,28 @@ export async function deleteInsuranceCard(
 /** Upload a card image (base64); stored encrypted on IPFS, hash saved on the card. */
 export async function uploadInsuranceCardImage(
   id: string,
+  side: 'front' | 'back',
   imageBase64: string,
   contentType?: string
-): Promise<{ success: boolean; image_ipfs_hash: string }> {
+): Promise<{
+  success: boolean;
+  image_ipfs_hash: string;
+  metadata_ipfs_hash: string;
+  side: 'front' | 'back';
+}> {
   return getApiClient().post(`/api/insurance/cards/${id}/image`, {
+    side,
     image_base64: imageBase64,
     content_type: contentType,
   });
+}
+
+/** Read one authorised, encrypted insurance-card image. */
+export async function downloadInsuranceCardImage(
+  id: string,
+  side: 'front' | 'back'
+): Promise<{ success: boolean; content_base64: string; content_type: string }> {
+  return getApiClient().get(`/api/insurance/cards/${encodeURIComponent(id)}/image/${side}`);
 }
 
 // ============================================================================
@@ -1286,7 +1375,7 @@ export async function getPendingLabResults(): Promise<LabResultSubmission[]> {
  */
 export async function getAllLabSubmissions(
   status?: 'pending' | 'approved' | 'rejected'
-): Promise<{ submissions: LabResultSubmission[]; total: number }> {
+): Promise<LabResultSubmission[]> {
   const url = status ? `/api/lab/submissions?status=${status}` : '/api/lab/submissions';
   return getApiClient().get(url);
 }
@@ -1516,7 +1605,7 @@ export async function getOpenSpecimenRecollections(): Promise<{
  */
 export async function getPatientLabSubmissions(
   patientId: string
-): Promise<{ patient_id: string; submissions: LabResultSubmission[]; total: number }> {
+): Promise<LabResultSubmission[]> {
   return getApiClient().get(`/api/lab/patient/${patientId}`);
 }
 
@@ -1876,7 +1965,31 @@ export async function getSpecimenRejection(rejectionId: string): Promise<Specime
 // Physician Documentation (Phase 8)
 // ============================================================================
 
-export async function createOrder(data: unknown): Promise<OrderCreateResult> {
+/** The compact clinical-order request accepted by the physician-order API. */
+export interface CreatePhysicianOrderInput {
+  patient_id: string;
+  category: string;
+  order_text: string;
+  priority?: string;
+  instructions?: string | null;
+  frequency?: string | null;
+  cosign_required?: boolean;
+}
+
+/** The list projection the orders endpoint actually returns. */
+export interface PhysicianOrderListItem {
+  order_id: string;
+  patient_id: string;
+  order_type: string;
+  order_details: string;
+  priority: string;
+  status: string;
+  notes: string | null;
+  ordering_provider: string;
+  ordered_at: string;
+}
+
+export async function createOrder(data: CreatePhysicianOrderInput): Promise<OrderCreateResult> {
   return getApiClient().post('/api/clinical/order', data);
 }
 
@@ -1884,8 +1997,15 @@ export async function getOrder(orderId: string): Promise<PhysicianOrder> {
   return getApiClient().get(`/api/clinical/order/${orderId}`);
 }
 
-export async function listOrders(): Promise<{ success: boolean; orders: PhysicianOrder[] }> {
+export async function listOrders(): Promise<{ success: boolean; orders: PhysicianOrderListItem[] }> {
   return getApiClient().get('/api/clinical/orders');
+}
+
+export async function updateOrderStatus(
+  orderId: string,
+  status: string
+): Promise<{ success: boolean; order_id: string; status: string }> {
+  return getApiClient().put(`/api/clinical/orders/${encodeURIComponent(orderId)}/status`, { status });
 }
 
 export async function createDischargeSummary(data: unknown): Promise<SummaryCreateResult> {
@@ -1958,7 +2078,31 @@ export async function getConsult(consultId: string): Promise<ConsultationNote> {
   return getApiClient().get(`/api/clinical/consult/${consultId}`);
 }
 
-export async function createProgressNote(data: unknown): Promise<NoteCreateResult> {
+/** Persisted progress-note fields returned by the clinician registry. */
+export interface ProgressNoteListItem {
+  id: string;
+  patient_id: string;
+  note_type: string;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan_content: string | null;
+  cosigned_by: string | null;
+  cosigned_at: string | null;
+  created_by: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  /** Present on the in-memory backend; PostgreSQL returns the typed columns. */
+  data?: Partial<ProgressNote>;
+}
+
+/** List the bounded, authorised clinician progress-note registry. */
+export async function listProgressNotes(): Promise<ProgressNoteListItem[]> {
+  return getApiClient().get('/api/platform/list/progress-notes');
+}
+
+export async function createProgressNote(data: ProgressNote): Promise<NoteCreateResult> {
   return getApiClient().post('/api/clinical/progress-note', data);
 }
 
@@ -2009,6 +2153,16 @@ export async function listAMADischarges(): Promise<AMADischarge[]> {
 
 export async function createHistoryPhysical(data: unknown): Promise<HpCreateResult> {
   return getApiClient().post('/api/clinical/hp', data);
+}
+
+/** Persist changes to an unsigned H&P draft; signed records require an addendum. */
+export async function updateHistoryPhysicalDraft(hpId: string, data: unknown): Promise<HpCreateResult> {
+  return getApiClient().put(`/api/clinical/hp/${hpId}`, data);
+}
+
+/** Append an immutable amendment to a signed H&P. */
+export async function addHistoryPhysicalAddendum(hpId: string, content: string): Promise<HpCreateResult> {
+  return getApiClient().post(`/api/clinical/hp/${hpId}/addendum`, { content });
 }
 
 export async function getHistoryPhysical(hpId: string): Promise<HistoryAndPhysical> {
@@ -2122,6 +2276,14 @@ export async function getImmunization(recordId: string): Promise<ImmunizationRec
   return getApiClient().get(`/api/surgical/immunization/${recordId}`);
 }
 
+/** The authenticated patient's own immunization history. */
+export async function getMyImmunizations(): Promise<ImmunizationRecord[]> {
+  const response = await getApiClient().get<{ immunizations: ImmunizationRecord[] }>(
+    '/api/clinical/immunizations'
+  );
+  return response.immunizations;
+}
+
 // ============================================================================
 // Family History (Phase 14)
 // ============================================================================
@@ -2132,6 +2294,11 @@ export async function createFamilyHistory(data: unknown): Promise<ClinicalCreate
 
 export async function getFamilyHistory(patientId: string): Promise<FamilyMedicalHistory> {
   return getApiClient().get(`/api/surgical/family-history/${patientId}`);
+}
+
+/** The authenticated patient's own family history. */
+export async function getMyFamilyHistory(): Promise<FamilyMedicalHistory> {
+  return getApiClient().get('/api/clinical/family-history');
 }
 
 // ============================================================================
@@ -2247,9 +2414,51 @@ export async function getAppointment(appointmentId: string): Promise<Appointment
   return getApiClient().get(`/api/appointments/${appointmentId}`);
 }
 
+/** Appointment list item returned by the patient-scope scheduling route. */
+export interface PatientAppointmentListItem {
+  appointment_id: string;
+  /** Legacy instances used `type`; current API responses use `appointment_type`. */
+  type?: string;
+  appointment_type?: string;
+  status: string;
+  provider_name: string;
+  specialty?: string;
+  scheduled_date: string;
+  start_time?: string;
+  scheduled_time?: number | string | null;
+  duration_minutes?: number;
+  location?: string | { telehealth_link?: string | null };
+  reason?: string;
+  visit_reason?: string;
+  notes?: string;
+  is_telehealth?: boolean;
+  telehealth_session_id?: string;
+  awaiting_confirmation_from?: 'patient' | 'provider' | null;
+}
+
+/**
+ * List appointments visible to a patient or their treating provider.
+ *
+ * Authentication is applied by the shared client; the API determines whether
+ * the caller owns this patient's record or is a healthcare provider.
+ */
 export async function getPatientAppointments(
   patientId: string
 ): Promise<{ success: boolean; appointments: Appointment[]; count: number }> {
+  return getApiClient().get(`/api/appointments/patient/${patientId}`);
+}
+
+/**
+ * Patient-facing appointment summaries, including the derived confirmation
+ * owner and optional telehealth link used by the patient portal.
+ *
+ * Kept distinct from `getPatientAppointments`: older clinical consumers need
+ * the full persisted appointment record, while this route's presentation
+ * contract deliberately permits a compact summary.
+ */
+export async function getPatientAppointmentSummaries(
+  patientId: string
+): Promise<{ success: boolean; appointments: PatientAppointmentListItem[]; count: number }> {
   return getApiClient().get(`/api/appointments/patient/${patientId}`);
 }
 
@@ -2413,6 +2622,21 @@ export interface CreateMedicationReminderInput {
   email?: boolean;
 }
 
+/** One active medication reminder as returned by the medication-reminders API. */
+export interface MedicationReminder {
+  reminder_id: string;
+  patient_id: string;
+  medication_name: string;
+  dosage: string;
+  frequency: string;
+  reminder_times: string[];
+  start_date: string;
+  end_date: string | null;
+  instructions: string | null;
+  active: boolean;
+  created_at: number;
+}
+
 export async function createMedicationReminder(
   data: CreateMedicationReminderInput
 ): Promise<MedicationReminderCreateResult> {
@@ -2421,7 +2645,7 @@ export async function createMedicationReminder(
 
 export async function getPatientReminders(
   patientId: string
-): Promise<{ success: boolean; patient_id: string; reminders: Record<string, unknown>[]; count: number }> {
+): Promise<{ success: boolean; patient_id: string; reminders: MedicationReminder[]; count: number }> {
   return getApiClient().get(`/api/reminders/medication/${patientId}`);
 }
 
@@ -2811,8 +3035,24 @@ export async function respondToCdsAlert(
 
 export async function getPatientCdsAlerts(
   patientId: string
-): Promise<{ success: boolean; patient_id: string; alerts: Record<string, unknown>[]; count: number }> {
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  alerts: PatientCdsAlert[];
+  count: number;
+}> {
   return getApiClient().get(`/api/cds/patient/${patientId}/alerts`);
+}
+
+/** Patient-safe CDS alert projection returned by the alert-history endpoint. */
+export interface PatientCdsAlert {
+  alert_id: string;
+  title: string;
+  description: string;
+  severity: 'Informational' | 'Low' | 'Medium' | 'High' | 'Critical';
+  alert_type: string;
+  created_at: number;
+  status: string;
 }
 
 // ============================================================================
@@ -3068,7 +3308,7 @@ export async function getNoteTemplates(): Promise<{
 
 export async function useNoteTemplate(
   data: unknown
-): Promise<{ success: boolean; template_id: string; generated_note: string; timestamp: number }> {
+): Promise<{ success: boolean; template_id: string; rendered_content: Record<string, unknown>; timestamp: number }> {
   return getApiClient().post('/api/templates/notes/use', data);
 }
 
@@ -3136,12 +3376,28 @@ export async function createTriageAssessment(data: {
   return getApiClient().post('/api/clinical/triage', data);
 }
 
-/**
- * Get vital signs for a patient
- */
+/** The stable wire representation returned by the patient vitals flowsheet. */
+export interface PatientVitalReading {
+  reading_id: string;
+  timestamp: number;
+  recorded_at: string;
+  recorded_by: string;
+  heart_rate: number | null;
+  respiratory_rate: number | null;
+  systolic_bp: number | null;
+  diastolic_bp: number | null;
+  temperature_celsius: number | null;
+  oxygen_saturation: number | null;
+  pain_scale: number | null;
+  gcs_total: number | null;
+  blood_glucose: number | null;
+  weight_kg: number | null;
+}
+
+/** Get vital signs for a patient. */
 export async function getPatientVitals(
   patientId: string
-): Promise<{ patient_id: string; readings: unknown[]; total: number }> {
+): Promise<{ patient_id: string; readings: PatientVitalReading[]; total: number; critical_alerts: unknown[] }> {
   return getApiClient().get(`/api/clinical/patient/${patientId}/vitals`);
 }
 
@@ -3215,26 +3471,73 @@ export async function getPharmacistDashboard(): Promise<PharmacistDashboardRespo
 /**
  * Send a secure message
  */
+export interface SecureMessage {
+  message_id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_role: string;
+  recipient_id: string;
+  subject: string;
+  content: string;
+  priority: string;
+  related_patient_id: string | null;
+  sent_at: number;
+  read: boolean;
+  thread_id: string;
+}
+
+export interface MessageConversation {
+  id: string;
+  providerId: string;
+  providerName: string;
+  providerRole: string | null;
+  specialty: string | null;
+  lastMessage: string | null;
+  lastMessageTime: number | null;
+  unreadCount: number;
+  messages: SecureMessage[];
+}
+
+export interface SecureMessagesResponse {
+  success: boolean;
+  folder: string;
+  messages: SecureMessage[];
+  conversations: MessageConversation[];
+  count: number;
+}
+
 export async function sendMessage(data: {
   recipient_id: string;
   subject: string;
   content: string;
   priority?: string;
-}): Promise<{ success: boolean; message_id: string }> {
+  related_patient_id?: string;
+}): Promise<{ success: boolean; message: SecureMessage; info: string }> {
   return getApiClient().post('/api/messages/send', data);
 }
 
-/**
- * Get inbox messages
- */
-export async function getMessages(): Promise<{ messages: unknown[]; unread_count: number }> {
-  return getApiClient().get('/api/messages');
+/** The caller's persisted message copies, optionally limited to a mailbox. */
+export async function getMessages(folder: 'inbox' | 'sent' | 'all' = 'inbox'): Promise<SecureMessagesResponse> {
+  return getApiClient().get(`/api/messages?folder=${folder}`);
 }
 
 /**
  * Get notifications
  */
-export async function getNotifications(): Promise<{ notifications: unknown[]; unread_count: number }> {
+export interface InboxNotification {
+  id: string;
+  type: string;
+  priority: string;
+  title: string;
+  timestamp: number;
+  patient_id?: string;
+}
+
+export async function getNotifications(): Promise<{
+  success: boolean;
+  notifications: InboxNotification[];
+  count: number;
+}> {
   return getApiClient().get('/api/notifications');
 }
 
@@ -3301,6 +3604,68 @@ export async function checkEligibility(request: {
 // not a MediChain-defined struct) — typed structurally rather than mirroring
 // the full FHIR resource model.
 // ============================================================================
+
+/**
+ * MediChain's published FHIR Patient transaction profile.
+ *
+ * The standard Patient shape is intentionally structural here. The API
+ * requires the listed emergency extensions because MediChain cannot safely
+ * create an emergency-health record without those explicitly supplied facts.
+ */
+export interface FhirPatientCreateResource {
+  resourceType: 'Patient';
+  identifier: Array<{ system: 'urn:medichain:national-id'; value: string }>;
+  name: Array<{ text?: string; given?: string[]; family?: string }>;
+  birthDate: string;
+  gender?: 'male' | 'female' | 'other' | 'unknown';
+  telecom?: Array<{ system: 'phone'; value: string }>;
+  contact: Array<{
+    relationship: Array<{ text?: string; coding?: Array<{ display?: string }> }>;
+    name: { text: string };
+    telecom: Array<{ system: 'phone'; value: string }>;
+  }>;
+  extension: Array<
+    | {
+        url: 'https://medichain.health/fhir/StructureDefinition/emergency-blood-type';
+        valueCode: string;
+      }
+    | {
+        url:
+          | 'https://medichain.health/fhir/StructureDefinition/organ-donor'
+          | 'https://medichain.health/fhir/StructureDefinition/dnr-status';
+        valueBoolean: boolean;
+      }
+  >;
+}
+
+/** A single-entry FHIR R4 transaction supported by MediChain's ingest API. */
+export interface FhirPatientTransactionBundle {
+  resourceType: 'Bundle';
+  type: 'transaction';
+  entry: Array<{
+    resource: FhirPatientCreateResource;
+    request: { method: 'POST'; url: 'Patient' };
+  }>;
+}
+
+/** The FHIR transaction response returned after durable patient registration. */
+export interface FhirTransactionResponse {
+  resourceType: 'Bundle';
+  type: 'transaction-response';
+  entry: Array<{ response: { status: string; location?: string } }>;
+}
+
+/**
+ * Create a patient through the declared FHIR R4 transaction profile.
+ *
+ * The server currently accepts exactly one `POST Patient` entry and rejects
+ * unsupported/multi-entry transactions before any data is persisted.
+ */
+export async function fhirCreatePatient(
+  bundle: FhirPatientTransactionBundle
+): Promise<FhirTransactionResponse> {
+  return getApiClient().post('/api/fhir/r4/Bundle', bundle);
+}
 
 /**
  * Get FHIR Patient resource
@@ -3396,7 +3761,11 @@ export async function logSymptom(data: {
   patient_id: string;
   symptom: string;
   severity: number;
+  category?: string;
+  duration?: string;
   notes?: string;
+  triggers?: string[];
+  relieved_by?: string[];
 }): Promise<{ success: boolean }> {
   return getApiClient().post('/api/symptoms/log', data);
 }
@@ -3406,8 +3775,31 @@ export async function logSymptom(data: {
  */
 export async function getSymptomHistory(
   patientId: string
-): Promise<{ symptoms: unknown[] }> {
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  entries: Array<{
+    id: string;
+    symptom: string;
+    category?: string | null;
+    severity: number;
+    timestamp: string;
+    duration?: string | null;
+    notes?: string | null;
+    triggers?: string[];
+    relievedBy?: string[];
+  }>;
+  total_entries: number;
+}> {
   return getApiClient().get(`/api/symptoms/${patientId}`);
+}
+
+/** Retract a diary entry while preserving its clinical audit history. */
+export async function retractSymptom(
+  patientId: string,
+  entryId: string
+): Promise<{ success: boolean; entry_id: string; message: string }> {
+  return getApiClient().post(`/api/symptoms/${patientId}/${entryId}/retract`);
 }
 
 // ============================================================================
@@ -3571,10 +3963,11 @@ export async function listImmunizations(): Promise<{
 }
 
 /**
- * List all blood bank records.
- * NOTE: the backend only tracks type/screen records today (returned as
- * `type_screens`) — `crossmatches`/`transfusions` are always empty until their
- * repositories gain a `list_all()` admin view.
+ * List all blood-bank records currently available to the clinical register.
+ *
+ * Crossmatches have no standalone store yet, but both the order/type-screen
+ * and transfusion-event repositories are included by the server. Do not turn
+ * an omitted crossmatch subsystem into a claim that no transfusions exist.
  */
 export async function listBloodBank(): Promise<{
   success: boolean;
@@ -3582,13 +3975,17 @@ export async function listBloodBank(): Promise<{
   crossmatches: { total: number; items: unknown[] };
   transfusions: { total: number; items: unknown[] };
 }> {
-  const response = await getApiClient().get<{ screens: unknown[] }>('/api/platform/list/blood-bank');
+  const response = await getApiClient().get<{
+    screens?: unknown[];
+    transfusions?: unknown[];
+  }>('/api/platform/list/blood-bank');
   const screens = response?.screens || [];
+  const transfusions = response?.transfusions || [];
   return {
     success: true,
     type_screens: { total: screens.length, items: screens },
     crossmatches: { total: 0, items: [] },
-    transfusions: { total: 0, items: [] },
+    transfusions: { total: transfusions.length, items: transfusions },
   };
 }
 
@@ -4322,6 +4719,10 @@ export async function addSoapAddendum(
 export interface StoredTriageAssessment {
   assessment_id: string;
   patient_id: string;
+  esi_level: string;
+  chief_complaint: string;
+  performed_by: string;
+  performed_at: number;
   [key: string]: unknown;
 }
 
@@ -4330,6 +4731,13 @@ export async function getTriageAssessment(
   assessmentId: string
 ): Promise<StoredTriageAssessment> {
   return getApiClient().get(`/api/clinical/triage/${encodeURIComponent(assessmentId)}`);
+}
+
+/** All triage assessments the authenticated caller may read for one patient. */
+export async function getPatientTriageAssessments(
+  patientId: string
+): Promise<{ patient_id: string; assessments: StoredTriageAssessment[]; total: number }> {
+  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/triage`);
 }
 
 /**

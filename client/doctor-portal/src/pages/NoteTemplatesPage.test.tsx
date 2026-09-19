@@ -1,12 +1,13 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import NoteTemplatesPage from './NoteTemplatesPage';
+import NoteTemplatesPage, { mapNoteTemplate } from './NoteTemplatesPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getNoteTemplates: vi.fn(),
+  useNoteTemplate: vi.fn(),
 }));
 
 // Templates come from the API — this page ships no built-in set, so a run with
@@ -81,6 +82,7 @@ describe('NoteTemplatesPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getNoteTemplates).mockResolvedValue({ success: true, templates: TEMPLATES, count: TEMPLATES.length });
+    vi.mocked(shared.useNoteTemplate).mockResolvedValue({ success: true, template_id: 'TMP-001', rendered_content: { subjective: 'Draft text' }, timestamp: 1 });
   });
 
   it('renders note templates page', () => {
@@ -108,5 +110,26 @@ describe('NoteTemplatesPage', () => {
       expect(screen.getByText(/Subjective, Objective, Assessment, Plan/i)).toBeInTheDocument()
     );
     expect(screen.getByText(/History and physical/i)).toBeInTheDocument();
+  });
+
+  it('maps the server registry shape into renderable template sections', () => {
+    const template = mapNoteTemplate({
+      template_id: 'TPL-SOAP-ROUTINE', name: 'Routine Follow-up SOAP', category: 'SOAP',
+      content: { subjective: 'Reports [SYMPTOMS].', plan: 'Follow up in [TIMEFRAME].' },
+    });
+
+    expect(template.templateId).toBe('TPL-SOAP-ROUTINE');
+    expect(template.type).toBe('soap');
+    expect(template.sections).toHaveLength(2);
+    expect(template.sections[0].content).toContain('[SYMPTOMS]');
+  });
+
+  it('renders a selected built-in template through the API', async () => {
+    render(<NoteTemplatesPage />);
+    await screen.findByText(/SOAP Note/i);
+    fireEvent.click(screen.getAllByRole('button', { name: /Use template/i })[0]);
+
+    await waitFor(() => expect(shared.useNoteTemplate).toHaveBeenCalledWith({ template_id: 'TMP-001', variables: {} }));
+    expect(await screen.findByText(/Rendered draft/i)).toBeInTheDocument();
   });
 });

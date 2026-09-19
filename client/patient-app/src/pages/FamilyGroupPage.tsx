@@ -3,10 +3,12 @@ import {
   addFamilyMember,
   createFamilyGroup,
   getMyFamilyGroups,
+  getMyWards,
   listMyMedicalIdentities,
+  removeFamilyMember,
   useTranslation,
 } from '@medichain/shared';
-import type { MedicalIdentitySummary } from '@medichain/shared';
+import type { GuardianRelationship, MedicalIdentitySummary } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { Users, Plus, UserPlus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
@@ -14,6 +16,7 @@ import { Users, Plus, UserPlus, ChevronDown, ChevronUp, Loader2 } from 'lucide-r
 interface FamilyGroup {
   group_id: string;
   group_name: string;
+  primary_account_id?: string;
   members?: { patient_id: string; name?: string; relationship?: string }[];
   delegates?: { patient_id: string; name?: string }[];
 }
@@ -37,10 +40,11 @@ export function FamilyGroupPage() {
   const [loading, setLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [addMemberGroupId, setAddMemberGroupId] = useState<string | null>(null);
-  const [newMemberHealthId, setNewMemberHealthId] = useState('');
+  const [newMemberWalletAddress, setNewMemberWalletAddress] = useState('');
   const [newMemberRelationship, setNewMemberRelationship] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   // --- Records this account may open -----------------------------------------
   //
@@ -58,6 +62,9 @@ export function FamilyGroupPage() {
   // An empty list and a failed read are different answers to "may I open my
   // child's record", and only one of them should be shown as settled.
   const [identitiesUnknown, setIdentitiesUnknown] = useState(false);
+  const [wards, setWards] = useState<GuardianRelationship[]>([]);
+  const [wardsLoaded, setWardsLoaded] = useState(false);
+  const [wardsUnknown, setWardsUnknown] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +84,34 @@ export function FamilyGroupPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMyWards()
+      .then((body) => {
+        if (cancelled) return;
+        setWards(body.relationships ?? []);
+        setWardsUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setWardsUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setWardsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+
+  const guardianStatus = (relationship: GuardianRelationship) => {
+    if (relationship.revoked_at || !relationship.active) return t('family.guardianshipRevoked');
+    if (relationship.expires_at && new Date(relationship.expires_at) <= new Date()) {
+      return t('family.guardianshipExpired');
+    }
+    return t('family.guardianshipActive');
+  };
 
 
   useEffect(() => {
@@ -123,15 +158,18 @@ export function FamilyGroupPage() {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addMemberGroupId || !newMemberHealthId.trim()) return;
+    if (!addMemberGroupId || !newMemberWalletAddress.trim()) return;
     setIsAddingMember(true);
     try {
       await addFamilyMember(addMemberGroupId, {
-        patient_id: newMemberHealthId.trim(),
+        // Family access is authorized against wallet identities. A Health ID
+        // would persist here but never match the caller identity used by the
+        // appointment and removal authorization checks.
+        patient_id: newMemberWalletAddress.trim(),
         relationship: newMemberRelationship.trim() || undefined,
         access_level: 'ViewOnly',
       });
-      setNewMemberHealthId('');
+      setNewMemberWalletAddress('');
       setNewMemberRelationship('');
       setAddMemberGroupId(null);
       showSuccess(t('family.memberAdded'));
@@ -141,6 +179,22 @@ export function FamilyGroupPage() {
       showError(t('family.addFailed'));
     } finally {
       setIsAddingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (groupId: string, memberId: string) => {
+    if (!window.confirm(t('family.removeMemberConfirm'))) return;
+
+    setRemovingMemberId(memberId);
+    try {
+      await removeFamilyMember(groupId, memberId);
+      showSuccess(t('family.memberRemoved'));
+      loadGroups();
+    } catch (err) {
+      console.error(err);
+      showError(t('family.removeFailed'));
+    } finally {
+      setRemovingMemberId(null);
     }
   };
 
@@ -189,6 +243,46 @@ export function FamilyGroupPage() {
                     ? t('family.permissionsAll')
                     : identity.permissions.join(', ')}
                 </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* The profile switcher above intentionally excludes expired and revoked
+          authority. This separate record makes a past delegation visible
+          without implying it still grants access. */}
+      <div className="patient-card mb-4">
+        <h2 className="text-lg font-semibold text-content mb-1">{t('family.guardianshipHeading')}</h2>
+        <p className="text-sm text-content-muted mb-4">{t('family.guardianshipSubtitle')}</p>
+        {!wardsLoaded ? (
+          <p className="text-sm text-content-muted">{t('family.identitiesLoading')}</p>
+        ) : wardsUnknown ? (
+          <p className="text-sm text-content-muted">{t('family.guardianshipUnknown')}</p>
+        ) : wards.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('family.guardianshipNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="guardianship-history-list">
+            {wards.map((relationship) => (
+              <li key={relationship.id} className="border border-border rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-content">{relationship.ward_patient_id}</p>
+                    <p className="text-xs text-content-muted">{relationship.relationship_type}</p>
+                  </div>
+                  <span className="text-xs text-content-muted text-right">
+                    {guardianStatus(relationship)}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-content-muted">
+                  {relationship.permissions.join(', ')}
+                  {relationship.expires_at
+                    ? ` · ${t('family.guardianshipExpires', { date: relationship.expires_at })}`
+                    : ''}
+                  {relationship.revoked_reason
+                    ? ` · ${t('family.guardianshipRevokedReason', { reason: relationship.revoked_reason })}`
+                    : ''}
+                </p>
               </li>
             ))}
           </ul>
@@ -281,6 +375,20 @@ export function FamilyGroupPage() {
                             {m.relationship && (
                               <span className="text-xs text-content-muted">({m.relationship})</span>
                             )}
+                            {m.patient_id !== group.primary_account_id &&
+                              (group.primary_account_id === patient?.walletAddress ||
+                                m.patient_id === patient?.walletAddress) && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveMember(group.group_id, m.patient_id)}
+                                  disabled={removingMemberId === m.patient_id}
+                                  className="ml-auto text-xs text-critical-subtle-fg hover:underline disabled:opacity-50"
+                                >
+                                  {removingMemberId === m.patient_id
+                                    ? t('common.loading')
+                                    : t('family.removeMember')}
+                                </button>
+                              )}
                           </div>
                         ))}
                       </div>
@@ -299,12 +407,12 @@ export function FamilyGroupPage() {
                   ) : (
                     <form onSubmit={handleAddMember} className="space-y-2 bg-surface-sunken rounded-lg p-3">
                       <p className="text-sm font-medium text-content-secondary">{t('family.addMemberTo', { group: group.group_name })}</p>
-                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.healthId')}</label>
+                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.memberWalletAddress')}</label>
                       <input
                         id={`member-id-${group.group_id}`}
-                        value={newMemberHealthId}
-                        onChange={e => setNewMemberHealthId(e.target.value)}
-                        placeholder={t('family.memberIdPlaceholder')}
+                        value={newMemberWalletAddress}
+                        onChange={e => setNewMemberWalletAddress(e.target.value)}
+                        placeholder={t('family.memberWalletPlaceholder')}
                         className="w-full border border-border-interactive rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                         required
                       />
@@ -319,7 +427,7 @@ export function FamilyGroupPage() {
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          disabled={isAddingMember || !newMemberHealthId.trim()}
+                          disabled={isAddingMember || !newMemberWalletAddress.trim()}
                           className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:opacity-50 flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
@@ -327,7 +435,7 @@ export function FamilyGroupPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setAddMemberGroupId(null); setNewMemberHealthId(''); setNewMemberRelationship(''); }}
+                          onClick={() => { setAddMemberGroupId(null); setNewMemberWalletAddress(''); setNewMemberRelationship(''); }}
                           className="flex-1 border border-border py-2 rounded-lg text-sm text-content-muted hover:bg-surface-sunken"
                         >
                           {t('common.cancel')}

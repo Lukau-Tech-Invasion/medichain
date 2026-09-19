@@ -559,7 +559,7 @@ const AMAPage: React.FC = () => {
 
             {/* Actions */}
             <div className="flex gap-3">
-              <button className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2">
+              <button type="button" onClick={() => window.print()} className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2">
                 <Printer className="w-5 h-5" />
                 {t('docAMA.printDocument')}
               </button>

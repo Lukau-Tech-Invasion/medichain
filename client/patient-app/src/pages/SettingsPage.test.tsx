@@ -19,6 +19,10 @@ vi.mock('@medichain/shared', async importOriginal => {
     saveUserSettings: vi.fn(),
     updateMedicalIdPreferences: vi.fn(),
     listMyMobileDevices: vi.fn(),
+    mfaDisable: vi.fn(),
+    mfaEnroll: vi.fn(),
+    mfaStatus: vi.fn(),
+    mfaVerify: vi.fn(),
     revokeMobileDevice: vi.fn(),
   };
 });
@@ -33,12 +37,13 @@ const patient = {
 
 describe('SettingsPage (Patient)', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(shared.listMyMobileDevices).mockResolvedValue({
       success: true,
       count: 0,
       devices: [],
     } as never);
-    vi.clearAllMocks();
+    vi.mocked(shared.mfaStatus).mockResolvedValue({ success: true, enrolled: false, enabled: false });
     usePatientAuthStore.setState({ patient, isAuthenticated: true });
     vi.mocked(getUserSettings).mockResolvedValue({
       notifications: { emailNotifications: true },
@@ -87,6 +92,29 @@ describe('SettingsPage (Patient)', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not save/i);
     expect(screen.queryByRole('button', { name: /^saved$/i })).not.toBeInTheDocument();
+  });
+
+  it('enrolls an authenticator and confirms its server status', async () => {
+    vi.mocked(shared.mfaEnroll).mockResolvedValue({
+      success: true,
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauth_uri: 'otpauth://totp/MediChain:test',
+      qr_code_base64: 'ZmFrZS1xci1jb2Rl',
+    });
+    vi.mocked(shared.mfaVerify).mockResolvedValue({ success: true, message: 'enabled' });
+    vi.mocked(shared.mfaStatus)
+      .mockResolvedValueOnce({ success: true, enrolled: false, enabled: false })
+      .mockResolvedValueOnce({ success: true, enrolled: true, enabled: true });
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: /set up two-factor/i }));
+    expect(await screen.findByAltText(/QR code for pairing/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/code from your app/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /confirm and enable/i }));
+
+    await waitFor(() => expect(shared.mfaVerify).toHaveBeenCalledWith('123456'));
+    expect(await screen.findByRole('status')).toHaveTextContent(/two-factor authentication is on/i);
+    expect(screen.getByTestId('mfa-status')).toHaveTextContent(/^On$/);
   });
 
   // --- Devices that can open my records --------------------------------------

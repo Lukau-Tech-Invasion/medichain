@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import NursingCarePlanPage from './NursingCarePlanPage';
+import NursingCarePlanPage, { mapNursingCarePlan } from './NursingCarePlanPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -74,5 +74,31 @@ describe('NursingCarePlanPage', () => {
     const input = screen.getByLabelText(/Nursing Diagnosis \*/i);
     fireEvent.change(input, { target: { value: 'Impaired Gas Exchange' } });
     expect(input).toHaveValue('Impaired Gas Exchange');
+  });
+
+  it('loads a reviewed template into the editable care-plan draft', async () => {
+    render(<NursingCarePlanPage />);
+    await waitFor(() => expect(screen.getByText(/Templates/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/^Templates$/i));
+    fireEvent.click(screen.getAllByRole('button', { name: /Use Template/i })[0]);
+
+    expect(screen.getByLabelText(/Nursing Diagnosis \*/i)).toHaveValue('Risk for Falls');
+    expect(screen.getByLabelText(/^Goals$/i)).toHaveValue('Patient will remain free from falls during this plan.');
+    expect(screen.getByLabelText(/^Interventions$/i)).toHaveValue(
+      'Assess fall risk at the start of each shift and after a change in condition.\nKeep the call bell and needed items within reach.'
+    );
+  });
+
+  it('maps persisted snake-case care plans without inventing patient demographics', () => {
+    const plan = mapNursingCarePlan({
+      id: 'NCP-1', patient_id: 'PAT-1', plan_name: 'Risk for Falls', care_level: 'high',
+      goals: [{ id: 'goal-1', description: 'No falls', target_date: '2026-10-01' }],
+      interventions: [{ id: 'intervention-1', description: 'Assess risk', frequency: 'each shift' }],
+      created_by: 'nurse-1', created_at: '2026-09-18T09:00:00Z', updated_at: '2026-09-18T09:30:00Z', status: 'active',
+    });
+
+    expect(plan.patientName).toBe('PAT-1');
+    expect(plan.goals[0].description).toBe('No falls');
+    expect(plan.interventions[0].frequency).toBe('each shift');
   });
 });

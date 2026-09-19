@@ -53,11 +53,18 @@ describe('MedicationsPage (Patient)', () => {
           }),
         });
       }
-      if (url.includes('/api/medication-reminders/')) {
+      if (url.includes('/api/reminders/medication/')) {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({ reminders: [] }),
+        });
+      }
+      if (url.includes('/api/reminders/adherence/')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ logs: [] }),
         });
       }
       return Promise.resolve({
@@ -100,6 +107,43 @@ describe('MedicationsPage (Patient)', () => {
       expect(screen.getByText(/Today's Schedule/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Today's Schedule/i).length).toBeGreaterThan(0);
     });
+  });
+
+  it('uses persisted reminder times and does not infer a schedule from a prescription', async () => {
+    mockFetch.mockImplementation((url) => {
+      if (url.includes('/api/e-prescriptions/patient/')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ prescriptions: [{
+            prescription_id: 'med1', medication_name: 'Aspirin', dosage: '100mg', frequency: 'Once daily',
+          }] }),
+        });
+      }
+      if (url.includes('/api/reminders/medication/')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ reminders: [{
+            reminder_id: 'REM-1', patient_id: 'HEALTH123', medication_name: 'Aspirin', dosage: '100mg',
+            frequency: 'Daily', reminder_times: ['07:30'], start_date: '2026-09-17', end_date: null,
+            instructions: null, active: true, created_at: 0,
+          }] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ logs: [] }),
+      });
+    });
+
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    await waitFor(() => expect(screen.getByText(/Today's Schedule/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Today's Schedule/i));
+    expect(await screen.findByText(/07:30/)).toBeInTheDocument();
+    expect(screen.queryByText('08:00')).not.toBeInTheDocument();
   });
 
   it('shows no medications message when list is empty', async () => {

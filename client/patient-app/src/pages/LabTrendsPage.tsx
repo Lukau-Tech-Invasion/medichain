@@ -8,7 +8,7 @@ import {
   CheckCircle,
   LineChart as Loader2
 } from 'lucide-react';
-import { getLabTrends, IS_DEMO, useTranslation } from '@medichain/shared';
+import { getLabTrends, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -155,28 +155,16 @@ const LabTrendsPage: React.FC = () => {
           return;
         }
       } catch (err) {
-        console.warn('No lab trends from API, using demo data:', err);
+        console.warn('No lab trends from API:', err);
       }
     }
     
-    // Fallback to demo data (demo mode only — production shows an empty state)
-    if (IS_DEMO) {
-      await loadDemoData();
-    }
     setLoading(false);
   }, [patient?.walletAddress]);
 
   useEffect(() => {
     loadLabTrends();
   }, [patient, loadLabTrends]);
-
-  // Dynamically imported so the sample data isn't bundled into production
-  // builds (demo mode is gated by IS_DEMO, but the bundler can't statically
-  // prove that across a module boundary unless the import itself is dynamic).
-  const loadDemoData = async () => {
-    const { getDemoLabTrends } = await import('./LabTrendsPage.demoData');
-    setLabTrends(getDemoLabTrends());
-  };
 
   const getStatusColor = (status: ResultStatus) => {
     switch (status) {

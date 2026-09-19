@@ -81,7 +81,16 @@ describe('LabResultsPage', () => {
 
     const approveButton = screen.getByRole('button', { name: /Approve/i });
     
-    global.fetch = vi.fn().mockResolvedValue({ ok: true });
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        success: true,
+        submission_id: 'LAB-001',
+        status: 'approved',
+        message: 'Lab submission approved',
+      }),
+    });
     fireEvent.click(approveButton);
 
     await waitFor(() => {

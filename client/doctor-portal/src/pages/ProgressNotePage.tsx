@@ -9,8 +9,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import {
-  apiUrl,
-  getApiClient,
+  createProgressNote,
+  getPatients,
+  listProgressNotes,
   useTranslation,
   clickable,
   Textarea,
@@ -18,6 +19,7 @@ import {
   progressNoteSchema,
   progressNoteDraftSchema,
 } from '@medichain/shared';
+import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient } from '../components/PatientSelect';
 
@@ -75,25 +77,9 @@ const ProgressNotePage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/platform/list/progress-notes'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const patientsResponse = await fetch(apiUrl('/api/patients'), {
-            headers: {
-              ...getApiClient().getSessionHeaders(user.walletAddress),
-              'X-Provider-Role': user.role,
-            },
-          });
-          const patientsBody = patientsResponse.ok ? await patientsResponse.json() : { data: [] };
+        const [data, patients] = await Promise.all([listProgressNotes(), getPatients()]);
           const patientNames = new Map(
-            (patientsBody.data || patientsBody || []).map((patient: { patient_id: string; full_name: string }) => [patient.patient_id, patient.full_name])
+            patients.map((patient) => [patient.patient_id, patient.full_name])
           );
           // The list endpoint returns a bare array of record entities of the
           // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
@@ -101,39 +87,33 @@ const ProgressNotePage: React.FC = () => {
           // are readable, while keeping the entity's id/patient_id/timestamps.
           // Tolerant of a bare array, a { notes } or { items } envelope, and a
           // record that is already flat.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rawItems: Record<string, any>[] = Array.isArray(data)
-            ? data
-            : (data.notes || data.items || []);
+          const rawItems: ProgressNoteListItem[] = data;
           const transformedNotes: ProgressNote[] = rawItems.map((item) => {
-            const inner = (item.data && typeof item.data === 'object' ? item.data : {});
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const note: Record<string, any> = { ...item, ...inner };
+            const note = item.data;
+            const assessment = note?.assessment ?? item.assessment;
+            const plan = note?.plan ?? item.plan_content;
             return ({
-            id: note.note_id || note.id,
-            patientId: note.patient_id,
-            patientName: note.patient_name || patientNames.get(note.patient_id) || t('docProgressNote.unknownPatient'),
-            mrn: note.mrn || note.patient_id || '',
-            noteType: (note.note_type || 'daily') as NoteType,
-            status: (note.status === 'final' ? 'signed' : (note.status || 'draft')) as NoteStatus,
-            author: note.author || note.created_by || '',
-            authorRole: note.author_role || 'Physician',
-            createdAt: new Date(note.created_at as string || Date.now()),
-            updatedAt: new Date(note.updated_at as string || Date.now()),
-            subjective: note.subjective as string || '',
-            objective: note.objective || note.exam || '',
-            assessment: Array.isArray(note.assessment)
-              ? note.assessment.map((problem: { problem?: string }) => problem.problem || '').filter(Boolean).join('\n')
-              : (note.assessment || ''),
-            plan: Array.isArray(note.plan) ? note.plan.join('\n') : (note.plan || ''),
-            signedAt: note.signed_at ? new Date(note.signed_at as string) : undefined,
-            cosigner: note.cosigner as string | undefined,
+            id: note?.note_id || item.id,
+            patientId: item.patient_id,
+            patientName: patientNames.get(item.patient_id) || t('docProgressNote.unknownPatient'),
+            mrn: item.patient_id,
+            noteType: (note?.note_type || item.note_type || 'daily') as NoteType,
+            status: (item.status === 'final' ? 'signed' : item.status || 'draft') as NoteStatus,
+            author: note?.author || item.created_by || '',
+            authorRole: 'Physician',
+            createdAt: new Date(item.created_at || Date.now()),
+            updatedAt: new Date(item.updated_at || Date.now()),
+            subjective: note?.subjective || item.subjective || '',
+            objective: note?.exam || item.objective || '',
+            assessment: Array.isArray(assessment)
+              ? assessment.map((problem: { problem?: string }) => problem.problem || '').filter(Boolean).join('\n')
+              : (assessment || ''),
+            plan: Array.isArray(plan) ? plan.join('\n') : (plan || ''),
+            signedAt: item.cosigned_at ? new Date(item.cosigned_at) : undefined,
+            cosigner: item.cosigned_by || undefined,
             });
           });
           setNotes(transformedNotes);
-        } else {
-          setError(t('docProgressNote.failFetch'));
-        }
       } catch (err) {
         setError(t('docProgressNote.cannotConnect'));
       } finally {
@@ -227,43 +207,26 @@ const ProgressNotePage: React.FC = () => {
     setError(null);
     const now = new Date();
     const noteId = `PN-${Date.now()}`;
-    const payload = {
+    // Only what the form collected. Hospital day, code status and a problem's
+    // trajectory are not asked for here, so they are not sent: this payload
+    // used to file every note as hospital day 1, "Full code" and "stable".
+    const payload: ProgressNotePayload = {
       note_id: noteId,
       patient_id: form.patientId,
+      note_type: form.noteType,
       note_date: now.toISOString().slice(0, 10),
-      hospital_day: 1,
-      post_op_day: null,
       subjective: form.subjective,
-      overnight_events: '',
       vital_signs: form.objective,
-      io_summary: null,
       exam: form.objective,
-      labs_studies: '',
-      assessment: [{ problem_number: 1, problem: form.assessment, status: 'stable', plan: form.plan }],
+      assessment: [{ problem_number: 1, problem: form.assessment, plan: form.plan }],
       plan: [form.plan],
-      disposition: null,
-      code_status: 'Full code',
-      discussed_with: null,
       author: user.username,
       note_time: Math.floor(now.getTime() / 1000),
       cosigned_by: status === 'signed' ? user.username : null,
     };
 
     try {
-      const response = await fetch(apiUrl('/api/clinical/progress-note'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || t('docProgressNote.failFetch'));
-      }
+      await createProgressNote(payload);
       setNotes(current => [{
         id: noteId, patientId: form.patientId, patientName: form.patientName,
         mrn: form.patientId, noteType: form.noteType, status,

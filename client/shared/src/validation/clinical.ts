@@ -327,9 +327,21 @@ export const progressNoteSchema = z.object({
  * requirement to both, so a clinician interrupted mid-note could not save what
  * they had — which is the entire purpose of a draft, and the reason notes get
  * written on paper instead.
+ *
+ * Not `progressNoteSchema.partial()`: `partial()` makes a key optional, but the
+ * form always sends every key, and an empty section is `''`, which still fails
+ * the full schema's `min(1)`. So that version refused any draft with an empty
+ * section — the same failure it was written to remove. The length limits stay.
  */
-export const progressNoteDraftSchema = progressNoteSchema.partial().extend({
+const draftSection = (fieldLabel: string) =>
+  z.string().max(5_000, `${fieldLabel} is limited to 5000 characters`).optional();
+
+export const progressNoteDraftSchema = z.object({
   patientId: requiredText('a patient', 64),
+  subjective: draftSection('what the patient reports'),
+  objective: draftSection('your examination findings'),
+  assessment: draftSection('your assessment'),
+  plan: draftSection('the plan'),
 });
 
 /**

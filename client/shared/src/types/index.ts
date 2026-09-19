@@ -211,12 +211,12 @@ export interface EmergencyContact {
  * Insurance coverage type (FHIR Coverage compatible)
  */
 export type InsuranceCoverageType = 
-  | 'public' 
-  | 'private' 
-  | 'employer' 
-  | 'nhis' 
-  | 'community' 
-  | 'none';
+  | 'Public'
+  | 'Private'
+  | 'Employer'
+  | 'NHIS'
+  | 'Community'
+  | 'None';
 
 /**
  * Insurance information (FHIR Coverage resource compatible)
@@ -1032,14 +1032,17 @@ export interface AdminDashboardResponse {
  * GET /api/dashboard/patient
  */
 export interface PatientDashboardResponse {
-  role: 'Patient';
+  /** Wallet identity of the authenticated patient. */
+  user_id: string;
+  /** Clinical record id resolved from the caller's linked patient identity. */
   patient_id: string;
+  role: 'Patient';
   profile: PatientProfile;
-  recent_visits: unknown[];
-  medications: unknown[];
-  lab_results: unknown[];
-  appointments: unknown[];
-  total_visits: number;
+  recent_lab_results: unknown[];
+  medical_records: unknown[];
+  vital_signs: unknown | null;
+  soap_notes: unknown[];
+  triage_history: unknown[];
 }
 
 /**

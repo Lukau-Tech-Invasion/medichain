@@ -26,6 +26,8 @@ import {
 import {
   getPatients,
   createHistoryPhysical,
+  updateHistoryPhysicalDraft,
+  addHistoryPhysicalAddendum,
   listHistoryPhysicals,
   useTranslation,
   type PatientProfile,
@@ -140,6 +142,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
+  const [editingHpId, setEditingHpId] = useState<string | null>(null);
+  const [addendumText, setAddendumText] = useState('');
+  const [isAppendingAddendum, setIsAppendingAddendum] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -176,6 +181,49 @@ const HistoryAndPhysicalPage: React.FC = () => {
     'Genitourinary', 'Musculoskeletal', 'Neurological', 'Psychiatric', 'Skin',
     'Endocrine', 'Hematologic/Lymphatic'
   ];
+
+  const useHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
+    setEditingHpId(null);
+    setFormData(current => ({ ...current, examType }));
+    setCurrentSection(0);
+    setExpandedSections(current => new Set(current).add('patient-info'));
+    setActiveTab('new');
+  };
+
+  /** Load an unsigned stored H&P into the draft form; signed records are immutable. */
+  const editDraft = (record: HistoryAndPhysical) => {
+    if (record.status === 'signed') return;
+    setEditingHpId(record.id);
+    setFormData({
+      patientId: record.patientId, patientName: record.patientName, mrn: record.mrn,
+      examType: record.examType, chiefComplaint: record.chiefComplaint,
+      hpi: record.historyOfPresentIllness, pmh: record.pastMedicalHistory.join('\n'),
+      psh: record.pastSurgicalHistory.join('\n'), medications: record.medications.join('\n'),
+      allergies: record.allergies.join('\n'), socialHistory: record.socialHistory,
+      familyHistory: record.familyHistory.join('\n'), vitalSigns: record.vitalSigns,
+      reviewOfSystems: record.reviewOfSystems,
+      physicalExam: Object.fromEntries(Object.entries(record.physicalExam).map(([system, value]) => [system, { status: value.status, findings: value.notes }])),
+      assessment: record.assessment, plan: record.plan,
+    });
+    setCurrentSection(0);
+    setExpandedSections(new Set(['patient-info', 'chief-complaint']));
+    setActiveTab('new');
+  };
+
+  const appendAddendum = async () => {
+    if (!selectedRecord || !addendumText.trim()) return;
+    setIsAppendingAddendum(true);
+    try {
+      await addHistoryPhysicalAddendum(selectedRecord.id, addendumText.trim());
+      setAddendumText('');
+      showSuccess(t('docHistoryPhysical.addendumAdded'));
+    } catch (error) {
+      console.error('Failed to append H&P addendum:', error);
+      showError(t('docHistoryPhysical.addendumFailed'));
+    } finally {
+      setIsAppendingAddendum(false);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -298,9 +346,14 @@ const HistoryAndPhysicalPage: React.FC = () => {
         status,
       };
 
-      await createHistoryPhysical(payload);
+      if (editingHpId) {
+        await updateHistoryPhysicalDraft(editingHpId, payload);
+      } else {
+        await createHistoryPhysical(payload);
+      }
       showSuccess(status === 'signed' ? t('docHistoryPhysical.successSigned') : t('docHistoryPhysical.successDraft'));
       setActiveTab('list');
+      setEditingHpId(null);
       
       // Refresh list
       const hpData = await listHistoryPhysicals();
@@ -468,7 +521,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <option value="addendum">{t('docHistoryPhysical.addendumFilterOption')}</option>
                 </select>
                 <button
-                  onClick={() => setActiveTab('new')}
+                  onClick={() => { setEditingHpId(null); setActiveTab('new'); }}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
@@ -501,11 +554,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         <Eye className="w-5 h-5 text-content-muted" />
                       </button>
                       {record.status !== 'signed' && (
-                        <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Edit">
+                        <button type="button" onClick={() => editDraft(record)} className="p-2 hover:bg-surface-sunken rounded-lg" title="Edit">
                           <Edit className="w-5 h-5 text-content-muted" />
                         </button>
                       )}
-                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
+                      <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
                         <Printer className="w-5 h-5 text-content-muted" />
                       </button>
                     </div>
@@ -1058,15 +1111,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 >
                   {t('docHistoryPhysical.saveAsDraft')}
                 </button>
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => handleSaveHp('signed')}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
-                >
-                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
-                  {t('docHistoryPhysical.completeAndSign')}
-                </button>
+                {!editingHpId && (
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => handleSaveHp('signed')}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
+                  >
+                    {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {t('docHistoryPhysical.completeAndSign')}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1093,7 +1148,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
+                <button type="button" onClick={() => useHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -1138,6 +1193,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.planHeading')}</h3>
                 <pre className="whitespace-pre-wrap font-sans">{selectedRecord.plan}</pre>
               </div>
+              {selectedRecord.status === 'signed' && (
+                <div className="border rounded-lg p-4 space-y-3">
+                  <h3 className="font-semibold">{t('docHistoryPhysical.addendumHeading')}</h3>
+                  <p className="text-sm text-content-muted">{t('docHistoryPhysical.addendumExplainer')}</p>
+                  <label htmlFor="hp-addendum" className="sr-only">{t('docHistoryPhysical.addendumLabel')}</label>
+                  <textarea id="hp-addendum" value={addendumText} onChange={(event) => setAddendumText(event.target.value)} className="w-full border rounded-lg px-3 py-2 h-24" placeholder={t('docHistoryPhysical.addendumPlaceholder')} />
+                  <button type="button" disabled={isAppendingAddendum || !addendumText.trim()} onClick={appendAddendum} className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">
+                    {isAppendingAddendum ? t('docHistoryPhysical.addendumSaving') : t('docHistoryPhysical.addendumSave')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

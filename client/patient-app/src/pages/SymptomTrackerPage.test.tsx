@@ -4,15 +4,17 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { SymptomTrackerPage } from './SymptomTrackerPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
+
+vi.mock('@medichain/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return { ...actual, getSymptomHistory: vi.fn(), logSymptom: vi.fn(), retractSymptom: vi.fn() };
+});
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
-
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 describe('SymptomTrackerPage (Patient)', () => {
   const mockPatient = {
@@ -30,28 +32,24 @@ describe('SymptomTrackerPage (Patient)', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/symptoms/')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            entries: [
-              {
-                id: 'sym1',
-                symptom: 'Headache',
-                category: 'Pain',
-                severity: 3,
-                timestamp: new Date().toISOString(),
-                notes: 'Morning headache',
-              }
-            ],
-          }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({}),
-      });
+    vi.mocked(shared.getSymptomHistory).mockResolvedValue({
+      success: true,
+      patient_id: 'HEALTH123',
+      total_entries: 1,
+      entries: [{
+        id: 'sym1',
+        symptom: 'Headache',
+        category: 'Pain',
+        severity: 3,
+        timestamp: new Date().toISOString(),
+        notes: 'Morning headache',
+      }],
+    });
+    vi.mocked(shared.logSymptom).mockResolvedValue({ success: true });
+    vi.mocked(shared.retractSymptom).mockResolvedValue({
+      success: true,
+      entry_id: 'sym1',
+      message: 'Symptom entry retracted',
     });
   });
 
@@ -85,5 +83,21 @@ describe('SymptomTrackerPage (Patient)', () => {
     expect(screen.getByText(/Log Symptom/i)).toBeInTheDocument();
     expect(screen.getByText(/Pain/i)).toBeInTheDocument();
     expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
+  });
+
+  it('retracts an entry through the API instead of only hiding it locally', async () => {
+    render(
+      <MemoryRouter>
+        <SymptomTrackerPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/retract symptom entry/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/retract symptom entry/i));
+
+    await waitFor(() => {
+      expect(shared.retractSymptom).toHaveBeenCalledWith('HEALTH123', 'sym1');
+      expect(screen.queryByText(/Morning headache/i)).not.toBeInTheDocument();
+    });
   });
 });

@@ -420,7 +420,7 @@ const DeathCertificatePage: React.FC = () => {
                         <Edit className="w-5 h-5 text-content-muted" />
                       </button>
                     )}
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
+                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>

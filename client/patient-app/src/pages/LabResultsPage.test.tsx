@@ -36,25 +36,22 @@ describe('LabResultsPage (Patient)', () => {
           ok: true,
           headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
-            results: [
+            submissions: [
               {
-                id: 'lab1',
-                test_name: 'Glucose',
-                result_date: '2025-01-15',
-                result_value: '95',
-                unit: 'mg/dL',
-                normal_range: '70-99',
-                status: 'normal',
+                id: 'lab1', patient_id: 'HEALTH123', patient_name: 'Test Patient',
+                test_name: 'Glucose', test_category: 'Chemistry', notes: '',
+                submitted_by: 'lab-tech', submitted_at: '2025-01-15T10:00:00Z',
+                status: 'approved', results: [
+                  { parameter: 'Glucose', value: '95', unit: 'mg/dL', reference_range: '70-99', flag: 'normal' },
+                ],
               },
               {
-                id: 'lab2',
-                test_name: 'Hemoglobin A1c',
-                result_date: '2025-01-15',
-                result_value: '7.5',
-                unit: '%',
-                normal_range: '4.0-5.6',
-                status: 'abnormal',
-                is_abnormal: true,
+                id: 'lab2', patient_id: 'HEALTH123', patient_name: 'Test Patient',
+                test_name: 'Hemoglobin A1c', test_category: 'Chemistry', notes: '',
+                submitted_by: 'lab-tech', submitted_at: '2025-01-15T10:00:00Z',
+                status: 'approved', results: [
+                  { parameter: 'Hemoglobin A1c', value: '7.5', unit: '%', reference_range: '4.0-5.6', flag: 'high' },
+                ],
               }
             ],
           }),
@@ -98,7 +95,7 @@ describe('LabResultsPage (Patient)', () => {
     mockFetch.mockImplementation(() => Promise.resolve({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
-      json: () => Promise.resolve({ results: [] }),
+      json: () => Promise.resolve({ submissions: [] }),
     }));
 
     render(

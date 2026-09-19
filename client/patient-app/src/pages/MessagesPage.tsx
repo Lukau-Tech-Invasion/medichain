@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getMessages, getProviders, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
+import type { BookableProvider, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
@@ -40,13 +41,6 @@ interface Conversation {
   messages: Message[];
 }
 
-interface Provider {
-  wallet_address: string;
-  name: string;
-  role: string;
-  specialty?: string;
-}
-
 function messageTimestamp(value: number | string): string {
   return typeof value === 'number'
     ? new Date(value * 1000).toISOString()
@@ -54,53 +48,28 @@ function messageTimestamp(value: number | string): string {
 }
 
 /**
- * A conversation and its messages as stored, in either casing.
- *
- * The normaliser below exists precisely because both spellings occur; naming
- * them is what makes the `||` chains checkable rather than hopeful.
+ * Convert the persisted API contract into presentation state. Timestamps are
+ * Unix seconds on the wire and must not be handed to `Date` as milliseconds.
  */
-interface RawMessage {
-  id?: string; message_id?: string;
-  senderId?: string; sender_id?: string;
-  senderName?: string; sender_name?: string;
-  senderRole?: string; sender_role?: string;
-  content?: string;
-  timestamp?: string | number; sent_at?: string | number;
-  [key: string]: unknown;
-}
-
-interface RawConversation {
-  id?: string;
-  providerId?: string;
-  providerName?: string;
-  providerRole?: string;
-  specialty?: string;
-  lastMessage?: string;
-  lastMessageTime?: string | number;
-  unreadCount?: number;
-  messages?: RawMessage[];
-  [key: string]: unknown;
-}
-
-function normalizeConversation(raw: RawConversation, patientWallet: string): Conversation {
+function normalizeConversation(raw: MessageConversation, patientWallet: string): Conversation {
   return {
-    id: raw.id ?? '',
-    providerId: raw.providerId ?? '',
-    providerName: raw.providerName ?? '',
+    id: raw.id,
+    providerId: raw.providerId,
+    providerName: raw.providerName,
     providerRole: raw.providerRole || 'Provider',
     specialty: raw.specialty || raw.providerRole || 'Healthcare provider',
     lastMessage: raw.lastMessage || '',
     lastMessageTime: messageTimestamp(raw.lastMessageTime ?? ''),
-    unreadCount: raw.unreadCount || 0,
-    messages: (raw.messages || []).map((message) => ({
-      id: message.id || message.message_id || '',
-      senderId: message.senderId || message.sender_id || '',
-      senderName: message.senderName || message.sender_name || '',
-      senderRole: message.senderRole || message.sender_role || '',
-      content: message.content ?? '',
-      timestamp: messageTimestamp(message.timestamp || message.sent_at || ''),
+    unreadCount: raw.unreadCount,
+    messages: raw.messages.map((message: SecureMessage) => ({
+      id: message.message_id,
+      senderId: message.sender_id,
+      senderName: message.sender_name,
+      senderRole: message.sender_role,
+      content: message.content,
+      timestamp: messageTimestamp(message.sent_at),
       read: Boolean(message.read),
-      isPatient: (message.senderId || message.sender_id) === patientWallet,
+      isPatient: message.sender_id === patientWallet,
     })),
   };
 }
@@ -126,7 +95,7 @@ export function MessagesPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [showProviders, setShowProviders] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -139,29 +108,20 @@ export function MessagesPage() {
   }, [isAuthenticated, patient, navigate]);
 
   const loadConversations = useCallback(async () => {
-    if (!patient) return;
+    if (!patient) return [];
     
     setLoading(true);
     try {
-      const response = await fetch(apiUrl('/api/messages?folder=all'), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        // Transform API data to conversations format
-        setConversations((data.conversations || []).map(
-          (conversation: RawConversation) => normalizeConversation(conversation, patient.walletAddress)
-        ));
-      } else {
-        setApiConnected(false);
-      }
+      const data = await getMessages('all');
+      setApiConnected(true);
+      const loaded = data.conversations.map(
+        (conversation) => normalizeConversation(conversation, patient.walletAddress)
+      );
+      setConversations(loaded);
+      return loaded;
     } catch {
       setApiConnected(false);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -183,37 +143,17 @@ export function MessagesPage() {
     setSendError(null);
     const content = newMessage.trim();
     try {
-      const response = await fetch(apiUrl('/api/messages/send'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Health-Id': patient.healthId,
-        },
-        body: JSON.stringify({
-          recipient_id: selectedConversation.providerId,
-          subject: 'Patient message',
-          content,
-          related_patient_id: patient.healthId,
-        }),
+      await sendSecureMessage({
+        recipient_id: selectedConversation.providerId,
+        subject: 'Patient message',
+        content,
+        related_patient_id: patient.healthId,
       });
-      if (!response.ok) throw new Error('The message could not be sent. Please try again.');
       setNewMessage('');
-      await loadConversations();
-      setSelectedConversation(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, {
-          id: `MSG-${Date.now()}`,
-          senderId: patient.walletAddress,
-          senderName: patient.fullName,
-          senderRole: 'Patient',
-          content,
-          timestamp: new Date().toISOString(),
-          read: false,
-          isPatient: true,
-        }],
-      } : null);
+      const loaded = await loadConversations();
+      setSelectedConversation(
+        loaded.find((conversation) => conversation.providerId === selectedConversation.providerId) ?? null
+      );
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
     }
@@ -221,19 +161,16 @@ export function MessagesPage() {
 
   const startConversation = async () => {
     if (!patient) return;
-    const response = await fetch(apiUrl('/api/providers'), {
-      headers: { ...getApiClient().getSessionHeaders(patient.walletAddress), 'X-Health-Id': patient.healthId },
-    });
-    if (!response.ok) {
+    try {
+      const data = await getProviders();
+      setProviders(data.providers);
+      setShowProviders(true);
+    } catch {
       setSendError('The provider directory could not be loaded.');
-      return;
     }
-    const data = await response.json();
-    setProviders(data.providers || []);
-    setShowProviders(true);
   };
 
-  const selectProvider = (provider: Provider) => {
+  const selectProvider = (provider: BookableProvider) => {
     setSelectedConversation({
       id: provider.wallet_address,
       providerId: provider.wallet_address,
@@ -371,7 +308,7 @@ export function MessagesPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
         </div>
       </div>

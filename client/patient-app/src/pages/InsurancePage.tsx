@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { getPatientInsuranceClaims, uploadInsuranceCardImage, IS_DEMO, useTranslation, formatCurrency, DEFAULT_CURRENCY } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -142,6 +142,18 @@ function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
   };
 }
 
+/** Load a persisted encrypted card image into a browser-safe data URL. */
+async function loadCardImage(cardId: string, side: 'front' | 'back'): Promise<string | null> {
+  try {
+    const image = await downloadInsuranceCardImage(cardId, side);
+    return `data:${image.content_type};base64,${image.content_base64}`;
+  } catch {
+    // A missing side is expected for cards that have only one image. The card
+    // itself remains usable; only an authorised existing image is displayed.
+    return null;
+  }
+}
+
 const InsurancePage: React.FC = () => {
   const { t, locale } = useTranslation();
   const [activeTab, setActiveTab] = useState<'cards' | 'claims' | 'add'>('cards');
@@ -158,6 +170,8 @@ const InsurancePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
   const { patient } = usePatientAuthStore();
 
   // New insurance form state
@@ -183,6 +197,16 @@ const InsurancePage: React.FC = () => {
     // Try to load from API first
     if (patient?.healthId) {
       try {
+        const cardsResponse = await getInsuranceCards(patient.healthId);
+        const cards = cardsResponse.cards.map((card) => card as unknown as InsuranceCard);
+        const cardsWithImages = await Promise.all(cards.map(async (card) => {
+          const [frontImageUrl, backImageUrl] = await Promise.all([
+            loadCardImage(card.id, 'front'),
+            loadCardImage(card.id, 'back'),
+          ]);
+          return { ...card, frontImageUrl, backImageUrl };
+        }));
+        setInsuranceCards(cardsWithImages);
         const response = await getPatientInsuranceClaims(patient.healthId, { limit: 20 });
         const apiClaims = (response.claims ?? []).map(mapApiClaim);
 
@@ -190,45 +214,21 @@ const InsurancePage: React.FC = () => {
           setClaims(apiClaims);
           setClaimsCursor(response.next_cursor ?? null);
           setClaimsHasMore(!!response.next_cursor);
-        } else if (IS_DEMO) {
-          await loadDemoClaims();
         }
 
-        // Insurance cards have no API endpoint yet — only show sample cards in demo mode
-        if (IS_DEMO) {
-          await loadDemoCards();
-        }
         setLoading(false);
         return;
       } catch (err) {
-        console.warn('No insurance data from API, using demo data:', err);
+        console.warn('No insurance data from API:', err);
       }
     }
 
-    // Fallback to demo data (demo mode only — production shows an empty state)
-    if (IS_DEMO) {
-      await loadDemoCards();
-      await loadDemoClaims();
-    }
     setLoading(false);
   }, [patient?.healthId]);
 
   useEffect(() => {
     loadInsuranceData();
   }, [patient, loadInsuranceData]);
-
-  // Dynamically imported so the sample data isn't bundled into production
-  // builds (demo mode is gated by IS_DEMO, but the bundler can't statically
-  // prove that across a module boundary unless the import itself is dynamic).
-  const loadDemoCards = async () => {
-    const { getDemoInsuranceCards } = await import('./InsurancePage.demoData');
-    setInsuranceCards(getDemoInsuranceCards());
-  };
-
-  const loadDemoClaims = async () => {
-    const { getDemoInsuranceClaims } = await import('./InsurancePage.demoData');
-    setClaims(getDemoInsuranceClaims());
-  };
 
   const handleLoadMoreClaims = async () => {
     if (!patient?.healthId || !claimsCursor || loadingMoreClaims) return;
@@ -265,10 +265,14 @@ const InsurancePage: React.FC = () => {
       expired: { color: 'bg-critical-subtle text-critical-subtle-fg', icon: <XCircle className="w-3 h-3" /> },
       cancelled: { color: 'bg-surface-sunken text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
     };
-    const c = config[status];
+    // Stored JSON cards can outlive a vocabulary change. A malformed or
+    // unknown status must be visibly non-active, never crash the whole screen
+    // or be promoted to active coverage.
+    const knownStatus = status in config;
+    const c = config[status] ?? config.pending;
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${c.color}`}>
-        {c.icon} {t(`insurance.status_${status}`)}
+        {c.icon} {t(`insurance.status_${knownStatus ? status : 'pending'}`)}
       </span>
     );
   };
@@ -299,10 +303,8 @@ const InsurancePage: React.FC = () => {
         card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
       ));
     } catch (err) {
-      console.warn('Verification API failed, updating locally:', err);
-      setInsuranceCards(prev => prev.map(card =>
-        card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
-      ));
+      console.warn('Insurance verification failed:', err);
+      setCardError(t('insurance.verificationFailed'));
     } finally {
       setVerifying(null);
     }
@@ -337,7 +339,7 @@ const InsurancePage: React.FC = () => {
       });
       const base64 = dataUrl.split(',')[1] ?? '';
 
-      await uploadInsuranceCardImage(cardId, base64, file.type);
+      await uploadInsuranceCardImage(cardId, side, base64, file.type);
 
       setInsuranceCards(prev => prev.map(card =>
         card.id === cardId
@@ -353,8 +355,10 @@ const InsurancePage: React.FC = () => {
     }
   };
 
-  const handleAddInsurance = () => {
-    if (!newInsurance.providerName || !newInsurance.memberId) return;
+  const handleAddInsurance = async () => {
+    if (!patient?.healthId || !newInsurance.providerName || !newInsurance.memberId) return;
+    setSavingCard(true);
+    setCardError(null);
 
     const newCard: InsuranceCard = {
       id: `INS-${Date.now()}`,
@@ -395,7 +399,18 @@ const InsurancePage: React.FC = () => {
       lastVerified: ''
     };
 
-    setInsuranceCards(prev => [...prev, newCard]);
+    try {
+      const response = await createInsuranceCard({
+        ...newCard,
+        patient_id: patient.healthId,
+      });
+      setInsuranceCards(prev => [...prev, response.card as unknown as InsuranceCard]);
+    } catch (error) {
+      setCardError(error instanceof Error ? error.message : t('insurance.addFailed'));
+      return;
+    } finally {
+      setSavingCard(false);
+    }
     setNewInsurance({
       type: 'medical',
       providerName: '',
@@ -414,9 +429,14 @@ const InsurancePage: React.FC = () => {
     setActiveTab('cards');
   };
 
-  const handleDeleteCard = (cardId: string) => {
-    if (confirm(t('insurance.confirmDeleteCard'))) {
+  const handleDeleteCard = async (cardId: string) => {
+    if (!confirm(t('insurance.confirmDeleteCard'))) return;
+    setCardError(null);
+    try {
+      await deleteInsuranceCard(cardId);
       setInsuranceCards(prev => prev.filter(c => c.id !== cardId));
+    } catch (error) {
+      setCardError(error instanceof Error ? error.message : t('insurance.deleteFailed'));
     }
   };
 
@@ -484,6 +504,11 @@ const InsurancePage: React.FC = () => {
 
       {/* Content */}
       <div className="p-4">
+        {cardError && (
+          <div role="alert" className="mb-4 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
+            {cardError}
+          </div>
+        )}
         {/* Cards Tab */}
         {activeTab === 'cards' && (
           <div className="space-y-4">
@@ -634,7 +659,7 @@ const InsurancePage: React.FC = () => {
                         <Phone className="w-4 h-4" />
                       </a>
                       <button
-                        onClick={() => handleDeleteCard(card.id)}
+                        onClick={() => void handleDeleteCard(card.id)}
                         className="flex items-center justify-center px-3 py-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -879,8 +904,8 @@ const InsurancePage: React.FC = () => {
               </div>
 
               <button
-                onClick={handleAddInsurance}
-                disabled={!newInsurance.providerName || !newInsurance.memberId}
+                onClick={() => void handleAddInsurance()}
+                disabled={savingCard || !newInsurance.providerName || !newInsurance.memberId}
                 className="w-full py-3 bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg font-medium hover:from-teal-700 hover:to-cyan-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t('insurance.addInsuranceCardButton')}

@@ -18,42 +18,24 @@ import {
   PenLine,
 } from 'lucide-react';
 import {
-  apiUrl,
-  getApiClient,
+  approvePatientAccessRequest,
+  denyPatientAccessRequest,
   getApiErrorMessage,
   getPatientConsents,
   getConsentTypes,
+  listPatientAccessGrants,
+  listPatientAccessRequests,
+  revokePatientAccessGrant,
   revokeConsent,
   signConsent,
   useTranslation,
   clickable,
 } from '@medichain/shared';
+import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
-interface AccessGrant {
-  id: string;
-  providerId: string;
-  providerName: string;
-  providerRole: string;
-  organization: string;
-  accessType: 'full' | 'limited' | 'emergency';
-  grantedAt: string;
-  expiresAt: string | null;
-  status: 'active' | 'expired' | 'revoked';
-  lastAccessed: string | null;
-  accessCount: number;
-}
-
-interface AccessRequest {
-  id: string;
-  providerId: string;
-  providerName: string;
-  providerRole: string;
-  organization: string;
-  requestedAt: string;
-  reason: string;
-  status: 'pending' | 'approved' | 'denied';
-}
+type AccessGrant = PatientAccessGrant;
+type AccessRequest = PatientAccessRequest;
 
 /**
  * Consent Management Page
@@ -146,6 +128,7 @@ export function ConsentManagementPage() {
   const [selectedGrant, setSelectedGrant] = useState<AccessGrant | null>(null);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
+  const [approvalDays, setApprovalDays] = useState<Record<string, number>>({});
 
   // Consent forms state
   const [signedConsents, setSignedConsents] = useState<SignedConsent[]>([]);
@@ -170,32 +153,13 @@ export function ConsentManagementPage() {
         return;
       }
 
-      const userId = patient?.walletAddress || patientId;
-
-      // Fetch access grants from API
-      const grantsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/grants`), {
-        headers: { ...getApiClient().getSessionHeaders(userId), 'X-Health-Id': patientId },
-      });
-      if (grantsResponse.ok) {
-        const data = await grantsResponse.json();
-        setGrants(data.grants || []);
-        setLoadError('');
-      } else {
-        setGrants([]);
-        setLoadError(t('consent.loadFailed'));
-      }
-
-      // Fetch pending access requests from API
-      const requestsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/requests`), {
-        headers: { ...getApiClient().getSessionHeaders(userId), 'X-Health-Id': patientId },
-      });
-      if (requestsResponse.ok) {
-        const data = await requestsResponse.json();
-        setRequests(data.requests || []);
-      } else {
-        setRequests([]);
-        setLoadError(t('consent.loadFailed'));
-      }
+      const [grantResult, requestResult] = await Promise.all([
+        listPatientAccessGrants(patientId),
+        listPatientAccessRequests(patientId),
+      ]);
+      setGrants(grantResult.grants);
+      setRequests(requestResult.requests);
+      setLoadError('');
 
       // Fetch signed consents and consent types
       try {
@@ -303,25 +267,8 @@ export function ConsentManagementPage() {
     
     setIsRevoking(true);
     try {
-      const response = await fetch(apiUrl(`/api/access/grants/${selectedGrant.id}/revoke`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setGrants(grants.map(g => 
-          g.id === selectedGrant.id 
-            ? { ...g, status: 'revoked' as const } 
-            : g
-        ));
-      } else {
-        console.error('Failed to revoke access');
-      }
+      await revokePatientAccessGrant(selectedGrant.id);
+      setGrants(grants.map(g => g.id === selectedGrant.id ? { ...g, status: 'revoked' as const } : g));
     } catch (error) {
       console.error('Error revoking access:', error);
     } finally {
@@ -334,23 +281,9 @@ export function ConsentManagementPage() {
   const handleApproveRequest = async (requestId: string) => {
     if (!patient) return;
     try {
-      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/approve`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setRequests(requests.map(r => 
-          r.id === requestId 
-            ? { ...r, status: 'approved' as const } 
-            : r
-        ));
-      }
+      const days = approvalDays[requestId] ?? 7;
+      await approvePatientAccessRequest(requestId, new Date(Date.now() + days * 86_400_000).toISOString());
+      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'approved' as const } : r));
     } catch (error) {
       console.error('Error approving request:', error);
     }
@@ -359,23 +292,8 @@ export function ConsentManagementPage() {
   const handleDenyRequest = async (requestId: string) => {
     if (!patient) return;
     try {
-      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/deny`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setRequests(requests.map(r => 
-          r.id === requestId 
-            ? { ...r, status: 'denied' as const } 
-            : r
-        ));
-      }
+      await denyPatientAccessRequest(requestId);
+      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'denied' as const } : r));
     } catch (error) {
       console.error('Error denying request:', error);
     }
@@ -677,6 +595,17 @@ export function ConsentManagementPage() {
                 </div>
 
                 <div className="flex gap-3">
+                  <label className="sr-only" htmlFor={`access-expiry-${request.id}`}>Access duration</label>
+                  <select
+                    id={`access-expiry-${request.id}`}
+                    value={approvalDays[request.id] ?? 7}
+                    onChange={(event) => setApprovalDays((current) => ({ ...current, [request.id]: Number(event.target.value) }))}
+                    className="rounded-xl border border-border bg-surface px-3 text-sm text-content"
+                  >
+                    <option value={1}>1 day</option>
+                    <option value={7}>7 days</option>
+                    <option value={30}>30 days</option>
+                  </select>
                   <button
                     onClick={() => handleApproveRequest(request.id)}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"

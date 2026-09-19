@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import IntakeOutputPage from './IntakeOutputPage';
+import IntakeOutputPage, { intakeOutputTrendCsv } from './IntakeOutputPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -103,5 +103,15 @@ describe('IntakeOutputPage', () => {
 
     expect(screen.getByText(/Quick I\/O Entry/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Record Entry/i })).toBeInTheDocument();
+  });
+
+  it('exports the displayed trend rows as escaped CSV', () => {
+    const csv = intakeOutputTrendCsv('2026-08-20', [{
+      patientId: 'PAT-001', patientName: 'Doe, Jane', mrn: 'PAT-001', room: 'Ward "A"', entries: [],
+      totalIntake24h: 1800, totalOutput24h: 1500, netBalance: 300, alerts: [],
+    }]);
+
+    expect(csv).toContain('"Doe, Jane"');
+    expect(csv).toContain('"Ward ""A"""');
   });
 });

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  apiUrl,
-  getApiClient,
+  getMedicalId,
   useTranslation,
   useToastActions,
   updateMedicalIdPreferences,
@@ -10,6 +9,7 @@ import {
   normalizePhone,
   EmptyState,
 } from '@medichain/shared';
+import type { MedicalIdCard } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   AlertTriangle,
@@ -114,6 +114,33 @@ interface MedicalIdData {
   };
 }
 
+function toMedicalIdData(card: MedicalIdCard): MedicalIdData {
+  return {
+    patient_id: card.patient_id,
+    name: card.name,
+    date_of_birth: card.date_of_birth,
+    profile_unavailable: card.profile_unavailable,
+    blood_type: card.blood_type,
+    allergies: card.allergies,
+    medications: card.medications,
+    conditions: card.chronic_conditions,
+    emergency_contacts: card.emergency_contacts.map((contact) => ({
+      name: contact.name ?? '',
+      phone: contact.phone ?? '',
+      relationship: contact.relationship ?? '',
+      can_make_medical_decisions: contact.verified === true,
+    })),
+    organ_donor: card.organ_donor.status,
+    dnr_status: card.dnr_status,
+    languages: card.languages,
+    insurance: undefined,
+    primary_doctor: card.primary_doctor
+      ? { name: card.primary_doctor.name, phone: card.primary_doctor.phone ?? '' }
+      : undefined,
+    preferences: card.preferences,
+  };
+}
+
 /**
  * Medical ID Page
  * 
@@ -164,69 +191,19 @@ export function MedicalIdPage() {
     setIsLoading(true);
     
     try {
-      const userId = patient.healthId;
-      // Pick endpoint based on active view
-      const endpoint = activeView === 'emergency'
-        ? `/api/medical-id/${userId}/emergency`
-        : activeView === 'lockscreen'
-        ? `/api/medical-id/${userId}/lockscreen`
-        : `/api/medical-id/${userId}`;
-
-      const response = await fetch(apiUrl(endpoint), {
-        headers: {
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (activeView === 'full') {
-          const profile = await getApiClient().get<{
-            emergency_info?: {
-              allergies?: unknown[];
-              chronic_conditions?: unknown[];
-              current_medications?: unknown[];
-              emergency_contacts?: unknown[];
-            };
-          }>(`/api/patients/${userId}`);
-          const emergency = profile.emergency_info || {};
-          result.allergies = result.allergies?.length ? result.allergies : (emergency.allergies || []);
-          result.conditions = result.conditions?.length
-            ? result.conditions
-            : (result.chronic_conditions?.length ? result.chronic_conditions : (emergency.chronic_conditions || []));
-          result.medications = result.medications?.length
-            ? result.medications : (emergency.current_medications || []);
-          result.emergency_contacts = result.emergency_contacts?.length
-            ? result.emergency_contacts : (emergency.emergency_contacts || []);
-        }
-        setData(result);
-      } else {
-        // Fallback to full medical ID if emergency/lockscreen endpoints fail
-        if (activeView !== 'full') {
-          const fallback = await fetch(apiUrl(`/api/medical-id/${userId}`), {
-            headers: {
-              ...getApiClient().getSessionHeaders(patient.walletAddress),
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          if (fallback.ok) {
-            setData(await fallback.json());
-          } else {
-            setData(null);
-          }
-        } else {
-          console.error('Failed to load Medical ID');
-          setData(null);
-        }
-      }
+      // Emergency and lock-screen endpoints require capabilities from a
+      // managed device and must never be probed with the patient's browser
+      // session. The selector is a local preview mode; its data remains the
+      // authenticated patient's full Medical ID card.
+      const card = await getMedicalId(patient.healthId);
+      setData(toMedicalIdData(card));
     } catch (error) {
       console.error('Error loading Medical ID:', error);
       setData(null);
     } finally {
       setIsLoading(false);
     }
-  }, [activeView, patient]);
+  }, [patient]);
 
   useEffect(() => {
     if (patient) {

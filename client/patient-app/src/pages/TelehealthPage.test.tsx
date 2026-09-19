@@ -52,7 +52,7 @@ describe('TelehealthPage (Patient)', () => {
     });
 
     mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/telehealth/patient/')) {
+      if (url.includes('/api/telehealth/sessions')) {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ 'content-type': 'application/json' }),
@@ -61,15 +61,14 @@ describe('TelehealthPage (Patient)', () => {
               {
                 session_id: 'sess1',
                 provider_id: 'PROV1',
-                provider_name: 'Dr. Video',
-                patient_join_url: 'https://join.zoom.us/s/123',
+                video_room_url: 'https://join.zoom.us/s/123',
                 scheduled_start: futureTime,
                 status: 'scheduled',
               },
               {
                 session_id: 'sess2',
                 provider_id: 'PROV2',
-                provider_name: 'Dr. Past',
+                video_room_url: 'https://join.zoom.us/s/456',
                 scheduled_start: pastTime,
                 status: 'completed',
                 duration_minutes: 20,
@@ -91,7 +90,7 @@ describe('TelehealthPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Telehealth Visits/i)).toBeInTheDocument();
-      expect(screen.getByText(/Dr. Video/i)).toBeInTheDocument();
+      expect(screen.getByText(/PROV1/i)).toBeInTheDocument();
       expect(screen.getByText(/Join Video Call/i)).toBeInTheDocument();
     });
   });
@@ -124,7 +123,7 @@ describe('TelehealthPage (Patient)', () => {
     fireEvent.click(pastTab);
     
     await waitFor(() => {
-      expect(screen.getByText(/Dr. Past/i)).toBeInTheDocument();
+      expect(screen.getByText(/PROV2/i)).toBeInTheDocument();
       expect(screen.getByText(/20 min/i)).toBeInTheDocument();
     });
   });

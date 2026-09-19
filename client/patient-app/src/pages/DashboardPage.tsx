@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getAccessLogs, getPatient, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -76,87 +76,54 @@ export function DashboardPage() {
       }
 
       try {
-        // Use health ID from authenticated patient
-          const patientId = patient.healthId;
-        
-        const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(patient.walletAddress),
-            'X-Health-Id': patient.healthId,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+        const patientId = patient.healthId;
+        try {
+          const data = await getPatient(patientId);
           const emergencyInfo = data.emergency_info || {};
           setApiConnected(true);
           
           setPatientData({
             patientId: data.patient_id,
             name: data.full_name || patient.fullName,
-            healthId: data.health_id || patient.healthId,
+            healthId: patient.healthId,
             bloodType: formatBloodType(emergencyInfo.blood_type) || patient.bloodType || 'Unknown',
             allergies: (emergencyInfo.allergies || []).map((allergy: string | { name: string }) =>
               typeof allergy === 'string' ? allergy : allergy.name
             ),
             medications: emergencyInfo.current_medications || [],
             conditions: emergencyInfo.chronic_conditions || [],
-            lastVisit: data.last_visit || new Date().toISOString().split('T')[0],
-            upcomingAppointments: data.upcoming_appointments || 0,
-            unreadMessages: data.unread_messages || 0,
+            // This profile endpoint has no visit, appointment, or message
+            // counters. Keep those fields empty rather than inventing values
+            // from a client clock or an undocumented response shape.
+            lastVisit: '',
+            upcomingAppointments: 0,
+            unreadMessages: 0,
           });
 
           // Fetch access logs for recent activity
-          const logsData = await getApiClient().get<{
-            logs?: {
-              log_id: string;
-              action_type: string;
-              accessor_name: string;
-              accessed_at: string;
-            }[];
-          }>(`/api/access-logs/${patientId}`);
-          const activities: RecentActivity[] = (logsData.logs || []).slice(0, 5).map((log: {
-            log_id: string;
-            action_type: string;
-            accessor_name: string;
-            accessed_at: string;
-          }) => ({
-            id: log.log_id,
-            type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
-            description: `${log.accessor_name} ${log.action_type === 'view' ? t('dashboard.accessedYourRecords') : log.action_type}`,
-            timestamp: log.accessed_at,
-            accessor: log.accessor_name,
+          const logsData = await getAccessLogs(patientId);
+          const activities: RecentActivity[] = (logsData.access_logs || []).slice(0, 5).map((log) => ({
+            id: log.access_id,
+            type: log.access_type === 'view' ? 'access' : log.access_type === 'consent' ? 'consent' : 'update',
+            description: `${log.accessor_id} ${log.access_type === 'view' ? t('dashboard.accessedYourRecords') : log.access_type}`,
+            timestamp: log.timestamp,
+            accessor: log.accessor_id,
           }));
           setRecentActivity(activities);
-        } else {
-          // API returned error - use local data from wallet
+        } catch {
+          // An unavailable profile must not be replaced by a plausible clinical
+          // summary. Identity from the authenticated session is safe to show;
+          // clinical fields stay explicitly empty until the record loads.
           setApiConnected(false);
           setPatientData({
             patientId: patient.healthId,
             name: patient.fullName,
             healthId: patient.healthId,
-            bloodType: patient.bloodType || 'Unknown',
+            bloodType: 'Unknown',
             allergies: [],
             medications: [],
             conditions: [],
-            lastVisit: new Date().toISOString().split('T')[0],
-            upcomingAppointments: 0,
-            unreadMessages: 0,
-          });
-        }
-      } catch {
-        // API not available - use local data
-        setApiConnected(false);
-        if (patient) {
-          setPatientData({
-            patientId: patient.healthId,
-            name: patient.fullName,
-            healthId: patient.healthId,
-            bloodType: patient.bloodType || 'Unknown',
-            allergies: [],
-            medications: [],
-            conditions: [],
-            lastVisit: new Date().toISOString().split('T')[0],
+            lastVisit: '',
             upcomingAppointments: 0,
             unreadMessages: 0,
           });
@@ -237,7 +204,7 @@ export function DashboardPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('dashboard.live') : t('dashboard.demo')}
+            {apiConnected ? t('dashboard.live') : t('dashboard.dataUnavailable')}
           </div>
           <button className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors" aria-label="Notifications">
             <Bell className="w-6 h-6" />
@@ -379,6 +346,7 @@ export function DashboardPage() {
         </div>
 
         <div className="space-y-3">
+          {recentActivity.length === 0 && <p className="text-sm text-content-muted">{t('dashboard.noRecentActivity')}</p>}
           {recentActivity.map((activity) => (
             <div
               key={activity.id}

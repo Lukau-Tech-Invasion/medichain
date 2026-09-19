@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   getPatientEPrescriptions,
   getPatientReminders,
+  getPatientAdherence,
   logMedicationAdherence,
   IS_DEMO,
   useTranslation
@@ -77,17 +78,6 @@ interface RawPrescription {
   status?: Medication['status'];
 }
 
-/** A reminder row, likewise. */
-interface RawReminder {
-  reminder_id?: string; id?: string;
-  medication_id?: string;
-  medication_name?: string;
-  dosage?: string;
-  scheduled_time?: string;
-  taken?: boolean;
-  taken_at?: string;
-}
-
 export function MedicationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -119,9 +109,10 @@ export function MedicationsPage() {
       const patientId = patient.healthId;
 
       // Fetch prescriptions from correct endpoint
-      const [prescData, remindersData] = await Promise.all([
+      const [prescData, remindersData, adherenceData] = await Promise.all([
         getPatientEPrescriptions(patientId),
-        getPatientReminders(patientId).catch(() => ({ reminders: [] }))
+        getPatientReminders(patientId),
+        getPatientAdherence(patientId),
       ]);
 
       setApiConnected(true);
@@ -172,26 +163,38 @@ export function MedicationsPage() {
           }
         ];
         setMedications(demoMeds);
-        generateReminders(demoMeds);
+        setReminders([]);
         setApiConnected(false);
       } else {
         setMedications(meds);
         
-        const apiReminders: MedicationReminder[] = (((remindersData as { reminders?: unknown[] }).reminders || []) as RawReminder[]).map((r) => ({
-          id: r.reminder_id || r.id || `reminder-${Date.now()}`,
-          medicationId: r.medication_id ?? '',
-          medicationName: r.medication_name ?? '',
-          dosage: r.dosage ?? '',
-          scheduledTime: r.scheduled_time ?? '',
-          taken: r.taken || false,
-          takenAt: r.taken_at,
-        }));
-
-        if (apiReminders.length > 0) {
-          setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
-        } else {
-          generateReminders(meds);
-        }
+        const today = new Date().toISOString().slice(0, 10);
+        const dosesTakenToday = new Map(
+          (adherenceData.logs ?? [])
+            .filter((log) =>
+              (log.action_taken === 'taken' || log.action_taken === 'taken_late') &&
+              log.actual_time?.slice(0, 10) === today &&
+              log.reminder_id
+            )
+            .map((log) => [log.reminder_id as string, log.actual_time as string])
+        );
+        const apiReminders: MedicationReminder[] = (remindersData.reminders ?? []).flatMap((reminder) =>
+          reminder.reminder_times.map((scheduledTime) => {
+            const takenAt = dosesTakenToday.get(reminder.reminder_id);
+            return {
+              id: `${reminder.reminder_id}:${scheduledTime}`,
+              medicationId: reminder.reminder_id,
+              medicationName: reminder.medication_name,
+              dosage: reminder.dosage,
+              scheduledTime,
+              taken: Boolean(takenAt),
+              takenAt: takenAt
+                ? new Date(takenAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : undefined,
+            };
+          })
+        );
+        setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
       }
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -207,47 +210,6 @@ export function MedicationsPage() {
       loadMedications();
     }
   }, [patient, loadMedications]);
-
-  const generateReminders = (meds: Medication[]) => {
-    const now = new Date();
-    const todayReminders: MedicationReminder[] = [];
-    
-    meds.forEach(med => {
-      if (med.frequency.toLowerCase().includes('twice')) {
-        todayReminders.push(
-          {
-            id: `${med.id}-AM`,
-            medicationId: med.id,
-            medicationName: med.name,
-            dosage: med.dosage,
-            scheduledTime: '08:00',
-            taken: now.getHours() >= 9,
-            takenAt: now.getHours() >= 9 ? '08:15' : undefined,
-          },
-          {
-            id: `${med.id}-PM`,
-            medicationId: med.id,
-            medicationName: med.name,
-            dosage: med.dosage,
-            scheduledTime: '20:00',
-            taken: false,
-          }
-        );
-      } else if (med.frequency.toLowerCase().includes('once')) {
-        todayReminders.push({
-          id: `${med.id}-DAILY`,
-          medicationId: med.id,
-          medicationName: med.name,
-          dosage: med.dosage,
-          scheduledTime: med.frequency.toLowerCase().includes('bedtime') ? '22:00' : '08:00',
-          taken: now.getHours() >= 9 && !med.frequency.toLowerCase().includes('bedtime'),
-          takenAt: now.getHours() >= 9 && !med.frequency.toLowerCase().includes('bedtime') ? '08:05' : undefined,
-        });
-      }
-    });
-    
-    setReminders(todayReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
-  };
 
   const markAsTaken = async (reminderId: string) => {
     if (!patient) return;

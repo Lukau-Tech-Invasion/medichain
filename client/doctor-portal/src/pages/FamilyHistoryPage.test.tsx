@@ -45,16 +45,12 @@ describe('FamilyHistoryPage', () => {
 
   const mockFamilyMembers = [
     {
-      // patientId and patientName are required by the page's FamilyMember
-      // interface: the list filters on both, so a record missing them is
-      // filtered out before it can render.
-      memberId: '1',
-      patientId: 'PAT-001',
-      patientName: 'Test Patient',
       relationship: 'mother',
-      vitalStatus: 'alive',
-      conditions: [{ conditionName: 'Diabetes', category: 'diabetes' }],
-      recordedAt: new Date().toISOString(),
+      living: true,
+      current_age: 64,
+      age_at_death: null,
+      cause_of_death: null,
+      conditions: [{ condition: 'Diabetes', age_at_diagnosis: 52, notes: null }],
     }
   ];
 

@@ -4,15 +4,19 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { MedicalHistoryPage } from './MedicalHistoryPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getMyImmunizations: vi.fn(),
+  getMyFamilyHistory: vi.fn(),
+  getPatientRecords: vi.fn(),
+}));
 
 describe('MedicalHistoryPage (Patient)', () => {
   const mockPatient = {
@@ -30,35 +34,33 @@ describe('MedicalHistoryPage (Patient)', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({
-          // The page reads `family_history` (or `entries`) and renders
-          // `entry.condition` with `entry.relationship` beneath it. The
-          // generated fixture used `medical_conditions`, a key the component
-          // never looks at, so the list stayed empty.
-          family_history: [
-            {
-              id: 'fh1',
-              condition: 'Diabetes',
-              relationship: 'Father',
-              deceased: false,
-              age_of_onset: 45,
-            },
-            {
-              id: 'fh2',
-              condition: 'Hypertension',
-              relationship: 'Mother',
-              deceased: false,
-            },
-          ],
-          immunizations: [],
-          records: [],
-        }),
-      });
+    vi.mocked(shared.getMyImmunizations).mockResolvedValue([]);
+    vi.mocked(shared.getMyFamilyHistory).mockResolvedValue({
+      patient_id: 'HEALTH123',
+      family_members: [
+        {
+          relationship: 'Father',
+          living: true,
+          current_age: 70,
+          age_at_death: null,
+          cause_of_death: null,
+          conditions: [{ condition: 'Diabetes', age_at_diagnosis: 45, notes: null }],
+        },
+        {
+          relationship: 'Mother',
+          living: true,
+          current_age: 68,
+          age_at_death: null,
+          cause_of_death: null,
+          conditions: [{ condition: 'Hypertension', age_at_diagnosis: null, notes: null }],
+        },
+      ],
+      genetic_conditions: [],
+      three_gen_complete: false,
+      last_updated: 0,
+      updated_by: 'clinician',
     });
+    vi.mocked(shared.getPatientRecords).mockResolvedValue([]);
   });
 
   it('renders medical history page', async () => {

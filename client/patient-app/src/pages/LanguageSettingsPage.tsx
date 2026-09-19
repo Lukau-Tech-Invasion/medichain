@@ -60,7 +60,7 @@ const languageBadge = (code: string): string =>
   (code.split('-')[0] || code).toUpperCase();
 
 const LanguageSettingsPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, locale, setLocale } = useTranslation();
   const patient = usePatientAuthStore((s) => s.patient);
   const regionLabel = (region: string) =>
     ({
@@ -70,7 +70,7 @@ const LanguageSettingsPage: React.FC = () => {
       'Middle East': t('languageSettings.regionMiddleEast'),
     }[region] || region);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(locale);
   const [showRegionalSettings, setShowRegionalSettings] = useState(false);
   const [regionalSettings, setRegionalSettings] = useState<RegionalSettings>({
     dateFormat: 'MM/DD/YYYY',
@@ -86,25 +86,11 @@ const LanguageSettingsPage: React.FC = () => {
 
   const languages: Language[] = [
     { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 100 },
-    { code: 'en-GB', name: 'English (UK)', nativeName: 'English', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 100 },
-    { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 98 },
-    { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 95 },
-    { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 92 },
-    { code: 'de-DE', name: 'German', nativeName: 'Deutsch', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 90 },
-    { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 88 },
-    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 85 },
-    { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 82 },
-    { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 78 },
-    { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 75 },
-    { code: 'ko-KR', name: 'Korean', nativeName: '한국어', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 72 },
-    { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', direction: 'rtl', region: 'Middle East', isAvailable: true, translationProgress: 68 },
-    { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 65 },
-    { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 70 },
-    { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 55 },
-    { code: 'th-TH', name: 'Thai', nativeName: 'ไทย', direction: 'ltr', region: 'Asia', isAvailable: false, translationProgress: 40 },
-    { code: 'nl-NL', name: 'Dutch', nativeName: 'Nederlands', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 35 },
-    { code: 'pl-PL', name: 'Polish', nativeName: 'Polski', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 30 },
-    { code: 'tr-TR', name: 'Turkish', nativeName: 'Türkçe', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 25 }
+    { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'sw-KE', name: 'Kiswahili', nativeName: 'Kiswahili', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'zu-ZA', name: 'isiZulu', nativeName: 'isiZulu', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'ha-NG', name: 'Hausa', nativeName: 'Hausa', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
   ];
 
   const dateFormats = [
@@ -131,6 +117,7 @@ const LanguageSettingsPage: React.FC = () => {
     const lang = languages.find(l => l.code === code);
     if (lang && lang.isAvailable) {
       setSelectedLanguage(code);
+      setLocale(code as SupportedLocale);
       
       // Auto-adjust regional settings based on language
       if (code.startsWith('en-US')) {

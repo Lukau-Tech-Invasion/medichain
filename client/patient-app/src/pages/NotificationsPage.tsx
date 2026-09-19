@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getNotifications, getPatientCdsAlerts, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Bell,
@@ -18,12 +18,12 @@ interface Notification {
   notification_id?: string;
   id?: string;
   title?: string;
-  message: string;
+  message?: string;
   type?: string;
   is_read?: boolean;
   read?: boolean;
-  created_at?: string;
-  timestamp?: string;
+  created_at?: string | number;
+  timestamp?: string | number;
 }
 
 interface CdsAlert {
@@ -34,7 +34,7 @@ interface CdsAlert {
   message?: string;
   severity?: 'high' | 'medium' | 'low' | string;
   alert_type?: string;
-  created_at?: string;
+  created_at?: string | number;
   is_acknowledged?: boolean;
 }
 
@@ -67,26 +67,14 @@ export function NotificationsPage() {
   const loadAll = useCallback(async () => {
     if (!patient) return;
     setLoading(true);
-    const headers = {
-      ...getApiClient().getSessionHeaders(patient.walletAddress),
-      'X-Health-Id': patient.healthId,
-    };
     try {
-      const [notifRes, alertsRes] = await Promise.all([
-        fetch(apiUrl('/api/notifications'), { headers }),
-        fetch(apiUrl(`/api/cds/patient/${patient.healthId}/alerts`), { headers }),
+      const [notificationResponse, alertResponse] = await Promise.all([
+        getNotifications(),
+        getPatientCdsAlerts(patient.healthId),
       ]);
-
-      if (notifRes.ok) {
-        const d = await notifRes.json();
-        setNotifications(d.notifications || []);
-        setApiConnected(true);
-      }
-      if (alertsRes.ok) {
-        const d = await alertsRes.json();
-        setAlerts(d.alerts || d.cds_alerts || []);
-        setApiConnected(true);
-      }
+      setNotifications(notificationResponse.notifications);
+      setAlerts(alertResponse.alerts);
+      setApiConnected(true);
     } catch (err) {
       console.error('Failed to load notifications:', err);
       setApiConnected(false);
@@ -101,9 +89,12 @@ export function NotificationsPage() {
     }
   }, [patient, loadAll]);
 
-  const formatTime = (dateStr?: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
+  const formatTime = (value?: string | number) => {
+    if (value === undefined) return '';
+    // API timestamps are Unix seconds. Treating them as JavaScript milliseconds
+    // displayed recent clinical alerts as dates in January 1970.
+    const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
     const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 60) return t('notifications.minsAgoShort', { count: mins });
@@ -167,7 +158,7 @@ export function NotificationsPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
           <button
             onClick={loadAll}
@@ -251,7 +242,7 @@ export function NotificationsPage() {
                     {n.title && (
                       <p className="font-medium text-content">{n.title}</p>
                     )}
-                    <p className="text-sm text-content-secondary">{n.message}</p>
+                    {n.message && <p className="text-sm text-content-secondary">{n.message}</p>}
                     {(n.created_at || n.timestamp) && (
                       <p className="text-xs text-content-muted mt-1 flex items-center gap-1">
                         <Clock className="w-3 h-3" />

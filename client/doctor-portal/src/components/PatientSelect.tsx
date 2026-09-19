@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, clickable } from '@medichain/shared';
+import { getPatients, clickable } from '@medichain/shared';
 import { Search, User, ChevronDown, Loader2, X } from 'lucide-react';
 
 export interface Patient {
@@ -49,37 +49,34 @@ export default function PatientSelect({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch patients on mount
+  // Query the server rather than downloading a roster and filtering protected
+  // names in the browser. The short debounce avoids a request for every key.
   useEffect(() => {
     if (!user) return;
+
+    let active = true;
 
     const fetchPatients = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const patientArray = Array.isArray(data) ? data : (data.data || []);
-          setPatients(patientArray);
-        } else {
-          setError('Failed to load patients');
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients:', err);
-        setError('Failed to load patients');
+        const patientArray = await getPatients({ query: searchTerm, limit: 50 });
+        if (active) setPatients(patientArray);
+      } catch {
+        if (active) setError('Failed to load patients');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    fetchPatients();
-  }, [user]);
+    const timer = window.setTimeout(() => {
+      void fetchPatients();
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      active = false;
+    };
+  }, [user, searchTerm]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -91,13 +88,6 @@ export default function PatientSelect({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // Filter patients based on search term
-  const filteredPatients = patients.filter(p =>
-    (p.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (p.patient_id?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (p.health_id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
 
   // Get selected patient details for display
   const selectedPatient = patients.find(p => p.patient_id === value);
@@ -215,12 +205,12 @@ export default function PatientSelect({
               </div>
             ) : error ? (
               <div className="py-4 px-3 text-center text-red-500">{error}</div>
-            ) : filteredPatients.length === 0 ? (
+            ) : patients.length === 0 ? (
               <div className="py-4 px-3 text-center text-content-muted dark:text-gray-400">
                 {searchTerm ? 'No patients found matching your search' : 'No patients available'}
               </div>
             ) : (
-              filteredPatients.map((patient) => (
+              patients.map((patient) => (
                 <button
                   key={patient.patient_id}
                   type="button"

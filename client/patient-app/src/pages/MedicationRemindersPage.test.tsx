@@ -37,10 +37,17 @@ describe('MedicationRemindersPage (Patient)', () => {
       count: 1,
       reminders: [
         {
-          id: 'rem1',
-          medication: 'Aspirin',
+          reminder_id: 'rem1',
+          patient_id: 'HEALTH123',
+          medication_name: 'Aspirin',
           dosage: '100mg',
-          schedule: ['08:00 AM', '08:00 PM'],
+          frequency: 'Daily',
+          reminder_times: ['08:00 AM', '08:00 PM'],
+          start_date: '2026-09-17',
+          end_date: null,
+          instructions: null,
+          active: true,
+          created_at: 0,
         }
       ],
     });

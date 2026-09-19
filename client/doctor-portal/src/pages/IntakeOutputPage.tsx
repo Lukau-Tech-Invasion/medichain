@@ -72,6 +72,15 @@ interface PatientIO {
   alerts: string[];
 }
 
+/** Build the exact trend table the clinician sees; CSV values are quoted. */
+export const intakeOutputTrendCsv = (date: string, rows: PatientIO[]) => {
+  const quote = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  return [
+    ['Date', 'Patient', 'Patient ID', 'Room', 'Intake (mL)', 'Output (mL)', 'Balance (mL)'],
+    ...rows.map(row => [date, row.patientName, row.patientId, row.room, row.totalIntake24h, row.totalOutput24h, row.netBalance]),
+  ].map(row => row.map(quote).join(',')).join('\r\n');
+};
+
 /** One stored intake/output record, as the API returns it. */
 interface IoRecordRow {
   id: string;
@@ -161,6 +170,16 @@ const IntakeOutputPage: React.FC = () => {
     source: '',
     notes: ''
   });
+
+  const exportTrendCsv = () => {
+    const blob = new Blob([intakeOutputTrendCsv(selectedDate, patients)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `intake-output-${selectedDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     const fetchIntakeOutput = async () => {
@@ -644,8 +663,8 @@ const IntakeOutputPage: React.FC = () => {
               <h2 className="text-lg font-semibold">{t('docIntakeOutput.ioTrendsHeading')}</h2>
               <div className="flex gap-2">
                 <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
-                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
-                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={exportTrendCsv} aria-label={t('docIntakeOutput.exportTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
+                <button type="button" onClick={() => window.print()} aria-label={t('docIntakeOutput.printTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
               </div>
             </div>
 

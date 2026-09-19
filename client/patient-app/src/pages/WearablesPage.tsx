@@ -29,7 +29,6 @@ import {
   getWearableReadings,
   listWearableAlertRules,
   registerWearableDevice,
-  IS_DEMO,
   useTranslation,
 } from '@medichain/shared';
 import type {
@@ -361,7 +360,7 @@ const WearablesPage: React.FC = () => {
   const [metrics, setMetrics] = useState<HealthMetric[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<HealthMetric | null>(null);
-  const [activityRings, setActivityRings] = useState<ActivityRing[]>([]);
+  const [activityRings] = useState<ActivityRing[]>([]);
   const [loading, setLoading] = useState(true);
   const { patient } = usePatientAuthStore();
 
@@ -380,48 +379,25 @@ const WearablesPage: React.FC = () => {
         
         if (apiDevices.length > 0) {
           setDevices(apiDevices.map(mapDevice));
-        } else if (IS_DEMO) {
-          await loadDemoDevices();
         }
 
         if (apiReadings.length > 0) {
           setMetrics(mapLatestMetrics(apiReadings));
-        } else if (IS_DEMO) {
-          await loadDemoMetrics();
         }
 
         setLoading(false);
         return;
       } catch (err) {
-        console.warn('No wearable data from API, using demo data:', err);
+        console.warn('No wearable data from API:', err);
       }
     }
 
-    // Fallback to demo data (demo mode only — production shows an empty state)
-    if (IS_DEMO) {
-      await loadDemoDevices();
-      await loadDemoMetrics();
-    }
     setLoading(false);
   }, [patient?.healthId]);
 
   useEffect(() => {
     loadWearableData();
   }, [patient, loadWearableData]);
-
-  // Dynamically imported so the sample data isn't bundled into production
-  // builds (demo mode is gated by IS_DEMO, but the bundler can't statically
-  // prove that across a module boundary unless the import itself is dynamic).
-  const loadDemoDevices = async () => {
-    const { getDemoDevices } = await import('./WearablesPage.demoData');
-    setDevices(getDemoDevices());
-  };
-
-  const loadDemoMetrics = async () => {
-    const { getDemoMetrics, getDemoActivityRings } = await import('./WearablesPage.demoData');
-    setMetrics(getDemoMetrics());
-    setActivityRings(getDemoActivityRings());
-  };
 
   const handleSync = () => {
     setIsSyncing(true);

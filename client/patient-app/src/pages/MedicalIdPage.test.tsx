@@ -52,14 +52,14 @@ describe('MedicalIdPage (Patient)', () => {
           name: 'Test Patient',
           date_of_birth: '1990-01-01',
           blood_type: 'O+',
-          allergies: [{ name: 'Peanuts', severity: 'high' }],
+          allergies: [{ name: 'Peanuts', severity: 'high', reaction: '', display_color: '#f00' }],
           medications: ['Aspirin'],
-          conditions: ['Asthma'],
+          chronic_conditions: ['Asthma'],
           emergency_contacts: [
-            { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife', can_make_medical_decisions: true }
+            { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife', verified: true }
           ],
-          organ_donor: true,
-          dnr_status: false,
+          organ_donor: { status: true, display_color: '#0f0' },
+          dnr_status: { status: false, verified: false, verified_by: null, verified_at: null, document_ref: null, display_color: '#000', warning: null },
           languages: ['English'],
           preferences: {
             show_when_locked: true,
@@ -103,9 +103,9 @@ describe('MedicalIdPage (Patient)', () => {
           blood_type: 'O+',
           allergies: [],
           medications: [],
-          conditions: [],
+          chronic_conditions: [],
           emergency_contacts: [],
-          organ_donor: false,
+          organ_donor: { status: false, display_color: '#000' },
           dnr_status: true, // boolean => on file but UNVERIFIED
           languages: ['English'],
           preferences: {

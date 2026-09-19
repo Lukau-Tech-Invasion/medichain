@@ -84,6 +84,72 @@ interface BloodOrder {
   };
 }
 
+type BloodBankRecord = Record<string, unknown>;
+
+const BLOOD_PRODUCTS = new Set<BloodOrder['product']>([
+  'RBC',
+  'Platelets',
+  'FFP',
+  'Cryoprecipitate',
+  'Whole Blood',
+]);
+
+function readString(record: BloodBankRecord, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/** Convert persisted snake-case blood-bank records into this screen's view model. */
+function toBloodOrder(
+  value: unknown,
+  patientNames: Map<string, string>,
+): BloodOrder | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as BloodBankRecord;
+  const patientId = readString(record, 'patient_id') ?? readString(record, 'patientId');
+  const orderId =
+    readString(record, 'order_id') ??
+    readString(record, 'orderId') ??
+    readString(record, 'transfusion_id');
+  if (!patientId || !orderId) return null;
+
+  const rawProduct = readString(record, 'product');
+  const product = BLOOD_PRODUCTS.has(rawProduct as BloodOrder['product'])
+    ? (rawProduct as BloodOrder['product'])
+    : 'RBC';
+  const units = typeof record.units === 'number' && Number.isFinite(record.units)
+    ? record.units
+    : 0;
+  const rawStatus = readString(record, 'status') ?? 'ordered';
+  const status = [
+    'ordered', 'type-screen', 'crossmatch', 'ready', 'issued', 'transfusing', 'completed', 'cancelled',
+  ].includes(rawStatus)
+    ? rawStatus as BloodOrder['status']
+    : 'ordered';
+  const rawPriority = readString(record, 'priority') ?? 'routine';
+  const priority = ['routine', 'urgent', 'emergency'].includes(rawPriority)
+    ? rawPriority as BloodOrder['priority']
+    : 'routine';
+
+  return {
+    orderId,
+    patientId,
+    // A transfusion event does not duplicate the patient name. Resolve it from
+    // the already-authorized roster; falling back to the identifier is honest
+    // and searchable, unlike manufacturing a name.
+    patientName: readString(record, 'patient_name') ?? patientNames.get(patientId) ?? patientId,
+    bloodType: readString(record, 'blood_type') ?? 'Unknown',
+    orderDate: readString(record, 'order_date') ?? '',
+    orderTime: readString(record, 'order_time') ?? '',
+    orderedBy: readString(record, 'ordered_by') ?? readString(record, 'recorded_by') ?? '',
+    product,
+    units,
+    indication: readString(record, 'indication') ?? '',
+    priority,
+    status,
+  };
+}
+
 const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -126,16 +192,16 @@ const BloodBankPage: React.FC = () => {
       setError(null);
       const response = await listBloodBank();
       if (response.success) {
-        // Combine all blood bank records into orders array
+        const patientNames = new Map(patients.map((patient) => [patient.patient_id, patient.full_name]));
+        // The register uses persisted snake-case data while this screen uses
+        // camel-case view fields. Mapping at the boundary keeps a recorded
+        // transfusion visible instead of silently producing undefined table
+        // cells (or crashing the search filter).
         const typeScreenItems = response.type_screens?.items || [];
-        const crossmatchItems = response.crossmatches?.items || [];
         const transfusionItems = response.transfusions?.items || [];
-        
-        const allOrders: BloodOrder[] = [
-          ...typeScreenItems.map((item) => ({ ...(item as BloodOrder), orderType: 'type_screen' as const })),
-          ...crossmatchItems.map((item) => ({ ...(item as BloodOrder), orderType: 'crossmatch' as const })),
-          ...transfusionItems.map((item) => ({ ...(item as BloodOrder), orderType: 'transfusion' as const })),
-        ];
+        const allOrders = [...typeScreenItems, ...transfusionItems]
+          .map((item) => toBloodOrder(item, patientNames))
+          .filter((item): item is BloodOrder => item !== null);
         setOrders(allOrders);
       }
     } catch (err) {
@@ -144,7 +210,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [t]);
+  }, [patients, t]);
 
   useEffect(() => {
     const loadPatients = async () => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getNoteTemplates, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { getNoteTemplates, useNoteTemplate, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
@@ -31,6 +31,49 @@ interface NoteTemplate {
   tags: string[];
 }
 
+type NoteTemplateApiRecord = Record<string, unknown>;
+
+const typeForCategory = (category: string): TemplateType => {
+  const normalized = category.toLowerCase();
+  if (normalized === 'soap') return 'soap';
+  if (normalized === 'h&p') return 'history-physical';
+  if (normalized === 'discharge') return 'discharge-summary';
+  if (normalized === 'procedure') return 'procedure';
+  return 'progress-note';
+};
+
+/** Accept both the current server template registry and legacy portal rows. */
+export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => {
+  const content = record.content && typeof record.content === 'object'
+    ? record.content as Record<string, unknown>
+    : {};
+  const legacySections = Array.isArray(record.sections) ? record.sections as TemplateSection[] : [];
+  const categoryText = typeof record.category === 'string' ? record.category : 'general';
+  const sections = legacySections.length > 0 ? legacySections : Object.entries(content).map(([title, value], index) => ({
+    sectionId: `${String(record.template_id ?? 'template')}-${title}`,
+    title,
+    content: typeof value === 'string' ? value : JSON.stringify(value),
+    required: false,
+    order: index + 1,
+  }));
+  return {
+    templateId: String(record.template_id ?? record.templateId ?? ''),
+    name: String(record.name ?? ''),
+    type: typeof record.type === 'string' ? record.type as TemplateType : typeForCategory(categoryText),
+    category: typeof record.category === 'string' && ['general', 'emergency', 'surgery', 'medicine', 'pediatrics', 'psychiatry'].includes(record.category)
+      ? record.category as TemplateCategory : 'general',
+    description: typeof record.description === 'string' ? record.description : categoryText,
+    sections,
+    macros: Array.isArray(record.macros) ? record.macros.filter((item): item is string => typeof item === 'string') : [],
+    createdBy: typeof record.created_by === 'string' ? record.created_by : String(record.createdBy ?? 'Built-in'),
+    createdAt: typeof record.created_at === 'string' ? record.created_at : String(record.createdAt ?? ''),
+    lastModified: typeof record.updated_at === 'string' ? record.updated_at : String(record.lastModified ?? ''),
+    usageCount: typeof record.usage_count === 'number' ? record.usage_count : Number(record.usageCount ?? 0),
+    isActive: record.is_active !== false && record.isActive !== false,
+    tags: Array.isArray(record.tags) ? record.tags.filter((item): item is string => typeof item === 'string') : [],
+  };
+};
+
 /**
  * NoteTemplatesPage
  * 
@@ -46,6 +89,7 @@ const NoteTemplatesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'macros'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TemplateType | 'all'>('all');
+  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; content: Record<string, unknown> } | null>(null);
   const [newTemplate, setNewTemplate] = useState<Partial<NoteTemplate>>({
     name: '',
     type: 'soap',
@@ -73,10 +117,8 @@ const NoteTemplatesPage: React.FC = () => {
       // `items`, so neither branch ever matched and the setter was never called
       // — the list stayed empty however many rows the server held. The test
       // mocked a bare array, so it passed against a shape the API never sends.
-      const rows = Array.isArray(response)
-        ? (response as NoteTemplate[])
-        : ((response?.templates ?? []) as unknown as NoteTemplate[]);
-      setTemplates(rows);
+      const rows = Array.isArray(response) ? response : (response?.templates ?? []);
+      setTemplates(rows.map(mapNoteTemplate));
     } catch (err) {
       console.error('Error fetching note templates:', err);
       setError(t('docNoteTemplates.errorLoad'));
@@ -178,6 +220,16 @@ const NoteTemplatesPage: React.FC = () => {
   const handleDeleteTemplate = (templateId: string) => {
     if (confirm(t('docNoteTemplates.confirmDelete'))) {
       setTemplates(templates.filter((t) => t.templateId !== templateId));
+    }
+  };
+
+  const handleUseTemplate = async (template: NoteTemplate) => {
+    try {
+      const result = await useNoteTemplate({ template_id: template.templateId, variables: {} });
+      setRenderedTemplate({ name: template.name, content: result.rendered_content });
+    } catch (err) {
+      console.error('Failed to render note template:', err);
+      showError(t('docNoteTemplates.renderFailed'));
     }
   };
 
@@ -367,6 +419,14 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                       <button
+                        type="button"
+                        onClick={() => void handleUseTemplate(template)}
+                        className="px-3 py-2 bg-primary-500 text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2 text-sm"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {t('docNoteTemplates.useTemplate')}
+                      </button>
+                      <button
                         onClick={() => handleDuplicateTemplate(template)}
                         className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm"
                       >
@@ -382,6 +442,13 @@ const NoteTemplatesPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  {renderedTemplate?.name === template.name && (
+                    <div className="mt-4 border border-border rounded-lg p-3 bg-surface-sunken">
+                      <p className="text-sm font-medium text-content mb-2">{t('docNoteTemplates.renderedDraft')}</p>
+                      <pre className="text-sm text-content-muted whitespace-pre-wrap">{JSON.stringify(renderedTemplate.content, null, 2)}</pre>
+                    </div>
+                  )}
 
                   <p className="text-content-muted mb-4">{template.description}</p>
 

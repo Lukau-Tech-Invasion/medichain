@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  apiUrl,
-  getApiClient,
   useTranslation,
   setAppointmentStatus,
   checkInAppointment,
   createAppointment,
   getProviders,
   getAvailableSlots,
+  getPatientAppointmentSummaries,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -156,44 +155,18 @@ export function AppointmentsPage() {
     try {
       const patientId = patient.healthId;
       
-      const response = await fetch(apiUrl(`/api/appointments/patient/${patientId}`), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'X-Health-Id': patient.healthId,
-        },
-      });
+      const data = await getPatientAppointmentSummaries(patientId);
+      setApiConnected(true);
 
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        
-        const appts: Appointment[] = (data.appointments || []).map((a: {
-          appointment_id: string;
-          type?: string;
-          appointment_type?: string;
-          status: string;
-          provider_name: string;
-          specialty: string;
-          scheduled_date: string;
-          start_time?: string;
-          scheduled_time?: number | string;
-          duration_minutes: number;
-          location?: string | { telehealth_link?: string | null };
-          reason?: string;
-          visit_reason?: string;
-          notes?: string;
-          is_telehealth?: boolean;
-          telehealth_session_id?: string;
-          awaiting_confirmation_from?: 'patient' | 'provider' | null;
-        }) => ({
+      const appts: Appointment[] = data.appointments.map((a) => ({
           id: a.appointment_id,
           type: normalizeAppointmentType(a.appointment_type || a.type, a.is_telehealth),
           status: normalizeStatus(a.status),
           awaitingConfirmationFrom: a.awaiting_confirmation_from ?? null,
           provider: a.provider_name,
-          specialty: a.specialty,
+          specialty: a.specialty ?? '',
           date: a.scheduled_date,
-          time: displayTime(a.start_time, a.scheduled_time),
+          time: displayTime(a.start_time, a.scheduled_time ?? undefined),
           duration: a.duration_minutes || 30,
           location: typeof a.location === 'string' ? a.location : undefined,
           reason: a.visit_reason || a.reason || 'No reason provided',
@@ -205,12 +178,9 @@ export function AppointmentsPage() {
             a.telehealth_session_id && typeof a.location === 'object'
               ? a.location?.telehealth_link ?? undefined
               : undefined,
-        }));
-        
-        setAppointments(appts);
-      } else {
-        setApiConnected(false);
-      }
+      }));
+
+      setAppointments(appts);
     } catch {
       setApiConnected(false);
     } finally {

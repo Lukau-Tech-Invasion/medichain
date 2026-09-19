@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import {
+  getMyFamilyHistory,
+  getMyImmunizations,
+  getPatientRecords,
+  useTranslation,
+} from '@medichain/shared';
+import type { FamilyHistoryMember, ImmunizationRecord, MedicalRecordReference } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Syringe,
@@ -14,48 +20,36 @@ import {
   Download,
 } from 'lucide-react';
 
-interface Immunization {
-  record_id?: string;
-  id?: string;
-  vaccine_name?: string;
-  vaccine?: string;
-  date_administered?: string;
-  administered_date?: string;
-  lot_number?: string;
-  administered_by?: string;
-  site?: string;
-  notes?: string;
-}
-
 interface FamilyHistoryEntry {
-  id?: string;
+  id: string;
   relationship: string;
   condition: string;
   age_of_onset?: number;
   notes?: string;
-  deceased?: boolean;
-}
-
-interface MedicalRecord {
-  record_id?: string;
-  id?: string;
-  file_name?: string;
-  title?: string;
-  record_type?: string;
-  uploaded_at?: string;
-  created_at?: string;
-  file_size?: number;
-  ipfs_hash?: string;
+  deceased: boolean;
 }
 
 type Tab = 'immunizations' | 'family-history' | 'documents';
+
+function flattenFamilyHistory(members: FamilyHistoryMember[]): FamilyHistoryEntry[] {
+  return members.flatMap((member, memberIndex) =>
+    member.conditions.map((condition, conditionIndex) => ({
+      id: `${memberIndex}-${conditionIndex}-${condition.condition}`,
+      relationship: member.relationship,
+      condition: condition.condition,
+      age_of_onset: condition.age_at_diagnosis ?? undefined,
+      notes: condition.notes ?? undefined,
+      deceased: !member.living,
+    }))
+  );
+}
 
 /**
  * MedicalHistoryPage - Immunizations, family history, and uploaded records
  *
  * Tabs:
- * - Immunizations: GET /api/clinical/immunizations
- * - Family History: GET /api/clinical/family-history/{patientId}
+ * - Immunizations: caller-scoped GET /api/clinical/immunizations
+ * - Family History: caller-scoped GET /api/clinical/family-history
  * - Documents: GET /api/records/{patientId}
  *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
@@ -65,9 +59,9 @@ export function MedicalHistoryPage() {
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [activeTab, setActiveTab] = useState<Tab>('immunizations');
-  const [immunizations, setImmunizations] = useState<Immunization[]>([]);
+  const [immunizations, setImmunizations] = useState<ImmunizationRecord[]>([]);
   const [familyHistory, setFamilyHistory] = useState<FamilyHistoryEntry[]>([]);
-  const [documents, setDocuments] = useState<MedicalRecord[]>([]);
+  const [documents, setDocuments] = useState<MedicalRecordReference[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
 
@@ -80,32 +74,16 @@ export function MedicalHistoryPage() {
   const loadAll = useCallback(async () => {
     if (!patient) return;
     setLoading(true);
-    const headers = {
-      ...getApiClient().getSessionHeaders(patient.walletAddress),
-      'X-Health-Id': patient.healthId,
-    };
     try {
-      const [immRes, famRes, docsRes] = await Promise.all([
-        fetch(apiUrl('/api/clinical/immunizations'), { headers }),
-        fetch(apiUrl(`/api/surgical/family-history/${patient.healthId}`), { headers }),
-        fetch(apiUrl(`/api/records/${patient.healthId}`), { headers }),
+      const [immunizationRecords, familyRecord, patientRecords] = await Promise.all([
+        getMyImmunizations(),
+        getMyFamilyHistory(),
+        getPatientRecords(patient.healthId),
       ]);
-
-      if (immRes.ok) {
-        const d = await immRes.json();
-        setImmunizations(d.immunizations || d.records || []);
-        setApiConnected(true);
-      }
-      if (famRes.ok) {
-        const d = await famRes.json();
-        setFamilyHistory(d.family_history || d.entries || []);
-        setApiConnected(true);
-      }
-      if (docsRes.ok) {
-        const d = await docsRes.json();
-        setDocuments(d.records || d.documents || []);
-        setApiConnected(true);
-      }
+      setImmunizations(immunizationRecords);
+      setFamilyHistory(flattenFamilyHistory(familyRecord.family_members));
+      setDocuments(patientRecords);
+      setApiConnected(true);
     } catch (err) {
       console.error('Failed to load medical history:', err);
       setApiConnected(false);
@@ -120,20 +98,15 @@ export function MedicalHistoryPage() {
     }
   }, [patient, loadAll]);
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+  const formatDate = (dateValue?: string | number) => {
+    if (dateValue === undefined || dateValue === '') return '—';
+    const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
-  };
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -163,7 +136,7 @@ export function MedicalHistoryPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
           <button
             onClick={loadAll}
@@ -202,20 +175,20 @@ export function MedicalHistoryPage() {
             </div>
           ) : (
             immunizations.map((imm, idx) => (
-              <div key={imm.record_id || imm.id || idx} className="patient-card">
+              <div key={imm.record_id || idx} className="patient-card">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 bg-ok-subtle rounded-xl flex items-center justify-center flex-shrink-0">
                     <Syringe className="w-5 h-5 text-ok-subtle-fg" />
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-content">
-                      {imm.vaccine_name || imm.vaccine || t('medicalHistory.vaccine')}
+                      {imm.vaccine_name || t('medicalHistory.vaccine')}
                     </h3>
                     <div className="flex items-center gap-3 text-xs text-content-muted mt-1">
-                      {(imm.date_administered || imm.administered_date) && (
+                      {imm.administration_date && (
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {formatDate(imm.date_administered || imm.administered_date)}
+                          {formatDate(imm.administration_date)}
                         </span>
                       )}
                       {imm.administered_by && (
@@ -285,29 +258,26 @@ export function MedicalHistoryPage() {
             </div>
           ) : (
             documents.map((doc, idx) => (
-              <div key={doc.record_id || doc.id || idx} className="patient-card flex items-center justify-between">
+              <div key={doc.content_hash || idx} className="patient-card flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-brand-subtle rounded-xl flex items-center justify-center flex-shrink-0">
                     <FileText className="w-5 h-5 text-brand" />
                   </div>
                   <div>
                     <h3 className="font-medium text-content">
-                      {doc.file_name || doc.title || t('medicalHistory.document')}
+                      {t('medicalHistory.document')}
                     </h3>
                     <div className="flex items-center gap-2 text-xs text-content-muted mt-0.5">
                       {doc.record_type && (
                         <span className="px-1.5 py-0.5 bg-surface-sunken rounded">{doc.record_type}</span>
                       )}
-                      {(doc.uploaded_at || doc.created_at) && (
-                        <span>{formatDate(doc.uploaded_at || doc.created_at)}</span>
-                      )}
-                      {doc.file_size && (
-                        <span>{formatBytes(doc.file_size)}</span>
+                      {doc.uploaded_at && (
+                        <span>{formatDate(doc.uploaded_at)}</span>
                       )}
                     </div>
                   </div>
                 </div>
-                {doc.ipfs_hash && (
+                {doc.content_hash && (
                   <button
                     className="p-2 text-content-muted hover:text-brand-subtle-fg hover:bg-brand-subtle rounded-lg transition-colors"
                     title={t('medicalHistory.download')}

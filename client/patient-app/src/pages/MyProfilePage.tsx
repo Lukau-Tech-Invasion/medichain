@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  apiUrl,
-  getApiClient,
+  getPatient,
   isValidPhoneNumber,
   useTranslation,
   updateDemographics,
@@ -139,16 +138,7 @@ export function MyProfilePage() {
         return;
       }
 
-      const response = await fetch(apiUrl(`/api/patients/${patient.healthId}`), {
-        headers: {
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'X-Health-Id': patient.healthId,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const data = await getPatient(patient.healthId);
         const emergencyInfo = data.emergency_info || {};
 
         setProfile({
@@ -189,15 +179,12 @@ export function MyProfilePage() {
                 groupNumber: data.insurance.group_number || '',
                 validFrom: data.insurance.valid_from || '',
                 validTo: data.insurance.valid_to || '',
-                coverageType: data.insurance.coverage_type || 'Private',
+                coverageType: data.insurance.coverage_type,
                 isActive: data.insurance.is_active ?? true,
               }
             : null,
-          lastUpdated: data.last_updated || new Date().toISOString(),
+          lastUpdated: data.last_updated,
         });
-      } else {
-        setProfile(null);
-      }
     } catch (error) {
       console.error('Failed to load profile:', error);
       setProfile(null);
@@ -214,6 +201,17 @@ export function MyProfilePage() {
   const flash = (message: string) => {
     setSaveSuccess(message);
     setTimeout(() => setSaveSuccess(null), 3000);
+  };
+
+  const coverageTypeLabel = (coverageType: PatientInsurance['coverageType']) => {
+    switch (coverageType) {
+      case 'Public': return t('profile.coveragePublic');
+      case 'Private': return t('profile.coveragePrivate');
+      case 'Employer': return t('profile.coverageEmployer');
+      case 'NHIS': return t('profile.coverageNHIS');
+      case 'Community': return t('profile.coverageCommunity');
+      case 'None': return t('profile.coverageNone');
+    }
   };
 
   /**
@@ -1002,7 +1000,7 @@ export function MyProfilePage() {
             </div>
             <div>
               <label className="text-sm text-content-muted">{t('profile.insuranceCoverageType')}</label>
-              <p className="font-medium text-content">{profile.insurance.coverageType}</p>
+              <p className="font-medium text-content">{coverageTypeLabel(profile.insurance.coverageType)}</p>
             </div>
             <div>
               <label className="text-sm text-content-muted">{t('profile.insuranceValidTo')}</label>

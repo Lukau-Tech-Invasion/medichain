@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuthStore } from '../store';
 import {
-  apiUrl,
   exportDocumentToPdf,
-  getApiClient,
   getApiErrorMessage,
+  getAllLabSubmissions,
   getLabPanels,
   getPatients,
+  reviewLabResult,
   submitLabResults,
   useTranslation,
   clickable,
@@ -55,7 +54,6 @@ interface LabSubmission {
 
 function LabResultsPage() {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
   const [submissions, setSubmissions] = useState<LabSubmission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -170,28 +168,19 @@ function LabResultsPage() {
   const fetchSubmissions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const statusParam = filterStatus === 'all' ? '' : `?status=${filterStatus}`;
-      const response = await fetch(apiUrl(`/api/lab/submissions${statusParam}`), {
-        headers: {
-          ...getApiClient().getSessionHeaders(user?.userId),
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Handle both array response and object with submissions field
-        const submissionsArray = Array.isArray(data) ? data : (data.submissions || data.results || []);
-        setSubmissions(submissionsArray);
-      } else {
-        console.error('Failed to fetch lab submissions');
-        setSubmissions([]);
-      }
+      // The shared client owns authentication, retries and response-envelope
+      // normalization. It returns the server's submission array, not a
+      // guessed browser-fetch shape.
+      const status = filterStatus === 'all' ? undefined : filterStatus;
+      const response = await getAllLabSubmissions(status);
+      setSubmissions(response);
     } catch (error) {
       console.error('Error fetching lab submissions:', error);
       setSubmissions([]);
     } finally {
       setIsLoading(false);
     }
-  }, [filterStatus, user?.userId]);
+  }, [filterStatus]);
 
   useEffect(() => {
     fetchSubmissions();
@@ -200,28 +189,14 @@ function LabResultsPage() {
   const handleApprove = async (submissionId: string) => {
     setIsReviewing(submissionId);
     try {
-      const response = await fetch(apiUrl(`/api/lab/submissions/${submissionId}/review`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user?.userId),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-        },
-        body: JSON.stringify({ action: 'approve' }),
-      });
-      
-      if (response.ok) {
-        // Update local state
-        setSubmissions(prev => 
-          prev.map(s => 
-            s.id === submissionId 
-              ? { ...s, status: 'approved' as const, reviewed_by: user?.userId, reviewed_at: new Date().toISOString() }
-              : s
-          )
-        );
-      } else {
-        console.error('Failed to approve submission');
-      }
+      const response = await reviewLabResult({ submission_id: submissionId, action: 'approve' });
+      setSubmissions((previous) =>
+        previous.map((submission) =>
+          submission.id === submissionId
+            ? { ...submission, status: response.status }
+            : submission
+        )
+      );
     } catch (error) {
       console.error('Failed to approve:', error);
     } finally {
@@ -234,36 +209,24 @@ function LabResultsPage() {
     
     setIsReviewing(submissionId);
     try {
-      const response = await fetch(apiUrl(`/api/lab/submissions/${submissionId}/review`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user?.userId),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-        },
-        body: JSON.stringify({ action: 'reject', rejection_reason: rejectionReason }),
+      const response = await reviewLabResult({
+        submission_id: submissionId,
+        action: 'reject',
+        rejection_reason: rejectionReason.trim(),
       });
-      
-      if (response.ok) {
-        // Update local state
-        setSubmissions(prev => 
-          prev.map(s => 
-            s.id === submissionId 
-              ? { 
-                  ...s, 
-                  status: 'rejected' as const, 
-                  reviewed_by: user?.userId, 
-                  reviewed_at: new Date().toISOString(),
-                  rejection_reason: rejectionReason,
-                }
-              : s
-          )
-        );
-        setShowRejectModal(null);
-        setRejectionReason('');
-      } else {
-        console.error('Failed to reject submission');
-      }
+      setSubmissions((previous) =>
+        previous.map((submission) =>
+          submission.id === submissionId
+            ? {
+                ...submission,
+                status: response.status,
+                rejection_reason: rejectionReason.trim(),
+              }
+            : submission
+        )
+      );
+      setShowRejectModal(null);
+      setRejectionReason('');
     } catch (error) {
       console.error('Failed to reject:', error);
     } finally {

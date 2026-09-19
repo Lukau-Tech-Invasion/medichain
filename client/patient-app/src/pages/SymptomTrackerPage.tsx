@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getSymptomHistory, logSymptom, retractSymptom, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -26,7 +26,7 @@ interface SymptomEntry {
   id: string;
   symptom: string;
   category: string;
-  severity: 1 | 2 | 3 | 4 | 5;
+  severity: number;
   timestamp: string;
   duration?: string;
   notes?: string;
@@ -123,23 +123,16 @@ export function SymptomTrackerPage() {
     try {
       const patientId = patient.healthId;
       
-      // Reads the symptom DIARY (what `/api/symptoms/log` below writes), not
-      // `/api/symptoms/history/{id}` — that returns symptom-CHECKER chat
-      // sessions, a different concept, which is why this list was always empty.
-      const response = await fetch(apiUrl(`/api/symptoms/${patientId}`), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(patient.walletAddress),
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        setEntries(data.entries || []);
-      } else {
-        setApiConnected(false);
-      }
+      // Reads the symptom diary, not the separate symptom-checker chat history.
+      const data = await getSymptomHistory(patientId);
+      setApiConnected(true);
+      setEntries(data.entries.map((entry) => ({
+        ...entry,
+        category: entry.category ?? 'general',
+        severity: entry.severity,
+        duration: entry.duration ?? undefined,
+        notes: entry.notes ?? undefined,
+      })));
     } catch {
       setApiConnected(false);
     } finally {
@@ -160,7 +153,7 @@ export function SymptomTrackerPage() {
       id: `SYM-${Date.now()}`,
       symptom: newEntry.symptom,
       category: newEntry.category,
-      severity: newEntry.severity as 1 | 2 | 3 | 4 | 5,
+      severity: newEntry.severity ?? 3,
       timestamp: new Date().toISOString(),
       duration: newEntry.duration,
       notes: newEntry.notes,
@@ -177,27 +170,16 @@ export function SymptomTrackerPage() {
     // Log symptom to API
     if (patient) {
       try {
-        const response = await fetch(apiUrl('/api/symptoms/log'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(patient.walletAddress),
-            'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-            'X-Health-Id': patient.healthId,
-          },
-          body: JSON.stringify({
-            patient_id: patient.healthId,
-            symptom: entry.symptom,
-            severity: entry.severity,
-            notes: entry.notes,
-          }),
+        await logSymptom({
+          patient_id: patient.healthId,
+          symptom: entry.symptom,
+          category: entry.category,
+          severity: entry.severity,
+          duration: entry.duration,
+          notes: entry.notes,
+          triggers: entry.triggers,
+          relieved_by: entry.relievedBy,
         });
-        if (!response.ok) {
-          // A 4xx resolves like a 201, so the rollback below only ever ran on
-          // a transport failure. A symptom the server refused stayed on the
-          // patient's screen looking recorded.
-          throw new Error('symptom log refused');
-        }
       } catch (err) {
         // Surfaced, not warned about in a console the patient cannot see.
         //
@@ -211,8 +193,21 @@ export function SymptomTrackerPage() {
     }
   };
 
-  const deleteEntry = (id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async (id: string) => {
+    if (!patient) return;
+
+    const removedEntry = entries.find(entry => entry.id === id);
+    if (!removedEntry) return;
+
+    setSaveError(null);
+    setEntries(prev => prev.filter(entry => entry.id !== id));
+    try {
+      await retractSymptom(patient.healthId, id);
+    } catch (error) {
+      console.error('Failed to retract symptom entry:', error);
+      setEntries(prev => [removedEntry, ...prev]);
+      setSaveError(t('symptomTracker.retractFailed'));
+    }
   };
 
   const getSeverityColor = (severity: number) => {
@@ -233,7 +228,7 @@ export function SymptomTrackerPage() {
       case 3: return t('symptomTracker.sev3');
       case 4: return t('symptomTracker.sev4');
       case 5: return t('symptomTracker.sev5');
-      default: return t('symptomTracker.sevUnknown');
+      default: return t('symptomTracker.severityValue', { count: severity });
     }
   };
 
@@ -297,7 +292,7 @@ export function SymptomTrackerPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
         </div>
       </div>
@@ -360,6 +355,7 @@ export function SymptomTrackerPage() {
                   <button
                     onClick={() => deleteEntry(entry.id)}
                     className="p-1 text-content-muted hover:text-red-500 transition-colors"
+                    aria-label={t('symptomTracker.retractEntry')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -509,7 +505,7 @@ export function SymptomTrackerPage() {
                       {[1, 2, 3, 4, 5].map(level => (
                         <button
                           key={level}
-                          onClick={() => setNewEntry(prev => ({ ...prev, severity: level as 1|2|3|4|5 }))}
+                          onClick={() => setNewEntry(prev => ({ ...prev, severity: level }))}
                           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
                             newEntry.severity === level
                               ? getSeverityColor(level)

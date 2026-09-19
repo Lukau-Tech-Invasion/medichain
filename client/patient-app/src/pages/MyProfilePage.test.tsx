@@ -3,20 +3,16 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MyProfilePage } from './MyProfilePage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
 
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
-
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  apiUrl: (path: string) => path,
-  addEmergencyContact: vi.fn(),
+  getPatient: vi.fn(),
 }));
 
 const mockPatientId = 'HEALTH123';
@@ -41,29 +37,26 @@ describe('MyProfilePage (Patient)', () => {
       (selector: (state: unknown) => unknown) => selector(storeState),
     );
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({
-          patient_id: 'HEALTH123',
-          full_name: 'Test Patient',
-          date_of_birth: '1990-01-01',
-          national_id: 'ID12345',
-          emergency_info: {
-            blood_type: 'O+',
-            allergies: [{ name: 'Peanuts' }],
-            chronic_conditions: ['Asthma'],
-            current_medications: ['Inhaler'],
-            emergency_contacts: [
-              { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife' }
-            ],
-            organ_donor: true,
-            dnr_status: false,
-          },
-          last_updated: '2025-01-01',
-        }),
-      });
+    vi.mocked(shared.getPatient).mockResolvedValue({
+      patient_id: 'HEALTH123',
+      full_name: 'Test Patient',
+      date_of_birth: '1990-01-01',
+      national_id: 'ID12345',
+      emergency_info: {
+        patient_id: 'HEALTH123',
+        blood_type: 'O+',
+        allergies: [{ name: 'Peanuts', severity: 'mild', reaction: '' }],
+        chronic_conditions: ['Asthma'],
+        current_medications: ['Inhaler'],
+        emergency_contacts: [
+          { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife' }
+        ],
+        organ_donor: true,
+        dnr_status: false,
+        last_updated: '2025-01-01',
+      },
+      last_updated: '2025-01-01',
+      created_at: '2025-01-01',
     });
   });
 

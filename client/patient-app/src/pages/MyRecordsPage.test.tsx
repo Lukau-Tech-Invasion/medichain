@@ -51,6 +51,23 @@ describe('MyRecordsPage (Patient)', () => {
           }),
         });
       }
+      if (url.includes('/api/clinical/patient/') && url.includes('/vitals')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({
+            readings: [{
+              reading_id: 'VIT-1',
+              heart_rate: 84,
+              systolic_bp: 122,
+              diastolic_bp: 78,
+              temperature_celsius: 37.2,
+              recorded_by: 'Dr. Smith',
+              recorded_at: '2025-01-02T10:00:00Z',
+            }],
+          }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         headers: new Headers({ 'content-type': 'application/json' }),
@@ -69,6 +86,19 @@ describe('MyRecordsPage (Patient)', () => {
     await waitFor(() => {
       expect(screen.getByText(/My Medical Records/i)).toBeInTheDocument();
       expect(screen.getByText(/Blood Count/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders persisted vital readings from the current API contract', async () => {
+    render(
+      <MemoryRouter>
+        <MyRecordsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/BP 122\/78/)).toBeInTheDocument();
+      expect(screen.getByText(/37\.2 C/)).toBeInTheDocument();
     });
   });
 

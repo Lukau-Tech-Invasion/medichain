@@ -2,26 +2,20 @@ import { useEffect, useState } from 'react';
 import {
   createMedicationReminder,
   getPatientReminders,
+  type MedicationReminder,
   useTranslation,
   Input,
   useValidatedForm,
   medicationReminderSchema,
 } from '@medichain/shared';
 
-/** One reminder as `GET /api/reminders/medication/{id}` returns it. */
-interface PatientReminder {
-  id: string;
-  medication: string;
-  dosage: string;
-  schedule?: string[];
-}
 import { usePatientAuthStore } from '../store/authStore';
 
 export function MedicationRemindersPage() {
   const { t } = useTranslation();
   // Use wallet-authenticated patient from auth store
   const { patient } = usePatientAuthStore();
-  const [reminders, setReminders] = useState<PatientReminder[]>([]);
+  const [reminders, setReminders] = useState<MedicationReminder[]>([]);
   const [loading, setLoading] = useState(true);
 
   // The Add Reminder button used to be a `<button>` with no `onClick`.
@@ -53,7 +47,7 @@ export function MedicationRemindersPage() {
   const load = async (healthId: string) => {
     try {
       const res = await getPatientReminders(healthId);
-      setReminders((res.reminders || []) as unknown as PatientReminder[]);
+      setReminders(res.reminders);
     } catch (err) {
       console.error(err);
       setError(t('medications.remindersLoadFailed'));
@@ -151,11 +145,11 @@ export function MedicationRemindersPage() {
           <p className="text-content-muted">{t('medications.noReminders')}</p>
         ) : (
           reminders.map((reminder) => (
-            <div key={reminder.id} className="bg-surface p-4 rounded-lg shadow border-l-4 border-blue-500">
-              <h3 className="font-bold">{reminder.medication}</h3>
+            <div key={reminder.reminder_id} className="bg-surface p-4 rounded-lg shadow border-l-4 border-blue-500">
+              <h3 className="font-bold">{reminder.medication_name}</h3>
               <p className="text-sm text-content-muted">{t('medications.dosageColon', { dosage: reminder.dosage })}</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {reminder.schedule?.map((time: string) => (
+                {reminder.reminder_times.map((time) => (
                   <span key={time} className="bg-notice-subtle text-notice-subtle-fg text-xs px-2 py-1 rounded-full">
                     {time}
                   </span>

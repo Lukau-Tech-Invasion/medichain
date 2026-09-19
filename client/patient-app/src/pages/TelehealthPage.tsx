@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiUrl, getApiClient, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
+import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
+import type { TelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -13,17 +14,6 @@ import {
   WifiOff,
   ExternalLink,
 } from 'lucide-react';
-
-interface TelehealthSession {
-  session_id: string;
-  provider_id: string;
-  provider_name?: string;
-  patient_join_url?: string;
-  scheduled_start: number;
-  scheduled_end?: number;
-  status?: string;
-  duration_minutes?: number;
-}
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -46,7 +36,7 @@ interface JoinResponse {
  * Features:
  * - View upcoming telehealth sessions with join button
  * - View past sessions with duration/status
- * - Opens patient_join_url in new tab
+ * - Joins the provider-issued room through the authenticated join endpoint
  *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -68,23 +58,9 @@ export function TelehealthPage() {
     if (!patient) return;
     setLoading(true);
     try {
-      const response = await fetch(
-        apiUrl(`/api/telehealth/patient/${patient.healthId}/sessions`),
-        {
-          headers: {
-            ...getApiClient().getSessionHeaders(patient.walletAddress),
-            'X-Health-Id': patient.healthId,
-          },
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setSessions(data.sessions || []);
-        setApiConnected(true);
-      } else {
-        setApiConnected(false);
-        setSessions([]);
-      }
+      const data = await listMyTelehealthSessions();
+      setSessions(data.sessions);
+      setApiConnected(true);
     } catch (err) {
       console.error('Failed to load telehealth sessions:', err);
       setApiConnected(false);
@@ -117,7 +93,7 @@ export function TelehealthPage() {
 
   /**
    * Join a session: ask the backend for Jitsi credentials (domain/room/JWT) and
-   * open the in-browser call. Falls back to the raw patient_join_url iframe if
+   * open the in-browser call. Falls back to the server-provided room URL if
    * the provider returns no credentials.
    */
   const joinById = async (sessionId: string, fallbackUrl?: string) => {
@@ -142,7 +118,7 @@ export function TelehealthPage() {
   };
 
   const handleJoin = (session: TelehealthSession) => {
-    void joinById(session.session_id, session.patient_join_url);
+    void joinById(session.session_id, session.video_room_url);
   };
 
   const now = Date.now() / 1000;
@@ -164,10 +140,6 @@ export function TelehealthPage() {
 
   const formatDuration = (session: TelehealthSession) => {
     if (session.duration_minutes) return t('telehealth.minutes', { mins: session.duration_minutes });
-    if (session.scheduled_end) {
-      const mins = Math.round((session.scheduled_end - session.scheduled_start) / 60);
-      return t('telehealth.minutes', { mins });
-    }
     return '';
   };
 
@@ -204,7 +176,7 @@ export function TelehealthPage() {
           apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
         }`}>
           {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {apiConnected ? t('common.live') : t('common.demo')}
+          {apiConnected ? t('common.live') : t('common.dataUnavailable')}
         </span>
       </div>
 
@@ -243,9 +215,7 @@ export function TelehealthPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-content">
-                    {session.provider_name
-                      ? t('telehealth.providerPrefix', { name: session.provider_name })
-                      : t('telehealth.providerFallback', { id: session.provider_id })}
+                    {t('telehealth.providerPrefix', { name: session.provider_id })}
                   </h3>
                   <p className="text-sm text-content-muted flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
