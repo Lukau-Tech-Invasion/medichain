@@ -69,11 +69,36 @@ defects no gate measures. Each is fixed and covered by a test:
 | Blockchain operational claims | No multi-validator testnet, consortium governance, validator hosts, session-key procedure or recovery rehearsal. | Governed testnet, finality/partition/upgrade/recovery drills and operational ownership. |
 | Legal Terms, Privacy/PAIA and data-subject contact path | Legal content is not supplied by engineering. | Reviewed, approved legal copy and a maintained support/contact process. |
 
+## Verified against a live server, 2026-09-19
+
+All against a locally built API (commit `588bc50`) on PostgreSQL, not the
+Docker image:
+
+| Suite | Result |
+| --- | --- |
+| Live probes of every changed endpoint, with the pages' payloads | 22/22 |
+| Doctor-portal browser suite (`playwright.local-api.config.ts`) | 78/78 |
+| Patient-app browser suite (`playwright.local-api.config.ts`) | 73/74 — see below |
+| Role journeys (`scripts/role-journeys.ts`) | 266/266, 2 legitimate skips |
+| Cross-role qualification | 117/117 |
+| Synthetic e2e on a freshly created database | 261/0 |
+
+The startup name-index backfill ran against the dev database: 152 patients
+indexed, 69 undecryptable (rows sealed under a key this deployment no longer
+holds — they are equally absent from the roster).
+
+**Open: an intermittent WCAG 2.4.11 failure.** `accessibility.spec.ts` "a
+focused control is never hidden behind the sticky header" (mobile) failed once
+in the full run and once in twelve isolated repeats: the dashboard's
+notification and sign-out buttons end up under the shared layout's sticky nav.
+`index.css` already sets `scroll-margin-top: 4.5rem` on every focusable
+element, so the likeliest cause is a layout shift after focus has scrolled
+(content loading above the header). Predates the 2026-09-18/19 changes.
+
 ## Verification still required
 
-- Run the full Docker/PostgreSQL lifecycle and browser suites on a host with
-  sufficient disk capacity; source and focused tests do not prove deployment,
-  persistence, browser workflows or external providers.
+- The browser suites above ran against the local debug build; rebuild the
+  Docker images (`api` and `nginx`) before trusting the stack on :80.
 - Re-run the Substrate pallet test suite on a host able to build the required
   Polkadot SDK workspace.
 - Qualify all configured external adapters with real authorised credentials;
