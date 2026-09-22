@@ -515,7 +515,7 @@ export function EmergencyCardPage() {
           <div className="mt-4 space-y-4">
             {/* Allergies */}
             {emergencyData.allergies.length > 0 ? (
-              <div className="p-3 bg-emergency-50 border border-emergency-200 rounded-xl">
+              <div className="p-3 bg-critical-subtle border border-critical-subtle-fg/20 rounded-xl">
                 <div className="flex items-center gap-2 text-critical-subtle-fg font-medium mb-2">
                   <AlertTriangle className="w-4 h-4" />
                   {t('emergency.allergies')}

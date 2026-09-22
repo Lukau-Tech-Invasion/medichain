@@ -515,7 +515,7 @@ export function MyProfilePage() {
       {/* Medical Info Card */}
       <div className="patient-card">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-emergency-50 rounded-xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-critical-subtle rounded-xl flex items-center justify-center">
             <Heart className="w-6 h-6 text-critical-subtle-fg" />
           </div>
           <div>
@@ -526,10 +526,10 @@ export function MyProfilePage() {
 
         <div className="space-y-6">
           {/* Blood Type */}
-          <div className="flex items-center justify-between p-4 bg-emergency-50 rounded-xl">
+          <div className="flex items-center justify-between p-4 bg-critical-subtle rounded-xl">
             <div className="flex items-center gap-3">
               <Droplets className="w-6 h-6 text-critical-subtle-fg" />
-              <span className="font-medium text-content">{t('profile.bloodType')}</span>
+              <span className="font-medium text-critical-subtle-fg">{t('profile.bloodType')}</span>
             </div>
             <span className="text-2xl font-bold text-critical-subtle-fg">{profile?.bloodType}</span>
           </div>
@@ -1057,7 +1057,7 @@ export function MyProfilePage() {
 
         {/* Add New Contact Form */}
         {isAddingContact && (
-          <div className="mb-6 p-4 bg-success-50 rounded-xl border border-success-200">
+          <div className="mb-6 p-4 bg-ok-subtle rounded-xl border border-ok-subtle-fg/20">
             <h3 className="font-medium text-content mb-4">{t('profile.addEmergencyContact')}</h3>
             <div className="space-y-4">
               <div>

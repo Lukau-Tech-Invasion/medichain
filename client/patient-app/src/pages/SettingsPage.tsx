@@ -372,8 +372,8 @@ export function SettingsPage() {
         </button>
       </div>
 
-      {settingsError && <div role="alert" className="rounded-xl border border-emergency-200 bg-emergency-50 p-3 text-critical-subtle-fg">{settingsError}</div>}
-      {supportNotice && <div role="status" className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-warning-700">{supportNotice}</div>}
+      {settingsError && <div role="alert" className="rounded-xl border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-critical-subtle-fg">{settingsError}</div>}
+      {supportNotice && <div role="status" className="rounded-xl border border-caution-subtle-fg/20 bg-caution-subtle p-3 text-caution-subtle-fg">{supportNotice}</div>}
 
       {/* Account Section */}
       <div className="patient-card">
@@ -807,7 +807,7 @@ export function SettingsPage() {
       {/* Logout Button */}
       <button
         onClick={() => setShowLogoutConfirm(true)}
-        className="w-full flex items-center justify-center gap-2 py-4 text-critical-subtle-fg hover:bg-emergency-50 rounded-xl transition-colors"
+        className="w-full flex items-center justify-center gap-2 py-4 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors"
       >
         <LogOut className="w-5 h-5" />
         <span className="font-medium">{t('settings.signOut')}</span>
@@ -824,7 +824,7 @@ export function SettingsPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-surface rounded-2xl w-full max-w-sm p-6">
             <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
                 <LogOut className="w-8 h-8 text-critical-subtle-fg" />
               </div>
               <h3 className="text-xl font-semibold text-content mb-2">

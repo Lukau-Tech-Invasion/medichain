@@ -349,7 +349,7 @@ function AccessLogsPage() {
                 {logs.filter(l => l.emergency).length}
               </p>
             </div>
-            <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-critical-subtle rounded-lg flex items-center justify-center">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
             </div>
           </div>

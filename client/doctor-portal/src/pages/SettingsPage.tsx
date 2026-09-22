@@ -633,7 +633,7 @@ function SettingsPage() {
                 </div>
 
                 <div className="pt-4">
-                  <button className="px-4 py-2 text-critical-subtle-fg border border-emergency-300 rounded-lg hover:bg-emergency-50 transition-colors">
+                  <button className="px-4 py-2 text-critical-subtle-fg border border-critical-subtle-fg/30 rounded-lg hover:bg-critical-subtle transition-colors">
                     {t('docSettings.changePassword')}
                   </button>
                 </div>

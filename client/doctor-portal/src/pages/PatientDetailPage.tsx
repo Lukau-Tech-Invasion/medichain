@@ -711,7 +711,7 @@ function PatientDetailPage() {
           {/* Emergency Contacts */}
           <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
-              <Phone className="text-success-600" size={20} />
+              <Phone className="text-ok" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.emergencyContacts')}</h3>
             </div>
             {patient.emergencyContacts.map((contact, i) => (

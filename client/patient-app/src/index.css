@@ -98,17 +98,29 @@ body {
   }
 
   .action-btn-outline {
-    @apply action-btn border-2 border-neutral-200 text-neutral-700 hover:bg-neutral-50;
+    @apply action-btn border-2 border-border text-content hover:bg-surface-sunken;
   }
 
-  /* Info card */
+  /* Tinted status cards.
+     These are defined with the semantic subtle tokens, not fixed Tailwind
+     shades. `bg-info-light` and `bg-emergency-50` are light in both themes,
+     so a card carrying them kept a near-white background in dark mode while
+     the text inside it -- written against `text-critical-subtle-fg`, which
+     DOES flip -- turned light too. The patient dashboard's critical-allergy
+     panel measured 1.03:1 that way: the word "Allergies" was invisible to
+     the person whose allergy it is. A card and its contents have to come
+     from the same pair. */
   .info-card {
-    @apply bg-info-light border border-info/20 rounded-xl p-4;
+    @apply bg-notice-subtle border border-notice-subtle-fg/20 rounded-xl p-4;
   }
 
-  /* Warning card */
   .warning-card {
-    @apply bg-emergency-50 border border-emergency-400/20 rounded-xl p-4;
+    @apply bg-caution-subtle border border-caution-subtle-fg/20 rounded-xl p-4;
+  }
+
+  /* For a panel that is an alarm rather than a caution -- allergies, alerts. */
+  .critical-card {
+    @apply bg-critical-subtle border border-critical-subtle-fg/20 rounded-xl p-4;
   }
 
   /* Navigation link - patient app style */

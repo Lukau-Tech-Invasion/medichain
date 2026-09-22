@@ -272,7 +272,7 @@ export function DashboardPage() {
           to="/emergency-card"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-emergency-50 rounded-2xl flex items-center justify-center">
+          <div className="w-14 h-14 bg-critical-subtle rounded-2xl flex items-center justify-center">
             <QrCode className="w-7 h-7 text-critical-subtle-fg" />
           </div>
           <div className="text-center">
@@ -286,7 +286,7 @@ export function DashboardPage() {
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center">
-            <FileText className="w-7 h-7 text-primary-500" />
+            <FileText className="w-7 h-7 text-brand-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.myRecords')}</div>
@@ -298,8 +298,8 @@ export function DashboardPage() {
           to="/consent"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-success-50 rounded-2xl flex items-center justify-center">
-            <Shield className="w-7 h-7 text-success-500" />
+          <div className="w-14 h-14 bg-ok-subtle rounded-2xl flex items-center justify-center">
+            <Shield className="w-7 h-7 text-ok-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.accessControl')}</div>
@@ -311,8 +311,8 @@ export function DashboardPage() {
           to="/profile"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-info-light rounded-2xl flex items-center justify-center">
-            <Activity className="w-7 h-7 text-info" />
+          <div className="w-14 h-14 bg-notice-subtle rounded-2xl flex items-center justify-center">
+            <Activity className="w-7 h-7 text-notice-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.myProfile')}</div>
@@ -323,16 +323,19 @@ export function DashboardPage() {
 
       {/* Critical Alerts */}
       {patientData?.allergies && patientData.allergies.length > 0 && (
-        <div className="warning-card">
+        <div className="critical-card">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle className="w-5 h-5 text-critical-subtle-fg" />
             <span className="font-medium text-critical-subtle-fg">{t('dashboard.criticalAllergies')}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {patientData.allergies.map((allergy, idx) => (
+              // Solid, not subtle: the card behind these is already the subtle
+              // tint, so a subtle chip on it is the same colour as the card and
+              // the allergy stops looking like a discrete item.
               <span
                 key={idx}
-                className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm font-medium"
+                className="px-3 py-1 bg-critical text-critical-fg rounded-full text-sm font-medium"
               >
                 {allergy}
               </span>
@@ -362,8 +365,8 @@ export function DashboardPage() {
             >
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                 activity.type === 'access' ? 'bg-brand-subtle text-brand-subtle-fg' :
-                activity.type === 'update' ? 'bg-success-100 text-success-600' :
-                'bg-info-light text-info'
+                activity.type === 'update' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                'bg-notice-subtle text-notice-subtle-fg'
               }`}>
                 {activity.type === 'access' ? <Shield className="w-5 h-5" /> :
                  activity.type === 'update' ? <FileText className="w-5 h-5" /> :
@@ -386,12 +389,12 @@ export function DashboardPage() {
       {/* Last Visit Info */}
       <div className="info-card flex items-center justify-between">
         <div>
-          <p className="text-sm text-info-dark font-medium inline-flex items-center min-h-[24px] py-1">{t('dashboard.lastVisit')}</p>
-          <p className="text-info">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
+          <p className="text-sm text-notice-subtle-fg font-medium inline-flex items-center min-h-[24px] py-1">{t('dashboard.lastVisit')}</p>
+          <p className="text-notice-subtle-fg">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
         </div>
         <Link
           to="/records"
-          className="text-sm text-info font-medium hover:underline flex items-center gap-1 inline-flex items-center min-h-[24px] py-1"
+          className="text-sm text-notice-subtle-fg font-medium hover:underline flex items-center gap-1 inline-flex items-center min-h-[24px] py-1"
         >
           {t('dashboard.viewDetails')} <ChevronRight className="w-4 h-4" />
         </Link>

@@ -356,14 +356,14 @@ export function ConsentManagementPage() {
           className="warning-card flex items-center gap-3 cursor-pointer"
           {...clickable(() => setActiveTab('requests'))}
         >
-          <AlertTriangle className="w-5 h-5 text-warning-600 flex-shrink-0" />
+          <AlertTriangle className="w-5 h-5 text-caution-subtle-fg flex-shrink-0" />
           <div className="flex-1">
-            <p className="font-medium text-warning-800">
+            <p className="font-medium text-caution-subtle-fg">
               {t('consent.pendingRequestsCount', { count: pendingRequests.length })}
             </p>
-            <p className="text-sm text-warning-600">{t('consent.tapToReview')}</p>
+            <p className="text-sm text-caution-subtle-fg">{t('consent.tapToReview')}</p>
           </div>
-          <ChevronRight className="w-5 h-5 text-warning-400" />
+          <ChevronRight className="w-5 h-5 text-caution-subtle-fg" />
         </div>
       )}
 
@@ -766,7 +766,7 @@ export function ConsentManagementPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
             <div className="text-center">
-              <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" />
               </div>
               <h3 className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>

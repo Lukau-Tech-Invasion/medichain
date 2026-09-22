@@ -279,7 +279,7 @@ function RegisterPatientPage() {
       </div>
 
       {error && (
-        <div className="mb-6 bg-emergency-50 border border-emergency-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="mb-6 bg-critical-subtle border border-critical-subtle-fg/20 rounded-lg p-4 flex items-center gap-3">
           <AlertTriangle className="text-critical-subtle-fg" size={20} />
           <p className="text-critical-subtle-fg">{error}</p>
         </div>
