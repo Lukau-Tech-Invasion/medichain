@@ -193,7 +193,8 @@ export const ADMIN_NAV: NavSection[] = [
     icon: Home,
     defaultExpanded: true,
     items: [
-      { id: 'dashboard', to: '/admin', label: 'Dashboard', icon: Home, priority: 'high' },
+      { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
+      { id: 'admin-console', to: '/admin', label: 'Admin Console', icon: Settings, priority: 'high' },
       { id: 'users', to: '/user-management', label: 'User Management', icon: UserCog, priority: 'high' },
       { id: 'patients', to: '/patients', label: 'Patient Search', icon: Search },
     ],
@@ -771,7 +772,20 @@ const ASSIGNED_ROUTES: ReadonlySet<string> = new Set(
  * them in the first place. Neither is redundant: the API is the authority, and
  * this is what keeps a clinician from being shown a control that will fail.
  */
+/**
+ * Where every role lands after signing in.
+ *
+ * `LoginPage` sends all roles to `/dashboard`, and `SmartDashboardRouter`
+ * renders each one their own screen there. `ADMIN_NAV` links to `/admin`
+ * instead, so `/dashboard` was not among the administrator's routes and this
+ * guard refused the page they had just been sent to: an administrator signed
+ * in and was told "This screen is restricted to doctors, nurses, laboratory
+ * technicians". It is nobody's exclusive route; it belongs to all of them.
+ */
+const SHARED_ROUTES = new Set(['/dashboard']);
+
 export function rolesOwningRoute(role: Role, path: string): Role[] {
+  if (SHARED_ROUTES.has(path)) return [];
   if (!ASSIGNED_ROUTES.has(path)) return [];
   const own = new Set(pathsOf(getNavForRole(role)));
   if (own.has(path)) return [];

@@ -3303,6 +3303,7 @@ const en_US: TranslationRecord = {
     title: 'Emergency Protocols',
     patientId: 'Patient ID: {{id}}',
     newRecord: 'New Emergency Record',
+    patientSelectLabel: 'Patient',
     tabCodeBlue: 'Code Blue',
     tabTrauma: 'Trauma',
     tabStroke: 'Stroke',

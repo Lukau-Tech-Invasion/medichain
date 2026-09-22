@@ -14,6 +14,7 @@ import {
   Clock,
   User
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 interface CodeBlueRecord {
   code_blue_id: string;
@@ -74,7 +75,13 @@ type EmergencyType = 'code_blue' | 'trauma' | 'stroke' | 'cardiac' | 'sepsis';
 
 function EmergencyProtocolsPage() {
   const { t } = useTranslation();
-  const { patientId } = useParams<{ patientId: string }>();
+  const { patientId: routePatientId } = useParams<{ patientId: string }>();
+  // The sidebar links here with no patient in the path, so every read was
+  // `/api/emergency/{type}/patient/undefined` and the header said
+  // "Patient ID:" followed by nothing. A patient chosen on the page is the
+  // same patient as one named in the route.
+  const [chosenPatientId, setChosenPatientId] = useState('');
+  const patientId = routePatientId || chosenPatientId;
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<EmergencyType>('code_blue');
@@ -84,7 +91,7 @@ function EmergencyProtocolsPage() {
   const [cardiacRecords, setCardiacRecords] = useState<CardiacArrestProtocol[]>([]);
   const [sepsisRecords, setSepsisRecords] = useState<SepsisAssessment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
+
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -150,6 +157,15 @@ function EmergencyProtocolsPage() {
     return new Date(timestamp * 1000).toLocaleString();
   };
 
+  /** Where each protocol is actually documented. */
+  const PROTOCOL_ROUTE: Record<EmergencyType, string> = {
+    code_blue: '/code-blue',
+    trauma: '/trauma',
+    stroke: '/stroke',
+    cardiac: '/cardiac',
+    sepsis: '/sepsis',
+  };
+
   const tabs = [
     { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-notice-subtle-fg' },
     { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-content-secondary' },
@@ -171,14 +187,29 @@ function EmergencyProtocolsPage() {
             <p className="text-content-muted mt-1">{t('docEmergProto.patientId', { id: patientId ?? '' })}</p>
           </div>
         </div>
+        {/* This toggled a `showAddForm` flag that nothing read: the button
+            could be pressed for ever and no form existed to appear. Each
+            protocol already has its own screen, so "new record" opens the one
+            the active tab names. */}
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => navigate(PROTOCOL_ROUTE[activeTab])}
           className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2"
         >
           <Plus size={20} />
           {t('docEmergProto.newRecord')}
         </button>
       </div>
+
+      {!routePatientId && (
+        <div className="bg-surface rounded-xl shadow p-4 mb-6 max-w-md">
+          <PatientSelect
+            id="emergency-protocols-patient"
+            label={t('docEmergProto.patientSelectLabel')}
+            value={chosenPatientId}
+            onChange={(selectedPatientId) => setChosenPatientId(selectedPatientId)}
+          />
+        </div>
+      )}
 
       {/* Emergency Type Tabs */}
       <div className="bg-surface rounded-xl shadow mb-6">

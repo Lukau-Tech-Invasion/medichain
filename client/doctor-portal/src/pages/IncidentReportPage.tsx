@@ -94,11 +94,16 @@ function toIncident(row: IncidentRow): Incident {
     const d = new Date(value || '');
     return isNaN(d.getTime()) ? new Date() : d;
   };
+  // The API's vocabulary is snake_case (`medication_error`); this page's is
+  // hyphenated (`medication-error`). Normalise on the way in, or every badge
+  // lookup for such a row is `undefined`.
+  const vocabulary = (value: string | null | undefined, fallback: string) =>
+    (value || fallback).trim().replace(/_/g, '-').toLowerCase();
   return {
     id: row.id,
-    type: row.incident_type as IncidentType,
-    severity: row.severity as IncidentSeverity,
-    status: (row.investigation_status || 'open') as IncidentStatus,
+    type: vocabulary(row.incident_type, 'other') as IncidentType,
+    severity: vocabulary(row.severity, 'moderate') as IncidentSeverity,
+    status: vocabulary(row.investigation_status, 'open') as IncidentStatus,
     dateTime: asDate(row.incident_datetime),
     location: row.location || '',
     department: row.department || '',
@@ -239,7 +244,9 @@ const IncidentReportPage: React.FC = () => {
       'exposure': { bg: 'bg-surface-sunken text-content-secondary', icon: <AlertTriangle className="w-3 h-3" /> },
       'other': { bg: 'bg-surface-sunken text-content-secondary', icon: <FileText className="w-3 h-3" /> }
     };
-    const { bg, icon } = config[type];
+    // A value the map does not know is a display problem, not a reason to
+    // crash the router.
+    const { bg, icon } = config[type] ?? config.other;
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
@@ -257,7 +264,7 @@ const IncidentReportPage: React.FC = () => {
       'sentinel': 'bg-critical text-critical-fg'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity]}`}>
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity] ?? styles.moderate}`}>
         {t(`docIncidentReport.severity_${severity}`)}
       </span>
     );
@@ -271,7 +278,7 @@ const IncidentReportPage: React.FC = () => {
       'closed': { bg: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'escalated': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
-    const { bg, icon } = config[status];
+    const { bg, icon } = config[status] ?? config.open;
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
