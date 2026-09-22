@@ -524,7 +524,7 @@ const LabQCPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-content">{test.performedBy}</div>
+                        <div className="text-sm text-content">{staffName(test.performedBy)}</div>
                         {test.reviewedBy && (
                           <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(test.reviewedBy) })}</div>
                         )}
@@ -829,7 +829,7 @@ const LabQCPage: React.FC = () => {
                       <div className="text-xs text-content-muted">{t('docLabQC.expLine', { date: cal.expiryDate })}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-content">{cal.performedBy}</div>
+                      <div className="text-sm text-content">{staffName(cal.performedBy)}</div>
                       {cal.reviewedBy && (
                         <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(cal.reviewedBy) })}</div>
                       )}

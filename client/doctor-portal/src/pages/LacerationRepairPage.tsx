@@ -16,6 +16,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import StaffName from '../components/StaffName';
 import {
   createLaceration,
   getApiClient,
@@ -482,7 +483,7 @@ const LacerationRepairPage: React.FC = () => {
                   </span>
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    {repair.performedBy}
+                    <StaffName id={repair.performedBy} />
                   </span>
                 </div>
 

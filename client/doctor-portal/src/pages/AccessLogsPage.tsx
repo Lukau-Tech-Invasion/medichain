@@ -22,7 +22,7 @@ import {
   Loader2,
   Download
 } from 'lucide-react';
-import StaffName from '../components/StaffName';
+import StaffName, { useStaffDirectory } from '../components/StaffName';
 
 interface AccessLog {
   access_id: string;
@@ -39,6 +39,9 @@ function AccessLogsPage() {
   const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
   const { user } = useAuthStore();
+  // Resolves a wallet to the person's name for the CSV export; the table
+  // itself renders `<StaffName>`, which cannot be called inside a `.map()`.
+  const staffName = useStaffDirectory();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   // "Nobody has accessed any record" and "the audit trail could not be read"
@@ -201,12 +204,16 @@ function AccessLogsPage() {
   );
 
   const handleExport = () => {
-    // In production, this would generate a CSV/PDF report
+    // The accessor's NAME as well as their wallet. This file is the artefact
+    // somebody reads during an access review, and a column of SS58 addresses
+    // answers "was this access appropriate?" for nobody. The wallet stays
+    // beside it because it is the unambiguous identifier.
     const csvContent = [
-      'Access ID,Patient ID,Accessor ID,Role,Access Type,Location,Timestamp,Emergency',
-      ...filteredLogs.map(log => 
-        `${log.access_id},${log.patient_id},${log.accessor_id},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`
-      )
+      'Access ID,Patient ID,Accessor ID,Accessor Name,Role,Access Type,Location,Timestamp,Emergency',
+      ...filteredLogs.map(log => {
+        const name = (staffName(log.accessor_id) || '').replace(/,/g, ' ');
+        return `${log.access_id},${log.patient_id},${log.accessor_id},${name},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`;
+      })
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });

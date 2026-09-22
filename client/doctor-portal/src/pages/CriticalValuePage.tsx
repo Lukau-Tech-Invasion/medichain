@@ -587,7 +587,7 @@ const CriticalValuePage: React.FC = () => {
                     <div>
                       <p className="text-sm text-content-muted mb-1">{t('docCriticalValue.lblOrderingProvider')}</p>
                       <p className="font-semibold text-content">
-                        {notification.orderingProvider}
+                        <StaffName id={notification.orderingProvider} />
                       </p>
                     </div>
                     <div>
@@ -687,7 +687,7 @@ const CriticalValuePage: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-content-muted">{t('docCriticalValue.orderingProviderLabel')}</p>
-                        <p className="font-semibold">{selectedNotification.orderingProvider}</p>
+                        <p className="font-semibold"><StaffName id={selectedNotification.orderingProvider} /></p>
                       </div>
                     </div>
                   </div>
@@ -1071,7 +1071,7 @@ const CriticalValuePage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-content">{notification.orderingProvider}</p>
+                      <p className="text-sm text-content"><StaffName id={notification.orderingProvider} /></p>
                       {notification.notifiedProvider && (
                         <p className="text-xs text-content-muted">
                           {t('docCriticalValue.notifiedLine', { provider: notification.notifiedProvider })}
