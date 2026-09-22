@@ -168,6 +168,10 @@ services:
       JITSI_DOMAIN: ${JITSI_DOMAIN:-}
       # Where the browser actually connects. Defaults to https://<domain>.
       JITSI_PUBLIC_URL: ${JITSI_PUBLIC_URL:-}
+      # The address the API itself can reach, for the health probe. Inside the
+      # container `localhost` is the API, not Jitsi, so the browser's hostname
+      # reports the video service permanently unreachable.
+      JITSI_INTERNAL_URL: ${JITSI_INTERNAL_URL:-}
       JITSI_APP_ID: ${JITSI_APP_ID:-}
       JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
       JITSI_ROOM_PREFIX: ${JITSI_ROOM_PREFIX:-}

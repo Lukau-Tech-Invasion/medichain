@@ -591,12 +591,39 @@ pub async fn telehealth_health(data: web::Data<crate::AppState>) -> impl Respond
         .unwrap_or(false);
     let provider = data.telehealth_service.active_provider_name();
 
+    // The address the SERVER can reach, which is a third value distinct from
+    // both the XMPP domain the token is scoped to and the origin the browser
+    // opens. Inside a container `https://localhost/` is this API, not Jitsi,
+    // so probing the browser's hostname reported the video service
+    // permanently "unreachable" while it was running and healthy on the
+    // compose network at `http://jitsi-web/`.
+    //
+    // Defaults to the public origin, so a deployment where the two are the
+    // same configures nothing.
+    let probe_url = std::env::var("JITSI_INTERNAL_URL")
+        .ok()
+        .map(|url| url.trim().trim_end_matches('/').to_string())
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("JITSI_PUBLIC_URL")
+                .ok()
+                .map(|url| url.trim().trim_end_matches('/').to_string())
+                .filter(|url| !url.is_empty())
+                .unwrap_or_else(|| format!("https://{domain}"))
+        });
+
     let start = std::time::Instant::now();
     let probe = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        // A self-hosted Jitsi generates its own certificate, so a probe that
+        // insists on a trusted chain reports the service down for a reason
+        // that has nothing to do with whether it is up. This request carries
+        // no credentials and reads no data -- it asks whether the port
+        // answers.
+        .danger_accept_invalid_certs(true)
         .build();
     let (status, http_status) = match probe {
-        Ok(client) => match client.get(format!("https://{}/", domain)).send().await {
+        Ok(client) => match client.get(format!("{probe_url}/")).send().await {
             Ok(resp) => ("healthy", Some(resp.status().as_u16())),
             Err(_) => ("unreachable", None),
         },
