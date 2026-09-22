@@ -174,7 +174,21 @@ fn apply_demographics(
                 code: "INVALID_INPUT".to_string(),
             }));
         }
-        profile.insurance = Some(insurance.clone());
+        // A blank date is an absent one. The form marks both optional, so a
+        // patient who does not know their cover dates leaves them empty, and
+        // storing `""` would record a policy "valid from ''" — which reads as
+        // a value rather than as the absence it is.
+        let blank_to_none = |value: &Option<String>| -> Option<String> {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
+        let mut stored = insurance.clone();
+        stored.valid_from = blank_to_none(&insurance.valid_from);
+        stored.valid_to = blank_to_none(&insurance.valid_to);
+        profile.insurance = Some(stored);
     }
     if let Some(languages) = &req.languages {
         profile.emergency_info.languages = languages

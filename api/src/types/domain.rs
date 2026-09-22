@@ -375,10 +375,21 @@ pub struct InsuranceInfo {
     pub policy_number: String,
     /// Group number (optional)
     pub group_number: Option<String>,
-    /// Coverage start date (ISO 8601)
-    pub valid_from: String,
-    /// Coverage end date (ISO 8601)
-    pub valid_to: String,
+    /// Coverage start date (ISO 8601), when the patient gave one.
+    ///
+    /// Optional, and an empty string is normalised to `None` by the handler.
+    /// The profile form marks both dates optional — only provider and policy
+    /// number carry an asterisk — and it was posting `""` for a blank one,
+    /// which stored a policy "valid from ''". That is not a date and not an
+    /// absence: it renders as nothing or as "Invalid Date", and any later
+    /// question of the form "is this cover current?" compares against it and
+    /// gets an answer nobody entered. Rule 12 — an unmeasured thing is not a
+    /// zero, and here it is not an empty string either.
+    #[serde(default)]
+    pub valid_from: Option<String>,
+    /// Coverage end date (ISO 8601), when the patient gave one.
+    #[serde(default)]
+    pub valid_to: Option<String>,
     /// Type of coverage
     pub coverage_type: InsuranceCoverageType,
     /// Is the insurance currently active?

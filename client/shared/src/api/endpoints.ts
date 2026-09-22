@@ -267,8 +267,16 @@ export interface PatientInsuranceInput {
   provider: string;
   policy_number: string;
   group_number?: string | null;
-  valid_from: string;
-  valid_to: string;
+  /**
+   * Null when the patient did not give a date.
+   *
+   * The profile form marks both optional — only provider and policy number
+   * carry an asterisk — and this being a bare `string` is why the page sent
+   * `''`, which stored a policy "valid from ''". An empty string is a value;
+   * an absent date is not.
+   */
+  valid_from?: string | null;
+  valid_to?: string | null;
   coverage_type: 'Public' | 'Private' | 'Employer' | 'NHIS' | 'Community' | 'None';
   is_active: boolean;
 }

@@ -228,10 +228,18 @@ export interface InsuranceInfo {
   policy_number: string;
   /** Group number (optional) */
   group_number?: string;
-  /** Coverage start date (ISO 8601) */
-  valid_from: string;
-  /** Coverage end date (ISO 8601) */
-  valid_to: string;
+  /**
+   * Coverage start date (ISO 8601), or null when the patient did not give one.
+   *
+   * Nullable because the profile form marks both dates optional — only
+   * provider and policy number carry an asterisk. It used to be a bare
+   * `string` and the page posted `''` for a blank date, which stored a policy
+   * "valid from ''": not a date and not an absence, and any later question of
+   * "is this cover current?" compares against it.
+   */
+  valid_from?: string | null;
+  /** Coverage end date (ISO 8601), or null when the patient did not give one. */
+  valid_to?: string | null;
   /** Type of coverage */
   coverage_type: InsuranceCoverageType;
   /** Is the insurance currently active? */

@@ -383,8 +383,12 @@ export function MyProfilePage() {
           provider: insuranceDraft.provider.trim(),
           policy_number: insuranceDraft.policyNumber.trim(),
           group_number: insuranceDraft.groupNumber.trim() || null,
-          valid_from: insuranceDraft.validFrom,
-          valid_to: insuranceDraft.validTo,
+          // null, not '': the form marks both dates optional, and an empty
+          // string would be stored as a policy "valid from ''" -- a value
+          // where the patient entered nothing. Rule 9: a form sends only what
+          // it collected.
+          valid_from: insuranceDraft.validFrom.trim() || null,
+          valid_to: insuranceDraft.validTo.trim() || null,
           coverage_type: insuranceDraft.coverageType,
           is_active: insuranceDraft.isActive,
         },
