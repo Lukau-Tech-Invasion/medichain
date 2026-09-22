@@ -176,38 +176,43 @@ def check(findings, path, line_no, foregrounds, bg, frozen_set):
             findings.append((path, line_no, fg, bg, 'frozen text on a flipping background'))
 
 
+def check_element(findings, path, line_no, value, components, frozen_set, pending):
+    """Check one `className` value, in each theme layer it paints in.
+
+    `pending` carries a background forward from a wrapper that set one and no
+    foreground, keyed by layer. That is how the commonest spelling of this
+    defect is caught: `<div className="bg-emergency-50"><QrCode
+    className="text-critical-subtle-fg" /></div>` splits the two halves over
+    two lines, and the dashboard's emergency-card tile measured 1.03:1 in
+    exactly that shape. Keying by layer stops a `dark:` container from being
+    paired with the light theme's text.
+    """
+    # A template literal's ${...} holds conditional classes; keep the literal
+    # parts, which is where the static pairing lives.
+    value = re.sub(r'\$\{[^}]*\}', ' ', value)
+    for layer, utilities in layers(value.split(), components).items():
+        backgrounds = [c for c in utilities if c.startswith('bg-')]
+        foregrounds = [c for c in utilities if c.startswith('text-')]
+        if backgrounds and not foregrounds:
+            pending[layer] = (backgrounds[-1], line_no)
+            continue
+        if not foregrounds:
+            continue
+        if backgrounds:
+            # The nearest background wins when several are listed.
+            check(findings, path, line_no, foregrounds, backgrounds[-1], frozen_set)
+        elif layer in pending and line_no - pending[layer][1] <= 2:
+            check(findings, path, line_no, foregrounds, pending[layer][0], frozen_set)
+
+
 def scan(app_root, components, frozen_set, verbose):
     findings = []
     for path in sorted(app_root.rglob('*.tsx')):
-        text = path.read_text(encoding='utf-8')
         pending = {}
-        for line_no, line in enumerate(text.splitlines(), 1):
+        for line_no, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
             for match in CLASS_ATTR.finditer(line):
                 value = next(g for g in match.groups() if g is not None)
-                # A template literal's ${...} holds conditional classes; keep
-                # the literal parts, which is where the static pairing lives.
-                value = re.sub(r'\$\{[^}]*\}', ' ', value)
-                for layer, utilities in layers(value.split(), components).items():
-                    backgrounds = [c for c in utilities if c.startswith('bg-')]
-                    foregrounds = [c for c in utilities if c.startswith('text-')]
-                    if backgrounds and not foregrounds:
-                        # An element that only sets a background hands it to
-                        # whatever it wraps. `<div className="bg-emergency-50">
-                        # <QrCode className="text-critical-subtle-fg" /></div>`
-                        # is the same defect split over two lines, and it is the
-                        # commoner spelling of it: the dashboard's emergency-card
-                        # tile measured 1.03:1 in exactly that shape. Kept per
-                        # layer, so a `dark:` container never gets paired with
-                        # the text of the light theme.
-                        pending[layer] = (backgrounds[-1], line_no)
-                        continue
-                    if not foregrounds:
-                        continue
-                    if backgrounds:
-                        # The nearest background wins when several are listed.
-                        check(findings, path, line_no, foregrounds, backgrounds[-1], frozen_set)
-                    elif layer in pending and line_no - pending[layer][1] <= 2:
-                        check(findings, path, line_no, foregrounds, pending[layer][0], frozen_set)
+                check_element(findings, path, line_no, value, components, frozen_set, pending)
     if verbose:
         print(f'  scanned {app_root}')
     return findings
