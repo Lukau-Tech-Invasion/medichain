@@ -697,7 +697,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           type="text"
                           value={formData.mrn}
                           onChange={(e) => setFormData({ ...formData, mrn: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content"
                         />
                       </div>
                       <div className="md:col-span-3">
@@ -950,7 +950,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     </div>
                     <div>
                       <label htmlFor="hp-bmi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.bmiCalcLabel')}</label>
-                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-surface-sunken" readOnly placeholder="24.5"
+                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content" readOnly placeholder="24.5"
                         value={formData.vitalSigns.bmi} />
                     </div>
                   </div>

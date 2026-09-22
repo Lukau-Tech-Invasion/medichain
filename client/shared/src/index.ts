@@ -35,6 +35,8 @@ export type { SupportedLocale, LocaleConfig } from './i18n';
 
 // Credential-backed access to the clinician's signing key (staff login).
 export * from './auth/credentials';
+// The one place that decides whether the interface is dark.
+export * from './theme';
 
 // Wallet Types and Service (Blockchain Identity)
 export * from './wallet/types';

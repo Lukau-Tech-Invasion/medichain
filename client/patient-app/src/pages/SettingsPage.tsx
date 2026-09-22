@@ -13,6 +13,8 @@ import {
   saveUserSettings,
   updateMedicalIdPreferences,
   useTranslation,
+  setThemePreference,
+  readThemePreference,
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -121,7 +123,13 @@ export function SettingsPage() {
 
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [privacy, setPrivacy] = useState(DEFAULT_PRIVACY);
-  const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS);
+  const [appSettings, setAppSettings] = useState(() => ({
+    ...DEFAULT_APP_SETTINGS,
+    // Seed from the theme actually applied, so the switch shows the truth on
+    // first paint. Defaulting to `false` made it read "off" for a patient
+    // looking at a dark screen.
+    darkMode: readThemePreference() === 'dark',
+  }));
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -712,7 +720,15 @@ export function SettingsPage() {
             <ToggleSwitch
               label={t('settings.darkMode')}
               enabled={appSettings.darkMode}
-              onChange={() => setAppSettings(s => ({ ...s, darkMode: !s.darkMode }))}
+              onChange={() => {
+                const next = !appSettings.darkMode;
+                // Apply it, not just record it. `setThemePreference` puts the
+                // class on <html> and sets color-scheme, which is what the
+                // Tailwind dark palette and the browser's own form controls
+                // both read.
+                setThemePreference(next ? 'dark' : 'light');
+                setAppSettings(s => ({ ...s, darkMode: next }));
+              }}
             />
           </SettingRow>
 

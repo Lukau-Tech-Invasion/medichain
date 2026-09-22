@@ -224,7 +224,7 @@ export function MedicationRemindersPage() {
             </label>
             <select
               id="reminder-frequency"
-              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
+              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface text-content"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
             >
@@ -270,7 +270,7 @@ export function MedicationRemindersPage() {
             </label>
             <textarea
               id="reminder-times"
-              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
+              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface text-content"
               rows={3}
               value={times}
               onChange={(e) => setTimes(e.target.value)}

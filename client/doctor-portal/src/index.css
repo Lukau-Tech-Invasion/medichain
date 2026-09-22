@@ -4,6 +4,67 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * Form controls, in both themes.
+ *
+ * 88 inputs, textareas and selects across 18 files declared no background and
+ * no text colour, so they fell back to the browser's defaults while the page
+ * around them was themed. In dark mode that is how a patient came to see the
+ * insurance form as white boxes with white text in them: the field was
+ * painted from the light palette and the value inherited the dark page's
+ * light foreground.
+ *
+ * Fixed here rather than at the 88 call sites. These are element selectors in
+ * the base layer, so any component that DOES set `bg-surface text-content`
+ * still wins on specificity -- this is a floor, not an override.
+ *
+ * `color-scheme` on the root is what makes the browser's own furniture agree:
+ * the caret, the date picker, autofill and the scrollbar are painted by the
+ * browser, not by these rules, and without it they stay light on a dark page.
+ * ------------------------------------------------------------------------ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply bg-surface text-content border-border-interactive;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-content-muted;
+  }
+
+  /* A disabled control must still be readable: a clinician needs to know
+     WHICH action is unavailable, and 1.4.3's exemption for inactive controls
+     does not make an unreadable one useful. */
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    @apply bg-surface-sunken text-content-muted;
+  }
+
+  /* A native option list is drawn by the browser from the element's own
+     colours; inheriting the page's leaves white-on-white in a dark theme. */
+  option {
+    @apply bg-surface text-content;
+  }
+
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    @apply outline-none ring-2 ring-focus border-transparent;
+  }
+}
+
+
 /* Custom base styles */
 @layer base {
   html {
@@ -31,17 +92,11 @@
     color-scheme: dark;
   }
 
-  .dark input,
-  .dark textarea,
-  .dark select {
-    @apply bg-slate-800 border-slate-600 text-gray-100 placeholder-gray-400;
-  }
-
-  .dark input:focus,
-  .dark textarea:focus,
-  .dark select:focus {
-    @apply border-primary-500 ring-primary-500;
-  }
+  /* The dark-mode form control rule that used to live here applied fixed
+     shades (bg-slate-800, text-gray-100) and covered only the dark theme, so
+     a light-mode input was still whatever the browser drew. The base-layer
+     rule near the top of this file now styles both themes from the semantic
+     tokens, which is one rule instead of two and no fixed shades. */
 
   /* The dark-mode overrides that used to live here targeted *bare elements* —
      `.dark p`, `.dark h1..h6`, `.dark label`. A type selector plus a class is

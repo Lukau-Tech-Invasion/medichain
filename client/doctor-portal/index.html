@@ -16,6 +16,34 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <script>
+      // Applied before first paint, deliberately inline and blocking.
+      //
+      // React cannot do this: by the time a store has rehydrated and an effect
+      // has run, the light theme has already been painted. That is the flash of
+      // white every dark-mode user sees, and worse, it is why the theme
+      // sometimes appeared not to apply at all -- zustand's `persist` restores
+      // the preference AFTER the first render, so an initializer that ran early
+      // applied the default and nothing re-applied the restored value.
+      //
+      // `color-scheme` matters as much as the class: without it the browser
+      // paints form controls, scrollbars and autofill from the light palette,
+      // so a dark page still shows a white input with white text in it.
+      (function () {
+        try {
+          var stored = localStorage.getItem('medichain-theme-preference');
+          var dark =
+            stored === 'dark' ||
+            ((!stored || stored === 'system') &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        } catch (e) {
+          /* A blocked storage API must not stop the page rendering. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
