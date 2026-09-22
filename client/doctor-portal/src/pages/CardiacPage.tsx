@@ -386,7 +386,7 @@ export default function CardiacPage() {
                       }}
                       className={`p-3 rounded-lg text-sm font-medium transition-all ${
                         eventType === type.value
-                          ? `${type.color} text-white`
+                          ? type.color
                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >

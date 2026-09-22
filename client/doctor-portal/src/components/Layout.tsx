@@ -626,10 +626,23 @@ function Layout() {
             <button
               onClick={() => navigate('/notifications')}
               className="w-full flex items-center justify-between gap-2 px-4 py-2 mb-1 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
-              title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
+              // The tooltip names what the control does. It used to report the
+              // SSE connection state, so hovering "Notifications" said "Live
+              // Connection Active" -- which describes the bell's colour, not
+              // the button, and is the only thing a screen reader would read.
+              // The live state stays on the icon, where it belongs.
+              title={
+                totalUnread > 0
+                  ? `Notifications (${totalUnread} unread)`
+                  : 'Notifications'
+              }
             >
               <span className="flex items-center gap-2">
-                <Bell size={18} className={isSSEConnected ? 'text-notice-subtle-fg' : ''} />
+                <Bell
+                  size={18}
+                  className={isSSEConnected ? 'text-notice-subtle-fg' : ''}
+                  aria-label={isSSEConnected ? 'Live updates connected' : 'Connecting to live updates'}
+                />
                 <span>Notifications</span>
               </span>
               {totalUnread > 0 && (
