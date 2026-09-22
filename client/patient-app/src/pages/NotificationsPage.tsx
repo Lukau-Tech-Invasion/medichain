@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getNotifications, getPatientCdsAlerts, useTranslation } from '@medichain/shared';
+import {
+  getNotifications,
+  getPatientCdsAlerts,
+  markNotificationsRead,
+  useTranslation,
+} from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Bell,
@@ -57,6 +62,15 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'alerts'>('notifications');
+  /**
+   * When this patient last read their notifications, in Unix seconds.
+   *
+   * The unread count used to filter on `is_read` / `read`, two fields the
+   * notification endpoint has never sent, so every entry counted as unread for
+   * ever and nothing could clear the number. The server keeps a per-user read
+   * marker; an entry is unread when it is newer than that.
+   */
+  const [readAt, setReadAt] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated || !patient) {
@@ -73,6 +87,7 @@ export function NotificationsPage() {
         getPatientCdsAlerts(patient.healthId),
       ]);
       setNotifications(notificationResponse.notifications);
+      setReadAt(notificationResponse.read_at || 0);
       setAlerts(alertResponse.alerts);
       setApiConnected(true);
     } catch (err) {
@@ -131,7 +146,18 @@ export function NotificationsPage() {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read && !n.read).length;
+  const isUnread = (entry: Notification) => Number(entry.timestamp ?? 0) > readAt;
+  const unreadCount = notifications.filter(isUnread).length;
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markNotificationsRead();
+    } catch (err) {
+      console.error('Failed to mark notifications read:', err);
+      return;
+    }
+    await loadAll();
+  };
   const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high').length;
 
   if (loading) {
@@ -154,6 +180,14 @@ export function NotificationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="px-3 py-1.5 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-xs font-semibold"
+            >
+              {t('notifications.markAllRead')}
+            </button>
+          )}
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>

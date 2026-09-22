@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
-import { MedicationsPage } from './MedicationsPage';
+import { mapPrescription, MedicationsPage } from './MedicationsPage';
 import { usePatientAuthStore } from '../store/authStore';
 
 // Mock the auth store
@@ -75,6 +75,17 @@ describe('MedicationsPage (Patient)', () => {
     });
   });
 
+  it('does not invent directions or an active status for incomplete prescriptions', () => {
+    expect(mapPrescription({
+      prescription_id: 'med1',
+      medication_name: 'Aspirin',
+    })).toMatchObject({
+      frequency: '',
+      instructions: '',
+      status: undefined,
+    });
+  });
+
   it('renders medications page with current medications', async () => {
     render(
       <MemoryRouter>
@@ -87,6 +98,13 @@ describe('MedicationsPage (Patient)', () => {
       expect(screen.getByText(/Aspirin/i)).toBeInTheDocument();
       expect(screen.getByText(/Take with food/i)).toBeInTheDocument();
     });
+  });
+
+  it('does not present an unsupported refill request as a working action', async () => {
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Online refill requests are not available/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /request refill/i })).not.toBeInTheDocument();
   });
 
   it('allows switching to reminders tab', async () => {

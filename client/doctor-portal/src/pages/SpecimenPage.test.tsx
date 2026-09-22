@@ -41,9 +41,6 @@ describe('SpecimenPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
-    // The component does `data.map(...)` directly, so this endpoint must return
-    // an ARRAY. Handing it an object made `.map` throw inside the effect and the
-    // page never left its loading state.
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
@@ -75,5 +72,30 @@ describe('SpecimenPage', () => {
 
     // STAT specimens are time-critical; the counter must stay on the summary row.
     await waitFor(() => expect(screen.getByText(/STAT Orders/i)).toBeInTheDocument());
+  });
+
+  it('renders the persisted specimen envelope without inventing patient demographics', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      status: 200,
+      json: async () => ({
+        success: true,
+        specimens: [{
+          id: 'SPC-001', patient_id: 'PAT-001', specimen_type: 'blood',
+          collector_id: 'LAB-001', collected_at: '2026-09-20T10:00:00Z',
+          received_at: null, created_at: '2026-09-20T09:55:00Z',
+          data: { priority: 'stat', tests_ordered: 'CBC' },
+        }],
+      }),
+      text: async () => '',
+    }) as unknown as typeof fetch;
+
+    render(<SpecimenPage />);
+
+    await waitFor(() => expect(screen.getByText(/SPC-001/)).toBeInTheDocument());
+    expect(screen.getAllByText('PAT-001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/collected/i).length).toBeGreaterThan(1);
+    expect(screen.getByText(/^stat$/i)).toBeInTheDocument();
   });
 });

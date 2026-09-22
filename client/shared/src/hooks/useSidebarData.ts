@@ -315,6 +315,7 @@ export function useSidebarData(
   useEffect(() => {
     isMountedRef.current = true;
     fetchData();
+    window.addEventListener('medichain:sidebar-refresh', fetchData);
 
     if (refreshInterval > 0) {
       intervalRef.current = setInterval(fetchData, refreshInterval);
@@ -322,6 +323,7 @@ export function useSidebarData(
 
     return () => {
       isMountedRef.current = false;
+      window.removeEventListener('medichain:sidebar-refresh', fetchData);
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

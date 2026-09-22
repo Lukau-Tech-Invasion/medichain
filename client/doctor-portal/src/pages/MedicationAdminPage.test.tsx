@@ -20,6 +20,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listMar: vi.fn(),
+  listMarAdministrations: vi.fn(),
   administerMedication: vi.fn(),
 }));
 
@@ -59,6 +60,7 @@ describe('MedicationAdminPage', () => {
     });
     vi.mocked(shared.getPatients).mockResolvedValue([patientProfile({ full_name: 'John Doe' })]);
     vi.mocked(shared.listMar).mockResolvedValue(mockMeds);
+    vi.mocked(shared.listMarAdministrations).mockResolvedValue([]);
   });
 
   it('renders MAR page with medications', async () => {
@@ -80,6 +82,20 @@ describe('MedicationAdminPage', () => {
     });
     
     expect(screen.getByText(/History/i)).toBeInTheDocument();
+  });
+
+  it('loads durable administrations into the history tab', async () => {
+    vi.mocked(shared.listMarAdministrations).mockResolvedValue([{
+      administration_id: 'ADM-1', medication_id: '1', patient_id: 'PAT-001',
+      medication_name: 'Aspirin', dose: '100mg', route: 'PO', scheduled_time: '08:00',
+      administered_at: '2026-09-20T08:05:00Z', administered_by: '5Nurse', status: 'given',
+      five_rights_verified: true,
+    }]);
+    render(<MedicationAdminPage />);
+    fireEvent.click(await screen.findByText(/History/i));
+
+    expect(await screen.findByText(/5Nurse/i)).toBeInTheDocument();
+    expect(shared.listMarAdministrations).toHaveBeenCalledTimes(1);
   });
 
   it('allows selecting a medication for administration', async () => {

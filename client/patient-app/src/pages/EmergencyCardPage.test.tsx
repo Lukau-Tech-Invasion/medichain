@@ -124,6 +124,22 @@ describe('EmergencyCardPage (Patient)', () => {
     });
   });
 
+  it('does not infer organ-donation or resuscitation status from absent data', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({
+        patient_id: 'HEALTH123', full_name: 'Test Patient', date_of_birth: '1990-01-01',
+        emergency_info: { blood_type: 'O+' },
+      }),
+    }));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/Test Patient/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Not an organ donor/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Full resuscitation/i)).not.toBeInTheDocument();
+  });
+
   // --- Who has opened this card ----------------------------------------------
   //
   // POPIA requires every emergency read to be logged, and the endpoint already

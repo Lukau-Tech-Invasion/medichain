@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getOrderSets, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import {
+  createOrderSet,
+  deactivateOrderSet,
+  decideOrderSet,
+  getApiErrorMessage,
+  getOrderSets,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+} from '@medichain/shared';
+import type { CreateOrderSetPayload } from '@medichain/shared';
 import {
   FileText,
   Plus,
@@ -33,6 +43,15 @@ interface Order {
   route?: string;
 }
 
+/**
+ * Where a set is in its review.
+ *
+ * An order set files every order in it with one click, so it is not published
+ * by the person who wrote it: a doctor drafts and a pharmacist approves. Only
+ * `approved` is orderable, which is what `isActive` reports.
+ */
+type OrderSetStatus = 'pending_approval' | 'approved' | 'rejected' | 'retired';
+
 interface OrderSet {
   setId: string;
   name: string;
@@ -47,6 +66,11 @@ interface OrderSet {
   usageCount: number;
   isActive: boolean;
   tags: string[];
+  status?: OrderSetStatus;
+  /** A deployment bundle. Read-only: it has no author to retire it. */
+  builtIn?: boolean;
+  reviewedBy?: string;
+  reviewNotes?: string | null;
 }
 
 /**
@@ -79,6 +103,13 @@ const OrderSetsPage: React.FC = () => {
     description: '',
     priority: 'routine',
   });
+  // Who this screen is for differs by role: a doctor drafts, a pharmacist
+  // reviews. Both see the same list; neither is offered the other's controls.
+  const mayDraft = user?.role === 'Doctor';
+  const mayReview = user?.role === 'Pharmacist';
+  const [rejectingSetId, setRejectingSetId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const fetchOrderSets = useCallback(async () => {
     try {
@@ -106,29 +137,56 @@ const OrderSetsPage: React.FC = () => {
     fetchOrderSets();
   }, [fetchOrderSets]);
 
-  const handleCreateOrderSet = () => {
+  /** The bundle as the server takes it. Nothing the server owns is sent. */
+  const draftPayload = (draft: Partial<OrderSet>): CreateOrderSetPayload => ({
+    name: draft.name!,
+    type: draft.type!,
+    specialty: draft.specialty!,
+    description: draft.description!,
+    indication: draft.indication || undefined,
+    orders: (draft.orders || []).map((order) => ({
+      type: order.type,
+      description: order.description,
+      instructions: order.instructions || undefined,
+      priority: order.priority,
+      duration: order.duration || undefined,
+      frequency: order.frequency || undefined,
+      route: order.route || undefined,
+    })),
+    tags: draft.tags || [],
+  });
+
+  /**
+   * Save a draft for review.
+   *
+   * This used to push the set into React state and announce success: it
+   * vanished on reload, and no pharmacist ever saw it. The id, the author, the
+   * timestamps and the review state are the server's — a page that invents an
+   * `OS-004` is inventing an identity that nothing else in the system knows.
+   */
+  const saveDraft = async (draft: Partial<OrderSet>): Promise<boolean> => {
+    setIsSaving(true);
+    try {
+      await createOrderSet(draftPayload(draft));
+      await fetchOrderSets();
+      return true;
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorCreateFailed')));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCreateOrderSet = async () => {
     if (!newOrderSet.name || !newOrderSet.specialty || !newOrderSet.description || !newOrderSet.orders?.length) {
       showError(t('docOrderSets.errorCreateFields'));
       return;
     }
+    if (!(await saveDraft(newOrderSet))) {
+      return;
+    }
 
-    const orderSet: OrderSet = {
-      setId: `OS-${String(orderSets.length + 1).padStart(3, '0')}`,
-      name: newOrderSet.name!,
-      type: newOrderSet.type!,
-      specialty: newOrderSet.specialty!,
-      description: newOrderSet.description!,
-      indication: newOrderSet.indication || '',
-      orders: newOrderSet.orders!,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-      isActive: true,
-      tags: newOrderSet.tags || [],
-    };
-
-    setOrderSets([...orderSets, orderSet]);
     setNewOrderSet({
       name: '',
       type: 'admission',
@@ -179,25 +237,57 @@ const OrderSetsPage: React.FC = () => {
     });
   };
 
-  const handleDuplicateSet = (set: OrderSet) => {
-    const duplicatedSet: OrderSet = {
-      ...set,
-      setId: `OS-${String(orderSets.length + 1).padStart(3, '0')}`,
-      name: `${set.name}${t('docOrderSets.copySuffix')}`,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-    };
-
-    setOrderSets([...orderSets, duplicatedSet]);
-    showSuccess(t('docOrderSets.duplicatedSuccess'));
+  /** A copy is a new draft, and goes back through review like any other. */
+  const handleDuplicateSet = async (set: OrderSet) => {
+    const copied = { ...set, name: `${set.name}${t('docOrderSets.copySuffix')}` };
+    if (await saveDraft(copied)) {
+      showSuccess(t('docOrderSets.duplicatedSuccess'));
+    }
   };
 
-  const handleDeleteSet = (setId: string) => {
-    if (confirm(t('docOrderSets.confirmDelete'))) {
-      setOrderSets(orderSets.filter((s) => s.setId !== setId));
+  /**
+   * Retire a set. Hidden, not deleted (ADR-0005).
+   *
+   * This filtered the browser's array, so the set came back on reload and
+   * everyone else had never stopped seeing it.
+   */
+  const handleDeleteSet = async (setId: string) => {
+    if (!confirm(t('docOrderSets.confirmDelete'))) {
+      return;
     }
+    try {
+      await deactivateOrderSet(setId);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorRetireFailed')));
+      return;
+    }
+    await fetchOrderSets();
+    showSuccess(t('docOrderSets.retiredSuccess'));
+  };
+
+  /** A pharmacist's decision. A rejection carries the reason with it. */
+  const handleDecide = async (setId: string, decision: 'approved' | 'rejected') => {
+    if (decision === 'rejected' && !rejectionReason.trim()) {
+      showError(t('docOrderSets.errorRejectionReason'));
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await decideOrderSet(setId, decision, rejectionReason.trim() || undefined);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorDecisionFailed')));
+      return;
+    } finally {
+      setIsSaving(false);
+    }
+    setRejectingSetId(null);
+    setRejectionReason('');
+    await fetchOrderSets();
+    showSuccess(
+      decision === 'approved'
+        ? t('docOrderSets.approvedSuccess')
+        : t('docOrderSets.rejectedSuccess')
+    );
   };
 
   const getTypeIcon = (type: OrderType) => {
@@ -305,16 +395,18 @@ const OrderSetsPage: React.FC = () => {
         >
           {t('docOrderSets.tabAllOrderSets', { count: orderSets.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('new')}
-          className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new'
-              ? 'border-b-2 border-teal-600 text-content-secondary'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docOrderSets.tabNewOrderSet')}
-        </button>
+        {mayDraft && (
+          <button
+            onClick={() => setActiveTab('new')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'new'
+                ? 'border-b-2 border-teal-600 text-content-secondary'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docOrderSets.tabNewOrderSet')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('templates')}
           className={`px-6 py-3 font-semibold transition-colors ${
@@ -375,7 +467,17 @@ const OrderSetsPage: React.FC = () => {
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTypeBadge(set.type)}`}>
                             {t(`docOrderSets.type_${set.type}`).toUpperCase()}
                           </span>
-                          {!set.isActive && (
+                          {set.status === 'pending_approval' && (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-caution-subtle text-caution-subtle-fg">
+                              {t('docOrderSets.pendingReviewBadge')}
+                            </span>
+                          )}
+                          {set.status === 'rejected' && (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-critical-subtle text-critical-subtle-fg">
+                              {t('docOrderSets.rejectedBadge')}
+                            </span>
+                          )}
+                          {!set.isActive && !set.status && (
                             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-surface-sunken text-content-muted">
                               {t('docOrderSets.inactiveBadge')}
                             </span>
@@ -398,22 +500,85 @@ const OrderSetsPage: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => handleDuplicateSet(set)}
-                          className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Copy className="w-4 h-4" />
-                          {t('docOrderSets.duplicateButton')}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSet(set.setId)}
-                          className="px-3 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          {t('docOrderSets.deleteButton')}
-                        </button>
+                        {mayDraft && (
+                          <button
+                            onClick={() => handleDuplicateSet(set)}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-60"
+                          >
+                            <Copy className="w-4 h-4" />
+                            {t('docOrderSets.duplicateButton')}
+                          </button>
+                        )}
+                        {!set.builtIn && (
+                          <button
+                            onClick={() => handleDeleteSet(set.setId)}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-60"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            {t('docOrderSets.deleteButton')}
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {/* A pharmacist is the only reader who can move a draft
+                        out of review, and a rejection has to say why: the
+                        author reads the reason and nothing else. */}
+                    {mayReview && set.status === 'pending_approval' && (
+                      <div className="bg-surface-sunken border border-border-strong rounded-lg p-4 mb-4">
+                        <p className="text-sm font-semibold text-content-secondary mb-2">
+                          {t('docOrderSets.reviewHeading')}
+                        </p>
+                        {rejectingSetId === set.setId && (
+                          <div className="mb-3">
+                            <label
+                              htmlFor={`reject-reason-${set.setId}`}
+                              className="block text-sm font-semibold text-content-secondary mb-1"
+                            >
+                              {t('docOrderSets.rejectionReasonLabel')}
+                            </label>
+                            <textarea
+                              id={`reject-reason-${set.setId}`}
+                              value={rejectionReason}
+                              onChange={(e) => setRejectionReason(e.target.value)}
+                              rows={2}
+                              className="w-full px-3 py-2 border border-border-interactive rounded-lg"
+                            />
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDecide(set.setId, 'approved')}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold disabled:opacity-60"
+                          >
+                            {t('docOrderSets.approveButton')}
+                          </button>
+                          <button
+                            onClick={() =>
+                              rejectingSetId === set.setId
+                                ? handleDecide(set.setId, 'rejected')
+                                : setRejectingSetId(set.setId)
+                            }
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold disabled:opacity-60"
+                          >
+                            {t('docOrderSets.rejectButton')}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {set.status === 'rejected' && set.reviewNotes && (
+                      <div className="bg-critical-subtle border border-critical rounded-lg p-3 mb-4">
+                        <p className="text-sm font-semibold text-critical-subtle-fg mb-1">
+                          {t('docOrderSets.rejectedReasonLabel')}
+                        </p>
+                        <p className="text-sm text-critical-subtle-fg">{set.reviewNotes}</p>
+                      </div>
+                    )}
 
                     {set.indication && (
                       <div className="bg-caution-subtle border border-caution rounded-lg p-3 mb-4">

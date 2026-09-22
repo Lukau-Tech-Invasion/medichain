@@ -62,6 +62,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [patientDesktopMenuOpen, setPatientDesktopMenuOpen] = useState(false);
 
   // Connection status
   const { isOnline, queueSize, checkConnection } = useApiStatus();
@@ -207,7 +208,9 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
     },
   ];
 
-  // Main nav for top bar (subset for cleaner UX)
+  // Primary actions stay in the desktop header. The remaining routes are in a
+  // labelled desktop menu below; hiding them in the mobile-only drawer made
+  // implemented patient workflows undiscoverable on laptops and desktops.
   const patientMainNav: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/records', label: 'Records', icon: FileText },
@@ -280,7 +283,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
             </Link>
 
             {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-1">
+            <div className="hidden lg:flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -299,6 +302,55 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                   </Link>
                 );
               })}
+              {variant === 'patient' && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    aria-expanded={patientDesktopMenuOpen}
+                    aria-controls="patient-desktop-navigation"
+                    onClick={() => setPatientDesktopMenuOpen((open) => !open)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-content-muted hover:bg-surface-sunken transition-colors"
+                  >
+                    <Menu className="w-5 h-5" />
+                    <span className="text-sm">More</span>
+                  </button>
+                  {patientDesktopMenuOpen && (
+                    <div
+                      id="patient-desktop-navigation"
+                      className="absolute right-0 top-full mt-2 z-50 grid w-[44rem] grid-cols-2 gap-x-6 gap-y-4 rounded-xl border border-border bg-surface p-5 shadow-lg"
+                    >
+                      {patientNavSections.map((section) => (
+                        <section key={section.label} aria-label={section.label}>
+                          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-muted">
+                            {section.label}
+                          </h2>
+                          <div className="space-y-1">
+                            {section.items.map((item) => {
+                              const Icon = item.icon;
+                              const isActive = location.pathname === item.path;
+                              return (
+                                <Link
+                                  key={item.path}
+                                  to={item.path}
+                                  onClick={() => setPatientDesktopMenuOpen(false)}
+                                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                                    isActive
+                                      ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                                      : 'text-content-muted hover:bg-surface-sunken'
+                                  }`}
+                                >
+                                  <Icon className="w-4 h-4" />
+                                  <span>{item.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Right Actions */}
@@ -323,7 +375,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
+                className="lg:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
@@ -333,7 +385,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
+          <div className="lg:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
             <div className="px-4 py-2">
               {variant === 'patient' ? (
                 // Sectioned navigation for patient

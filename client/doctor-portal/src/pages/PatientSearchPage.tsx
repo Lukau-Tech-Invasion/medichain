@@ -205,9 +205,7 @@ function PatientSearchPage() {
       currentMedications: p.medications,
       chronicConditions: p.conditions,
       emergencyContacts: [],
-      organDonor: false,
-      dnrStatus: false,
-      lastUpdated: p.lastVisit || new Date().toISOString(),
+      lastUpdated: p.lastVisit,
       lastAccessed: new Date().toISOString(),
     }));
     
@@ -225,9 +223,7 @@ function PatientSearchPage() {
       currentMedications: patient.medications,
       chronicConditions: patient.conditions,
       emergencyContacts: [] as { name: string; phone: string; relationship: string }[],
-      organDonor: false,
-      dnrStatus: false,
-      lastUpdated: patient.lastVisit ?? new Date().toISOString(),
+      lastUpdated: patient.lastVisit,
       lastAccessed: new Date().toISOString(),
     };
     addToRecentPatients(emergencyInfo);

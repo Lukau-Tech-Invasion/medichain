@@ -148,6 +148,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_cds_thresholds) // GET /api/admin/cds/thresholds/{facility_id}
         .service(set_cds_thresholds) // PUT /api/admin/cds/thresholds/{facility_id}
         .service(get_cds_audit) // GET /api/admin/cds/audit
+        .service(create_cds_rule) // POST /api/admin/cds/rules
+        .service(list_cds_rules) // GET /api/admin/cds/rules
+        .service(set_cds_rule_enablement) // POST /api/admin/cds/rules/{id}/enablement
+        .service(retire_cds_rule) // POST /api/admin/cds/rules/{id}/retire
         // Data retention: report-only assessment + legal holds (POPIA gate §4)
         .service(get_retention_report) // GET  /api/admin/retention/report
         .service(list_retention_job_runs) // GET  /api/admin/retention/runs
@@ -243,6 +247,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_code_blue)
         .service(clinical_endpoints::get_code_blue)
         .service(clinical_endpoints::list_patient_code_blues)
+        .service(clinical_endpoints::list_mar_administrations)
         .service(clinical_endpoints::create_trauma)
         .service(clinical_endpoints::get_trauma)
         .service(clinical_endpoints::list_patient_trauma)
@@ -319,11 +324,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_specimen)
         .service(clinical_endpoints::list_specimens)
         .service(clinical_endpoints::create_chain_of_custody)
+        .service(clinical_endpoints::transfer_chain_of_custody)
         .service(clinical_endpoints::get_chain_of_custody)
         .service(clinical_endpoints::create_lab_qc)
+        .service(clinical_endpoints::create_lab_calibration)
         .service(clinical_endpoints::get_lab_qc)
         .service(clinical_endpoints::create_critical_value)
         .service(clinical_endpoints::get_critical_value)
+        .service(clinical_endpoints::acknowledge_critical_value)
+        .service(clinical_endpoints::cancel_critical_value)
         .service(clinical_endpoints::create_specimen_rejection)
         .service(clinical_endpoints::get_specimen_rejection)
         // Specimen recollection (SCR-009b). Separate from `notify`: telling the
@@ -381,6 +390,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_radiology_report)
         // Phase 12: Pathology endpoints
         .service(clinical_endpoints::create_pathology)
+        .service(clinical_endpoints::update_pathology_report)
         .service(clinical_endpoints::get_pathology)
         // Phase 13: Immunization endpoints
         .service(clinical_endpoints::create_immunization)
@@ -435,7 +445,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::pharmacist_dashboard)
         .service(clinical_endpoints::get_patient_list)
         .service(clinical_endpoints::get_order_sets)
+        .service(clinical_endpoints::create_order_set)
+        .service(clinical_endpoints::decide_order_set)
+        .service(clinical_endpoints::deactivate_order_set)
         .service(clinical_endpoints::get_notifications)
+        .service(clinical_endpoints::mark_notifications_read)
         .service(clinical_endpoints::get_medication_reminders)
         .service(clinical_endpoints::get_nurse_tasks)
         // Symptom Tracker endpoints
@@ -445,6 +459,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Secure Messaging endpoints
         .service(clinical_endpoints::send_message)
         .service(clinical_endpoints::get_messages)
+        .service(clinical_endpoints::mark_message_read)
         // Consent Form endpoints
         .service(clinical_endpoints::get_consent_types)
         .service(clinical_endpoints::sign_consent)
@@ -588,6 +603,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 35: Additional list endpoints for frontend pages
         .service(clinical_endpoints::list_chain_of_custody)
         .service(clinical_endpoints::list_lab_qc)
+        .service(clinical_endpoints::list_lab_calibrations)
         .service(clinical_endpoints::list_critical_values)
         .service(clinical_endpoints::list_radiology_orders)
         .service(clinical_endpoints::list_radiology_reports)

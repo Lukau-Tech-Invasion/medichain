@@ -92,6 +92,18 @@ describe('MyProfilePage (Patient)', () => {
     });
   });
 
+  it('renders absent organ-donation and DNR statuses as not recorded', async () => {
+    vi.mocked(shared.getPatient).mockResolvedValue({
+      patient_id: 'HEALTH123', full_name: 'Test Patient', date_of_birth: '1990-01-01',
+      emergency_info: { blood_type: 'O+' },
+    } as never);
+    render(<MemoryRouter><MyProfilePage /></MemoryRouter>);
+
+    await waitFor(() => expect(screen.getByText(/Personal Information/i)).toBeInTheDocument());
+    expect(screen.queryAllByText(/^No$/i)).toHaveLength(0);
+    expect(screen.getAllByText(/Not recorded/i).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('allows opening the add contact form', async () => {
     render(
       <MemoryRouter>

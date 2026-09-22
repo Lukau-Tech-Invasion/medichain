@@ -25,6 +25,11 @@ RUN npm ci --no-audit --fund=false
 
 COPY client/ .
 
+# Docker's local presentation profile may explicitly bake the seeded-account
+# buttons in. Production remains fail-closed unless its deployment opts in.
+ARG VITE_DEMO_CREDENTIALS_ENABLED=false
+ENV VITE_DEMO_CREDENTIALS_ENABLED=$VITE_DEMO_CREDENTIALS_ENABLED
+
 # VITE_BASE_PATH drives Vite's `base` AND (via import.meta.env.BASE_URL) the
 # react-router basename, so each app's sub-path is defined in exactly one place.
 RUN VITE_BASE_PATH=/doctor/  npm run build --workspace=doctor-portal \

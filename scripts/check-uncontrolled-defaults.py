@@ -113,9 +113,6 @@ BASELINE: dict[tuple[str, str], str] = {
     ("FallRiskPage.tsx", "assessment_tool"): "'morse' — the page implements the Morse Fall Scale.",
     ("PathologyPage.tsx", "status"): "'received' — the specimen is being received on this form.",
     ("ShiftHandoffPage.tsx", "status"): "'pending' — a handoff is pending until acknowledged.",
-    ("AMAPage.tsx", "patientSigned"): "false — nobody has signed yet. `true` here was the original defect.",
-    ("AMAPage.tsx", "witnessSigned"): "false — as above.",
-    ("AMAPage.tsx", "providerSigned"): "false — as above.",
 }
 
 

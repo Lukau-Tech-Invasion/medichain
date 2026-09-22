@@ -98,6 +98,12 @@ const AMAPage: React.FC = () => {
   // valid refusal by a patient nobody had established could give one.
   const [hasCapacity, setHasCapacity] = useState(false);
   const [capacityBasis, setCapacityBasis] = useState('');
+  const [patientRefusedAlternatives, setPatientRefusedAlternatives] = useState(false);
+  const [amaFormSigned, setAmaFormSigned] = useState(false);
+  const [witnessAttested, setWitnessAttested] = useState(false);
+  const [providerAttested, setProviderAttested] = useState(false);
+  const [followUpOffered, setFollowUpOffered] = useState(false);
+  const [patientContactInfoVerified, setPatientContactInfoVerified] = useState(false);
 
   useEffect(() => {
     const fetchAMARecords = async () => {
@@ -194,33 +200,23 @@ const AMAPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       const newRecord = {
-        ama_id: `AMA-${Date.now()}`,
         patient_id: patientId,
-        patient_name: patientName,
-        mrn,
-        dateCreated: new Date().toISOString(),
-        status: 'pending-signatures' as AMAStatus,
-        riskLevel: riskLevel,
-        provider: user?.username || 'Healthcare Provider',
-        diagnosis,
-        recommendedTreatment: recommendedTreatment,
-        patientStatement: patientStatement,
-        // An AMA discharge is the legal record that a patient left against
-        // medical advice, and its whole evidentiary value is the signatures.
-        // These were hardcoded `true` while `status` was 'pending-signatures'
-        // — the record simultaneously claimed both parties had signed and that
-        // signatures were outstanding. Worse, it asserted a PATIENT's signature
-        // that nobody captured.
-        //
-        // This form has no signature-capture step, so the only truthful value
-        // is `false`: the record exists, the signatures do not yet. That is now
-        // consistent with the 'pending-signatures' status it is created under.
-        hasCapacity,
-        capacityBasis,
-        patientSigned: false,
-        witnessSigned: false,
-        witnessName: witnessName,
-        providerSigned: false,
+        discharge_datetime: new Date().toISOString(),
+        attending_physician_id: user?.walletAddress || '',
+        reason_for_leaving: patientStatement,
+        risks_explained: riskDisclosures.map(({ category, risk, acknowledged }) => ({ category, risk, acknowledged })),
+        specific_risks_discussed: riskDisclosures.filter(risk => risk.acknowledged).map(risk => risk.risk).join('\n'),
+        patient_verbalized_understanding: allRisksAcknowledged,
+        decision_making_capacity: hasCapacity,
+        capacity_assessment: capacityBasis,
+        alternatives_offered: [{ diagnosis, recommended_treatment: recommendedTreatment }],
+        patient_refused_alternatives: patientRefusedAlternatives,
+        ama_form_signed: amaFormSigned,
+        witness_present: witnessAttested,
+        witness_name: witnessName || undefined,
+        follow_up_offered: followUpOffered,
+        patient_contact_info_verified: patientContactInfoVerified,
+        documentation_complete: providerAttested,
       };
 
       await createAMADischarge(newRecord);
@@ -253,6 +249,14 @@ const AMAPage: React.FC = () => {
     setPatientStatement('');
     setRiskLevel('moderate');
     setWitnessName('');
+    setHasCapacity(false);
+    setCapacityBasis('');
+    setPatientRefusedAlternatives(false);
+    setAmaFormSigned(false);
+    setWitnessAttested(false);
+    setProviderAttested(false);
+    setFollowUpOffered(false);
+    setPatientContactInfoVerified(false);
     setRiskDisclosures(prev => prev.map(r => ({ ...r, acknowledged: false })));
   };
 
@@ -301,7 +305,9 @@ const AMAPage: React.FC = () => {
   const allRisksAcknowledged = riskDisclosures.every(r => r.acknowledged);
   // Signatures may only be collected once capacity is affirmed AND every risk
   // is acknowledged — an unassessed patient cannot give an informed refusal.
-  const readyForSignatures = allRisksAcknowledged && hasCapacity;
+  const readyForSignatures = allRisksAcknowledged && hasCapacity && patientRefusedAlternatives;
+  const signaturesComplete =
+    amaFormSigned && witnessAttested && Boolean(witnessName.trim()) && providerAttested;
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -847,6 +853,18 @@ const AMAPage: React.FC = () => {
                     className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                   />
                 </div>
+                <label htmlFor="ama-refused-alternatives" className="mt-4 flex items-start gap-2 cursor-pointer">
+                  <input
+                    id="ama-refused-alternatives"
+                    type="checkbox"
+                    checked={patientRefusedAlternatives}
+                    onChange={() => setPatientRefusedAlternatives(current => !current)}
+                    className="mt-1 rounded border-border-interactive text-critical-subtle-fg"
+                  />
+                  <span className="text-sm font-medium text-content">
+                    {t('docAMA.patientRefusedAlternativesLabel')}
+                  </span>
+                </label>
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setFormStep(2)}
@@ -885,9 +903,15 @@ const AMAPage: React.FC = () => {
                       </div>
                       <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
-                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
-                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
-                    </div>
+                    <label htmlFor="ama-form-signed" className="flex items-center gap-2 rounded border border-border bg-surface-sunken p-4 cursor-pointer">
+                      <input
+                        id="ama-form-signed"
+                        type="checkbox"
+                        checked={amaFormSigned}
+                        onChange={() => setAmaFormSigned(current => !current)}
+                      />
+                      <span className="text-sm text-content">{t('docAMA.patientSignedLabel')}</span>
+                    </label>
                   </div>
 
                   {/* Witness */}
@@ -908,9 +932,16 @@ const AMAPage: React.FC = () => {
                       placeholder={t('docAMA.witnessNamePh')}
                       className="w-full border border-border-interactive rounded-lg p-2 mb-2 focus:ring-2 focus:ring-red-500"
                     />
-                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
-                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
-                    </div>
+                    <label htmlFor="ama-witness-attested" className="flex items-center gap-2 rounded border border-border bg-surface-sunken p-4 cursor-pointer">
+                      <input
+                        id="ama-witness-attested"
+                        type="checkbox"
+                        checked={witnessAttested}
+                        onChange={() => setWitnessAttested(current => !current)}
+                        disabled={!witnessName.trim()}
+                      />
+                      <span className="text-sm text-content">{t('docAMA.witnessAttestedLabel')}</span>
+                    </label>
                   </div>
 
                   {/* Provider */}
@@ -922,11 +953,39 @@ const AMAPage: React.FC = () => {
                       </div>
                       <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
-                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
-                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
-                    </div>
+                    <label htmlFor="ama-provider-attested" className="flex items-center gap-2 rounded border border-border bg-surface-sunken p-4 cursor-pointer">
+                      <input
+                        id="ama-provider-attested"
+                        type="checkbox"
+                        checked={providerAttested}
+                        onChange={() => setProviderAttested(current => !current)}
+                      />
+                      <span className="text-sm text-content">{t('docAMA.providerAttestedLabel')}</span>
+                    </label>
                   </div>
                 </div>
+
+                <fieldset className="mt-4 space-y-3 rounded-lg border border-border p-4">
+                  <legend className="px-1 text-sm font-semibold text-content">{t('docAMA.dischargeChecksTitle')}</legend>
+                  <label htmlFor="ama-follow-up-offered" className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      id="ama-follow-up-offered"
+                      type="checkbox"
+                      checked={followUpOffered}
+                      onChange={() => setFollowUpOffered(current => !current)}
+                    />
+                    <span className="text-sm text-content">{t('docAMA.followUpOfferedLabel')}</span>
+                  </label>
+                  <label htmlFor="ama-contact-verified" className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      id="ama-contact-verified"
+                      type="checkbox"
+                      checked={patientContactInfoVerified}
+                      onChange={() => setPatientContactInfoVerified(current => !current)}
+                    />
+                    <span className="text-sm text-content">{t('docAMA.contactVerifiedLabel')}</span>
+                  </label>
+                </fieldset>
 
                 {/* Legal Notice */}
                 <div className="mt-4 p-4 bg-caution-subtle rounded-lg">
@@ -950,7 +1009,7 @@ const AMAPage: React.FC = () => {
                   </button>
                   <button
                     onClick={handleCreateAMA}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !signaturesComplete}
                     className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
                   >
                     {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}

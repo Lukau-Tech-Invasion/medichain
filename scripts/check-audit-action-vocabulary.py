@@ -70,6 +70,12 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "specimen_recollection_completed",
         "specimen_recollection_cancelled",
     ],
+    # `close_critical_value` takes the action as a parameter; its two call
+    # sites in the same file, acknowledge and cancel, each pass a literal.
+    'api/src/clinical_endpoints/lab.rs::audit_action.to_string()': [
+        "critical_value_acknowledged",
+        "critical_value_cancelled",
+    ],
     'api/src/handlers/lab.rs::format!("lab_review_{}", action)': [
         "lab_review_approve",
         "lab_review_reject",

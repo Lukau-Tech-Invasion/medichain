@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { usePatientAuthStore } from '../store/authStore';
-import { setLanguagePreference, LOCALE_CONFIGS, useTranslation } from '@medichain/shared';
+import React, { useEffect, useState } from 'react';
+import {
+  getApiErrorMessage,
+  getUserSettings,
+  LOCALE_CONFIGS,
+  saveUserSettings,
+  setLanguagePreference,
+  useTranslation,
+} from '@medichain/shared';
 import type { SupportedLocale } from '@medichain/shared';
 import {
   Globe,
@@ -43,6 +49,46 @@ interface RegionalSettings {
   numberFormat: 'comma-period' | 'period-comma' | 'space-comma';
 }
 
+const DEFAULT_REGIONAL_SETTINGS: RegionalSettings = {
+  dateFormat: 'MM/DD/YYYY',
+  timeFormat: '12h',
+  firstDayOfWeek: 'sunday',
+  temperatureUnit: 'fahrenheit',
+  measurementSystem: 'imperial',
+  currencySymbol: 'R',
+  numberFormat: 'comma-period',
+};
+
+type LanguageSettingsPreferences = {
+  regionalSettings?: RegionalSettings;
+};
+
+/**
+ * Accept only the format values this screen can render. User settings are a
+ * generic JSON document, so an old or malformed record must not put this
+ * controlled form into an invalid state.
+ */
+function readRegionalSettings(value: unknown): RegionalSettings | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<RegionalSettings>;
+  const validDateFormats = ['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY', 'DD-MM-YYYY'];
+  if (
+    !validDateFormats.includes(candidate.dateFormat ?? '') ||
+    !['12h', '24h'].includes(candidate.timeFormat ?? '') ||
+    !['sunday', 'monday', 'saturday'].includes(candidate.firstDayOfWeek ?? '') ||
+    !['celsius', 'fahrenheit'].includes(candidate.temperatureUnit ?? '') ||
+    !['metric', 'imperial'].includes(candidate.measurementSystem ?? '') ||
+    !['comma-period', 'period-comma', 'space-comma'].includes(candidate.numberFormat ?? '') ||
+    typeof candidate.currencySymbol !== 'string' ||
+    candidate.currencySymbol.length === 0 ||
+    candidate.currencySymbol.length > 8
+  ) {
+    return null;
+  }
+
+  return candidate as RegionalSettings;
+}
+
 /**
  * Resolve the locale's currency symbol from shared LOCALE_CONFIGS. MediChain
  * targets African markets, so unknown/unsupported language codes fall back to
@@ -61,7 +107,6 @@ const languageBadge = (code: string): string =>
 
 const LanguageSettingsPage: React.FC = () => {
   const { t, locale, setLocale } = useTranslation();
-  const patient = usePatientAuthStore((s) => s.patient);
   const regionLabel = (region: string) =>
     ({
       Americas: t('languageSettings.regionAmericas'),
@@ -73,16 +118,29 @@ const LanguageSettingsPage: React.FC = () => {
   const [selectedLanguage, setSelectedLanguage] = useState<string>(locale);
   const [showRegionalSettings, setShowRegionalSettings] = useState(false);
   const [regionalSettings, setRegionalSettings] = useState<RegionalSettings>({
-    dateFormat: 'MM/DD/YYYY',
-    timeFormat: '12h',
-    firstDayOfWeek: 'sunday',
-    temperatureUnit: 'fahrenheit',
-    measurementSystem: 'imperial',
+    ...DEFAULT_REGIONAL_SETTINGS,
     currencySymbol: currencySymbolFor('en-US'),
-    numberFormat: 'comma-period'
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserSettings<LanguageSettingsPreferences>()
+      .then((settings) => {
+        const stored = readRegionalSettings(settings.regionalSettings);
+        if (!cancelled && stored) setRegionalSettings(stored);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSettingsError(getApiErrorMessage(error, t('languageSettings.loadError')));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   const languages: Language[] = [
     { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 100 },
@@ -156,21 +214,23 @@ const LanguageSettingsPage: React.FC = () => {
 
   const handleSaveSettings = async () => {
     setSaving(true);
+    setSaved(false);
+    setSettingsError(null);
     try {
-      // Persist the language preference to the backend (was: simulated setTimeout)
+      // The server derives the subject from the authenticated token. Sending a
+      // wallet address or client timestamp here is both misleading and ignored.
       await setLanguagePreference({
-        user_id: patient?.walletAddress || '',
-        preferred_language: selectedLanguage.split('-')[0],
-        secondary_language: null,
-        reading_proficiency: 'Fluent',
-        needs_interpreter: false,
-        interpreter_language: null,
-        updated_at: Math.floor(Date.now() / 1000),
+        language_code: selectedLanguage,
       });
+
+      // Merge at write time: /api/settings also holds notification, privacy,
+      // and wearable preferences owned by other patient-app screens.
+      const current = await getUserSettings<Record<string, unknown>>();
+      await saveUserSettings({ ...current, regionalSettings });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // Network/API failure — leave the selection applied locally.
+    } catch (error) {
+      setSettingsError(getApiErrorMessage(error, t('languageSettings.saveError')));
     } finally {
       setSaving(false);
     }
@@ -224,6 +284,14 @@ const LanguageSettingsPage: React.FC = () => {
           />
         </div>
       </div>
+
+      {settingsError && (
+        <div className="px-4 mb-4" role="alert">
+          <div className="rounded-lg border border-danger-subtle bg-danger-subtle p-3 text-sm text-danger-subtle-fg">
+            {settingsError}
+          </div>
+        </div>
+      )}
 
       {/* Language List */}
       <div className="px-4 mb-6">

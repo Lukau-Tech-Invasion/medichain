@@ -520,12 +520,11 @@ impl CriticalValueRepository for MemoryCriticalValueRepository {
         Ok(items)
     }
 
-    async fn acknowledge(
+    async fn close(
         &self,
         id: &str,
-        acknowledged_by: &str,
-        action_taken: &str,
-    ) -> RepositoryResult<CriticalValueEntity> {
+        closure: CriticalValueClosure,
+    ) -> RepositoryResult<Option<CriticalValueEntity>> {
         let mut data = self
             .data
             .write()
@@ -533,10 +532,21 @@ impl CriticalValueRepository for MemoryCriticalValueRepository {
         let value = data
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Critical value {} not found", id)))?;
+        if value.acknowledged_at.is_some() {
+            return Ok(None);
+        }
         value.acknowledged_at = Some(Utc::now());
-        value.acknowledged_by = Some(acknowledged_by.to_string());
-        value.action_taken = Some(action_taken.to_string());
-        Ok(value.clone())
+        value.acknowledged_by = Some(closure.closed_by);
+        value.action_taken = Some(closure.action_taken);
+        value.notified_provider_id = closure
+            .notified_provider_id
+            .or(value.notified_provider_id.take());
+        value.notification_method = closure
+            .notification_method
+            .or(value.notification_method.take());
+        value.notified_at = closure.notified_at.or(value.notified_at);
+        value.data = closure.data;
+        Ok(Some(value.clone()))
     }
 
     async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>> {

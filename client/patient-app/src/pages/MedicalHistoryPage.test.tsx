@@ -16,6 +16,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getMyImmunizations: vi.fn(),
   getMyFamilyHistory: vi.fn(),
   getPatientRecords: vi.fn(),
+  downloadMedicalRecord: vi.fn(),
 }));
 
 describe('MedicalHistoryPage (Patient)', () => {
@@ -99,5 +100,35 @@ describe('MedicalHistoryPage (Patient)', () => {
     await waitFor(() => {
       expect(screen.getByText(/Father/i)).toBeInTheDocument();
     });
+  });
+
+  it('downloads a server-authorized document only after its content is returned', async () => {
+    vi.mocked(shared.getPatientRecords).mockResolvedValue([{
+      content_hash: 'QmDocument', metadata_hash: 'QmMetadata', record_type: 'other',
+      uploaded_at: 1_789_876_000, content_checksum: 'checksum',
+    }]);
+    vi.mocked(shared.downloadMedicalRecord).mockResolvedValue({
+      success: true,
+      content_base64: btoa('record contents'),
+      filename: 'record.pdf', content_type: 'application/pdf', record_type: 'other',
+      uploaded_by: 'clinician', uploaded_at: 1_789_876_000,
+    });
+    const createObjectUrl = vi.fn(() => 'blob:record');
+    const revokeObjectUrl = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+
+    render(<MemoryRouter><MedicalHistoryPage /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Documents/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Documents/i }));
+    fireEvent.click(await screen.findByTitle('Download'));
+
+    await waitFor(() => expect(shared.downloadMedicalRecord).toHaveBeenCalledWith({
+      content_hash: 'QmDocument', metadata_hash: 'QmMetadata',
+    }));
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:record');
+    click.mockRestore();
   });
 });

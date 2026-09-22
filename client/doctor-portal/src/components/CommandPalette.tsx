@@ -22,8 +22,8 @@ interface CommandItem {
 const ALL_COMMANDS: CommandItem[] = [
   // Main
   { id: 'dashboard', label: 'Dashboard', to: '/dashboard', category: 'Main', icon: <Home size={16} />, keywords: ['home'] },
-  { id: 'patient-search', label: 'Patient Search', to: '/patient-search', category: 'Main', icon: <Users size={16} />, keywords: ['find', 'lookup'] },
-  { id: 'register', label: 'Register Patient', to: '/register-patient', category: 'Main', icon: <Users size={16} />, keywords: ['new', 'add'] },
+  { id: 'patient-search', label: 'Patient Search', to: '/patients', category: 'Main', icon: <Users size={16} />, keywords: ['find', 'lookup'] },
+  { id: 'register', label: 'Register Patient', to: '/register', category: 'Main', icon: <Users size={16} />, keywords: ['new', 'add'] },
   { id: 'appointments', label: 'Appointments', to: '/appointments', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule'] },
   { id: 'working-hours', label: 'Working Hours', to: '/working-hours', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule', 'availability', 'rota', 'hours', 'leave'] },
   
@@ -36,7 +36,7 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'discharge', label: 'Discharge', to: '/discharge', category: 'Clinical', icon: <FileText size={16} /> },
   
   // Emergency
-  { id: 'emergency-access', label: 'Emergency Access', to: '/emergency-access', category: 'Emergency', icon: <Siren size={16} />, keywords: ['nfc'] },
+  { id: 'emergency-access', label: 'Emergency Access', to: '/emergency', category: 'Emergency', icon: <Siren size={16} />, keywords: ['nfc'] },
   { id: 'code-blue', label: 'Code Blue', to: '/code-blue', category: 'Emergency', icon: <Siren size={16} />, keywords: ['cardiac'] },
   { id: 'trauma', label: 'Trauma', to: '/trauma', category: 'Emergency', icon: <Siren size={16} /> },
   { id: 'stroke', label: 'Stroke', to: '/stroke', category: 'Emergency', icon: <Siren size={16} /> },
@@ -67,6 +67,7 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'access-logs', label: 'Access Logs', to: '/access-logs', category: 'Admin', icon: <FileText size={16} /> },
   { id: 'devices', label: 'Approved Devices', to: '/devices', category: 'Admin', icon: <FileText size={16} /> },
   { id: 'retention', label: 'Data Retention', to: '/retention', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'national-id-reviews', label: 'National ID Reviews', to: '/national-id-reviews', category: 'Admin', icon: <FileText size={16} />, keywords: ['identity', 'verification'] },
   
   // Settings
   { id: 'settings', label: 'Settings', to: '/settings', category: 'Settings', icon: <Settings size={16} /> },

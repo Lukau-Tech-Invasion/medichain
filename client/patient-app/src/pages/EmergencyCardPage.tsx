@@ -44,13 +44,13 @@ interface EmergencyData {
     phone: string;
     relationship: string;
   };
-  organDonor: boolean;
-  dnrStatus: boolean;
+  organDonor: boolean | null;
+  dnrStatus: boolean | null;
   dnrVerifiedBy: string | null;
   dnrVerifiedAt: string | null;
   dnrDocumentRef: string | null;
   cardHash: string;
-  lastUpdated: string;
+  lastUpdated: string | null;
 }
 
 /**
@@ -150,13 +150,17 @@ export function EmergencyCardPage() {
         phone: emergencyContact.phone || 'Not set',
         relationship: emergencyContact.relationship || 'Not set',
       },
-      organDonor: emergencyInfo.organ_donor || false,
-      dnrStatus: emergencyInfo.dnr_status || false,
+      organDonor: typeof emergencyInfo.organ_donor === 'boolean'
+        ? emergencyInfo.organ_donor
+        : null,
+      dnrStatus: typeof emergencyInfo.dnr_status === 'boolean'
+        ? emergencyInfo.dnr_status
+        : null,
       dnrVerifiedBy: emergencyInfo.dnr_verified_by ?? null,
       dnrVerifiedAt: emergencyInfo.dnr_verified_at ?? null,
       dnrDocumentRef: emergencyInfo.dnr_document_ref ?? null,
       cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
-      lastUpdated: data.last_updated || new Date().toISOString(),
+      lastUpdated: data.last_updated ?? null,
     };
     // `walletAddress` went with the hand-rolled session headers; the typed
     // client reads the session itself.
@@ -585,29 +589,39 @@ export function EmergencyCardPage() {
             {/* Status Badges */}
             <div className="flex gap-3">
               <div className={`flex-1 p-3 rounded-xl text-center ${
-                emergencyData.organDonor 
-                  ? 'bg-success-100 text-success-700' 
-                  : 'bg-surface-sunken text-content-muted'
+                emergencyData.organDonor === true
+                  ? 'bg-success-100 text-success-700'
+                  : emergencyData.organDonor === false
+                  ? 'bg-surface-sunken text-content-muted'
+                  : 'bg-warning-100 text-warning-800'
               }`}>
                 <Heart className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
-                  {emergencyData.organDonor ? t('emergency.organDonor') : t('emergency.notDonor')}
+                  {emergencyData.organDonor === true
+                    ? t('emergency.organDonor')
+                    : emergencyData.organDonor === false
+                    ? t('emergency.notDonor')
+                    : t('emergency.noneRecorded')}
                 </div>
               </div>
               <div className={`flex-1 p-3 rounded-xl text-center ${
                 dnrVerified
                   ? 'bg-emergency-100 text-critical-subtle-fg'
-                  : emergencyData.dnrStatus
+                  : emergencyData.dnrStatus === true
                   ? 'bg-warning-100 text-warning-800'
-                  : 'bg-success-100 text-success-700'
+                  : emergencyData.dnrStatus === false
+                  ? 'bg-success-100 text-success-700'
+                  : 'bg-warning-100 text-warning-800'
               }`}>
                 <Shield className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
                   {dnrVerified
                     ? t('emergency.dnrOrder')
-                    : emergencyData.dnrStatus
+                    : emergencyData.dnrStatus === true
                     ? t('emergency.dnrUnverified')
-                    : t('emergency.fullResuscitation')}
+                    : emergencyData.dnrStatus === false
+                    ? t('emergency.fullResuscitation')
+                    : t('emergency.noneRecorded')}
                 </div>
               </div>
             </div>
@@ -685,7 +699,11 @@ export function EmergencyCardPage() {
       {/* Card Security Info */}
       <div className="text-center text-xs text-content-muted space-y-1">
         <p>{t('emergency.cardHash')}: {emergencyData.cardHash.slice(0, 16)}...</p>
-        <p>{t('emergency.lastUpdated')}: {formatDate(emergencyData.lastUpdated, locale)}</p>
+        <p>
+          {t('emergency.lastUpdated')}: {emergencyData.lastUpdated
+            ? formatDate(emergencyData.lastUpdated, locale)
+            : t('emergency.noneRecorded')}
+        </p>
         <p className="flex items-center justify-center gap-1">
           <Shield className="w-3 h-3" />
           {t('emergency.securedBy')}

@@ -35,6 +35,9 @@ describe('NotificationsPage (Patient)', () => {
     vi.mocked(shared.getNotifications).mockResolvedValue({
       success: true,
       count: 1,
+      unread_count: 1,
+      // Never read, so the entry below (stamped now) is unread.
+      read_at: 0,
       notifications: [{
         id: 'notif1',
         type: 'lab_result',

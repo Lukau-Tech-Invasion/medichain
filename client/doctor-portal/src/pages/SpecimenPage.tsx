@@ -34,13 +34,27 @@ import { useAuthStore } from '../store/authStore';
 
 type SpecimenType = 'blood' | 'urine' | 'stool' | 'swab' | 'tissue' | 'csf' | 'sputum' | 'other';
 type CollectionStatus = 'pending' | 'collected' | 'in-transit' | 'received' | 'processing' | 'completed' | 'rejected';
-type Priority = 'routine' | 'urgent' | 'stat';
+type Priority = 'routine' | 'urgent' | 'stat' | 'unknown';
+
+interface PersistedSpecimen {
+  id: string;
+  patient_id: string;
+  specimen_type: string;
+  collector_id: string;
+  collected_at: string;
+  received_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  data?: {
+    priority?: unknown;
+    tests_ordered?: unknown;
+  } | null;
+}
 
 interface Specimen {
   id: string;
   patientId: string;
-  patientName: string;
-  mrn: string;
+  patientDisplay: string;
   specimenType: SpecimenType;
   testOrdered: string;
   status: CollectionStatus;
@@ -51,6 +65,16 @@ interface Specimen {
   collectedAt?: Date;
   receivedAt?: Date;
   notes?: string;
+}
+
+function persistedPriority(value: unknown): Priority {
+  return value === 'routine' || value === 'urgent' || value === 'stat' ? value : 'unknown';
+}
+
+function persistedSpecimenType(value: string): SpecimenType {
+  return ['blood', 'urine', 'stool', 'swab', 'tissue', 'csf', 'sputum', 'other'].includes(value)
+    ? value as SpecimenType
+    : 'other';
 }
 
 const SpecimenPage: React.FC = () => {
@@ -157,21 +181,35 @@ const SpecimenPage: React.FC = () => {
 
       try {
         const data = await getApiClient().get<
-        { items?: Specimen[]; data?: Specimen[] } | Specimen[]
+        { specimens?: PersistedSpecimen[]; items?: PersistedSpecimen[]; data?: PersistedSpecimen[] } | PersistedSpecimen[]
       >('/api/clinical/specimens');
-        // The endpoint returns a bare array on some paths and an envelope
-        // (`{items}` / `{data}`) on others; calling `.map` on the envelope threw
-        // `data.map is not a function` and left the page stuck on its error
-        // state. Normalise instead of assuming one shape.
-        const rows: Specimen[] = Array.isArray(data)
+        // The API's canonical envelope is `{ specimens }`. Keep compatibility
+        // with the older envelope variants while treating every item as the
+        // typed repository row that was actually persisted.
+        const rows: PersistedSpecimen[] = Array.isArray(data)
           ? data
-          : (data?.items ?? data?.data ?? []);
-        // Convert date strings to Date objects
-        const specimenData = rows.map((s: Specimen) => ({
-          ...s,
-          orderedAt: new Date(s.orderedAt),
-          collectedAt: s.collectedAt ? new Date(s.collectedAt) : undefined,
-          receivedAt: s.receivedAt ? new Date(s.receivedAt) : undefined
+          : (data?.specimens ?? data?.items ?? data?.data ?? []);
+        const specimenData = rows.map((specimen): Specimen => ({
+          id: specimen.id,
+          patientId: specimen.patient_id,
+          // A collection record does not carry a patient name or MRN. Showing
+          // the persisted ID is less convenient than a name, but never claims
+          // a name that the laboratory register did not return.
+          patientDisplay: specimen.patient_id,
+          specimenType: persistedSpecimenType(specimen.specimen_type),
+          testOrdered: typeof specimen.data?.tests_ordered === 'string'
+            ? specimen.data.tests_ordered
+            : t('docSpecimen.notRecorded'),
+          // The existence of this row is the record that collection occurred;
+          // receipt is the only later timestamp modeled by this endpoint.
+          status: specimen.received_at ? 'received' : 'collected',
+          priority: persistedPriority(specimen.data?.priority),
+          orderedBy: t('docSpecimen.notRecorded'),
+          orderedAt: new Date(specimen.created_at),
+          collectedBy: specimen.collector_id,
+          collectedAt: new Date(specimen.collected_at),
+          receivedAt: specimen.received_at ? new Date(specimen.received_at) : undefined,
+          notes: specimen.notes ?? undefined,
         }));
         setSpecimens(specimenData);
         setError(null);
@@ -231,12 +269,14 @@ const SpecimenPage: React.FC = () => {
     const colors: Record<Priority, string> = {
       'routine': 'bg-surface-sunken text-content-muted',
       'urgent': 'bg-surface-sunken text-content-secondary',
-      'stat': 'bg-critical-subtle text-critical-subtle-fg'
+      'stat': 'bg-critical-subtle text-critical-subtle-fg',
+      'unknown': 'bg-surface-sunken text-content-muted',
     };
     const labels: Record<Priority, string> = {
       'routine': t('docSpecimen.priRoutine'),
       'urgent': t('docSpecimen.priUrgent'),
       'stat': t('docSpecimen.priStat'),
+      'unknown': t('docSpecimen.priUnknown'),
     };
     return (
       <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${colors[priority]}`}>
@@ -259,8 +299,8 @@ const SpecimenPage: React.FC = () => {
   };
 
   const filteredSpecimens = specimens.filter(s => {
-    const matchesSearch = s.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.mrn.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = s.patientDisplay.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -375,10 +415,10 @@ const SpecimenPage: React.FC = () => {
                     {getSpecimenIcon(specimen.specimenType)}
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">{specimen.patientName}</h3>
+                        <h3 className="font-semibold">{specimen.patientDisplay}</h3>
                         {getPriorityBadge(specimen.priority)}
                       </div>
-                      <p className="text-sm text-content-muted">{t('docSpecimen.mrnId', { mrn: specimen.mrn, id: specimen.id })}</p>
+                      <p className="text-sm text-content-muted">{t('docSpecimen.patientIdWithCollection', { patientId: specimen.patientId, id: specimen.id })}</p>
                     </div>
                   </div>
                   {getStatusBadge(specimen.status)}
@@ -522,7 +562,7 @@ const SpecimenPage: React.FC = () => {
                       {getSpecimenIcon(specimen.specimenType)}
                       <div>
                         <p className="font-medium">{specimen.id}</p>
-                        <p className="text-sm text-content-muted">{specimen.patientName}</p>
+                        <p className="text-sm text-content-muted">{specimen.patientDisplay}</p>
                       </div>
                     </div>
                     {getPriorityBadge(specimen.priority)}
@@ -578,8 +618,7 @@ const SpecimenPage: React.FC = () => {
 
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
-                <p><strong>{t('docSpecimen.nameLabel')}</strong> {selectedSpecimen.patientName}</p>
-                <p><strong>{t('docSpecimen.mrnLabelBold')}</strong> {selectedSpecimen.mrn}</p>
+                <p><strong>{t('docSpecimen.patientIdLabel')}</strong> {selectedSpecimen.patientId}</p>
               </div>
 
               <div className="bg-surface-sunken rounded-lg p-4">
@@ -598,10 +637,10 @@ const SpecimenPage: React.FC = () => {
                 </div>
               )}
 
-              {selectedSpecimen.status === 'pending' && (
-                <button className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium">
-                  {t('docSpecimen.markCollected')}
-                </button>
+              {selectedSpecimen.status === 'collected' && (
+                <p className="rounded-lg bg-notice-subtle p-3 text-sm text-notice-subtle-fg">
+                  {t('docSpecimen.collectionAlreadyRecorded')}
+                </p>
               )}
             </div>
           </div>

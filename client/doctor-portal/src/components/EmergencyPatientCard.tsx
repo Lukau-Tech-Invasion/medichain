@@ -1,3 +1,4 @@
+import { useTranslation } from '@medichain/shared';
 import { EmergencyInfo } from '../store';
 import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -42,11 +43,11 @@ function formatBloodType(bloodType: string): string {
  * Emergency Patient Card - displays critical medical info
  */
 function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: EmergencyPatientCardProps) {
+  const { t } = useTranslation();
   // Extract optional properties with defaults to avoid undefined errors
   const patientBloodType = patient.bloodType || '';
   const chronicConditions = patient.chronicConditions || [];
   const emergencyContacts = patient.emergencyContacts || [];
-  const lastUpdated = patient.lastUpdated || new Date().toISOString();
 
   const bloodType = formatBloodType(patientBloodType);
   const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-surface-sunken text-content-secondary';
@@ -92,18 +93,24 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* DNR Status */}
         <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
-            <FileHeart className={patient.dnrStatus ? 'text-red-500' : 'text-green-500'} size={32} />
+            <FileHeart className={patient.dnrStatus === true ? 'text-red-500' : 'text-content-muted'} size={32} />
           </div>
           <div>
             <p className="text-sm text-content-muted">DNR Status</p>
             <span
               className={`inline-block mt-1 px-3 py-1 rounded-full font-bold ${
-                patient.dnrStatus
+                patient.dnrStatus === true
                   ? 'bg-critical-subtle text-critical-subtle-fg'
-                  : 'bg-ok-subtle text-ok-subtle-fg'
+                  : patient.dnrStatus === false
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
+                  : 'bg-warning-100 text-warning-800'
               }`}
             >
-              {patient.dnrStatus ? 'DNR Active' : 'Full Code'}
+              {patient.dnrStatus === true
+                ? 'DNR Active'
+                : patient.dnrStatus === false
+                ? 'Full Code'
+                : t('emergency.noneRecorded')}
             </span>
           </div>
         </div>
@@ -202,19 +209,21 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {showFullDetails && (
           <div className="md:col-span-2 flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
             <div className="w-10 h-10 flex items-center justify-center">
-              <Heart className={patient.organDonor ? 'text-pink-500' : 'text-content-muted'} size={24} />
+              <Heart className={patient.organDonor === true ? 'text-pink-500' : 'text-content-muted'} size={24} />
             </div>
             <div>
               <p className="text-sm text-content-muted">Organ Donor Status</p>
               <p className="font-medium inline-flex items-center gap-1.5">
-                {patient.organDonor ? (
+                {patient.organDonor === true ? (
                   <>
                     <CheckCircle2 size={16} className="text-ok-subtle-fg" aria-hidden="true" /> Registered Organ Donor
                   </>
-                ) : (
+                ) : patient.organDonor === false ? (
                   <>
                     <XCircle size={16} className="text-content-muted" aria-hidden="true" /> Not a Registered Donor
                   </>
+                ) : (
+                  t('emergency.noneRecorded')
                 )}
               </p>
             </div>
@@ -225,7 +234,9 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       {/* Footer with timestamp */}
       <div className="px-6 py-4 bg-surface-sunken border-t border-border">
         <p className="text-xs text-content-muted">
-          Last updated: {new Date(lastUpdated).toLocaleString()}
+          Last updated: {patient.lastUpdated
+            ? new Date(patient.lastUpdated).toLocaleString()
+            : t('emergency.noneRecorded')}
         </p>
       </div>
     </div>

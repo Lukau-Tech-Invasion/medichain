@@ -20,15 +20,14 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   listCriticalValues: vi.fn(),
   createCriticalValue: vi.fn(),
+  acknowledgeCriticalValue: vi.fn(),
+  cancelCriticalValue: vi.fn(),
 }));
 
 // Mock toast actions
+const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn(), showWarning: vi.fn() }));
 vi.mock('../components/Toast', () => ({
-  useToastActions: () => ({
-    showSuccess: vi.fn(),
-    showError: vi.fn(),
-    showWarning: vi.fn(),
-  }),
+  useToastActions: () => toast,
 }));
 
 describe('CriticalValuePage', () => {
@@ -101,4 +100,60 @@ describe('CriticalValuePage', () => {
     
     expect(screen.getByText(/Report New Critical Value/i)).toBeInTheDocument();
   });
+
+  describe('acknowledging through the server', () => {
+    // The shape `/api/platform/list/critical-values` returns: the entity's
+    // columns plus the notification fields at the top level.
+    const SERVER_ROW = {
+      id: 'CRV-1', notification_id: 'CRV-1', patient_id: 'PAT-001', patient_name: 'John Doe',
+      analyte: 'Potassium', test_name: 'Potassium', value: 6.5, unit: 'mmol/L',
+      critical_level: 'critical-high', threshold_exceeded: 'Critical High (>6)',
+      ordering_provider: 'Dr. Smith', notification_status: 'pending',
+      reported_by: 'lab', reported_at: new Date().toISOString(),
+    };
+
+    beforeEach(() => {
+      vi.mocked(shared.listCriticalValues).mockResolvedValue({ success: true, total: 1, items: [SERVER_ROW] });
+    });
+
+    async function openAcknowledgment() {
+      render(<CriticalValuePage />);
+      fireEvent.click(await screen.findByRole('button', { name: /Acknowledge & Document/i }));
+      fireEvent.change(document.getElementById('critval-read-back')!, { target: { value: 'K 6.5' } });
+      fireEvent.click(screen.getByRole('button', { name: /Complete Acknowledgment/i }));
+    }
+
+    it('records the read-back on the server and reloads the list', async () => {
+      vi.mocked(shared.acknowledgeCriticalValue).mockResolvedValue({});
+      await openAcknowledgment();
+
+      await waitFor(() => expect(shared.acknowledgeCriticalValue).toHaveBeenCalledWith('CRV-1', expect.objectContaining({
+        notifiedProvider: 'Dr. Smith', notificationMethod: 'phone', readBackValue: 'K 6.5',
+      })));
+      await waitFor(() => expect(shared.listCriticalValues).toHaveBeenCalledTimes(2));
+      expect(toast.showSuccess).toHaveBeenCalled();
+    });
+
+    it('says so when the server refuses, and claims nothing', async () => {
+      vi.mocked(shared.acknowledgeCriticalValue).mockRejectedValue(new Error('down'));
+      await openAcknowledgment();
+
+      await waitFor(() => expect(toast.showError).toHaveBeenCalled());
+      expect(toast.showSuccess).not.toHaveBeenCalled();
+      expect(shared.listCriticalValues).toHaveBeenCalledTimes(1);
+    });
+
+    it('withdraws a notification through the server with its reason', async () => {
+      vi.mocked(shared.cancelCriticalValue).mockResolvedValue({});
+      vi.spyOn(window, 'prompt').mockReturnValue('Haemolysed sample');
+      render(<CriticalValuePage />);
+      await screen.findByRole('button', { name: /Acknowledge & Document/i });
+
+      fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/i })[0]);
+
+      await waitFor(() => expect(shared.cancelCriticalValue).toHaveBeenCalledWith('CRV-1', 'Haemolysed sample'));
+      await waitFor(() => expect(shared.listCriticalValues).toHaveBeenCalledTimes(2));
+    });
+  });
 });
+

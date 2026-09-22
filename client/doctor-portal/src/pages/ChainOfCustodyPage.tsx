@@ -10,6 +10,8 @@ import {
   useValidatedForm,
   chainOfCustodySchema,
   custodyHandoverSchema,
+  transferChainOfCustody,
+  getApiErrorMessage,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -31,7 +33,7 @@ import {
 
 type SpecimenType = 'blood' | 'urine' | 'other-fluid' | 'tissue' | 'swab' | 'evidence';
 type SpecimenStatus = 'collected' | 'in-transit' | 'received' | 'analyzed' | 'stored' | 'released' | 'destroyed';
-type CustodyPurpose = 'legal' | 'toxicology' | 'dna' | 'sexual-assault' | 'criminal' | 'workplace';
+type CustodyPurpose = 'clinical' | 'legal' | 'toxicology' | 'dna' | 'sexual-assault' | 'criminal' | 'workplace';
 
 interface CustodyTransfer {
   transferredFrom: string;
@@ -40,8 +42,10 @@ interface CustodyTransfer {
   location: string;
   condition: string;
   sealIntact: boolean;
-  signature: string;
-  witnessSignature?: string;
+  /** A witness's name, when one was present. */
+  witness?: string;
+  /** Who entered the hand-over (the signed-in user), as the server recorded it. */
+  recordedBy?: string;
   notes?: string;
 }
 
@@ -137,20 +141,23 @@ const ChainOfCustodyPage: React.FC = () => {
         patientName: (item.patient_name || item.patientName || '') as string,
         specimenType: (item.specimen_type || item.specimenType || 'other-fluid') as SpecimenType,
         specimenDescription: (item.specimen_description || item.specimenDescription || '') as string,
-        collectionDate: (item.collection_date || item.collectionDate || '') as string,
-        collectionTime: (item.collection_time || item.collectionTime || '') as string,
+        collectionDate: (item.collection_date || item.collectionDate || String(item.collection_datetime ?? '').slice(0, 10)) as string,
+        collectionTime: (item.collection_time || item.collectionTime || String(item.collection_datetime ?? '').slice(11, 16)) as string,
         collectedBy: (item.collected_by || item.collectedBy || '') as string,
         collectionLocation: (item.collection_location || item.collectionLocation || '') as string,
         purpose: (item.purpose || 'legal') as CustodyPurpose,
         caseNumber: item.case_number || item.caseNumber,
         investigatingAgency: item.investigating_agency || item.investigatingAgency,
-        status: (item.status || 'collected') as SpecimenStatus,
+        // `status` at the top level is the custody column (`in_custody`,
+        // `transferred`); the specimen's lifecycle the page tracks is
+        // `specimen_status`.
+        status: (item.specimen_status || item.status || 'collected') as SpecimenStatus,
         sealNumber: (item.seal_number || item.sealNumber || '') as string,
         containerType: (item.container_type || item.containerType || '') as string,
         quantity: (item.quantity || '') as string,
         transfers: (item.transfers || []) as CustodyTransfer[],
-        currentCustodian: (item.current_custodian || item.currentCustodian || '') as string,
-        currentLocation: (item.current_location || item.currentLocation || '') as string,
+        currentCustodian: (item.current_custodian || item.currentCustodian || item.current_custodian_id || '') as string,
+        currentLocation: (item.current_location || item.currentLocation || item.storage_location || '') as string,
         storageConditions: item.storage_conditions || item.storageConditions,
         expiryDate: item.expiry_date || item.expiryDate,
         disposalDate: item.disposal_date || item.disposalDate,
@@ -263,7 +270,7 @@ const ChainOfCustodyPage: React.FC = () => {
     clearField: clearTransferField,
   } = useValidatedForm(custodyHandoverSchema);
 
-  const handleTransfer = () => {
+  const handleTransfer = async () => {
     // Who took it and where are what make the chain traceable; a transfer
     // missing either leaves the gap a later challenge points at.
     if (!selectedRecord) {
@@ -274,33 +281,20 @@ const ChainOfCustodyPage: React.FC = () => {
       return;
     }
 
-    const newTransfer: CustodyTransfer = {
-      transferredFrom: selectedRecord.currentCustodian,
-      transferredTo: transfer.transferredTo,
-      transferredAt: new Date().toISOString(),
-      location: transfer.location,
-      condition: transfer.condition,
-      sealIntact: transfer.sealIntact,
-      signature: `${transfer.transferredTo}-SIG`,
-      witnessSignature: transfer.witnessSignature ? `${transfer.witnessSignature}-SIG` : undefined,
-      notes: transfer.notes,
-    };
-
-    const updatedRecords = records.map((r) => {
-      if (r.custodyId === selectedRecord.custodyId) {
-        return {
-          ...r,
-          transfers: [...r.transfers, newTransfer],
-          currentCustodian: transfer.transferredTo,
-          currentLocation: transfer.location,
-          status: 'in-transit' as SpecimenStatus,
-          integrityVerified: transfer.sealIntact,
-        };
-      }
-      return r;
-    });
-
-    setRecords(updatedRecords);
+    try {
+      await transferChainOfCustody(selectedRecord.custodyId, {
+        transferredTo: transfer.transferredTo,
+        location: transfer.location,
+        condition: transfer.condition,
+        sealIntact: transfer.sealIntact,
+        witness: transfer.witnessSignature || undefined,
+        notes: transfer.notes || undefined,
+      });
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docChainOfCustody.errorTransferFailed')));
+      return;
+    }
+    await fetchData();
     setSelectedRecord(null);
     setTransfer({
       transferredTo: '',
@@ -502,21 +496,28 @@ const ChainOfCustodyPage: React.FC = () => {
                     <div className="mb-4">
                       <h4 className="text-sm font-semibold text-content-secondary mb-2">{t('docChainOfCustody.transferHistoryTitle', { count: record.transfers.length })}</h4>
                       <div className="space-y-2">
-                        {record.transfers.map((t, idx) => (
+                        {record.transfers.map((hop, idx) => (
                           <div key={idx} className="bg-surface-sunken rounded p-3 text-sm">
                             <div className="flex items-center gap-2 mb-1">
                               <Truck className="w-4 h-4 text-content-muted" />
-                              <span className="font-semibold">{t.transferredFrom}</span>
+                              <span className="font-semibold">{hop.transferredFrom}</span>
                               <span className="text-content-muted">→</span>
-                              <span className="font-semibold">{t.transferredTo}</span>
-                              {t.sealIntact ? (
+                              <span className="font-semibold">{hop.transferredTo}</span>
+                              {hop.sealIntact ? (
                                 <CheckCircle className="w-4 h-4 text-ok-subtle-fg" />
                               ) : (
                                 <AlertTriangle className="w-4 h-4 text-critical-subtle-fg" />
                               )}
                             </div>
-                            <p className="text-content-muted text-xs">{formatTimestamp(t.transferredAt)} • {t.location}</p>
-                            {t.notes && <p className="text-content-muted italic mt-1">{t.notes}</p>}
+                            <p className="text-content-muted text-xs">{formatTimestamp(hop.transferredAt)} • {hop.location}</p>
+                            {(hop.recordedBy || hop.witness) && (
+                              <p className="text-content-muted text-xs">
+                                {hop.recordedBy && t('docChainOfCustody.recordedBy', { who: hop.recordedBy })}
+                                {hop.recordedBy && hop.witness && ' • '}
+                                {hop.witness && t('docChainOfCustody.witnessedBy', { who: hop.witness })}
+                              </p>
+                            )}
+                            {hop.notes && <p className="text-content-muted italic mt-1">{hop.notes}</p>}
                           </div>
                         ))}
                       </div>
@@ -923,7 +924,7 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={handleTransfer}
+                  onClick={() => void handleTransfer()}
                   className="flex-1 bg-gray-700 text-white px-4 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
                 >
                   {t('docChainOfCustody.completeTransferBtn')}

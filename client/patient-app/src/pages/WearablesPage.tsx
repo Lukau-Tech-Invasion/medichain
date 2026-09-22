@@ -81,10 +81,22 @@ export interface ActivityRing {
   color: string;
 }
 
+const DISPLAY_TYPE_BY_MANUFACTURER: Record<string, DeviceType> = {
+  apple: 'apple-watch',
+  fitbit: 'fitbit',
+  garmin: 'garmin',
+  samsung: 'samsung',
+  google: 'google-fit',
+  oura: 'oura',
+};
+
+const displayTypeFor = (manufacturer?: string): DeviceType =>
+  DISPLAY_TYPE_BY_MANUFACTURER[manufacturer?.toLowerCase() ?? ''] ?? 'google-fit';
+
 const mapDevice = (device: WearableDevice): Device => ({
   id: device.device_id,
   name: `${device.manufacturer} ${device.model}`.trim(),
-  type: device.device_type === 'Smartwatch' ? 'apple-watch' : 'google-fit',
+  type: displayTypeFor(device.manufacturer),
   model: device.model,
   status: device.connection_status === 'Connected' ? 'connected' : 'disconnected',
   lastSync: device.last_sync ? new Date(device.last_sync * 1000) : null,
@@ -119,12 +131,12 @@ const mapLatestMetrics = (readings: WearableReading[]): HealthMetric[] => {
  * under, and the registration endpoint wants the latter.
  */
 const ADD_DEVICE_PLATFORMS = [
-  { name: 'Apple Health', manufacturer: 'Apple', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
-  { name: 'Google Fit', manufacturer: 'Google', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
-  { name: 'Fitbit', manufacturer: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'fitbit' },
-  { name: 'Garmin', manufacturer: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'garmin' },
-  { name: 'Samsung Health', manufacturer: 'Samsung', icon: <Heart className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'samsung' },
-  { name: 'Oura Ring', manufacturer: 'Oura', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' },
+  { name: 'Apple Health', manufacturer: 'Apple', apiDeviceType: 'smartwatch', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
+  { name: 'Google Fit', manufacturer: 'Google', apiDeviceType: 'smartwatch', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
+  { name: 'Fitbit', manufacturer: 'Fitbit', apiDeviceType: 'fitness_band', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'fitbit' },
+  { name: 'Garmin', manufacturer: 'Garmin', apiDeviceType: 'smartwatch', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'garmin' },
+  { name: 'Samsung Health', manufacturer: 'Samsung', apiDeviceType: 'smartwatch', icon: <Heart className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'samsung' },
+  { name: 'Oura Ring', manufacturer: 'Oura', apiDeviceType: 'fitness_band', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' },
 ];
 
 const WearablesPage: React.FC = () => {
@@ -399,15 +411,15 @@ const WearablesPage: React.FC = () => {
     loadWearableData();
   }, [patient, loadWearableData]);
 
-  const handleSync = () => {
+  const handleSync = async () => {
     setIsSyncing(true);
-    setTimeout(() => {
+    try {
+      // There is no connected-provider ingestion endpoint yet. Refresh only
+      // what the server has actually recorded; never stamp a fictional sync.
+      await loadWearableData();
+    } finally {
       setIsSyncing(false);
-      setDevices(prev => prev.map(d => ({
-        ...d,
-        lastSync: new Date()
-      })));
-    }, 2000);
+    }
   };
 
   const getDeviceIcon = (type: DeviceType) => {
@@ -795,7 +807,7 @@ const WearablesPage: React.FC = () => {
                       const platform = ADD_DEVICE_PLATFORMS.find(
                         (p) => p.manufacturer === pendingManufacturer
                       );
-                      if (platform) void registerDevice(platform.type, platform.manufacturer);
+                      if (platform) void registerDevice(platform.apiDeviceType, platform.manufacturer);
                     }}
                     className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
                   >

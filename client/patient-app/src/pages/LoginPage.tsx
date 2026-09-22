@@ -196,23 +196,13 @@ export function LoginPage() {
               </div>
             </div>
 
-            {/* Alternative login options */}
-            <div className="space-y-3">
-              <button
-                type="button"
-                className="w-full border border-border text-content-secondary py-3 px-4 rounded-xl font-medium hover:bg-surface-sunken transition-colors flex items-center justify-center gap-2"
-              >
-                <img src="/nfc-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
-                {t('auth.signInNfc')}
-              </button>
-              <button
-                type="button"
-                className="w-full border border-border text-content-secondary py-3 px-4 rounded-xl font-medium hover:bg-surface-sunken transition-colors flex items-center justify-center gap-2"
-              >
-                <img src="/qr-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
-                {t('auth.scanQr')}
-              </button>
-            </div>
+            {/* NFC card verification is self-scoped and requires an authenticated
+                patient. QR verification is a provider emergency-access action.
+                Neither endpoint can authenticate a patient, so do not expose them
+                as dead alternative sign-in controls. */}
+            <p className="rounded-xl border border-border bg-surface-sunken px-4 py-3 text-center text-sm text-content-muted">
+              {t('auth.cardVerificationAfterLogin')}
+            </p>
           </div>
 
           {/* Demo Wallet Section (Development Only) */}

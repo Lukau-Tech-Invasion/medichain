@@ -532,7 +532,20 @@ impl PathologyReportRepository for PgPathologyReportRepository {
         report: PathologyReportEntity,
     ) -> RepositoryResult<PathologyReportEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE pathology_reports SET ");
-        qb.push("diagnosis = ").push_bind(&report.diagnosis);
+        qb.push("pathologist_id = ")
+            .push_bind(&report.pathologist_id);
+        qb.push(", report_date = ").push_bind(report.report_date);
+        qb.push(", gross_description = ")
+            .push_bind(&report.gross_description);
+        qb.push(", microscopic_description = ")
+            .push_bind(&report.microscopic_description);
+        qb.push(", special_stains = ")
+            .push_bind(&report.special_stains);
+        qb.push(", immunohistochemistry = ")
+            .push_bind(&report.immunohistochemistry);
+        qb.push(", molecular_studies = ")
+            .push_bind(&report.molecular_studies);
+        qb.push(", diagnosis = ").push_bind(&report.diagnosis);
         qb.push(", staging = ").push_bind(&report.staging);
         qb.push(", tnm_classification = ")
             .push_bind(&report.tnm_classification);
@@ -548,6 +561,7 @@ impl PathologyReportRepository for PgPathologyReportRepository {
         qb.push(", status = ").push_bind(&report.status);
         qb.push(", synoptic_report = ")
             .push_bind(&report.synoptic_report);
+        qb.push(", record_json = ").push_bind(&report.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&report.id);
         qb.push(" RETURNING *");

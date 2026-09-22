@@ -89,43 +89,6 @@ mod tests {
     use super::*;
     use crate::repositories::memory::MemoryPatientRepository;
 
-    fn profile(id: &str, name: &str) -> crate::PatientProfile {
-        let now = chrono::Utc::now();
-        crate::PatientProfile {
-            patient_id: id.to_string(),
-            full_name: name.to_string(),
-            date_of_birth: "1980-01-01".to_string(),
-            time_of_birth: None,
-            national_id: format!("NID-{id}"),
-            gender: None,
-            phone: "+27000000000".to_string(),
-            emergency_info: crate::EmergencyInfo {
-                patient_id: id.to_string(),
-                blood_type: crate::BloodType::OPositive,
-                allergies: Vec::new(),
-                current_medications: Vec::new(),
-                chronic_conditions: Vec::new(),
-                emergency_contacts: Vec::new(),
-                organ_donor: false,
-                dnr_status: false,
-                dnr_verified_by: None,
-                dnr_verified_at: None,
-                dnr_document_ref: None,
-                languages: vec!["en".to_string()],
-                last_updated: now,
-            },
-            address: None,
-            insurance: None,
-            primary_doctor: None,
-            community_health_worker: None,
-            preferences: crate::PatientPreferences::default(),
-            advanced_directives: Vec::new(),
-            family_notifications: None,
-            created_at: now,
-            last_updated: now,
-        }
-    }
-
     /// A row as the migration left it: a sealed profile and no tokens.
     async fn legacy_row(
         repo: &MemoryPatientRepository,
@@ -133,7 +96,10 @@ mod tests {
         id: &str,
         name: &str,
     ) {
-        let mut entity = crate::patient_profile_to_entity(&profile(id, name), keyring);
+        let mut entity = crate::patient_profile_to_entity(
+            &crate::test_fixtures::patient_profile(id, name),
+            keyring,
+        );
         entity.name_search_tokens = Vec::new();
         repo.create(entity).await.unwrap();
     }

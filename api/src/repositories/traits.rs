@@ -2574,13 +2574,31 @@ pub trait CriticalValueRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<CriticalValueEntity>>;
     async fn get_unacknowledged(&self) -> RepositoryResult<Vec<CriticalValueEntity>>;
-    async fn acknowledge(
+    /// Close an open notification -- acknowledged, or cancelled as entered in
+    /// error -- exactly once.
+    ///
+    /// Conditional on `acknowledged_at IS NULL`: `Ok(None)` means it was
+    /// already closed. The unconditional update this replaces could overwrite
+    /// one read-back record with another, and nothing called it.
+    async fn close(
         &self,
         id: &str,
-        acknowledged_by: &str,
-        action_taken: &str,
-    ) -> RepositoryResult<CriticalValueEntity>;
+        closure: CriticalValueClosure,
+    ) -> RepositoryResult<Option<CriticalValueEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>>;
+}
+
+/// What closing a critical-value notification records.
+#[derive(Debug, Clone)]
+pub struct CriticalValueClosure {
+    /// Who documented the acknowledgment or the cancellation.
+    pub closed_by: String,
+    pub action_taken: String,
+    pub notified_provider_id: Option<String>,
+    pub notification_method: Option<String>,
+    pub notified_at: Option<DateTime<Utc>>,
+    /// The whole record document after closing.
+    pub data: serde_json::Value,
 }
 
 /// Specimen collection repository trait
@@ -4265,6 +4283,19 @@ pub trait MciRecordRepository: Send + Sync + fmt::Debug {
 }
 
 /// Chain of custody repository trait
+/// One hand-over in a chain of custody.
+#[derive(Debug, Clone)]
+pub struct CustodyTransfer {
+    pub new_custodian: String,
+    pub location: String,
+    /// The custody-status column after the hand-over.
+    pub status: String,
+    /// The entry appended to `transfers`.
+    pub entry: serde_json::Value,
+    /// The whole record document after the hand-over.
+    pub data: serde_json::Value,
+}
+
 #[async_trait]
 pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
     async fn create(&self, record: ChainOfCustodyEntity) -> RepositoryResult<ChainOfCustodyEntity>;
@@ -4273,12 +4304,18 @@ pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
         -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
     async fn get_by_case(&self, case_number: &str) -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
     async fn update(&self, record: ChainOfCustodyEntity) -> RepositoryResult<ChainOfCustodyEntity>;
+    /// Record a hand-over, conditional on the record being unchanged since
+    /// `expected_updated_at`; `Ok(None)` means somebody else wrote first.
+    ///
+    /// The unconditional version this replaces read the transfer list and wrote
+    /// it back in two statements, so two simultaneous hand-overs kept one --
+    /// a gap in a chain of custody is what a court challenge points at.
     async fn transfer(
         &self,
         id: &str,
-        new_custodian_id: &str,
-        notes: Option<&str>,
-    ) -> RepositoryResult<ChainOfCustodyEntity>;
+        expected_updated_at: DateTime<Utc>,
+        transfer: CustodyTransfer,
+    ) -> RepositoryResult<Option<ChainOfCustodyEntity>>;
     async fn get_by_custodian(
         &self,
         custodian_id: &str,

@@ -1,8 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   getPatients,
   listCriticalValues,
   createCriticalValue,
+  acknowledgeCriticalValue,
+  cancelCriticalValue,
+  getApiErrorMessage,
+  useScoringCatalog,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -75,27 +79,28 @@ interface CriticalValueNotification {
 }
 
 // Critical value thresholds database
-const CRITICAL_THRESHOLDS: CriticalValueThreshold[] = [
-  { analyte: 'Glucose', unit: 'mg/dL', criticalLow: 40, criticalHigh: 500, panicLow: 20, panicHigh: 700 },
-  { analyte: 'Potassium', unit: 'mmol/L', criticalLow: 2.5, criticalHigh: 6.0, panicLow: 2.0, panicHigh: 7.0 },
-  { analyte: 'Sodium', unit: 'mmol/L', criticalLow: 120, criticalHigh: 160, panicLow: 115, panicHigh: 170 },
-  { analyte: 'Calcium', unit: 'mg/dL', criticalLow: 6.0, criticalHigh: 13.0, panicLow: 5.0, panicHigh: 15.0 },
-  { analyte: 'Hemoglobin', unit: 'g/dL', criticalLow: 5.0, panicLow: 4.0 },
-  { analyte: 'Platelets', unit: '10^9/L', criticalLow: 20, panicLow: 10 },
-  { analyte: 'WBC', unit: '10^9/L', criticalLow: 1.0, criticalHigh: 30.0, panicLow: 0.5, panicHigh: 50.0 },
-  { analyte: 'INR', unit: 'ratio', criticalHigh: 5.0, panicHigh: 8.0 },
-  { analyte: 'Troponin', unit: 'ng/mL', criticalHigh: 0.5, panicHigh: 10.0 },
-  { analyte: 'Creatinine', unit: 'mg/dL', criticalHigh: 5.0, panicHigh: 10.0 },
-  { analyte: 'pH', unit: '', criticalLow: 7.20, criticalHigh: 7.60, panicLow: 7.10, panicHigh: 7.70 },
-  { analyte: 'pCO2', unit: 'mmHg', criticalLow: 20, criticalHigh: 70, panicLow: 15, panicHigh: 90 },
-  { analyte: 'pO2', unit: 'mmHg', criticalLow: 40, panicLow: 30 },
-];
+// The call list is the server's (`clinical_scoring::CRITICAL_VALUE_THRESHOLDS`,
+// served in the scoring catalogue). It lived here as a literal, and the page
+// classified each report itself (rule 8); it now only previews.
 
 const CriticalValuePage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const { catalog } = useScoringCatalog();
+  const thresholds: CriticalValueThreshold[] = useMemo(
+    () =>
+      (catalog?.critical_values?.thresholds ?? []).map((entry) => ({
+        analyte: entry.analyte,
+        unit: entry.unit,
+        criticalLow: entry.critical_low ?? undefined,
+        criticalHigh: entry.critical_high ?? undefined,
+        panicLow: entry.panic_low ?? undefined,
+        panicHigh: entry.panic_high ?? undefined,
+      })),
+    [catalog]
+  );
   const [notifications, setNotifications] = useState<CriticalValueNotification[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'report-new' | 'history' | 'thresholds'>('pending');
   const [selectedNotification, setSelectedNotification] = useState<CriticalValueNotification | null>(null);
@@ -182,7 +187,7 @@ const CriticalValuePage: React.FC = () => {
     analyte: string,
     value: number
   ): { level: CriticalLevel; threshold: string } | null => {
-    const threshold = CRITICAL_THRESHOLDS.find((t) => t.analyte === analyte);
+    const threshold = thresholds.find((t) => t.analyte === analyte);
     if (!threshold) return null;
 
     if (threshold.panicHigh && value >= threshold.panicHigh) {
@@ -248,9 +253,9 @@ const CriticalValuePage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await createCriticalValue(newNotification) as { success?: boolean; error?: string };
+      const response = await createCriticalValue(newNotification) as { success?: boolean; error?: string; notification_id?: string };
       if (response.success !== false) {
-        setNotifications([newNotification, ...notifications]);
+        await fetchData();
         setNewCritical({
           patientId: '',
           analyte: '',
@@ -259,13 +264,13 @@ const CriticalValuePage: React.FC = () => {
           orderingProvider: '',
         });
         setActiveTab('pending');
-        showSuccess(t('docCriticalValue.successCreated', { id: newNotification.notificationId }));
+        showSuccess(t('docCriticalValue.successCreated', { id: response.notification_id ?? '' }));
       } else {
         showError(response.error || t('docCriticalValue.errorCreateFailed'));
       }
     } catch (err) {
       console.error('Error creating critical value notification:', err);
-      showError(t('docCriticalValue.errorGenericCreate'));
+      showError(getApiErrorMessage(err, t('docCriticalValue.errorGenericCreate')));
     } finally {
       setIsLoading(false);
     }
@@ -288,7 +293,7 @@ const CriticalValuePage: React.FC = () => {
     clearField,
   } = useValidatedForm(criticalValueAckSchema);
 
-  const handleAcknowledge = () => {
+  const handleAcknowledge = async () => {
     if (!selectedNotification) return;
 
     // Read-back is the safety procedure, so the message belongs on the box the
@@ -309,30 +314,18 @@ const CriticalValuePage: React.FC = () => {
       if (!confirm) return;
     }
 
-    const updatedNotifications = notifications.map((n) => {
-      if (n.notificationId === selectedNotification.notificationId) {
-        const notifiedAt = new Date(n.reportedAt);
-        const acknowledgedAt = new Date();
-        const timeToAck = Math.round((acknowledgedAt.getTime() - notifiedAt.getTime()) / 1000 / 60);
-
-        return {
-          ...n,
-          notificationStatus: 'acknowledged' as NotificationStatus,
-          notifiedProvider: acknowledgment.notifiedProvider,
-          notificationMethod: acknowledgment.notificationMethod,
-          notifiedAt: new Date().toISOString(),
-          readBackVerified: readBackMatch,
-          readBackValue: acknowledgment.readBackValue,
-          acknowledgmentNotes: acknowledgment.acknowledgmentNotes,
-          acknowledgedBy: user?.userId || 'UNKNOWN',
-          acknowledgedAt: new Date().toISOString(),
-          timeToAcknowledge: timeToAck,
-        };
-      }
-      return n;
-    });
-
-    setNotifications(updatedNotifications);
+    try {
+      await acknowledgeCriticalValue(selectedNotification.notificationId, {
+        notifiedProvider: acknowledgment.notifiedProvider,
+        notificationMethod: acknowledgment.notificationMethod,
+        readBackValue: acknowledgment.readBackValue,
+        acknowledgmentNotes: acknowledgment.acknowledgmentNotes,
+      });
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCriticalValue.errorAcknowledgeFailed')));
+      return;
+    }
+    await fetchData();
     setSelectedNotification(null);
     setAcknowledgment({
       notificationMethod: 'phone',
@@ -343,21 +336,14 @@ const CriticalValuePage: React.FC = () => {
     showSuccess(t('docCriticalValue.successAcknowledged'));
   };
 
-  const handleCancelNotification = (notificationId: string, reason: string) => {
-    const updatedNotifications = notifications.map((n) => {
-      if (n.notificationId === notificationId) {
-        return {
-          ...n,
-          notificationStatus: 'cancelled' as NotificationStatus,
-          acknowledgmentNotes: `Cancelled: ${reason}`,
-          acknowledgedBy: user?.userId || 'UNKNOWN',
-          acknowledgedAt: new Date().toISOString(),
-        };
-      }
-      return n;
-    });
-
-    setNotifications(updatedNotifications);
+  const handleCancelNotification = async (notificationId: string, reason: string) => {
+    try {
+      await cancelCriticalValue(notificationId, reason);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCriticalValue.errorCancelFailed')));
+      return;
+    }
+    await fetchData();
     showSuccess(t('docCriticalValue.successCancelled'));
   };
 
@@ -648,7 +634,7 @@ const CriticalValuePage: React.FC = () => {
                       onClick={() => {
                         const reason = prompt(t('docCriticalValue.cancelReasonPrompt'));
                         if (reason) {
-                          handleCancelNotification(notification.notificationId, reason);
+                          void handleCancelNotification(notification.notificationId, reason);
                         }
                       }}
                       className="px-4 py-2 border border-border-strong rounded-lg hover:bg-surface-sunken transition-colors"
@@ -800,7 +786,7 @@ const CriticalValuePage: React.FC = () => {
                   {/* Action Buttons */}
                   <div className="flex gap-3 pt-4">
                     <button
-                      onClick={handleAcknowledge}
+                      onClick={() => void handleAcknowledge()}
                       className="flex-1 bg-brand text-brand-fg px-4 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold"
                     >
                       {t('docCriticalValue.completeAcknowledgmentBtn')}
@@ -858,7 +844,7 @@ const CriticalValuePage: React.FC = () => {
                   id="critval-analyte"
                   value={newCritical.analyte}
                   onChange={(e) => {
-                    const selected = CRITICAL_THRESHOLDS.find((t) => t.analyte === e.target.value);
+                    const selected = thresholds.find((t) => t.analyte === e.target.value);
                     setNewCritical({
                       ...newCritical,
                       analyte: e.target.value,
@@ -868,7 +854,7 @@ const CriticalValuePage: React.FC = () => {
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="">{t('docCriticalValue.selectAnalytePh')}</option>
-                  {CRITICAL_THRESHOLDS.map((threshold) => (
+                  {thresholds.map((threshold) => (
                     <option key={threshold.analyte} value={threshold.analyte}>
                       {threshold.analyte}
                     </option>
@@ -1165,7 +1151,7 @@ const CriticalValuePage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {CRITICAL_THRESHOLDS.map((threshold) => (
+              {thresholds.map((threshold) => (
                 <tr key={threshold.analyte} className="hover:bg-surface-sunken">
                   <td className="px-4 py-3 font-semibold text-content">{threshold.analyte}</td>
                   <td className="px-4 py-3 text-content-muted">{threshold.unit || t('docCriticalValue.naLabel')}</td>

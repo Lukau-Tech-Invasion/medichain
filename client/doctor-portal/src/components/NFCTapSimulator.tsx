@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { EmergencyInfo } from '../store/patientStore';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { usePatientStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
 import { enterWorkContext, grantBoundEmergencyAccess, listUsableDevices } from '@medichain/shared';
@@ -305,9 +305,9 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <div className="space-y-4">
           <p className="text-sm text-content-muted">
             For manual patient lookup, use the{' '}
-            <a href="/patients" className="text-brand hover:underline">
+            <Link to="/patients" className="text-brand hover:underline">
               Patient Search
-            </a>{' '}
+            </Link>{' '}
             page.
           </p>
         </div>

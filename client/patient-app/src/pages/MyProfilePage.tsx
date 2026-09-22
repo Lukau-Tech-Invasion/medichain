@@ -85,8 +85,8 @@ interface PatientProfile {
   currentMedications: string[];
   chronicConditions: string[];
   emergencyContacts: EmergencyContact[];
-  organDonor: boolean;
-  dnrStatus: boolean;
+  organDonor: boolean | null;
+  dnrStatus: boolean | null;
   phone: string;
   gender: string;
   languages: string[];
@@ -158,8 +158,12 @@ export function MyProfilePage() {
               canMakeMedicalDecisions: c.can_make_medical_decisions ?? false,
             })
           ),
-          organDonor: emergencyInfo.organ_donor || false,
-          dnrStatus: emergencyInfo.dnr_status || false,
+          organDonor: typeof emergencyInfo.organ_donor === 'boolean'
+            ? emergencyInfo.organ_donor
+            : null,
+          dnrStatus: typeof emergencyInfo.dnr_status === 'boolean'
+            ? emergencyInfo.dnr_status
+            : null,
           phone: data.phone || '',
           gender: data.gender || '',
           languages: emergencyInfo.languages || [],
@@ -599,17 +603,33 @@ export function MyProfilePage() {
             <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
               <span className="text-sm font-medium text-content-secondary">{t('profile.organDonor')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.organDonor ? 'bg-success-100 text-success-700' : 'bg-surface-sunken text-content-muted'
+                profile?.organDonor === true
+                  ? 'bg-success-100 text-success-700'
+                  : profile?.organDonor === false
+                  ? 'bg-surface-sunken text-content-muted'
+                  : 'bg-warning-100 text-warning-800'
               }`}>
-                {profile?.organDonor ? t('common.yes') : t('common.no')}
+                {profile?.organDonor === true
+                  ? t('common.yes')
+                  : profile?.organDonor === false
+                  ? t('common.no')
+                  : t('emergency.noneRecorded')}
               </span>
             </div>
             <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
               <span className="text-sm font-medium text-content-secondary">{t('profile.dnrStatus')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.dnrStatus ? 'bg-emergency-100 text-critical-subtle-fg' : 'bg-surface-sunken text-content-muted'
+                profile?.dnrStatus === true
+                  ? 'bg-emergency-100 text-critical-subtle-fg'
+                  : profile?.dnrStatus === false
+                  ? 'bg-surface-sunken text-content-muted'
+                  : 'bg-warning-100 text-warning-800'
               }`}>
-                {profile?.dnrStatus ? t('common.yes') : t('common.no')}
+                {profile?.dnrStatus === true
+                  ? t('common.yes')
+                  : profile?.dnrStatus === false
+                  ? t('common.no')
+                  : t('emergency.noneRecorded')}
               </span>
             </div>
           </div>

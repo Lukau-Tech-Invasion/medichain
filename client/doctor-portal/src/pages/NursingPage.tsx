@@ -15,6 +15,8 @@ interface MedicationDose {
   administered_by?: string;
   status: 'pending' | 'given' | 'held' | 'refused' | 'not_given';
   notes?: string;
+  /** Administrations are the only rows that may be actioned from this hub. */
+  canAdminister?: boolean;
 }
 
 interface MedicationEntry {
@@ -92,6 +94,130 @@ interface NursingCarePlan {
   last_updated: string;
 }
 
+type JsonObject = Record<string, unknown>;
+
+function asObjects(value: unknown): JsonObject[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is JsonObject => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    : [];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** Map the persisted medication-record entity without fabricating dose slots. */
+export function mapMarRecord(value: unknown): MAR | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as JsonObject;
+  const data = record.data as JsonObject | undefined;
+  const administrations = asObjects(data?.administrations);
+  const medications = asObjects(record.scheduled_medications).map((medication) => {
+    const medicationId = stringValue(medication.medication_id);
+    const medicationName = stringValue(medication.name);
+    const doses = administrations
+      .filter((administration) =>
+        stringValue(administration.medication_id) === medicationId ||
+        stringValue(administration.medication_name) === medicationName,
+      )
+      .map((administration) => ({
+        scheduled_time: stringValue(administration.scheduled_time) || '\u2014',
+        administered_time: stringValue(administration.actual_time) || stringValue(administration.administered_at),
+        administered_by: stringValue(administration.administered_by),
+        status: (stringValue(administration.status) || 'given') as MedicationDose['status'],
+        notes: stringValue(administration.notes),
+        canAdminister: false,
+      }));
+    return {
+      medication_name: medicationName,
+      dose: stringValue(medication.dose),
+      route: stringValue(medication.route),
+      frequency: stringValue(medication.frequency),
+      doses,
+    };
+  });
+  return {
+    mar_id: stringValue(record.id),
+    patient_id: stringValue(record.patient_id),
+    patient_name: stringValue(record.patient_id),
+    date: stringValue(record.record_date),
+    medications,
+    created_by: stringValue(record.primary_nurse),
+    created_at: stringValue(record.created_at),
+  };
+}
+
+/** Map the typed I/O row and preserve the individual events stored in its JSON arrays. */
+function mapIoRecord(value: unknown): IntakeOutputRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as JsonObject;
+  const fluidEntries = (items: unknown): FluidEntry[] => asObjects(items).map((item) => ({
+    time: stringValue(item.recorded_at) || stringValue(record.record_date),
+    type: stringValue(item.label) || stringValue(item.category),
+    amount_ml: typeof item.amount_ml === 'number' ? item.amount_ml : 0,
+    notes: stringValue(item.notes),
+    recorded_by: stringValue(item.recorded_by),
+  }));
+  const intake = fluidEntries(record.intake_items);
+  const output = fluidEntries(record.output_items);
+  const totalIntake = typeof record.total_intake === 'number' ? record.total_intake : 0;
+  const totalOutput = typeof record.total_output === 'number' ? record.total_output : 0;
+  return {
+    io_id: stringValue(record.id),
+    patient_id: stringValue(record.patient_id),
+    patient_name: stringValue(record.patient_id),
+    date: stringValue(record.record_date),
+    shift: ['day', 'evening', 'night'].includes(stringValue(record.shift))
+      ? stringValue(record.shift) as IntakeOutputRecord['shift']
+      : 'day',
+    intake,
+    output,
+    total_intake: totalIntake,
+    total_output: totalOutput,
+    fluid_balance: typeof record.net_balance === 'number' ? record.net_balance : totalIntake - totalOutput,
+    recorded_by: stringValue(record.recorded_by),
+  };
+}
+
+/** Map structured care-plan entries without turning missing clinical fields into defaults. */
+function mapCarePlan(value: unknown): NursingCarePlan | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const plan = value as JsonObject;
+  const diagnoses = asObjects(plan.nursing_diagnoses).map((diagnosis) => ({
+    diagnosis: stringValue(diagnosis.diagnosis),
+    related_to: stringValue(diagnosis.relatedTo) || stringValue(diagnosis.related_to),
+    evidenced_by: Array.isArray(diagnosis.evidencedBy) ? diagnosis.evidencedBy.filter((item): item is string => typeof item === 'string') : [],
+  }));
+  const textDiagnoses = Array.isArray(plan.nursing_diagnoses)
+    ? plan.nursing_diagnoses.filter((item): item is string => typeof item === 'string').map((diagnosis) => ({ diagnosis, related_to: '', evidenced_by: [] }))
+    : [];
+  return {
+    plan_id: stringValue(plan.id),
+    patient_id: stringValue(plan.patient_id),
+    patient_name: stringValue(plan.patient_id),
+    diagnoses: diagnoses.length > 0 ? diagnoses : textDiagnoses,
+    interventions: asObjects(plan.interventions).map((intervention) => ({
+      intervention: stringValue(intervention.description) || stringValue(intervention.intervention),
+      frequency: stringValue(intervention.frequency),
+      rationale: stringValue(intervention.rationale),
+      status: ['active', 'completed', 'discontinued'].includes(stringValue(intervention.status))
+        ? stringValue(intervention.status) as NursingIntervention['status']
+        : 'active',
+    })),
+    outcomes: asObjects(plan.goals).map((goal) => ({
+      outcome: stringValue(goal.description) || stringValue(goal.outcome),
+      target_date: stringValue(goal.targetDate) || stringValue(goal.target_date),
+      indicators: stringValue(goal.measurableOutcome) ? [stringValue(goal.measurableOutcome)] : [],
+      status: ['not_met', 'partially_met', 'met'].includes(stringValue(goal.status))
+        ? stringValue(goal.status) as NursingOutcome['status']
+        : 'not_met',
+    })),
+    created_by: stringValue(plan.created_by),
+    created_at: stringValue(plan.created_at),
+    last_updated: stringValue(plan.updated_at),
+  };
+}
+
 type TabType = 'mar' | 'io' | 'careplan';
 
 function NursingPage() {
@@ -138,15 +264,15 @@ function NursingPage() {
 
       if (marRes.ok) {
         const data = await marRes.json();
-        setMarRecords(data.records || []);
+        setMarRecords(asObjects(data.records).map(mapMarRecord).filter((record): record is MAR => record !== null));
       }
       if (ioRes.ok) {
         const data = await ioRes.json();
-        setIoRecords(data.records || []);
+        setIoRecords(asObjects(data.records).map(mapIoRecord).filter((record): record is IntakeOutputRecord => record !== null));
       }
       if (planRes.ok) {
         const data = await planRes.json();
-        setCarePlans(data.plans || []);
+        setCarePlans(asObjects(data.plans).map(mapCarePlan).filter((plan): plan is NursingCarePlan => plan !== null));
       }
       setError(null);
     } catch (err) {
@@ -404,8 +530,31 @@ function NursingPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {(mar.medications ?? []).flatMap((med, medIdx) => (
-                            (med.doses ?? []).map((dose, doseIdx) => (
+                          {(mar.medications ?? []).flatMap((med, medIdx) => {
+                            const doses = med.doses ?? [];
+                            if (doses.length === 0) {
+                              return (
+                                <tr key={`${medIdx}-none`} className="hover:bg-surface-sunken">
+                                  <td className="px-4 py-3 font-medium">{med.medication_name}</td>
+                                  <td className="px-4 py-3">{med.dose}</td>
+                                  <td className="px-4 py-3">{med.route}</td>
+                                  <td className="px-4 py-3">{med.frequency}</td>
+                                  <td className="px-4 py-3 text-center text-content-muted" colSpan={2}>
+                                    No recorded administrations for this medicine
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate(`/mar?patientId=${encodeURIComponent(mar.patient_id)}`)}
+                                      className="px-3 py-1 border border-border-interactive rounded text-sm hover:bg-surface-sunken"
+                                    >
+                                      Open eMAR
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return doses.map((dose, doseIdx) => (
                               <tr key={`${medIdx}-${doseIdx}`} className="hover:bg-surface-sunken">
                                 {doseIdx === 0 && (
                                   <>
@@ -427,7 +576,7 @@ function NursingPage() {
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-center">
-                                  {dose.status === 'pending' && (
+                                  {dose.status === 'pending' && dose.canAdminister && (
                                     <button
                                       onClick={() => administerMedication(mar, med, dose)}
                                       disabled={saving}
@@ -444,8 +593,8 @@ function NursingPage() {
                                   )}
                                 </td>
                               </tr>
-                            ))
-                          ))}
+                            ));
+                          })}
                         </tbody>
                       </table>
                     </div>

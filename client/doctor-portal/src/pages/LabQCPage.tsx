@@ -3,6 +3,8 @@ import { useAuthStore } from '../store/authStore';
 import {
   listLabQc,
   createLabQc,
+  listLabCalibrations,
+  createLabCalibration,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -105,7 +107,10 @@ const LabQCPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await listLabQc();
+      const [response, calibrationResponse] = await Promise.all([
+        listLabQc(),
+        listLabCalibrations(),
+      ]);
       
       // Map API response to QCTest interface
       const items = (response.items || []) as Record<string, unknown>[];
@@ -132,8 +137,7 @@ const LabQCPage: React.FC = () => {
       
       setQcTests(mappedTests);
       
-      // Calibrations are part of the same response or separate
-      const calItems = (response as { calibrations?: Record<string, unknown>[] }).calibrations || [];
+      const calItems = calibrationResponse.items as Record<string, unknown>[];
       const mappedCalibrations: Calibration[] = calItems.map((item: Record<string, unknown>) => ({
         calibrationId: (item.calibration_id || item.calibrationId || '') as string,
         date: (item.date || '') as string,
@@ -212,14 +216,16 @@ const LabQCPage: React.FC = () => {
       comments: qcComments || undefined
     };
 
-    // Persist to the backend (was: local state only)
+    // Do not display a QC run as recorded when durable storage refuses it.
     try {
       await createLabQc(newTest);
       showSuccess(t('docLabQC.qcRecordedSuccess', { id: newTest.testId, result: result.toUpperCase() }));
-    } catch {
-      showWarning(t('docLabQC.qcRecordedLocally', { id: newTest.testId }));
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('docLabQC.errorRecordQc'));
+      showWarning(t('docLabQC.errorRecordQc'));
+      return;
     }
-    setQcTests([...qcTests, newTest]);
 
     // Reset form
     setInstrument('');
@@ -245,7 +251,7 @@ const LabQCPage: React.FC = () => {
 
   const calibrationRun = () => ({ calInstrument, calibratorLot, calExpiryDate });
 
-  const handleSubmitCalibration = (e: React.FormEvent) => {
+  const handleSubmitCalibration = async (e: React.FormEvent) => {
     e.preventDefault();
     // The calibrator lot is how a bad calibrator is traced to every run that
     // used it: without it, a recalled lot cannot be connected to the results it
@@ -254,21 +260,27 @@ const LabQCPage: React.FC = () => {
       return;
     }
 
-    const newCalibration: Calibration = {
-      calibrationId: `CAL-${String(calibrations.length + 1).padStart(3, '0')}`,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
+    const newCalibration = {
       instrument: calInstrument,
       calibrationType,
       calibratorLot,
       expiryDate: calExpiryDate,
       result: calResult,
-      performedBy: user?.userId || 'Unknown',
       comments: calComments || undefined
     };
 
-    setCalibrations([...calibrations, newCalibration]);
-    showSuccess(t('docLabQC.calibrationRecordedSuccess', { id: newCalibration.calibrationId }));
+    try {
+      const response = await createLabCalibration(newCalibration);
+      const calibration = response.calibration as Record<string, unknown>;
+      showSuccess(t('docLabQC.calibrationRecordedSuccess', {
+        id: (calibration.calibration_id || calibration.calibrationId || '') as string,
+      }));
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('docLabQC.errorRecordCalibration'));
+      showWarning(t('docLabQC.errorRecordCalibration'));
+      return;
+    }
 
     // Reset form
     setCalInstrument('');

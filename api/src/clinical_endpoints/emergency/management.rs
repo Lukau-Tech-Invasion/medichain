@@ -262,6 +262,74 @@ pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
     HttpResponse::Ok().json(rows)
 }
 
+/// List the dose administrations already durably recorded in daily MARs.
+///
+/// The order-entry grid and administration history are different views: the
+/// former is derived from active prescriptions; the latter must read the MAR
+/// records written by `append_mar_administration`. Returning an empty local
+/// array after reload made a persisted dose disappear from the nurse's history.
+#[get("/api/emergency/mar/administrations")]
+pub async fn list_mar_administrations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+    let patient_filter = query.get("patient_id").map(String::as_str);
+    let records = match data
+        .repositories
+        .medication_records
+        .list_all(Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => result.items,
+        Err(error) => {
+            log::error!("MAR administration history read failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Medication administration history could not be loaded".to_string(),
+                code: "MAR_HISTORY_READ_FAILED".to_string(),
+            });
+        }
+    };
+    let mut administrations = Vec::new();
+    for record in records {
+        if patient_filter.is_some_and(|id| id != record.patient_id) {
+            continue;
+        }
+        let Some(events) = record
+            .data
+            .get("administrations")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        for event in events {
+            let mut item = event.clone();
+            if let Some(object) = item.as_object_mut() {
+                object.insert("patient_id".into(), serde_json::json!(record.patient_id));
+                object.insert("record_date".into(), serde_json::json!(record.record_date));
+            }
+            administrations.push(item);
+        }
+    }
+    administrations.sort_by(|left, right| {
+        right
+            .get("administered_at")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .cmp(
+                left.get("administered_at")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+            )
+    });
+    HttpResponse::Ok()
+        .json(serde_json::json!({ "success": true, "administrations": administrations }))
+}
+
 /// Administer medication — appends the dose to the patient's MAR for today.
 ///
 /// This used to acknowledge without persisting; see

@@ -711,14 +711,20 @@ const SymptomCheckerPage: React.FC = () => {
                 {t('symptomChecker.call911', { emergencyNumber: t('common.emergencyNumber') })}
               </a>
             )}
-            <button className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
+            <a
+              href={`${import.meta.env.BASE_URL}appointments`}
+              className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
+            >
               <Clock className="w-5 h-5" />
               {t('symptomChecker.schedule')}
-            </button>
-            <button className="w-full py-3 border border-border-strong text-content-secondary rounded-lg font-semibold flex items-center justify-center gap-2">
+            </a>
+            <a
+              href={`${import.meta.env.BASE_URL}appointments`}
+              className="w-full py-3 border border-border-strong text-content-secondary rounded-lg font-semibold flex items-center justify-center gap-2"
+            >
               <MapPin className="w-5 h-5" />
               {t('symptomChecker.findCare')}
-            </button>
+            </a>
             <button
               onClick={() => {
                 setStep('intro');

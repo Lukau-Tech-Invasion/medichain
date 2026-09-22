@@ -1,8 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import NursingPage from './NursingPage';
+import NursingPage, { mapMarRecord } from './NursingPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -58,5 +59,16 @@ describe('NursingPage', () => {
     const carePlansTab = await screen.findByRole('button', { name: /Care Plans/i });
     fireEvent.click(carePlansTab);
     expect(carePlansTab.className).toContain('bg-brand');
+  });
+
+  it('maps repository-shaped MAR data without inventing a dose schedule', () => {
+    const record = mapMarRecord({
+      id: 'MAR-1', patient_id: 'PAT-1', record_date: '2026-09-20', primary_nurse: 'NURSE-1',
+      scheduled_medications: [{ medication_id: 'MED-1', name: 'Amoxicillin', dose: '500 mg', route: 'PO', frequency: 'TID' }],
+      data: { administrations: [] },
+    });
+
+    expect(record?.medications[0]).toMatchObject({ medication_name: 'Amoxicillin', dose: '500 mg' });
+    expect(record?.medications[0].doses).toEqual([]);
   });
 });

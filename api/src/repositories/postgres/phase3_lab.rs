@@ -688,26 +688,39 @@ impl CriticalValueRepository for PgCriticalValueRepository {
         Ok(items)
     }
 
-    async fn acknowledge(
+    async fn close(
         &self,
         id: &str,
-        acknowledged_by: &str,
-        action_taken: &str,
-    ) -> RepositoryResult<CriticalValueEntity> {
+        closure: CriticalValueClosure,
+    ) -> RepositoryResult<Option<CriticalValueEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "UPDATE critical_values SET acknowledged_at = NOW(), acknowledged_by = ",
         );
-        qb.push_bind(acknowledged_by);
-        qb.push(", action_taken = ").push_bind(action_taken);
+        qb.push_bind(&closure.closed_by);
+        qb.push(", action_taken = ")
+            .push_bind(&closure.action_taken);
+        qb.push(", notified_provider_id = COALESCE(")
+            .push_bind(&closure.notified_provider_id)
+            .push(", notified_provider_id)");
+        qb.push(", notification_method = COALESCE(")
+            .push_bind(&closure.notification_method)
+            .push(", notification_method)");
+        qb.push(", notified_at = COALESCE(")
+            .push_bind(closure.notified_at)
+            .push(", notified_at)");
+        qb.push(", data = ").push_bind(&closure.data);
         qb.push(" WHERE id = ").push_bind(id);
-        qb.push(" RETURNING *");
+        qb.push(" AND acknowledged_at IS NULL RETURNING *");
 
-        let result = qb
+        let closed = qb
             .build_query_as::<CriticalValueEntity>()
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
-
-        Ok(result)
+        if closed.is_none() {
+            // Distinguish "already closed" from "no such notification".
+            self.get_by_id(id).await?;
+        }
+        Ok(closed)
     }
 }
 

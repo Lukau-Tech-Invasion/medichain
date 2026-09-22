@@ -211,6 +211,7 @@ export default function AdminDashboardPage() {
     { id: 'audit', label: t('docAdmin.qaAudit'), icon: FileText, href: '/access-logs', color: 'purple' },
     { id: 'roles', label: t('docAdmin.qaRoles'), icon: Key, href: '/user-management', color: 'amber' },
     { id: 'devices', label: t('docAdmin.qaDevices'), icon: Laptop, href: '/devices', color: 'green' },
+    { id: 'national-id-reviews', label: t('docAdmin.qaNationalIdReviews'), icon: Shield, href: '/national-id-reviews', color: 'blue' },
     { id: 'retention', label: t('docAdmin.qaRetention'), icon: Archive, href: '/retention', color: 'purple' },
     { id: 'nfc', label: t('docAdmin.qaNfc'), icon: CreditCard, href: '/barcode', color: 'green' },
     { id: 'settings', label: t('docAdmin.qaSettings'), icon: Settings, href: '/settings', color: 'teal' },

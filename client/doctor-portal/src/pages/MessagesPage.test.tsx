@@ -1,132 +1,127 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as shared from '@medichain/shared';
 import MessagesPage from './MessagesPage';
 import { useAuthStore } from '../store/authStore';
 
-// Mock the auth store
-// Spread the real module: it also exports `isHealthcareProvider`,
-// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
-// left those undefined — which surfaces as "Element type is invalid"
-// when a component that uses one is rendered.
-vi.mock('../store/authStore', async (importOriginal) => ({
+vi.mock('../store/authStore', async importOriginal => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
+vi.mock('@medichain/shared', async importOriginal => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  markMessageRead: vi.fn(),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-// Mock scrollIntoView
-window.HTMLElement.prototype.scrollIntoView = vi.fn();
+const doctorId = 'doctor-wallet';
+const patientId = 'patient-wallet';
+const inbound = {
+  message_id: 'msg-1',
+  sender_id: patientId,
+  sender_name: 'Patient Example',
+  sender_role: 'Patient',
+  recipient_id: doctorId,
+  recipient_name: 'Dr Smith',
+  subject: 'Medication question',
+  content: 'Can I take this with breakfast?',
+  priority: 'normal',
+  related_patient_id: 'PAT-001',
+  sent_at: 1755000000,
+  read: false,
+  thread_id: 'thread-1',
+};
+const outbound = {
+  ...inbound,
+  message_id: 'msg-2',
+  sender_id: doctorId,
+  sender_name: 'Dr Smith',
+  sender_role: 'Doctor',
+  recipient_id: patientId,
+  recipient_name: 'Patient Example',
+  content: 'Yes, take it with food.',
+  sent_at: 1755000060,
+  read: true,
+};
+
+function responseMessages(includeNewReply: boolean) {
+  const messages = includeNewReply
+    ? [inbound, outbound, { ...outbound, message_id: 'msg-3', content: 'Please call if nausea develops.', sent_at: 1755000120, read: false }]
+    : [inbound, outbound];
+  return {
+    success: true,
+    folder: 'all',
+    messages,
+    conversations: [{
+      id: patientId,
+      providerId: patientId,
+      providerName: 'Patient Example',
+      providerRole: 'Patient',
+      specialty: null,
+      lastMessage: messages[messages.length - 1]?.content,
+      lastMessageTime: messages[messages.length - 1]?.sent_at,
+      unreadCount: 1,
+      messages,
+    }],
+    count: messages.length,
+    unread_count: 1,
+  };
+}
 
 describe('MessagesPage', () => {
-  const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
-    role: 'Doctor',
-    fullName: 'Dr. Smith',
-  };
-
-  // The page reads `data.messages` with the flat `Message` shape
-  // (message_id/sender_id/subject/body/sent_at); the generated fixture used a
-  // nested `conversations` structure with `participantName`/`lastMessage`,
-  // which the component never looks at, so nothing rendered.
-  const mockMessages = [
-    {
-      message_id: 'msg1',
-      sender_id: 'PAT-001',
-      recipient_id: '5GrwvaEF...mock',
-      subject: 'Question about my meds',
-      body: 'I have a question about my meds',
-      sent_at: 1755000000,
-      read: false,
-    },
-  ];
+  let replySent = false;
 
   beforeEach(() => {
+    replySent = false;
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: mockUser,
+      user: { walletAddress: doctorId, role: 'Doctor', fullName: 'Dr Smith' },
       isAuthenticated: true,
     });
-
-    mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/messages')) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: () => Promise.resolve({ messages: mockMessages }),
-        });
+    vi.mocked(shared.markMessageRead).mockResolvedValue({ success: true, message_id: 'msg-1', read: true });
+    mockFetch.mockImplementation((url, init) => {
+      if (String(url).includes('/api/messages/send') && init?.method === 'POST') {
+        replySent = true;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
       }
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({}),
-      });
+      if (String(url).includes('/api/messages')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(responseMessages(replySent)) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
   });
 
-  it('renders messages page with conversations', async () => {
-    render(
-      <MemoryRouter>
-        <MessagesPage />
-      </MemoryRouter>
-    );
+  function renderPage() {
+    render(<MemoryRouter><MessagesPage /></MemoryRouter>);
+  }
 
-    await waitFor(() => {
-      expect(screen.getAllByText(/Messages/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Question about my meds/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/I have a question about my meds/i).length).toBeGreaterThan(0);
-    });
+  it('opens a participant conversation and displays the complete history', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Patient Example/ }));
+    expect(await screen.findByText('Can I take this with breakfast?')).toBeInTheDocument();
+    expect(screen.getAllByText('Yes, take it with food.').length).toBeGreaterThan(0);
+    expect(shared.markMessageRead).toHaveBeenCalledWith('msg-1');
   });
 
-  it('allows selecting a conversation', async () => {
-    render(
-      <MemoryRouter>
-        <MessagesPage />
-      </MemoryRouter>
-    );
-
-    await waitFor(() => {
-      const conv = screen.getAllByText(/Question about my meds/i)[0];
-      fireEvent.click(conv);
-    });
-
-    // Selecting a message shows the DETAIL pane; the compose box appears via
-    // the New Message / Reply control, which the generated test skipped.
-    await waitFor(() =>
-      expect(screen.getAllByText(/I have a question about my meds/i).length).toBeGreaterThan(0)
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /Compose/i }));
-
-    await waitFor(() =>
-      expect(screen.getByPlaceholderText(/Type your message/i)).toBeInTheDocument()
-    );
+  it('adds a sent reply to the open conversation instead of clearing the view', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Patient Example/ }));
+    const reply = await screen.findByPlaceholderText(/Type your message/i);
+    fireEvent.change(reply, { target: { value: 'Please call if nausea develops.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    expect(await screen.findByText('Please call if nausea develops.')).toBeInTheDocument();
+    expect(screen.getByText(/added to this conversation/i)).toBeInTheDocument();
   });
 
-  it('allows sending a message', async () => {
-    render(
-      <MemoryRouter>
-        <MessagesPage />
-      </MemoryRouter>
-    );
-
-    // Compose replaces the detail pane with the new-message form; selecting a
-    // conversation alone shows the message, not a compose box.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Compose/i })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Compose/i }));
-
-    const body = await screen.findByPlaceholderText(/Type your message/i);
-    fireEvent.change(body, { target: { value: 'Hello John' } });
-    expect(body).toHaveValue('Hello John');
-
-    fireEvent.change(screen.getByPlaceholderText(/Subject/i), {
-      target: { value: 'Re: meds' },
-    });
-    expect(screen.getAllByRole('button', { name: /Send/i }).length).toBeGreaterThan(0);
+  it('keeps the live unread total aligned with opened conversations', async () => {
+    renderPage();
+    expect((await screen.findAllByText('1')).length).toBe(2);
+    fireEvent.click(screen.getByRole('button', { name: /Patient Example/ }));
+    await waitFor(() => expect(shared.markMessageRead).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('1')).not.toBeInTheDocument();
   });
 });

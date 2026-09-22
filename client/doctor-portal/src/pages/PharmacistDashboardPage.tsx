@@ -327,7 +327,6 @@ export default function PharmacistDashboardPage() {
       {/* Critical Alerts: Drug Interactions & Allergy Alerts */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onAcknowledge={(id) => console.log('Acknowledge interaction:', id)}
         onViewAll={() => navigate('/drug-interactions')}
       />
 

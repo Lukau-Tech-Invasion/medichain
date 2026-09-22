@@ -188,7 +188,6 @@ export default function LabTechDashboardPage() {
       {/* Critical Values Banner */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onAcknowledge={(id) => console.log('Call provider for:', id)}
         onViewAll={() => navigate('/lab/critical-values')}
       />
 

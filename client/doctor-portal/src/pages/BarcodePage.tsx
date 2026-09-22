@@ -16,7 +16,7 @@ import {
   Barcode,
   Activity
 } from 'lucide-react';
-import { apiUrl, EmptyState, getApiClient, useTranslation, LoadingSpinner } from '@medichain/shared';
+import { apiUrl, EmptyState, getApiClient, scanBarcode, useTranslation, LoadingSpinner } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -49,6 +49,45 @@ interface Patient {
   allergies: string[];
 }
 
+interface PersistedBarcodeScan {
+  scan_id: string;
+  barcode_value: string;
+  entity_type?: string;
+  scanned_at?: number;
+  scanned_at_iso?: string;
+  location?: string | null;
+}
+
+interface BarcodeDetectionResult {
+  rawValue: string;
+}
+
+interface BarcodeDetectorInstance {
+  detect(source: HTMLVideoElement): Promise<BarcodeDetectionResult[]>;
+}
+
+interface BarcodeDetectorConstructor {
+  new (): BarcodeDetectorInstance;
+}
+
+function mapPersistedScan(scan: PersistedBarcodeScan): ScannedItem {
+  const resolved = scan.entity_type === 'specimen';
+  const timestamp = scan.scanned_at_iso
+    ? new Date(scan.scanned_at_iso)
+    : new Date((scan.scanned_at ?? 0) * 1000);
+
+  return {
+    id: scan.scan_id,
+    type: resolved ? 'specimen' : 'equipment',
+    barcode: scan.barcode_value,
+    name: resolved ? 'Registered specimen' : 'Unresolved barcode',
+    details: scan.location ? `Location: ${scan.location}` : 'No registered specimen matches this barcode.',
+    timestamp: Number.isNaN(timestamp.getTime()) ? new Date(0) : timestamp,
+    result: resolved ? 'success' : 'warning',
+    message: resolved ? undefined : 'The scan was recorded, but its clinical entity was not resolved.',
+  };
+}
+
 const BarcodePage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'settings'>('scan');
@@ -57,7 +96,10 @@ const BarcodePage: React.FC = () => {
   const [flashOn, setFlashOn] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [scanHistory, setScanHistory] = useState<ScannedItem[]>([]);
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
+  // The barcode API resolves registered specimens only. Keep the patient
+  // context absent until there is an authenticated patient-wristband lookup
+  // contract, rather than showing details inferred from a barcode string.
+  const [currentPatient] = useState<Patient | null>(null);
   const [lastScan, setLastScan] = useState<ScannedItem | null>(null);
   const [manualEntry, setManualEntry] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -85,16 +127,11 @@ const BarcodePage: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data)) {
-            setScanHistory(data.map((item: { id: string; type: ScanMode; barcode: string; name: string; details: string; timestamp: string; result: ScanResult; message?: string }) => ({
-              ...item,
-              timestamp: new Date(item.timestamp)
-            })));
+            setScanHistory(data.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
           }
         }
-        // If endpoint doesn't exist yet, just start with empty history
-      } catch {
-        // API not available - start with empty history
-        console.log('Barcode scan history API not available');
+      } catch (error) {
+        console.error('Barcode scan history could not be loaded:', error);
       } finally {
         setLoading(false);
       }
@@ -126,7 +163,7 @@ const BarcodePage: React.FC = () => {
     setIsCameraActive(false);
   };
 
-  const simulateScan = async () => {
+  const submitScan = async (barcode: string) => {
     if (!user?.walletAddress) {
       console.error('User not authenticated');
       return;
@@ -135,56 +172,32 @@ const BarcodePage: React.FC = () => {
     setIsScanning(true);
     
     try {
-      // Call the barcode scan API endpoint
-      const response = await fetch(apiUrl('/api/barcode/scan'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role || 'Doctor',
-        },
-        body: JSON.stringify({
-          barcode: manualEntry || `SCAN-${Date.now()}`,
-          scanMode,
-          currentPatientId: currentPatient?.id || null,
-        }),
+      const scanResult = await scanBarcode({ barcode, scan_mode: scanMode });
+      const entity = scanResult.entity_info;
+      const resolved = entity.type === 'specimen' && entity.resolved === true;
+      const newScan: ScannedItem = {
+        id: `scan-${scanResult.scanned_at}`,
+        type: resolved ? 'specimen' : 'equipment',
+        barcode: scanResult.barcode_value,
+        name: resolved ? 'Registered specimen' : t('docBarcode.unknown'),
+        details: resolved
+          ? `Patient: ${typeof entity.patient_id === 'string' ? entity.patient_id : '-'}`
+          : 'No registered specimen matches this barcode.',
+        timestamp: new Date(scanResult.scanned_at * 1000),
+        result: resolved ? 'success' : 'warning',
+        message: resolved ? undefined : 'The scan was recorded, but its clinical entity was not resolved.',
+      };
+
+      setLastScan(newScan);
+      // Re-read the persisted record rather than adding a browser-only row.
+      const response = await fetch(apiUrl('/api/barcode/scans/my'), {
+        headers: getApiClient().getSessionHeaders(user.walletAddress),
       });
-      
       if (response.ok) {
-        const scanResult = await response.json();
-        const newScan: ScannedItem = {
-          id: scanResult.id || `scan-${Date.now()}`,
-          type: scanMode,
-          barcode: scanResult.barcode || manualEntry,
-          name: scanResult.name || t('docBarcode.unknown'),
-          details: scanResult.details || '',
-          timestamp: new Date(scanResult.timestamp || Date.now()),
-          result: scanResult.result || 'success',
-          message: scanResult.message,
-        };
-        
-        setLastScan(newScan);
-        setScanHistory(prev => [newScan, ...prev]);
-        
-        // If scanning a patient, set as current patient
-        if (scanMode === 'patient' && scanResult.patient) {
-          setCurrentPatient(scanResult.patient);
+        const history = await response.json();
+        if (Array.isArray(history)) {
+          setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
         }
-      } else {
-        // Handle API error - show error in UI
-        const errorScan: ScannedItem = {
-          id: `scan-${Date.now()}`,
-          type: scanMode,
-          barcode: manualEntry || 'N/A',
-          name: t('docBarcode.scanFailed'),
-          details: t('docBarcode.unableToProcess'),
-          timestamp: new Date(),
-          result: 'error',
-          message: t('docBarcode.apiRequestFailed'),
-        };
-        setLastScan(errorScan);
-        setScanHistory(prev => [errorScan, ...prev]);
       }
     } catch (err) {
       console.error('Barcode scan error:', err);
@@ -199,7 +212,43 @@ const BarcodePage: React.FC = () => {
         message: t('docBarcode.couldNotConnect'),
       };
       setLastScan(errorScan);
-      setScanHistory(prev => [errorScan, ...prev]);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const scanCamera = async () => {
+    if (!videoRef.current) return;
+    const detector = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+    if (!detector) {
+      setLastScan({
+        id: `scan-${Date.now()}`,
+        type: scanMode,
+        barcode: '',
+        name: t('docBarcode.scanFailed'),
+        details: 'This browser does not support camera barcode detection. Enter the barcode manually.',
+        timestamp: new Date(),
+        result: 'error',
+      });
+      return;
+    }
+    setIsScanning(true);
+    try {
+      const result = await new detector().detect(videoRef.current);
+      const barcode = result[0]?.rawValue?.trim();
+      if (!barcode) {
+        setLastScan({
+          id: `scan-${Date.now()}`,
+          type: scanMode,
+          barcode: '',
+          name: t('docBarcode.scanFailed'),
+          details: 'No barcode was detected. Position a barcode inside the frame and try again.',
+          timestamp: new Date(),
+          result: 'error',
+        });
+        return;
+      }
+      await submitScan(barcode);
     } finally {
       setIsScanning(false);
     }
@@ -207,7 +256,7 @@ const BarcodePage: React.FC = () => {
 
   const handleManualEntry = () => {
     if (!manualEntry.trim()) return;
-    simulateScan();
+    void submitScan(manualEntry.trim());
     setManualEntry('');
   };
 
@@ -377,7 +426,7 @@ const BarcodePage: React.FC = () => {
                     {flashOn ? <Flashlight className="w-6 h-6" /> : <FlashlightOff className="w-6 h-6" />}
                   </button>
                   <button
-                    onClick={simulateScan}
+                    onClick={() => void scanCamera()}
                     disabled={isScanning}
                     className={`px-8 py-3 rounded-full font-semibold ${
                       isScanning

@@ -21,6 +21,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   saveUserSettings: vi.fn(),
   disconnectWearableDevice: vi.fn(),
   getWearableReadings: vi.fn(),
+  getSupportedWearables: vi.fn(),
   registerWearableDevice: vi.fn(),
 }));
 
@@ -73,6 +74,10 @@ describe('WearablesPage (Patient)', () => {
         { reading_id: 'r2', device_id: 'd1', patient_id: 'HEALTH123', data_type: 'Steps', value: 8000, unit: 'steps', secondary_value: null, recorded_at: 2, synced_at: 2, context: null, quality: 'High', flagged: false, flag_reason: null },
       ],
     });
+    vi.mocked(shared.getSupportedWearables).mockResolvedValue({
+      success: true,
+      supported_manufacturers: [],
+    } as never);
   });
 
   it('renders wearables page with dashboard tab active', async () => {
@@ -106,6 +111,22 @@ describe('WearablesPage (Patient)', () => {
       expect(screen.getByText(/Connected Devices/i)).toBeInTheDocument();
       expect(screen.getByText(/Add Device/i)).toBeInTheDocument();
     });
+  });
+
+  it('registers an Apple device using the API clinical device type', async () => {
+    vi.mocked(shared.registerWearableDevice).mockResolvedValue({
+      success: true, device_id: 'd2', message: 'Wearable device registered successfully',
+    });
+    render(<WearablesPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /devices/i }));
+    fireEvent.click(screen.getByRole('button', { name: /apple health/i }));
+    fireEvent.change(screen.getByLabelText(/which apple device/i), { target: { value: 'Watch Series 9' } });
+    fireEvent.click(screen.getByRole('button', { name: /^connect$/i }));
+
+    await waitFor(() => expect(shared.registerWearableDevice).toHaveBeenCalledWith({
+      device_type: 'smartwatch', manufacturer: 'Apple', model: 'Watch Series 9',
+    }));
   });
 
   it('displays demo metrics when no API data is available', async () => {

@@ -17,6 +17,7 @@ import {
   Wifi,
   WifiOff,
   ChevronRight,
+  Download,
   Trash2,
   Zap,
   X,
@@ -32,6 +33,23 @@ interface SymptomEntry {
   notes?: string;
   triggers?: string[];
   relievedBy?: string[];
+}
+
+/** Escape a value for a spreadsheet without turning patient-entered text into a formula. */
+function symptomReportCell(value: string | number | undefined): string {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text.trimStart())) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+/** Build a patient-controlled copy of the symptom rows currently loaded from the API. */
+export function buildSymptomReport(entries: SymptomEntry[]): string {
+  const header = ['timestamp', 'symptom', 'category', 'severity', 'duration', 'notes', 'triggers', 'relieved_by'];
+  const rows = entries.map((entry) => [
+    entry.timestamp, entry.symptom, entry.category, entry.severity, entry.duration, entry.notes,
+    entry.triggers?.join('; '), entry.relievedBy?.join('; '),
+  ].map(symptomReportCell).join(','));
+  return [header.join(','), ...rows].join('\r\n');
 }
 
 interface SymptomCategory {
@@ -61,6 +79,7 @@ export function SymptomTrackerPage() {
   // without this a rejected write left the symptom on screen and out of the
   // record.
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -210,6 +229,24 @@ export function SymptomTrackerPage() {
     }
   };
 
+  const downloadReport = () => {
+    setReportError(null);
+    try {
+      const blob = new Blob([buildSymptomReport(entries)], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `medichain-symptom-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download symptom report:', error);
+      setReportError(t('symptomTracker.reportDownloadFailed'));
+    }
+  };
+
   const getSeverityColor = (severity: number) => {
     switch (severity) {
       case 1: return 'bg-ok-subtle text-ok-subtle-fg';
@@ -316,6 +353,11 @@ export function SymptomTrackerPage() {
       {saveError && (
         <div role="alert" className="p-3 rounded-xl bg-critical-subtle text-critical-subtle-fg text-sm">
           {saveError}
+        </div>
+      )}
+      {reportError && (
+        <div role="alert" className="p-3 rounded-xl bg-critical-subtle text-critical-subtle-fg text-sm">
+          {reportError}
         </div>
       )}
 
@@ -425,8 +467,13 @@ export function SymptomTrackerPage() {
               • {t('symptomTracker.totalEntries')} <span className="font-medium">{entries.length}</span>
             </p>
           </div>
-          <button className="mt-3 text-primary-500 font-medium text-sm flex items-center gap-1">
+          <button
+            type="button"
+            onClick={downloadReport}
+            className="mt-3 text-primary-500 font-medium text-sm flex items-center gap-1"
+          >
             {t('symptomTracker.viewReport')} <ChevronRight className="w-4 h-4" />
+            <Download className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}

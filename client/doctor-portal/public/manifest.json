@@ -2,20 +2,20 @@
   "name": "MediChain Doctor Portal",
   "short_name": "MediChain",
   "description": "Blockchain-based Medical Records System",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
   "theme_color": "#0ea5e9",
   "icons": [
     {
-      "src": "/medichain.svg",
+      "src": "medichain.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/medichain.svg",
+      "src": "medichain.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "maskable"
@@ -27,13 +27,13 @@
       "name": "Emergency Access",
       "short_name": "Emergency",
       "description": "Quick emergency patient access",
-      "url": "/emergency"
+      "url": "emergency"
     },
     {
       "name": "Patient Search",
       "short_name": "Search",
       "description": "Search for patients",
-      "url": "/patients"
+      "url": "patients"
     }
   ]
 }

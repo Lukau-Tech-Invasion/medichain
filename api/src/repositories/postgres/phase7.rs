@@ -176,8 +176,15 @@ pg_json_repo!(PgMessageRepository, "messages");
 pg_json_repo!(PgSymptomEntryRepository, "symptom_entries");
 pg_json_repo!(PgBarcodeScanRepository, "barcode_scans");
 
+// Laboratory calibration runs (migration 20260920000001). These are distinct
+// from measured QC controls and retained by calibrator lot for recall tracing.
+pg_json_repo!(PgLabCalibrationRepository, "lab_calibrations");
+
 // Clinician-authored note templates (migration 20260919000002).
 pg_json_repo!(PgNoteTemplateRepository, "note_templates");
+pg_json_repo!(PgOrderSetRepository, "order_sets");
+pg_json_repo!(PgCdsRuleRepository, "cds_rules");
+pg_json_repo!(PgNotificationReadRepository, "notification_reads");
 
 // Final durability sweep (migration 20260811000002): the last process-memory
 // clinical maps. The first three are shape-mismatch domains whose typed tables

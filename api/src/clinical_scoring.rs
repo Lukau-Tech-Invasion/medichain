@@ -1120,6 +1120,11 @@ pub fn catalog() -> serde_json::Value {
                 { "level": "high", "min": MORSE_HIGH_THRESHOLD, "max": serde_json::Value::Null },
             ],
         },
+        // The critical-value call list, for the report form's preview. The
+        // stored level is computed on the server when the report is filed.
+        "critical_values": {
+            "thresholds": CRITICAL_VALUE_THRESHOLDS,
+        },
         "burn": {
             // The body chart itself, so the form renders the region set and the
             // per-region maxima the server will score against rather than
@@ -1914,6 +1919,131 @@ mod tests {
 }
 
 // ============================================================================
+// CRITICAL VALUE CLASSIFICATION
+// ============================================================================
+
+/// The facility's critical-value policy for one analyte: the values at which
+/// the laboratory must telephone a clinician, and the panic tier beyond them.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct CriticalThreshold {
+    pub analyte: &'static str,
+    pub unit: &'static str,
+    pub critical_low: Option<f64>,
+    pub critical_high: Option<f64>,
+    pub panic_low: Option<f64>,
+    pub panic_high: Option<f64>,
+}
+
+const fn threshold(
+    analyte: &'static str,
+    unit: &'static str,
+    critical: (Option<f64>, Option<f64>),
+    panic: (Option<f64>, Option<f64>),
+) -> CriticalThreshold {
+    CriticalThreshold {
+        analyte,
+        unit,
+        critical_low: critical.0,
+        critical_high: critical.1,
+        panic_low: panic.0,
+        panic_high: panic.1,
+    }
+}
+
+/// The critical-value call list.
+///
+/// This lived as a literal in `CriticalValuePage`, which classified each value
+/// in the browser and posted its own conclusion (rule 8). The table is the
+/// same one; the server now decides, and the page previews from the catalogue.
+pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
+    threshold(
+        "Glucose",
+        "mg/dL",
+        (Some(40.0), Some(500.0)),
+        (Some(20.0), Some(700.0)),
+    ),
+    threshold(
+        "Potassium",
+        "mmol/L",
+        (Some(2.5), Some(6.0)),
+        (Some(2.0), Some(7.0)),
+    ),
+    threshold(
+        "Sodium",
+        "mmol/L",
+        (Some(120.0), Some(160.0)),
+        (Some(115.0), Some(170.0)),
+    ),
+    threshold(
+        "Calcium",
+        "mg/dL",
+        (Some(6.0), Some(13.0)),
+        (Some(5.0), Some(15.0)),
+    ),
+    threshold("Hemoglobin", "g/dL", (Some(5.0), None), (Some(4.0), None)),
+    threshold(
+        "Platelets",
+        "10^9/L",
+        (Some(20.0), None),
+        (Some(10.0), None),
+    ),
+    threshold(
+        "WBC",
+        "10^9/L",
+        (Some(1.0), Some(30.0)),
+        (Some(0.5), Some(50.0)),
+    ),
+    threshold("INR", "ratio", (None, Some(5.0)), (None, Some(8.0))),
+    threshold("Troponin", "ng/mL", (None, Some(0.5)), (None, Some(10.0))),
+    threshold("Creatinine", "mg/dL", (None, Some(5.0)), (None, Some(10.0))),
+    threshold("pH", "", (Some(7.20), Some(7.60)), (Some(7.10), Some(7.70))),
+    threshold(
+        "pCO2",
+        "mmHg",
+        (Some(20.0), Some(70.0)),
+        (Some(15.0), Some(90.0)),
+    ),
+    threshold("pO2", "mmHg", (Some(40.0), None), (Some(30.0), None)),
+];
+
+/// Where a critical value sits on the facility's call list.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CriticalClassification {
+    /// `panic`, `critical-high` or `critical-low`.
+    pub level: &'static str,
+    /// The bound crossed, in words: `"Panic High (>7)"`.
+    pub threshold: String,
+    /// The bound's number, for the `critical_low` / `critical_high` columns.
+    pub bound: f64,
+    /// Whether the bound is a low one.
+    pub low: bool,
+}
+
+/// Classify a result against the call list; `None` when the analyte is not on
+/// it or the value crosses no bound (rule 12: not judged is not "normal").
+pub fn classify_critical_value(analyte: &str, value: f64) -> Option<CriticalClassification> {
+    let entry = CRITICAL_VALUE_THRESHOLDS
+        .iter()
+        .find(|t| t.analyte.eq_ignore_ascii_case(analyte.trim()))?;
+    let tiers = [
+        ("panic", "Panic High", entry.panic_high, false),
+        ("panic", "Panic Low", entry.panic_low, true),
+        ("critical-high", "Critical High", entry.critical_high, false),
+        ("critical-low", "Critical Low", entry.critical_low, true),
+    ];
+    tiers.iter().find_map(|(level, label, bound, low)| {
+        let bound = (*bound)?;
+        let crossed = if *low { value <= bound } else { value >= bound };
+        crossed.then(|| CriticalClassification {
+            level,
+            threshold: format!("{label} ({}{})", if *low { "<" } else { ">" }, bound),
+            bound,
+            low: *low,
+        })
+    })
+}
+
+// ============================================================================
 // LAB VALUE CLASSIFICATION
 // ============================================================================
 
@@ -2021,6 +2151,27 @@ pub fn lab_flag_label(status: crate::clinical::LabValueStatus) -> &'static str {
 
 #[cfg(test)]
 mod lab_flag_tests {
+    #[test]
+    fn a_critical_value_is_classified_on_the_highest_tier_it_crosses() {
+        let panic = super::classify_critical_value("Potassium", 7.2).unwrap();
+        assert_eq!(panic.level, "panic");
+        assert_eq!(panic.threshold, "Panic High (>7)");
+
+        let high = super::classify_critical_value("potassium", 6.4).unwrap();
+        assert_eq!(high.level, "critical-high");
+        assert!(!high.low);
+
+        let low = super::classify_critical_value("Sodium", 118.0).unwrap();
+        assert_eq!(low.level, "critical-low");
+        assert_eq!(low.bound, 120.0);
+    }
+
+    #[test]
+    fn a_value_inside_the_bounds_or_an_unlisted_analyte_is_not_classified() {
+        assert!(super::classify_critical_value("Potassium", 4.2).is_none());
+        assert!(super::classify_critical_value("Ferritin", 2.0).is_none());
+    }
+
     use super::{classify_lab_value, lab_flag_label};
     use crate::clinical::LabValueStatus as S;
 

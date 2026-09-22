@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
 import path from 'path';
 
+// Keep the Vite listener and HMR client on the same configurable port. Browser
+// tests use an isolated port so they cannot accidentally attach to a portal
+// that was started against a different API target.
+const DEV_PORT = Number(process.env.VITE_DEV_PORT || 5174);
+
 // https://vitejs.dev/config/
 export default defineConfig({
   // Served under /patient/ by the Docker nginx. See the note in the
@@ -23,7 +28,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5174,
+    port: DEV_PORT,
+    strictPort: true,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: DEV_PORT,
+      clientPort: DEV_PORT,
+    },
     proxy: {
       '/api': {
         // Standalone API on :8090 by default (8080 is the IPFS gateway's port —

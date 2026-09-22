@@ -74,6 +74,8 @@ mod routes;
 mod startup;
 pub mod state;
 mod support;
+#[cfg(test)]
+mod test_fixtures;
 mod types;
 
 #[cfg(test)]

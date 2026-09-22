@@ -21,6 +21,10 @@ pub mod error_codes {
     pub const UNAUTHORIZED: &str = "UNAUTHORIZED";
     pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const NOT_FOUND: &str = "NOT_FOUND";
+    /// A conditional write whose guard no longer held: somebody else changed
+    /// the record between the caller reading it and writing it back. The client
+    /// reloads and retries; it is not an error in the request.
+    pub const CONFLICT: &str = "CONFLICT";
     pub const VALIDATION_ERROR: &str = "VALIDATION_ERROR";
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";

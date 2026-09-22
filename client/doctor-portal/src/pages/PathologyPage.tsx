@@ -5,6 +5,7 @@ import {
   getPatients,
   listPathology,
   createPathology,
+  updatePathologyReport,
   getPatientRecords,
   uploadMedicalRecord,
   downloadMedicalRecord,
@@ -367,7 +368,7 @@ const PathologyPage: React.FC = () => {
     setActiveTab('report');
   };
 
-  const handleSaveReport = (finalizeReport: boolean) => {
+  const handleSaveReport = async (finalizeReport: boolean) => {
     if (!selectedSpecimen) return;
 
     if (finalizeReport) {
@@ -381,24 +382,18 @@ const PathologyPage: React.FC = () => {
       }
     }
 
-    const updatedSpecimen: PathologySpecimen = {
-      ...selectedSpecimen,
-      grossDescription,
-      blocks,
-      slides,
-      specialStains,
-      ihcMarkers,
-      microscopicDescription,
-      diagnosis,
-      snomedCode,
-      isCritical,
-      communicatedTo,
-      status: finalizeReport ? 'final' : 'prelim',
-      reportDate: finalizeReport ? new Date().toISOString().split('T')[0] : undefined,
-      pathologist: finalizeReport ? (user?.userId || 'Unknown') : undefined
-    };
-
-    setSpecimens(specimens.map(s => s.specimenId === selectedSpecimen.specimenId ? updatedSpecimen : s));
+    try {
+      await updatePathologyReport(selectedSpecimen.specimenId, {
+        gross_description: grossDescription, microscopic_description: microscopicDescription,
+        diagnosis, blocks, slides, special_stains: specialStains, ihc_markers: ihcMarkers,
+        snomed_code: snomedCode, is_critical: isCritical, communicated_to: communicatedTo,
+        status: finalizeReport ? 'final' : 'prelim',
+      });
+      await fetchSpecimens();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('common.saveFailed'));
+      return;
+    }
     showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);

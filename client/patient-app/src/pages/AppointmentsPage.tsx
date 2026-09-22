@@ -806,9 +806,13 @@ export function AppointmentsPage() {
                   </p>
                 )}
                 {appointment.phoneNumber && (
-                  <button className="py-2 px-4 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm flex items-center gap-2" aria-label={`Call ${appointment.provider}`}>
+                  <a
+                    href={`tel:${appointment.phoneNumber.replace(/[^+\d]/g, '')}`}
+                    className="py-2 px-4 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm flex items-center gap-2"
+                    aria-label={`Call ${appointment.provider}`}
+                  >
                     <Phone className="w-4 h-4" />
-                  </button>
+                  </a>
                 )}
               </div>
             )}
@@ -823,7 +827,11 @@ export function AppointmentsPage() {
               {activeTab === 'upcoming' ? t('appointments.noUpcoming') : t('appointments.noPast')}
             </p>
             {activeTab === 'upcoming' && (
-              <button className="mt-4 px-6 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors">
+              <button
+                type="button"
+                onClick={() => void openBooking()}
+                className="mt-4 px-6 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors"
+              >
                 {t('appointments.bookAppointment')}
               </button>
             )}

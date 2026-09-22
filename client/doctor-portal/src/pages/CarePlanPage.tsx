@@ -55,16 +55,19 @@ interface Intervention {
 }
 
 
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type PlanList = { care_plans?: { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[]; plans?: { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[] } | { id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number }[];
+/** Compact representation returned by the emergency care-plan register. */
+type CarePlanSummary = {
+  id: string;
+  patient_id?: string;
+  status?: string;
+  created_at?: string;
+};
+
+function formatCarePlanDate(value?: string): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString();
+}
 
 export default function CarePlanPage() {
   const { t } = useTranslation();
@@ -80,7 +83,7 @@ export default function CarePlanPage() {
   const [activeTab, setActiveTab] = useState<'diagnoses' | 'goals' | 'interventions' | 'summary'>('diagnoses');
 
   // Care plan list
-  const [carePlans, setCarePlans] = useState<Array<{id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number}>>([]);
+  const [carePlans, setCarePlans] = useState<CarePlanSummary[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
 
   // Care plan data
@@ -158,8 +161,8 @@ export default function CarePlanPage() {
     const fetchCarePlans = async () => {
       setPlansLoading(true);
       try {
-        const data = await getApiClient().get<PlanList>('/api/nursing/care-plans');
-        setCarePlans(Array.isArray(data) ? data : (data.care_plans || data.plans || []));
+        const data = await getApiClient().get<CarePlanSummary[]>('/api/emergency/care-plan/list');
+        setCarePlans(data);
       } catch (err) {
         console.error('Failed to fetch care plans:', err);
       } finally {
@@ -371,7 +374,7 @@ export default function CarePlanPage() {
                           {t(`docCarePlan.status_${plan.status || 'active'}`)}
                         </span>
                       </td>
-                      <td className="px-4 py-2">{plan.created_at ? new Date(plan.created_at * 1000).toLocaleDateString() : '-'}</td>
+                      <td className="px-4 py-2">{formatCarePlanDate(plan.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>

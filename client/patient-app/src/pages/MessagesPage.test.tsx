@@ -15,6 +15,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getMessages: vi.fn(),
   getProviders: vi.fn(),
+  markMessageRead: vi.fn(),
   sendMessage: vi.fn(),
 }));
 
@@ -72,6 +73,12 @@ describe('MessagesPage (Patient)', () => {
       messages: mockConversations[0].messages,
       conversations: mockConversations,
       count: 1,
+      unread_count: 1,
+    });
+    vi.mocked(shared.markMessageRead).mockResolvedValue({
+      success: true,
+      message_id: 'msg1',
+      read: true,
     });
   });
 
@@ -105,6 +112,8 @@ describe('MessagesPage (Patient)', () => {
       // In mobile view it might show a back button, in desktop it shows the chat area
       expect(screen.getByPlaceholderText(/Type a message/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Hello, how are you?/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Attachments are not available/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /attach file/i })).not.toBeInTheDocument();
     });
   });
 

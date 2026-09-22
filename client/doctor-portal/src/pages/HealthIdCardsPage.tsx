@@ -63,6 +63,8 @@ const HealthIdCardsPage: React.FC = () => {
   const [idType, setIdType] = useState<string>('');
   const [issuing, setIssuing] = useState(false);
   const [issued, setIssued] = useState<IssuedCard | null>(null);
+  const [existingCard, setExistingCard] = useState<NFCCardInfo | null>(null);
+  const [preflightUnknown, setPreflightUnknown] = useState(false);
 
   // Lookup
   const [lookupPatientId, setLookupPatientId] = useState('');
@@ -96,9 +98,48 @@ const HealthIdCardsPage: React.FC = () => {
     if (tab === 'registry') void loadRegistry();
   }, [tab, loadRegistry]);
 
+  // Check the selected patient before enabling issuance. The API reports an
+  // unissued card as null (a normal state), so this does not manufacture a 404
+  // in the browser just to prevent a duplicate physical credential.
+  useEffect(() => {
+    if (!patientId) {
+      setExistingCard(null);
+      setPreflightUnknown(false);
+      setIssued(null);
+      return;
+    }
+    let cancelled = false;
+    getCardInfo(patientId)
+      .then((card) => {
+        if (!cancelled) {
+          setExistingCard(card);
+          setPreflightUnknown(false);
+        }
+      })
+      .catch(() => {
+        // Issuance remains unavailable if this preflight cannot establish the
+        // current state; avoid guessing that a duplicate does not exist.
+        if (!cancelled) {
+          setExistingCard(null);
+          setPreflightUnknown(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
   const handleIssue = async () => {
     if (!patientId || !idType) {
       showError(t('docHealthIdCards.errIssueFields'));
+      return;
+    }
+    if (existingCard) {
+      showError(t('docHealthIdCards.alreadyIssued'));
+      return;
+    }
+    if (preflightUnknown) {
+      showError(t('docHealthIdCards.cardStatusUnknown'));
       return;
     }
     setIssuing(true);
@@ -130,7 +171,11 @@ const HealthIdCardsPage: React.FC = () => {
     setLookupMessage('');
     try {
       const card = await getCardInfo(lookupPatientId);
-      setFound(card);
+      if (card) {
+        setFound(card);
+      } else {
+        setLookupMessage(t('docHealthIdCards.noCardForPatient'));
+      }
     } catch (err) {
       // A patient with no card is the common case, not an error worth a toast.
       setLookupMessage(getApiErrorMessage(err, t('docHealthIdCards.noCardForPatient')));
@@ -231,11 +276,21 @@ const HealthIdCardsPage: React.FC = () => {
           </div>
           <button
             onClick={handleIssue}
-            disabled={issuing}
+            disabled={issuing || Boolean(existingCard) || preflightUnknown}
             className={`px-4 py-2 rounded-lg bg-accent text-accent-fg disabled:opacity-50 ${clickable}`}
           >
             {issuing ? t('docHealthIdCards.issuing') : t('docHealthIdCards.issue')}
           </button>
+          {existingCard && (
+            <p className="text-sm text-warning-subtle-fg" role="status">
+              {t('docHealthIdCards.alreadyIssued')}
+            </p>
+          )}
+          {preflightUnknown && (
+            <p className="text-sm text-danger-subtle-fg" role="status">
+              {t('docHealthIdCards.cardStatusUnknown')}
+            </p>
+          )}
 
           {issued && (
             <div className="border border-border-subtle rounded-lg p-4 bg-surface">

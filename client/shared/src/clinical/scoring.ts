@@ -70,9 +70,21 @@ export interface GcsScale {
   range: { min: number; max: number };
 }
 
+/** One analyte on the facility's critical-value call list. */
+export interface CriticalValueThresholdEntry {
+  analyte: string;
+  unit: string;
+  critical_low: number | null;
+  critical_high: number | null;
+  panic_low: number | null;
+  panic_high: number | null;
+}
+
 export interface ScoringCatalog {
   /** Absent on a server older than the GCS assessment screen. */
   glasgow_coma_scale?: GcsScale;
+  /** The critical-value call list; absent on an older server. */
+  critical_values?: { thresholds: CriticalValueThresholdEntry[] };
   morse_fall_scale: {
     items: ScaleItem[];
     bands: ScoreBand[];

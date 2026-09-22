@@ -419,11 +419,14 @@ pub async fn get_patient_latest_vitals(
                 "critical_alerts": alerts
             }))
         }
-        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
-            error: "No vital signs recorded".to_string(),
-            code: "NO_READINGS".to_string(),
-        }),
+        // No observations is a known, normal state for a registered patient;
+        // it is not a missing resource. Returning 404 made every patient chart
+        // without a reading look like a frontend/API failure in the browser.
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "reading": serde_json::Value::Null,
+            "critical_alerts": false
+        })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
             error: e.to_string(),

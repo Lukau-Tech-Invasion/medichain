@@ -46,6 +46,9 @@ import {
   Package,
   ListChecks,
   ShieldAlert,
+  ShieldCheck,
+  Laptop,
+  Archive,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -201,6 +204,7 @@ export const ADMIN_NAV: NavSection[] = [
     icon: ShieldAlert,
     items: [
       { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText, priority: 'high' },
+      { id: 'national-id-reviews', to: '/national-id-reviews', label: 'National ID Reviews', icon: ShieldCheck, priority: 'high' },
       { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard, priority: 'high' },
       // Renamed: this route is the barcode SCANNER. Calling it a registry
       // is what hid the absence of an actual card registry for so long.
@@ -215,6 +219,8 @@ export const ADMIN_NAV: NavSection[] = [
     items: [
       { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList },
       { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
+      { id: 'devices', to: '/devices', label: 'Approved Devices', icon: Laptop },
+      { id: 'retention', to: '/retention', label: 'Data Retention', icon: Archive },
     ],
   },
   {
@@ -306,6 +312,10 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'orders', to: '/orders', label: 'Physician Orders', icon: ClipboardList, priority: 'high' },
       { id: 'prescribe', to: '/e-prescribe', label: 'E-Prescribe', icon: Pill, priority: 'high' },
       { id: 'interactions', to: '/drug-interactions', label: 'Drug Interactions', icon: AlertTriangle },
+      // A doctor drafts an order set and a pharmacist approves it, and this
+      // lived only in the admin navigation -- which the router enforces -- so
+      // neither party could open the page whose workflow is theirs.
+      { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList },
     ],
   },
   {
@@ -589,6 +599,9 @@ export const PHARMACIST_NAV: NavSection[] = [
     icon: AlertTriangle,
     items: [
       { id: 'interactions', to: '/drug-interactions', label: 'Drug Interactions', icon: AlertTriangle, priority: 'high' },
+      // The pharmacist is the only role that can approve a drafted order set,
+      // and had no way to reach the screen that asks them to.
+      { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList, priority: 'high' },
     ],
   },
   {

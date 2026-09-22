@@ -10,7 +10,6 @@ import {
   Clock,
   Trash2,
   Eye,
-  Download,
   Phone,
   FileText,
   RefreshCw,
@@ -709,11 +708,6 @@ const InsurancePage: React.FC = () => {
                         {formatCurrency(claim.patientResponsibility, claim.currency, locale)}
                       </span>
                     </div>
-                    {claim.eobUrl && (
-                      <button className="flex items-center gap-1 text-content-secondary text-sm">
-                        <Download className="w-4 h-4" /> {t('insurance.eobButton')}
-                      </button>
-                    )}
                   </div>
                 </div>
               ))

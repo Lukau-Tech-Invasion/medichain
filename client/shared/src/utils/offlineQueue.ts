@@ -58,14 +58,16 @@ export class OfflineQueue {
 
     console.log(`[OfflineQueue] Enqueued: ${op.method} ${op.path}`);
 
-    // Try to process immediately
-    this.processQueue();
+    // A queued write is deliberately not replayed here. This class does not
+    // own a session, signature provider, or stable idempotency key; replaying
+    // it with a raw fetch would bypass the application's authenticated client.
+    // ApiClient drains the queue after a verified reconnection instead.
   }
 
   /**
    * Process all queued operations
    */
-  async processQueue(apiClient?: { request: (method: string, path: string, body?: unknown) => Promise<unknown> }): Promise<void> {
+  async processQueue(apiClient: { request: (method: string, path: string, body?: unknown) => Promise<unknown> }): Promise<void> {
     if (this.isProcessing) {
       console.log('[OfflineQueue] Already processing');
       return;
@@ -85,24 +87,10 @@ export class OfflineQueue {
       try {
         console.log(`[OfflineQueue] Processing: ${op.method} ${op.path} (attempt ${op.retries + 1}/${this.config.maxRetries})`);
 
-        if (apiClient) {
-          // Use provided API client
-          await apiClient.request(op.method, op.path, op.body);
-        } else {
-          // Fallback to fetch (requires global API URL)
-          const apiUrl = (globalThis as { __MEDICHAIN_API_URL__?: string }).__MEDICHAIN_API_URL__ || 'http://localhost:8080';
-          const response = await fetch(`${apiUrl}${op.path}`, {
-            method: op.method,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: op.body ? JSON.stringify(op.body) : undefined
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-        }
+        // Every replay must pass through the authenticated API client. In
+        // particular, do not fall back to localhost:8080: it is IPFS in this
+        // deployment, not the MediChain API.
+        await apiClient.request(op.method, op.path, op.body);
 
         // Success - remove from queue
         console.log(`[OfflineQueue] Success: ${op.method} ${op.path}`);

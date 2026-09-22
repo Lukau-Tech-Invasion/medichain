@@ -258,7 +258,9 @@ const BloodBankPage: React.FC = () => {
       setError(null);
       const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
-        setOrders([newOrder, ...orders]);
+        // The server assigns the order ID and signed orderer.  Reload those
+        // durable values instead of displaying the browser's provisional one.
+        await fetchBloodBankOrders();
         showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: newOrder.orderId }));
         setSelectedPatientId('');
         setProduct('RBC');
@@ -365,7 +367,9 @@ const BloodBankPage: React.FC = () => {
       setError(null);
       const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
-        setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
+        // A transfusion is a separate durable event. Re-read the register so
+        // the worklist reflects its server-generated event ID and audit data.
+        await fetchBloodBankOrders();
         showSuccess(endTime ? t('docBloodBank.successTransfusionCompleted') : t('docBloodBank.successTransfusionStarted'));
         setActiveTab('orders');
         setSelectedOrder(null);

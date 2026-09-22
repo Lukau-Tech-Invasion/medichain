@@ -5,7 +5,6 @@ import {
   getPatientReminders,
   getPatientAdherence,
   logMedicationAdherence,
-  IS_DEMO,
   useTranslation
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -16,7 +15,6 @@ import {
   CheckCircle,
   Calendar,
   Bell,
-  Plus,
   ChevronRight,
   Loader2,
   Wifi,
@@ -78,6 +76,31 @@ interface RawPrescription {
   status?: Medication['status'];
 }
 
+/**
+ * Maps a persisted prescription without inventing clinical directions when a
+ * legacy or incomplete record omits them.
+ */
+export function mapPrescription(m: RawPrescription): Medication | null {
+  const id = m.prescription_id || m.medication_id;
+  const name = m.medication_name || m.name;
+  if (!id || !name) return null;
+
+  return {
+    id,
+    name,
+    dosage: m.dosage ?? '',
+    frequency: m.frequency ?? '',
+    prescribedBy: m.prescriber_name || m.prescribed_by || '',
+    startDate: m.prescribed_date || m.start_date || '',
+    endDate: m.end_date,
+    refillsRemaining: m.refills_remaining ?? 0,
+    instructions: m.instructions ?? '',
+    sideEffects: m.side_effects ?? [],
+    interactions: m.interactions ?? [],
+    status: m.status || undefined,
+  };
+}
+
 export function MedicationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -117,56 +140,12 @@ export function MedicationsPage() {
 
       setApiConnected(true);
 
-      const meds: Medication[] = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions || (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[]).map((m) => ({
-        id: m.prescription_id || m.medication_id || '',
-        name: m.medication_name || m.name || '',
-        dosage: m.dosage ?? '',
-        frequency: m.frequency || 'As directed',
-        prescribedBy: m.prescriber_name || m.prescribed_by || '',
-        startDate: m.prescribed_date || m.start_date || '',
-        endDate: m.end_date,
-        refillsRemaining: m.refills_remaining || 0,
-        instructions: m.instructions || 'Take as directed',
-        sideEffects: m.side_effects || [],
-        interactions: m.interactions || [],
-        status: m.status || 'active',
-      }));
+      const meds = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions ||
+        (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[])
+        .map(mapPrescription)
+        .filter((medication): medication is Medication => medication !== null);
 
-      if (meds.length === 0 && IS_DEMO) {
-        // Fallback to demo medications
-        const demoMeds: Medication[] = [
-          {
-            id: 'demo-med-1',
-            name: 'Amoxicillin',
-            dosage: '500mg',
-            frequency: 'Three times daily',
-            prescribedBy: 'Dr. Smith',
-            startDate: '2025-06-01',
-            refillsRemaining: 2,
-            instructions: 'Take with food',
-            sideEffects: ['Nausea', 'Rash'],
-            interactions: ['Warfarin'],
-            status: 'active'
-          },
-          {
-            id: 'demo-med-2',
-            name: 'Lisinopril',
-            dosage: '10mg',
-            frequency: 'Once daily',
-            prescribedBy: 'Dr. Jones',
-            startDate: '2025-05-15',
-            refillsRemaining: 0,
-            instructions: 'Take in the morning',
-            sideEffects: ['Cough', 'Dizziness'],
-            interactions: ['Spironolactone'],
-            status: 'active'
-          }
-        ];
-        setMedications(demoMeds);
-        setReminders([]);
-        setApiConnected(false);
-      } else {
-        setMedications(meds);
+      setMedications(meds);
         
         const today = new Date().toISOString().slice(0, 10);
         const dosesTakenToday = new Map(
@@ -194,8 +173,7 @@ export function MedicationsPage() {
             };
           })
         );
-        setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
-      }
+      setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
     } catch (error) {
       console.error('Error loading medications:', error);
       setApiConnected(false);
@@ -397,7 +375,9 @@ export function MedicationsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-content">{med.name}</h3>
-                    <p className="text-sm text-content-muted">{med.dosage} • {med.frequency}</p>
+                    <p className="text-sm text-content-muted">
+                      {[med.dosage, med.frequency].filter(Boolean).join(' • ') || t('medications.regimenNotRecorded')}
+                    </p>
                     {med.status && (
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                         med.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -425,7 +405,8 @@ export function MedicationsPage() {
               </div>
 
               <p className="text-sm text-content-muted mb-3">
-                <span className="font-medium">{t('medications.instructionsLabel')}</span> {med.instructions}
+                <span className="font-medium">{t('medications.instructionsLabel')}</span>{' '}
+                {med.instructions || t('medications.instructionsNotRecorded')}
               </p>
 
               {med.sideEffects.length > 0 && (
@@ -449,10 +430,9 @@ export function MedicationsPage() {
               )}
 
               {med.refillsRemaining <= 1 && (
-                <button className="mt-3 w-full py-2 border-2 border-brand text-brand-subtle-fg rounded-lg font-medium hover:bg-brand-subtle transition-colors flex items-center justify-center gap-2">
-                  <Plus className="w-4 h-4" />
-                  {t('medications.requestRefill')}
-                </button>
+                <p className="mt-3 text-sm text-caution-subtle-fg">
+                  {t('medications.refillRequestUnavailable')}
+                </p>
               )}
             </div>
           ))}

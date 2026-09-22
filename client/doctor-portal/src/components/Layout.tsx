@@ -315,7 +315,11 @@ function Layout() {
   const { isOnline, queueSize, checkConnection } = useApiStatus();
   const lastProcessedEventRef = useRef<number>(0);
 
-  const userRole = (user?.role as Role) || 'Doctor';
+  // Rendering still needs a stable navigation shape while auth initializes,
+  // but data polling must not invent a clinician role. The old shared Doctor
+  // fallback was passed straight to the poller and produced 401s on login.
+  const userRole = (user?.role as Role | undefined) ?? 'Doctor';
+  const sidebarRole = user ? userRole : null;
 
   // Fetch real-time sidebar data from API.
   //
@@ -336,7 +340,7 @@ function Layout() {
   // `recentPatients` costs no extra request either way: it is derived from the
   // dashboard payload the badges already need.
   const { badges, refetch: refetchBadges } = useSidebarData(
-    userRole,
+    sidebarRole,
     30000 // Refresh every 30 seconds
   );
 

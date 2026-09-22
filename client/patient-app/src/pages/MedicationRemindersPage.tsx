@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   createMedicationReminder,
+  deleteMedicationReminder,
   getPatientReminders,
   type MedicationReminder,
   useTranslation,
@@ -26,6 +27,7 @@ export function MedicationRemindersPage() {
   // caller anywhere in either application.
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deactivatingReminderId, setDeactivatingReminderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [medication, setMedication] = useState('');
   const [dosage, setDosage] = useState('');
@@ -128,6 +130,22 @@ export function MedicationRemindersPage() {
     }
   };
 
+  const handleDeactivate = async (reminderId: string) => {
+    if (!patient?.healthId) return;
+
+    setDeactivatingReminderId(reminderId);
+    setError(null);
+    try {
+      await deleteMedicationReminder(reminderId);
+      await load(patient.healthId);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : t('medications.reminderDeactivateFailed'));
+    } finally {
+      setDeactivatingReminderId(null);
+    }
+  };
+
   if (loading) return <div className="p-4">{t('medications.loadingReminders')}</div>;
 
   return (
@@ -155,6 +173,16 @@ export function MedicationRemindersPage() {
                   </span>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => void handleDeactivate(reminder.reminder_id)}
+                disabled={deactivatingReminderId === reminder.reminder_id}
+                className="mt-3 text-sm text-critical hover:underline disabled:opacity-50"
+              >
+                {deactivatingReminderId === reminder.reminder_id
+                  ? t('medications.deactivatingReminder')
+                  : t('medications.deactivateReminder')}
+              </button>
             </div>
           ))
         )}

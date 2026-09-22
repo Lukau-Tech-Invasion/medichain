@@ -58,6 +58,6 @@ export default defineConfig({
     // config exists to avoid.
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { VITE_API_PROXY_TARGET: API },
+    env: { VITE_API_PROXY_TARGET: API, VITE_DEV_PORT: String(PORT) },
   },
 });

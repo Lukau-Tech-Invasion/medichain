@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
-  apiUrl,
-  getApiClient,
+  createCdsRule,
+  getApiErrorMessage,
   getCdsAudit,
-  listCdsAlerts,
+  listCdsRules,
+  retireCdsRule,
+  setCdsRuleEnablement,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -14,6 +16,7 @@ import {
   Textarea,
   cdsActionSchema,
 } from '@medichain/shared';
+import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -181,14 +184,22 @@ const CDSAlertsPage: React.FC = () => {
     blockAction: false,
   });
 
-  // Fetch CDS rules from API
+  /**
+   * The rules, from the endpoint that serves rules.
+   *
+   * This read `/api/platform/list/cds-alerts`, which is the list of alerts
+   * that have FIRED. So the screen showed instances under the heading
+   * "rules" — an alert's id in the rule id column, a patient's alert in a
+   * table of facility configuration — and the rule an administrator wrote had
+   * nowhere to appear even if it had been saved, which it was not.
+   */
   const fetchRules = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await listCdsAlerts();
-      if (response.success && Array.isArray(response.items)) {
-        setRules(response.items as CDSRule[]);
+      const response = await listCdsRules();
+      if (Array.isArray(response?.rules)) {
+        setRules(response.rules as unknown as CDSRule[]);
       }
     } catch (err) {
       console.error('Error fetching CDS rules:', err);
@@ -213,7 +224,56 @@ const CDSAlertsPage: React.FC = () => {
     description: newRule.description ?? '',
   });
 
-  const handleCreateRule = () => {
+  /**
+   * A CDS rule interrupts a clinician mid-task and can block an order, so it
+   * is an administrator's to write. The screen still shows every rule to every
+   * clinical role: a rule that governs you is one you may read.
+   */
+  const mayWriteRules = user?.role === 'Admin';
+
+  /**
+   * Save a rule.
+   *
+   * This pushed the rule into React state and announced success. It vanished
+   * on reload, no engine had heard of it, and the id it invented
+   * (`CDS-004`, from the length of the browser's array) belonged to nothing.
+   */
+  const saveRule = async (name: string, description: string): Promise<boolean> => {
+    const payload: CreateCdsRulePayload = {
+      name,
+      description,
+      category: newRule.category || 'medication',
+      severity: newRule.severity || 'medium',
+      triggerType: newRule.triggerType || 'threshold',
+      conditions: newRule.conditions || [],
+      actions: (newRule.actions || []).map((action) => ({
+        type: action.type,
+        message: action.message,
+        severity: action.severity,
+        notifyRoles: action.notifyRoles,
+        blockAction: action.blockAction,
+        suggestedAction: action.suggestedAction,
+        escalateTo: action.escalateTo,
+      })),
+      status: newRule.status || 'draft',
+      priority: newRule.priority || 5,
+      isEnabled: newRule.isEnabled || false,
+      testMode: newRule.testMode !== undefined ? newRule.testMode : true,
+      targetRoles: newRule.targetRoles || ['doctor'],
+      evidenceLevel: newRule.evidenceLevel || undefined,
+      references: newRule.references || [],
+    };
+    try {
+      await createCdsRule(payload);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
+      return false;
+    }
+    await fetchRules();
+    return true;
+  };
+
+  const handleCreateRule = async () => {
     // A CDS rule fires at someone mid-task, and the clinician deciding whether
     // to override it has only the rule's own words to judge it by -- an
     // unexplained alert is the one dismissed reflexively. So the name and the
@@ -233,30 +293,10 @@ const CDSAlertsPage: React.FC = () => {
       return;
     }
 
-    const ruleId = `CDS-${String(rules.length + 1).padStart(3, '0')}`;
-    const rule: CDSRule = {
-      ruleId,
-      name: validated.name,
-      category: newRule.category || 'medication',
-      description: validated.description,
-      severity: newRule.severity || 'medium',
-      triggerType: newRule.triggerType || 'threshold',
-      conditions: newRule.conditions || [],
-      actions: newRule.actions || [],
-      status: newRule.status || 'draft',
-      priority: newRule.priority || 5,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      triggerCount: 0,
-      isEnabled: newRule.isEnabled || false,
-      testMode: newRule.testMode !== undefined ? newRule.testMode : true,
-      targetRoles: newRule.targetRoles || ['doctor'],
-      evidenceLevel: newRule.evidenceLevel || undefined,
-      references: newRule.references || [],
-    };
+    if (!(await saveRule(validated.name, validated.description))) {
+      return;
+    }
 
-    setRules([...rules, rule]);
     setNewRule({
       name: '',
       category: 'medication',
@@ -274,7 +314,7 @@ const CDSAlertsPage: React.FC = () => {
       references: [],
     });
     setActiveTab('all');
-    showSuccess(t('docCDS.successRuleCreated', { name: rule.name }));
+    showSuccess(t('docCDS.successRuleCreated', { name: validated.name }));
   };
 
   const handleAddCondition = () => {
@@ -372,68 +412,78 @@ const CDSAlertsPage: React.FC = () => {
   // disagreed. A clinical decision-support rule that is off when the screen says
   // on is the failure mode this page exists to prevent.
   //
-  // `fetch` also does not throw on 4xx/5xx, so a 403 from the role check landed
-  // in the success path and the catch never ran.
+  // The call it made was `/api/cds/alerts/{id}/respond`, which records a
+  // clinician's response to an alert that FIRED. It never changed a rule's
+  // enablement, because at the time no endpoint did.
   const handleToggleRule = async (ruleId: string) => {
     const rule = rules.find(r => r.ruleId === ruleId);
     if (!rule) return;
 
-    if (user) {
-      try {
-        const response = await fetch(apiUrl(`/api/cds/alerts/${ruleId}/respond`), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-            'X-Provider-Role': user.role,
-          },
-          body: JSON.stringify({
-            action: rule.isEnabled ? 'deactivate' : 'activate',
-            responded_by: user.userId,
-            responded_at: new Date().toISOString(),
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-      } catch (e) {
-        console.error('Failed to respond to CDS alert:', e);
-        showError(t('docCDS.errorToggleFailed'));
-        return;
-      }
+    try {
+      await setCdsRuleEnablement(ruleId, !rule.isEnabled);
+    } catch (e) {
+      console.error('Failed to change CDS rule enablement:', e);
+      showError(getApiErrorMessage(e, t('docCDS.errorToggleFailed')));
+      return;
     }
-
-    setRules(rules.map(r =>
-      r.ruleId === ruleId
-        ? { ...r, isEnabled: !r.isEnabled, lastModified: new Date().toISOString() }
-        : r
-    ));
+    // Re-read rather than patching the row: the server owns `status` and
+    // `lastModified`, and a screen that computes them drifts from the record.
+    await fetchRules();
   };
 
-  const handleDuplicateRule = (rule: CDSRule) => {
-    const newRuleId = `CDS-${String(rules.length + 1).padStart(3, '0')}`;
-    const duplicatedRule: CDSRule = {
-      ...rule,
-      ruleId: newRuleId,
-      name: `${rule.name} (Copy)`,
-      status: 'draft',
-      isEnabled: false,
-      testMode: true,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      triggerCount: 0,
-      lastTriggered: undefined,
-    };
-    setRules([...rules, duplicatedRule]);
-    showSuccess(t('docCDS.successRuleDuplicated', { name: duplicatedRule.name }));
+  /** A copy is a new draft, in test mode, disabled, like any other new rule. */
+  const handleDuplicateRule = async (rule: CDSRule) => {
+    const name = `${rule.name} (Copy)`;
+    try {
+      await createCdsRule({
+        name,
+        description: rule.description,
+        category: rule.category,
+        severity: rule.severity,
+        triggerType: rule.triggerType,
+        conditions: rule.conditions,
+        actions: rule.actions.map((action) => ({
+          type: action.type,
+          message: action.message,
+          severity: action.severity,
+          notifyRoles: action.notifyRoles,
+          blockAction: action.blockAction,
+          suggestedAction: action.suggestedAction,
+          escalateTo: action.escalateTo,
+        })),
+        status: 'draft',
+        priority: rule.priority,
+        isEnabled: false,
+        testMode: true,
+        targetRoles: rule.targetRoles,
+        evidenceLevel: rule.evidenceLevel,
+        references: rule.references,
+      });
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
+      return;
+    }
+    await fetchRules();
+    showSuccess(t('docCDS.successRuleDuplicated', { name }));
   };
 
-  const handleDeleteRule = (ruleId: string) => {
-    if (confirm(t('docCDS.confirmDeleteRule'))) {
-      setRules(rules.filter(r => r.ruleId !== ruleId));
+  /**
+   * Retire a rule. Hidden from the engine, kept in the record (ADR-0005):
+   * the CDS audit trail names the rule that fired, and deleting the rule makes
+   * every one of those entries unresolvable.
+   */
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!confirm(t('docCDS.confirmDeleteRule'))) {
+      return;
     }
+    try {
+      await retireCdsRule(ruleId);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleRetireFailed')));
+      return;
+    }
+    await fetchRules();
+    showSuccess(t('docCDS.successRuleRetired'));
   };
 
   const handleExportRule = (rule: CDSRule) => {
@@ -560,16 +610,18 @@ const CDSAlertsPage: React.FC = () => {
         >
           {t('docCDS.tabAllRules', { count: rules.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('create')}
-          className={`px-6 py-3 font-medium transition-colors ${
-            activeTab === 'create'
-              ? 'border-b-2 border-red-600 text-critical-subtle-fg'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docCDS.tabCreateRule')}
-        </button>
+        {mayWriteRules && (
+          <button
+            onClick={() => setActiveTab('create')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              activeTab === 'create'
+                ? 'border-b-2 border-red-600 text-critical-subtle-fg'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docCDS.tabCreateRule')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('analytics')}
           className={`px-6 py-3 font-medium transition-colors ${
@@ -726,24 +778,28 @@ const CDSAlertsPage: React.FC = () => {
                           >
                             {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                           </button>
-                          <button
-                            onClick={() => handleToggleRule(rule.ruleId)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              rule.isEnabled
-                                ? 'text-ok-subtle-fg hover:bg-ok-subtle'
-                                : 'text-content-muted hover:bg-surface-sunken'
-                            }`}
-                            title={rule.isEnabled ? t('docCDS.disableRuleTitle') : t('docCDS.enableRuleTitle')}
-                          >
-                            {rule.isEnabled ? <Power className="w-5 h-5" /> : <PowerOff className="w-5 h-5" />}
-                          </button>
-                          <button
-                            onClick={() => handleDuplicateRule(rule)}
-                            className="p-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-lg transition-colors"
-                            title={t('docCDS.duplicateRuleTitle')}
-                          >
-                            <Copy className="w-5 h-5" />
-                          </button>
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleToggleRule(rule.ruleId)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                rule.isEnabled
+                                  ? 'text-ok-subtle-fg hover:bg-ok-subtle'
+                                  : 'text-content-muted hover:bg-surface-sunken'
+                              }`}
+                              title={rule.isEnabled ? t('docCDS.disableRuleTitle') : t('docCDS.enableRuleTitle')}
+                            >
+                              {rule.isEnabled ? <Power className="w-5 h-5" /> : <PowerOff className="w-5 h-5" />}
+                            </button>
+                          )}
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleDuplicateRule(rule)}
+                              className="p-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-lg transition-colors"
+                              title={t('docCDS.duplicateRuleTitle')}
+                            >
+                              <Copy className="w-5 h-5" />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleExportRule(rule)}
                             className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
@@ -751,13 +807,15 @@ const CDSAlertsPage: React.FC = () => {
                           >
                             <Download className="w-5 h-5" />
                           </button>
-                          <button
-                            onClick={() => handleDeleteRule(rule.ruleId)}
-                            className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
-                            title={t('docCDS.deleteRuleTitle')}
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleDeleteRule(rule.ruleId)}
+                              className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
+                              title={t('docCDS.deleteRuleTitle')}
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          )}
                         </div>
                       </div>
 

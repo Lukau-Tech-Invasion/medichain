@@ -3,7 +3,7 @@
 //! In-memory HashMap implementations for Phase 4-6 entities.
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -1915,9 +1915,9 @@ impl ChainOfCustodyRepository for MemoryChainOfCustodyRepository {
     async fn transfer(
         &self,
         id: &str,
-        new_custodian_id: &str,
-        notes: Option<&str>,
-    ) -> RepositoryResult<ChainOfCustodyEntity> {
+        expected_updated_at: DateTime<Utc>,
+        transfer: CustodyTransfer,
+    ) -> RepositoryResult<Option<ChainOfCustodyEntity>> {
         let mut data = self
             .data
             .write()
@@ -1925,25 +1925,18 @@ impl ChainOfCustodyRepository for MemoryChainOfCustodyRepository {
         let record = data.get_mut(id).ok_or_else(|| {
             RepositoryError::NotFound(format!("Chain of custody {} not found", id))
         })?;
-
-        // Add transfer to history
-        let transfer = serde_json::json!({
-            "from": record.current_custodian_id,
-            "to": new_custodian_id,
-            "datetime": Utc::now().to_rfc3339(),
-            "notes": notes
-        });
-
-        let mut transfers = if let Some(arr) = record.transfers.as_array() {
-            arr.clone()
-        } else {
-            vec![]
-        };
-        transfers.push(transfer);
+        if record.updated_at != expected_updated_at {
+            return Ok(None);
+        }
+        let mut transfers = record.transfers.as_array().cloned().unwrap_or_default();
+        transfers.push(transfer.entry);
         record.transfers = serde_json::Value::Array(transfers);
-        record.current_custodian_id = new_custodian_id.to_string();
-
-        Ok(record.clone())
+        record.current_custodian_id = transfer.new_custodian;
+        record.storage_location = Some(transfer.location);
+        record.status = transfer.status;
+        record.data = transfer.data;
+        record.updated_at = Utc::now().max(expected_updated_at + chrono::Duration::microseconds(1));
+        Ok(Some(record.clone()))
     }
 
     async fn get_by_custodian(
@@ -2022,12 +2015,27 @@ mod tests {
             ..Default::default()
         };
 
-        repo.create(record).await.unwrap();
+        let created = repo.create(record).await.unwrap();
+        let hand_over = || CustodyTransfer {
+            new_custodian: "detective-001".to_string(),
+            location: "Evidence room".to_string(),
+            status: "transferred".to_string(),
+            entry: serde_json::json!({ "transferredFrom": "nurse-001", "transferredTo": "detective-001" }),
+            data: serde_json::json!({}),
+        };
         let transferred = repo
-            .transfer("coc-001", "detective-001", Some("Evidence transfer"))
+            .transfer("coc-001", created.updated_at, hand_over())
             .await
-            .unwrap();
+            .unwrap()
+            .expect("an unchanged record accepts the hand-over");
         assert_eq!(transferred.current_custodian_id, "detective-001");
-        assert!(!transferred.transfers.as_array().unwrap().is_empty());
+        assert_eq!(transferred.transfers.as_array().unwrap().len(), 1);
+
+        // A second hand-over against the same stale read must not also land.
+        assert!(repo
+            .transfer("coc-001", created.updated_at, hand_over())
+            .await
+            .unwrap()
+            .is_none());
     }
 }

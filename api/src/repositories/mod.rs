@@ -291,9 +291,18 @@ pub struct RepositoryContainer {
     pub symptom_entries: Arc<dyn JsonRecordRepository>,
     pub barcode_scans: Arc<dyn JsonRecordRepository>,
 
+    /// Append-only laboratory instrument calibration runs. Calibration is not a
+    /// QC measurement: it establishes the instrument's measurement curve and
+    /// must remain traceable by calibrator lot after a restart.
+    pub lab_calibrations: Arc<dyn JsonRecordRepository>,
+
     /// Clinician-authored note templates, shared across the facility and owned
     /// by their author (`owner_id`). Deactivated, never deleted.
     pub note_templates: Arc<dyn JsonRecordRepository>,
+    pub order_sets: Arc<dyn JsonRecordRepository>,
+    pub cds_rules: Arc<dyn JsonRecordRepository>,
+    /// When each user last read their notifications. One row per user.
+    pub notification_reads: Arc<dyn JsonRecordRepository>,
 
     // Final durability sweep (migration 20260811000002): the last of the
     // process-memory clinical maps. `used_emergency_tokens` is the spent-token
@@ -628,7 +637,11 @@ impl RepositoryContainer {
             messages: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
             barcode_scans: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            lab_calibrations: Arc::new(memory::MemoryJsonRecordRepository::new()),
             note_templates: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            order_sets: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            cds_rules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            notification_reads: Arc::new(memory::MemoryJsonRecordRepository::new()),
             blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             e_prescription_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -1226,7 +1239,11 @@ impl RepositoryContainer {
             messages: Arc::new(postgres::PgMessageRepository::new(pool.clone())),
             symptom_entries: Arc::new(postgres::PgSymptomEntryRepository::new(pool.clone())),
             barcode_scans: Arc::new(postgres::PgBarcodeScanRepository::new(pool.clone())),
+            lab_calibrations: Arc::new(postgres::PgLabCalibrationRepository::new(pool.clone())),
             note_templates: Arc::new(postgres::PgNoteTemplateRepository::new(pool.clone())),
+            order_sets: Arc::new(postgres::PgOrderSetRepository::new(pool.clone())),
+            cds_rules: Arc::new(postgres::PgCdsRuleRepository::new(pool.clone())),
+            notification_reads: Arc::new(postgres::PgNotificationReadRepository::new(pool.clone())),
             blood_type_screen_records: Arc::new(postgres::PgBloodTypeScreenRecordRepository::new(
                 pool.clone(),
             )),

@@ -19,6 +19,8 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listLabQc: vi.fn(),
   createLabQc: vi.fn(),
+  listLabCalibrations: vi.fn(),
+  createLabCalibration: vi.fn(),
 }));
 
 // Mock toast actions
@@ -58,6 +60,11 @@ describe('LabQCPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.listLabQc).mockResolvedValue(mockQcData);
+    vi.mocked(shared.listLabCalibrations).mockResolvedValue({
+      success: true,
+      total: 0,
+      items: [],
+    });
   });
 
   it('renders lab QC page', async () => {

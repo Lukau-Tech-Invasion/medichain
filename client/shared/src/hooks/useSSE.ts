@@ -139,7 +139,9 @@ export function useSSE(): UseSSEReturn {
         debugLog('useSSE', 'SSE connection aborted');
         connectedUserRef.current = null;
       } else {
-        console.error('SSE Error:', err);
+        // The stream state below remains visible to the UI and reconnects. Do
+        // not emit a production console error for a recoverable reconnect.
+        debugLog('useSSE', 'SSE transport unavailable; scheduling reconnect', err);
         setError(err instanceof Error ? err.message : 'SSE connection failed');
         setIsConnected(false);
         connectedUserRef.current = null;

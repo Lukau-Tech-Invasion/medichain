@@ -48,7 +48,7 @@ describe('LabTrendsPage (Patient)', () => {
             {
               result_id: 'r1',
               value: 92,
-              collected_at: 1755000000,
+              collected_at: Math.floor(Date.now() / 1000),
               status: 'Normal',
               performing_lab: 'Main Lab',
             },
@@ -63,7 +63,7 @@ describe('LabTrendsPage (Patient)', () => {
             {
               result_id: 'r2',
               value: 5.4,
-              collected_at: 1755000000,
+              collected_at: Math.floor(Date.now() / 1000),
               status: 'Normal',
               performing_lab: 'Main Lab',
             },
@@ -82,7 +82,7 @@ describe('LabTrendsPage (Patient)', () => {
     });
   });
 
-  it('displays demo trends when no API data is available', async () => {
+  it('displays API-backed trends', async () => {
     render(<LabTrendsPage />);
 
     await waitFor(() => {
@@ -90,6 +90,37 @@ describe('LabTrendsPage (Patient)', () => {
       expect(screen.getByText(/Glucose/i)).toBeInTheDocument();
       expect(screen.getByText(/Hemoglobin A1c/i)).toBeInTheDocument();
     });
+  });
+
+  it('does not invent a status, reference range, or percent change when the API omits them', async () => {
+    vi.mocked(shared.getLabTrends).mockResolvedValue({
+      success: true,
+      patient_id: 'HEALTH123',
+      count: 1,
+      trends: [{
+        loinc_code: '9999-1',
+        test_name: 'Unranged test',
+        unit: 'units',
+        reference_range: null,
+        data_points: [{
+          result_id: 'unknown-result',
+          value: 12,
+          collected_at: Math.floor(Date.now() / 1000),
+          status: 'Unknown',
+          performing_lab: 'Main Lab',
+        }],
+        trend_analysis: { direction: 'InsufficientData', percent_change: null },
+      }],
+    } as unknown as Awaited<ReturnType<typeof shared.getLabTrends>>);
+
+    render(<LabTrendsPage />);
+
+    await waitFor(() => expect(screen.getByText('Unranged test')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Unranged test'));
+
+    expect(screen.getAllByText('Status unavailable')).toHaveLength(2);
+    expect(screen.getByText('Trend unavailable')).toBeInTheDocument();
+    expect(screen.getByText('The laboratory did not provide a reference range for this result.')).toBeInTheDocument();
   });
 
   it('allows filtering by category', async () => {

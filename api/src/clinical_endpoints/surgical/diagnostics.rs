@@ -71,10 +71,11 @@ pub async fn create_anesthesia(
     http_req: HttpRequest,
     req: web::Json<CreateAnesthesiaRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
         Err(resp) => return resp,
     };
+    let current_user_id = current_user.wallet_address.clone();
 
     let record = req.into_inner();
     let owner_id = record.patient_id.clone();
@@ -506,10 +507,11 @@ pub async fn create_pathology(
     http_req: HttpRequest,
     req: web::Json<CreatePathologyRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
         Err(resp) => return resp,
     };
+    let current_user_id = current_user.wallet_address.clone();
 
     let body = req.into_inner();
     let id = body.specimen_id.clone();
@@ -522,7 +524,7 @@ pub async fn create_pathology(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "pathologist".to_string(),
+            accessor_role: current_user.role.to_string(),
             access_type: "create_pathology".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -631,6 +633,155 @@ pub async fn create_pathology(
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Pathology specimen could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Fields the pathology worklist may add before a report is finalized.
+///
+/// This deliberately has no patient, specimen, or author field: those are the
+/// immutable accession facts. The authenticated clinician is attributed by the
+/// server when a report is saved or finalized.
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdatePathologyReportRequest {
+    pub gross_description: String,
+    pub microscopic_description: String,
+    pub diagnosis: String,
+    #[serde(default)]
+    pub blocks: Vec<String>,
+    #[serde(default)]
+    pub slides: Vec<String>,
+    #[serde(default, alias = "specialStains")]
+    pub special_stains: Vec<String>,
+    #[serde(default, alias = "ihcMarkers")]
+    pub ihc_markers: Vec<String>,
+    #[serde(default, alias = "snomedCode")]
+    pub snomed_code: String,
+    #[serde(default, alias = "isCritical")]
+    pub is_critical: bool,
+    #[serde(default, alias = "communicatedTo")]
+    pub communicated_to: String,
+    /// Only a saved preliminary report or a final report may be produced here.
+    pub status: String,
+}
+
+/// Persist a preliminary or final pathology report.
+///
+/// A finalized result is never overwritten. Corrections require an explicit
+/// addendum workflow rather than silently replacing a signed diagnostic result.
+#[put("/api/surgical/pathology/{id}")]
+pub async fn update_pathology_report(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<UpdatePathologyReportRequest>,
+) -> impl Responder {
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) if user.role.can_edit_medical_records() => user,
+        Ok(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Only clinical record editors may save pathology reports".to_string(),
+                code: "FORBIDDEN".to_string(),
+            })
+        }
+        Err(response) => return response,
+    };
+    let id = path.into_inner();
+    let body = req.into_inner();
+    if !matches!(body.status.as_str(), "prelim" | "final") {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Pathology report status must be prelim or final".to_string(),
+            code: "INVALID_STATUS".to_string(),
+        });
+    }
+    if body.status == "final"
+        && (body.diagnosis.trim().is_empty() || body.microscopic_description.trim().is_empty())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A final pathology report requires diagnosis and microscopic description"
+                .to_string(),
+            code: "FINAL_REPORT_INCOMPLETE".to_string(),
+        });
+    }
+
+    let mut report = match data.repositories.pathology_reports.get_by_id(&id).await {
+        Ok(report) => report,
+        Err(crate::repositories::RepositoryError::NotFound(_)) => {
+            return HttpResponse::NotFound().finish()
+        }
+        Err(error) => {
+            log::error!("pathology report lookup failed: {error}");
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    if report.status == "final" {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "Final pathology reports cannot be overwritten".to_string(),
+            code: "PATHOLOGY_REPORT_FINAL".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now();
+    report.gross_description = body.gross_description;
+    report.microscopic_description = body.microscopic_description;
+    report.diagnosis = body.diagnosis;
+    report.special_stains = Some(serde_json::json!(body.special_stains));
+    report.immunohistochemistry = Some(serde_json::json!(body.ihc_markers));
+    report.comments = (!body.snomed_code.trim().is_empty()).then_some(body.snomed_code.clone());
+    report.status = body.status;
+    report.pathologist_id = caller.wallet_address.clone();
+    report.report_date = now;
+    report.updated_at = now;
+    let payload = report.data.as_object_mut();
+    if let Some(payload) = payload {
+        payload.insert("blocks".into(), serde_json::json!(body.blocks));
+        payload.insert("slides".into(), serde_json::json!(body.slides));
+        payload.insert(
+            "specialStains".into(),
+            serde_json::json!(body.special_stains),
+        );
+        payload.insert("ihcMarkers".into(), serde_json::json!(body.ihc_markers));
+        payload.insert("snomedCode".into(), serde_json::json!(report.comments));
+        payload.insert("isCritical".into(), serde_json::json!(body.is_critical));
+        payload.insert(
+            "communicatedTo".into(),
+            serde_json::json!(body.communicated_to),
+        );
+        payload.insert("status".into(), serde_json::json!(report.status));
+    }
+    if let Err(response) = crate::support::require_durable_audit(
+        &data,
+        crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: report.patient_id.clone(),
+            accessor_id: caller.wallet_address,
+            accessor_role: caller.role.to_string(),
+            access_type: "update_pathology_report".to_string(),
+            location: None,
+            timestamp: now,
+            emergency: false,
+        }
+        .into(),
+    )
+    .await
+    {
+        return response;
+    }
+    match data.repositories.pathology_reports.update(report).await {
+        Ok(stored) => {
+            HttpResponse::Ok().json(serde_json::json!({"success": true, "id": stored.id}))
+        }
+        Err(error) => {
+            log::error!("pathology report update failed: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Pathology report could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
         }
@@ -835,5 +986,76 @@ mod anesthesia_round_trip_tests {
         let (created, _, _) =
             post_then_list(data, "5Patient", page_payload("PAT-1", "Laparotomy")).await;
         assert_eq!(created, 403);
+    }
+
+    #[actix_rt::test]
+    async fn finalized_pathology_report_is_durable_and_cannot_be_overwritten() {
+        let data = state_with(Role::Doctor, "5PathologyDoctor");
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::create_pathology)
+                .service(super::update_pathology_report),
+        )
+        .await;
+        let create = test::TestRequest::post()
+            .uri("/api/surgical/pathology")
+            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .set_json(serde_json::json!({
+                "specimen_id": "SP-PATH-1", "patient_id": "PAT-1", "status": "received"
+            }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, create).await.status().as_u16(),
+            201
+        );
+
+        let finalise = || {
+            test::TestRequest::put()
+            .uri("/api/surgical/pathology/SP-PATH-1")
+            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .set_json(serde_json::json!({
+                "gross_description": "Two tissue fragments", "microscopic_description": "Benign tissue",
+                "diagnosis": "Benign lesion", "status": "final"
+            }))
+            .to_request()
+        };
+        assert_eq!(
+            test::call_service(&app, finalise()).await.status().as_u16(),
+            200
+        );
+        assert_eq!(
+            test::call_service(&app, finalise()).await.status().as_u16(),
+            409
+        );
+    }
+
+    #[actix_rt::test]
+    async fn final_pathology_requires_a_diagnosis_and_microscopy() {
+        let data = state_with(Role::Doctor, "5PathologyDoctor");
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::create_pathology)
+                .service(super::update_pathology_report),
+        )
+        .await;
+        let create = test::TestRequest::post()
+            .uri("/api/surgical/pathology")
+            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .set_json(serde_json::json!({"specimen_id": "SP-PATH-2", "patient_id": "PAT-1"}))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, create).await.status().as_u16(),
+            201
+        );
+        let incomplete = test::TestRequest::put().uri("/api/surgical/pathology/SP-PATH-2")
+            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .set_json(serde_json::json!({"gross_description": "Gross", "microscopic_description": "", "diagnosis": "", "status": "final"}))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, incomplete).await.status().as_u16(),
+            400
+        );
     }
 }

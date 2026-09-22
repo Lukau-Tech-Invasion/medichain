@@ -566,13 +566,11 @@ pub async fn get_card_info(
     // Get card
     let card = match data.card_registry.get_card_by_patient(&patient_id) {
         Some(c) => c,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "No card found for this patient".to_string(),
-                code: "CARD_NOT_FOUND".to_string(),
-            });
-        }
+        // The patient exists but has not yet been issued a card. That is an
+        // expected issuance state, not a missing endpoint or a failed lookup.
+        // A 404 made the Health ID screen log an error before it could decide
+        // whether to offer issuance.
+        None => return HttpResponse::Ok().json(serde_json::Value::Null),
     };
 
     HttpResponse::Ok().json(CardInfoResponse {

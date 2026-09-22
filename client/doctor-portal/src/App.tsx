@@ -30,10 +30,12 @@ const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
 const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
 const RetentionPage = lazy(() => import('./pages/RetentionPage'));
+const NationalIdReviewsPage = lazy(() => import('./pages/NationalIdReviewsPage'));
 const LabReviewPage = lazy(() => import('./pages/LabReviewPage'));
 
 // Settings
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 
 // Clinical Documentation
 const TriagePage = lazy(() => import('./pages/TriagePage'));
@@ -222,6 +224,10 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<SmartDashboardRouter />} />
         <Route path="settings" element={<LazyRoute element={<SettingsPage />} />} />
+        {/* The header bell has always navigated here. Until now no route
+            served it, so the catch-all redirected every click to the
+            dashboard -- the badge was visible and its list was not. */}
+        <Route path="notifications" element={<LazyRoute element={<NotificationsPage />} />} />
 
         {/* Role-Specific Dashboards (direct access) */}
         <Route path="dashboard/doctor" element={<DashboardPage />} />
@@ -237,6 +243,7 @@ function App() {
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
         <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />
         <Route path="retention" element={<LazyRoute element={<RetentionPage />} />} />
+        <Route path="national-id-reviews" element={<LazyRoute element={<NationalIdReviewsPage />} />} />
         <Route path="lab-review" element={<LazyRoute element={<LabReviewPage />} />} />
 
         {/* Clinical Documentation */}

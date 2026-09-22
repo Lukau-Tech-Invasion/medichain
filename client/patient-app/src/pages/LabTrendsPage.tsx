@@ -18,8 +18,8 @@ import { usePatientAuthStore } from '../store/authStore';
  * Includes interactive charts, reference ranges, and trend analysis.
  */
 
-export type TrendDirection = 'up' | 'down' | 'stable';
-export type ResultStatus = 'normal' | 'low' | 'high' | 'critical-low' | 'critical-high';
+export type TrendDirection = 'up' | 'down' | 'stable' | 'unknown';
+export type ResultStatus = 'normal' | 'low' | 'high' | 'critical-low' | 'critical-high' | 'unknown';
 
 export interface LabTest {
   id: string;
@@ -27,10 +27,10 @@ export interface LabTest {
   shortName: string;
   category: string;
   unit: string;
-  normalMin: number;
-  normalMax: number;
-  criticalMin: number;
-  criticalMax: number;
+  normalMin: number | null;
+  normalMax: number | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
 }
 
 export interface LabResult {
@@ -48,9 +48,29 @@ export interface LabTrend {
   test: LabTest;
   results: LabResult[];
   trend: TrendDirection;
-  percentChange: number;
+  percentChange: number | null;
   latestValue: number;
   latestStatus: ResultStatus;
+}
+
+function rangeStart(range: '3m' | '6m' | '1y' | '2y' | 'all'): Date | null {
+  if (range === 'all') return null;
+  const start = new Date();
+  const months = range === '3m' ? 3 : range === '6m' ? 6 : range === '1y' ? 12 : 24;
+  start.setMonth(start.getMonth() - months);
+  return start;
+}
+
+function trendsInRange(trends: LabTrend[], start: Date | null): LabTrend[] {
+  if (!start) return trends;
+  return trends.flatMap((trend) => {
+    const results = trend.results.filter((result) => new Date(result.date) >= start);
+    const latest = results[0];
+    if (!latest) return [];
+    // The API's trend calculation covered a different time span. Preserve the
+    // readings but do not represent that aggregate as a trend for this subset.
+    return [{ ...trend, results, latestValue: latest.value, latestStatus: latest.status, percentChange: null, trend: 'unknown' }];
+  });
 }
 
 const LabTrendsPage: React.FC = () => {
@@ -81,6 +101,7 @@ const LabTrendsPage: React.FC = () => {
       case 'high': return t('labTrends.statusHigh');
       case 'critical-low': return t('labTrends.statusCriticalLow');
       case 'critical-high': return t('labTrends.statusCriticalHigh');
+      case 'unknown': return t('labTrends.statusUnknown');
     }
   };
 
@@ -95,7 +116,7 @@ const LabTrendsPage: React.FC = () => {
         if (response?.success && response?.trends && Array.isArray(response.trends) && response.trends.length > 0) {
           // Transform API response to frontend format
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const transformed: LabTrend[] = response.trends.map((apiTrend: any) => {
+          const transformed: LabTrend[] = response.trends.flatMap((apiTrend: any) => {
             // Map API data points to LabResult format
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const results: LabResult[] = (apiTrend.data_points || []).map((dp: any, idx: number) => {
@@ -105,7 +126,8 @@ const LabTrendsPage: React.FC = () => {
                   case 'CriticalHigh': return 'critical-high';
                   case 'Low': return 'low';
                   case 'High': return 'high';
-                  default: return 'normal';
+                  case 'Normal': return 'normal';
+                  default: return 'unknown';
                 }
               };
               return {
@@ -128,27 +150,31 @@ const LabTrendsPage: React.FC = () => {
             };
 
             // Create LabTest from API data
+            const referenceRange = apiTrend.reference_range ?? {};
+            const numberOrNull = (value: unknown): number | null =>
+              typeof value === 'number' && Number.isFinite(value) ? value : null;
             const test: LabTest = {
               id: apiTrend.loinc_code,
               name: apiTrend.test_name,
               shortName: apiTrend.test_name.split(' ')[0],
               category: 'General', // API doesn't provide category, default to General
               unit: apiTrend.unit,
-              normalMin: apiTrend.reference_range?.low || 0,
-              normalMax: apiTrend.reference_range?.high || 100,
-              criticalMin: apiTrend.reference_range?.critical_low || 0,
-              criticalMax: apiTrend.reference_range?.critical_high || 999
+              normalMin: numberOrNull(referenceRange.low),
+              normalMax: numberOrNull(referenceRange.high),
+              criticalMin: numberOrNull(referenceRange.critical_low),
+              criticalMax: numberOrNull(referenceRange.critical_high)
             };
 
             const latestResult = results[0];
-            return {
+            if (!latestResult) return [];
+            return [{
               test,
               results,
               trend: mapTrend(apiTrend.trend_analysis?.direction),
-              percentChange: apiTrend.trend_analysis?.percent_change || 0,
-              latestValue: latestResult?.value || 0,
-              latestStatus: latestResult?.status || 'normal'
-            };
+              percentChange: numberOrNull(apiTrend.trend_analysis?.percent_change),
+              latestValue: latestResult.value,
+              latestStatus: latestResult.status
+            }];
           });
           setLabTrends(transformed);
           setLoading(false);
@@ -173,6 +199,7 @@ const LabTrendsPage: React.FC = () => {
       case 'high': return 'text-content-secondary';
       case 'critical-low': return 'text-critical-subtle-fg';
       case 'critical-high': return 'text-critical-subtle-fg';
+      case 'unknown': return 'text-content-muted';
     }
   };
 
@@ -183,11 +210,12 @@ const LabTrendsPage: React.FC = () => {
       case 'high': return 'bg-surface-sunken';
       case 'critical-low': return 'bg-critical-subtle';
       case 'critical-high': return 'bg-critical-subtle';
+      case 'unknown': return 'bg-surface-sunken';
     }
   };
 
   const getTrendIcon = (trend: TrendDirection, isGoodIfDown: boolean = false) => {
-    if (trend === 'stable') return <Minus className="w-4 h-4 text-content-muted" />;
+    if (trend === 'stable' || trend === 'unknown') return <Minus className="w-4 h-4 text-content-muted" />;
     if (trend === 'up') {
       return isGoodIfDown 
         ? <TrendingUp className="w-4 h-4 text-orange-500" />
@@ -198,17 +226,18 @@ const LabTrendsPage: React.FC = () => {
       : <TrendingDown className="w-4 h-4 text-orange-500" />;
   };
 
-  const filteredTrends = labTrends.filter(lt =>
+  const visibleTrends = trendsInRange(labTrends, rangeStart(timeRange));
+  const filteredTrends = visibleTrends.filter(lt =>
     selectedCategory === 'all' || lt.test.category === selectedCategory
   );
 
-  const selectedTrend = selectedTest ? labTrends.find(t => t.test.id === selectedTest) : null;
+  const selectedTrend = selectedTest ? visibleTrends.find(t => t.test.id === selectedTest) : null;
 
   // Simple bar chart renderer
   const renderMiniChart = (trend: LabTrend) => {
     const results = trend.results.slice(0, 6).reverse();
-    const maxVal = Math.max(...results.map(r => r.value), trend.test.normalMax * 1.2);
-    const minVal = Math.min(...results.map(r => r.value), trend.test.normalMin * 0.8);
+    const maxVal = Math.max(...results.map(r => r.value));
+    const minVal = Math.min(...results.map(r => r.value));
     const range = maxVal - minVal;
 
     return (
@@ -222,6 +251,7 @@ const LabTrendsPage: React.FC = () => {
               className={`flex-1 rounded-t transition-all ${
                 r.status === 'normal' ? 'bg-green-400' :
                 r.status === 'low' || r.status === 'high' ? 'bg-yellow-400' :
+                r.status === 'unknown' ? 'bg-gray-400' :
                 'bg-red-400'
               } ${isLatest ? 'opacity-100' : 'opacity-60'}`}
               style={{ height: `${Math.max(height, 10)}%` }}
@@ -236,41 +266,48 @@ const LabTrendsPage: React.FC = () => {
   // Detailed chart for selected test
   const renderDetailChart = (trend: LabTrend) => {
     const results = trend.results.slice().reverse();
-    const maxVal = Math.max(...results.map(r => r.value), trend.test.normalMax * 1.2);
-    const minVal = Math.min(...results.map(r => r.value), trend.test.normalMin * 0.8);
+    const normalMin = trend.test.normalMin;
+    const normalMax = trend.test.normalMax;
+    const hasReferenceRange = normalMin !== null && normalMax !== null;
+    const plottedValues = [
+      ...results.map((result) => result.value),
+      ...(hasReferenceRange ? [normalMin!, normalMax!] : []),
+    ];
+    const maxVal = Math.max(...plottedValues);
+    const minVal = Math.min(...plottedValues);
     const range = maxVal - minVal;
 
-    const normalMinY = range > 0 ? ((trend.test.normalMin - minVal) / range) * 100 : 50;
-    const normalMaxY = range > 0 ? ((trend.test.normalMax - minVal) / range) * 100 : 50;
+    const normalMinY = hasReferenceRange && range > 0 ? ((normalMin! - minVal) / range) * 100 : 0;
+    const normalMaxY = hasReferenceRange && range > 0 ? ((normalMax! - minVal) / range) * 100 : 0;
 
     return (
       <div className="relative h-48 bg-surface-sunken rounded-lg p-4">
         {/* Reference range background */}
-        <div
+        {hasReferenceRange && <div
           className="absolute left-4 right-4 bg-ok-subtle opacity-40 rounded"
           style={{
             bottom: `${normalMinY}%`,
             height: `${normalMaxY - normalMinY}%`
           }}
-        />
+        />}
         
         {/* Reference lines */}
-        <div
+        {hasReferenceRange && <div
           className="absolute left-4 right-4 border-t-2 border-dashed border-ok"
           style={{ bottom: `${normalMaxY}%` }}
         >
           <span className="absolute -top-5 right-0 text-xs text-ok-subtle-fg">
-            {t('labTrends.max', { value: trend.test.normalMax })}
+            {t('labTrends.max', { value: normalMax! })}
           </span>
-        </div>
-        <div
+        </div>}
+        {hasReferenceRange && <div
           className="absolute left-4 right-4 border-t-2 border-dashed border-ok"
           style={{ bottom: `${normalMinY}%` }}
         >
           <span className="absolute -bottom-4 right-0 text-xs text-ok-subtle-fg">
-            {t('labTrends.min', { value: trend.test.normalMin })}
+            {t('labTrends.min', { value: normalMin! })}
           </span>
-        </div>
+        </div>}
 
         {/* Data points */}
         <div className="relative h-full flex items-end justify-between px-4">
@@ -282,6 +319,7 @@ const LabTrendsPage: React.FC = () => {
                   className={`w-3 h-3 rounded-full border-2 ${
                     r.status === 'normal' ? 'bg-green-500 border-green-600' :
                     r.status === 'low' || r.status === 'high' ? 'bg-caution border-yellow-600' :
+                    r.status === 'unknown' ? 'bg-gray-400 border-gray-500' :
                     'bg-red-500 border-red-600'
                   }`}
                   style={{ marginBottom: `${y}%` }}
@@ -437,7 +475,11 @@ const LabTrendsPage: React.FC = () => {
               <div className="mt-4 p-3 bg-surface-sunken rounded-lg">
                 <h4 className="text-sm font-medium text-content-secondary mb-2">{t('labTrends.referenceRange')}</h4>
                 <div className="flex justify-between text-sm">
-                  <span className="text-content-muted">{t('labTrends.normalRange', { min: selectedTrend.test.normalMin, max: selectedTrend.test.normalMax, unit: selectedTrend.test.unit })}</span>
+                  <span className="text-content-muted">
+                    {selectedTrend.test.normalMin !== null && selectedTrend.test.normalMax !== null
+                      ? t('labTrends.normalRange', { min: selectedTrend.test.normalMin, max: selectedTrend.test.normalMax, unit: selectedTrend.test.unit })
+                      : t('labTrends.referenceRangeUnavailable')}
+                  </span>
                 </div>
               </div>
 
@@ -478,6 +520,8 @@ const LabTrendsPage: React.FC = () => {
               <div className={`px-2 py-1 rounded text-xs font-medium ${getStatusBg(trend.latestStatus)} ${getStatusColor(trend.latestStatus)}`}>
                 {trend.latestStatus === 'normal' ? (
                   <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" /> {statusLabel(trend.latestStatus)}</span>
+                ) : trend.latestStatus === 'unknown' ? (
+                  <span>{statusLabel(trend.latestStatus)}</span>
                 ) : (
                   <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {statusLabel(trend.latestStatus)}</span>
                 )}
@@ -491,10 +535,10 @@ const LabTrendsPage: React.FC = () => {
                 <div className="flex items-center gap-1 mt-1 text-sm">
                   {getTrendIcon(trend.trend)}
                   <span className={`${
-                    trend.percentChange > 0 ? 'text-content-secondary' : 
+                    trend.percentChange === null ? 'text-content-muted' : trend.percentChange > 0 ? 'text-content-secondary' :
                     trend.percentChange < 0 ? 'text-ok-subtle-fg' : 'text-content-muted'
                   }`}>
-                    {trend.percentChange > 0 ? '+' : ''}{trend.percentChange}%
+                    {trend.percentChange === null ? t('labTrends.changeUnavailable') : `${trend.percentChange > 0 ? '+' : ''}${trend.percentChange}%`}
                   </span>
                 </div>
               </div>

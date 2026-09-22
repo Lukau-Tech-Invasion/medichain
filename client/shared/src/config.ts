@@ -41,6 +41,15 @@ export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
 export const IS_DEMO = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
 
 /**
+ * Explicit build-time opt-in for the local presentation stack's seeded
+ * credential buttons. The server independently refuses the credentials unless
+ * it is both a demo deployment and in developer mode, so this flag cannot
+ * create a sign-in path on its own.
+ */
+const DEMO_CREDENTIALS_ENABLED =
+  (import.meta.env?.VITE_DEMO_CREDENTIALS_ENABLED ?? 'false') === 'true';
+
+/**
  * Detect the best API URL based on environment
  * Priority:
  * 1. Environment variable VITE_API_URL
@@ -127,7 +136,7 @@ export const FEATURES = {
   WALLET_CONNECT: true,
   
   /** Allow demo wallet generation (for testing) */
-  DEMO_WALLET_GENERATION: IS_DEVELOPMENT,
+  DEMO_WALLET_GENERATION: IS_DEVELOPMENT || DEMO_CREDENTIALS_ENABLED,
   
   /** Log debug information */
   DEBUG_LOGGING: IS_DEVELOPMENT,

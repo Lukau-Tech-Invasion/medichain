@@ -446,7 +446,12 @@ pub async fn delete_medication_reminder(
         }
     };
 
-    if reminder.patient_id != current_user_id && reminder.created_by != current_user_id {
+    // `patient_id` identifies the clinical record, while `current_user_id` is
+    // the authenticated wallet. Compare record ownership through the canonical
+    // bridge; a direct comparison denied every patient their own reminder.
+    let owns_patient_record =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id);
+    if !owns_patient_record && reminder.created_by != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

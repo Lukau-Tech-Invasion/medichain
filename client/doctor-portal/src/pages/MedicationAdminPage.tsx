@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
   listMar,
+  listMarAdministrations,
   administerMedication,
   useTranslation,
   Alert,
@@ -87,6 +88,14 @@ interface RawMarRow {
   interactions?: ScheduledMedication['interactions'];
 }
 
+interface RawAdministration {
+  administration_id?: string; medication_id?: string; patient_id?: string;
+  medication_name?: string; dose?: string; route?: string; scheduled_time?: string;
+  actual_time?: string; administered_at?: string; administered_by?: string; status?: string;
+  reason_not_given?: string; site?: string; witnessed_by?: string; patient_response?: string;
+  barcode_scanned?: boolean; five_rights_verified?: boolean;
+}
+
 const MedicationAdminPage: React.FC = () => {
   const { t } = useTranslation();
   const { catalog } = useScoringCatalog();
@@ -124,7 +133,7 @@ const MedicationAdminPage: React.FC = () => {
       setPatients(Array.isArray(loadedPatients) ? loadedPatients : []);
 
       // Fetch MAR (Medication Administration Records)
-      const marData = await listMar();
+      const [marData, storedAdministrations] = await Promise.all([listMar(), listMarAdministrations()]);
       // Map API response to ScheduledMedication interface
       const mappedMeds: ScheduledMedication[] = (marData as unknown as RawMarRow[]).map((m) => ({
         medId: m.med_id || m.medId || '',
@@ -145,8 +154,20 @@ const MedicationAdminPage: React.FC = () => {
       }));
       setMedications(mappedMeds);
 
-      // Administration history is included in MAR data
-      setAdministrations([]);
+      const patientNames = new Map(loadedPatients.map(patient => [patient.patient_id, patient.full_name]));
+      setAdministrations(storedAdministrations.map((raw): MedicationAdmin => {
+        const event = raw as RawAdministration;
+        return {
+          adminId: event.administration_id || '', medId: event.medication_id || '',
+          patientId: event.patient_id || '', patientName: patientNames.get(event.patient_id || '') || event.patient_id || '',
+          medicationName: event.medication_name || '', dose: event.dose || '', route: event.route || '',
+          scheduledTime: event.scheduled_time || 'PRN', actualTime: event.administered_at || event.actual_time || '',
+          administeredBy: event.administered_by || '', status: (event.status || 'given') as MedicationAdmin['status'],
+          reasonNotGiven: event.reason_not_given, site: event.site, witnessedBy: event.witnessed_by,
+          patientResponse: event.patient_response, barcodeScanned: Boolean(event.barcode_scanned),
+          fiveRightsVerified: Boolean(event.five_rights_verified),
+        };
+      }));
     } catch (err) {
       console.error('Failed to load medication data:', err);
       setError(err instanceof Error ? err.message : t('docMedicationAdmin.errorLoad'));
@@ -222,28 +243,7 @@ const MedicationAdminPage: React.FC = () => {
         five_rights_verified: fiveRightsVerified,
       });
 
-      // Create local record for immediate UI update (optimistic update)
-      const newAdmin: MedicationAdmin = {
-        adminId: `ADM-${String(administrations.length + 1).padStart(3, '0')}`,
-        medId: selectedMed.medId,
-        patientId: selectedMed.patientId,
-        patientName: selectedMed.patientName,
-        medicationName: `${selectedMed.medicationName} ${selectedMed.dose}`,
-        dose: selectedMed.dose,
-        route: selectedMed.route,
-        scheduledTime: selectedTime || 'PRN',
-        actualTime,
-        administeredBy: user?.userId || 'Unknown',
-        status,
-        reasonNotGiven: reasonNotGiven || undefined,
-        site: administrationSite || undefined,
-        witnessedBy: witnessedBy || undefined,
-        patientResponse: patientResponse || undefined,
-        barcodeScanned,
-        fiveRightsVerified
-      };
-
-      setAdministrations([...administrations, newAdmin]);
+      await loadData();
       showSuccess(t('docMedicationAdmin.successRecorded'));
       setActiveTab('mar');
       setSelectedMed(null);

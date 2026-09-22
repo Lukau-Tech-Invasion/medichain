@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { getDoctorDashboard, useTranslation } from '@medichain/shared';
 import { 
   Users, 
   AlertTriangle, 
@@ -193,7 +193,7 @@ function StatCard({
 function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout, restoreSession } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const { recentPatients, setRecentPatients } = usePatientStore();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,21 +210,33 @@ function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     
+    /**
+     * Read the dashboard through the shared client, not a bare `fetch`.
+     *
+     * Two things were wrong with the hand-rolled request. It sent only the
+     * legacy `X-User-Id` session headers, so it never carried the bearer token
+     * the rest of the app uses and never took the client's refresh-once-on-401
+     * path. And its 401 branch called `restoreSession()` and, when that failed,
+     * `logout()` -- but `restoreSession` fails closed **by design** (no access
+     * or refresh token is persisted, see the comment on it), so it can only
+     * ever fail, which made a single 401 on this one panel a forced sign-out.
+     *
+     * This runs on mount and then every 30 seconds, so a clinician reading a
+     * chart could be returned to the login screen by a request they never made,
+     * on a panel they were not looking at. Two browser suites caught it as
+     * "never reached /orders" and "never reached /splint" -- the same event,
+     * seen from the next page along.
+     *
+     * A 401 that survives the client's own refresh does mean the session is
+     * over, and the sign-in screen is then the honest answer.
+     */
     const fetchDashboard = async () => {
       try {
         setLoading(true);
         setError(null);
-        
-        const response = await fetch(apiUrl('/api/dashboard/doctor'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const data: DashboardResponse = await response.json();
+
+        const data = (await getDoctorDashboard()) as unknown as DashboardResponse;
+        {
           setDashboard(data);
           setApiConnected(true);
           
@@ -245,20 +257,15 @@ function DashboardPage() {
             }));
             setRecentPatients(mappedPatients);
           }
-        } else if (response.status === 401) {
-          // Session invalid - try to restore or logout
-          const restored = await restoreSession();
-          if (!restored) {
-            logout();
-            navigate('/login');
-          }
-          return;
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          setError(errData.error || `API Error: ${response.status}`);
-          setApiConnected(false);
         }
       } catch (err) {
+        // 401 after the client already tried its one refresh: the session is
+        // genuinely over. 403 is a role refusal on this panel, and is not.
+        if ((err as { status?: number })?.status === 401) {
+          logout();
+          navigate('/login');
+          return;
+        }
         setError(t('docDashboard.errorCannotConnect'));
         setApiConnected(false);
       } finally {
@@ -271,7 +278,7 @@ function DashboardPage() {
     // Refresh dashboard every 30 seconds
     const interval = setInterval(fetchDashboard, 30000);
     return () => clearInterval(interval);
-  }, [user, setRecentPatients, logout, navigate, restoreSession, t]);
+  }, [user, setRecentPatients, logout, navigate, t]);
 
   return (
     <div className="p-8">

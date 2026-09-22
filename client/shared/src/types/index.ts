@@ -1051,6 +1051,7 @@ export interface PatientDashboardResponse {
  */
 export interface MessagesResponse {
   messages: unknown[];
+  count: number;
   unread_count: number;
 }
 
@@ -1060,6 +1061,7 @@ export interface MessagesResponse {
  */
 export interface NotificationsResponse {
   notifications: unknown[];
+  count: number;
   unread_count: number;
 }
 

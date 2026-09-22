@@ -9,6 +9,7 @@ import {
   apiUrl,
   getApiClient,
   getApiErrorMessage,
+  updatePatient,
   getGuardiansForWard,
   revokeGuardian,
   verifyGuardian,
@@ -53,6 +54,49 @@ interface PatientDetails {
   registeredBy: string;
 }
 
+interface ClinicalDetailsForm {
+  allergies: string;
+  currentMedications: string;
+  chronicConditions: string;
+  organDonor: boolean;
+}
+
+/** Turn one clinical item per line into the explicit list the update API accepts. */
+function clinicalItems(value: string): string[] {
+  return value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** Create a portable copy of the clinical summary currently visible to the clinician. */
+export function downloadPatientSummary(patient: PatientDetails): void {
+  const body = JSON.stringify({
+    exported_at: new Date().toISOString(),
+    patient_id: patient.patientId,
+    full_name: patient.fullName,
+    date_of_birth: patient.dateOfBirth,
+    national_health_id: patient.nationalHealthId,
+    blood_type: patient.bloodType,
+    allergies: patient.allergies,
+    current_medications: patient.currentMedications,
+    chronic_conditions: patient.chronicConditions,
+    emergency_contacts: patient.emergencyContacts,
+    organ_donor: patient.organDonor,
+    dnr_status: patient.dnrStatus,
+    record_last_updated: patient.lastUpdated,
+    registered_by: patient.registeredBy,
+  }, null, 2);
+  const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `medichain-patient-summary-${patient.patientId}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function PatientDetailPage() {
   const { t } = useTranslation();
   const { patientId } = useParams<{ patientId: string }>();
@@ -62,6 +106,57 @@ function PatientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'access'>('overview');
+  const [editingClinicalDetails, setEditingClinicalDetails] = useState(false);
+  const [savingClinicalDetails, setSavingClinicalDetails] = useState(false);
+  const [clinicalDetailsError, setClinicalDetailsError] = useState<string | null>(null);
+  const [clinicalDetailsForm, setClinicalDetailsForm] = useState<ClinicalDetailsForm>({
+    allergies: '',
+    currentMedications: '',
+    chronicConditions: '',
+    organDonor: false,
+  });
+
+  const openClinicalDetailsEditor = () => {
+    if (!patient) return;
+    setClinicalDetailsForm({
+      allergies: patient.allergies.join('\n'),
+      currentMedications: patient.currentMedications.join('\n'),
+      chronicConditions: patient.chronicConditions.join('\n'),
+      organDonor: patient.organDonor,
+    });
+    setClinicalDetailsError(null);
+    setEditingClinicalDetails(true);
+  };
+
+  const saveClinicalDetails = async () => {
+    if (!patient) return;
+    const updates = {
+      allergies: clinicalItems(clinicalDetailsForm.allergies),
+      current_medications: clinicalItems(clinicalDetailsForm.currentMedications),
+      chronic_conditions: clinicalItems(clinicalDetailsForm.chronicConditions),
+      organ_donor: clinicalDetailsForm.organDonor,
+    };
+    setSavingClinicalDetails(true);
+    setClinicalDetailsError(null);
+    try {
+      await updatePatient(patient.patientId, updates);
+      setPatient({
+        ...patient,
+        allergies: updates.allergies,
+        currentMedications: updates.current_medications,
+        chronicConditions: updates.chronic_conditions,
+        organDonor: updates.organ_donor,
+        lastUpdated: new Date().toISOString(),
+      });
+      setEditingClinicalDetails(false);
+    } catch (saveError) {
+      setClinicalDetailsError(
+        saveError instanceof Error ? saveError.message : t('docPatientDetail.editSaveFailed')
+      );
+    } finally {
+      setSavingClinicalDetails(false);
+    }
+  };
 
   // --- Who may act for this patient ------------------------------------------
   //
@@ -462,11 +557,19 @@ function PatientDetailPage() {
           </div>
           
           <div className="flex gap-2">
-            <button className="px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => patient && downloadPatientSummary(patient)}
+              className="px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken flex items-center gap-2"
+            >
               <Download size={18} />
               {t('docPatientDetail.export')}
             </button>
-            <button className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openClinicalDetailsEditor}
+              className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
+            >
               <Edit size={18} />
               {t('docPatientDetail.edit')}
             </button>
@@ -899,6 +1002,72 @@ function PatientDetailPage() {
       )}
 
       <StepUpDialog state={stepUp} />
+
+      {editingClinicalDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
+          <section
+            aria-modal="true"
+            aria-labelledby="patient-clinical-details-title"
+            className="w-full max-w-2xl rounded-xl bg-surface p-6 shadow-xl"
+            role="dialog"
+          >
+            <h2 id="patient-clinical-details-title" className="text-xl font-semibold text-content">
+              {t('docPatientDetail.editClinicalTitle')}
+            </h2>
+            <p className="mt-1 text-sm text-content-muted">{t('docPatientDetail.editClinicalSubtitle')}</p>
+            <div className="mt-5 space-y-4">
+              {([
+                ['allergies', 'editAllergies'],
+                ['currentMedications', 'editMedications'],
+                ['chronicConditions', 'editConditions'],
+              ] as const).map(([field, label]) => (
+                <label key={field} className="block text-sm font-medium text-content">
+                  {t(`docPatientDetail.${label}`)}
+                  <textarea
+                    className="mt-1 min-h-20 w-full rounded-lg border border-border bg-surface px-3 py-2 font-normal text-content"
+                    value={clinicalDetailsForm[field]}
+                    onChange={(event) => setClinicalDetailsForm((current) => ({
+                      ...current,
+                      [field]: event.target.value,
+                    }))}
+                  />
+                </label>
+              ))}
+              <label className="flex items-center gap-2 text-sm font-medium text-content">
+                <input
+                  type="checkbox"
+                  checked={clinicalDetailsForm.organDonor}
+                  onChange={(event) => setClinicalDetailsForm((current) => ({
+                    ...current,
+                    organDonor: event.target.checked,
+                  }))}
+                />
+                {t('docPatientDetail.editOrganDonor')}
+              </label>
+            </div>
+            <p className="mt-4 text-sm text-content-muted">{t('docPatientDetail.editDnrNotice')}</p>
+            {clinicalDetailsError && <p className="mt-4 text-sm text-critical" role="alert">{clinicalDetailsError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={savingClinicalDetails}
+                onClick={() => setEditingClinicalDetails(false)}
+                className="rounded-lg border border-border px-4 py-2 text-content hover:bg-surface-sunken disabled:opacity-50"
+              >
+                {t('docPatientDetail.editCancel')}
+              </button>
+              <button
+                type="button"
+                disabled={savingClinicalDetails}
+                onClick={saveClinicalDetails}
+                className="rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand disabled:opacity-50"
+              >
+                {savingClinicalDetails ? t('docPatientDetail.editSaving') : t('docPatientDetail.editSave')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

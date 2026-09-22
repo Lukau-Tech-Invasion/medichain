@@ -369,11 +369,18 @@ pub async fn send_message(
     };
 
     let recipient_id = match body.get("recipient_id").and_then(|r| r.as_str()) {
-        Some(r) => r.to_string(),
+        Some(r) if !r.trim().is_empty() => r.trim().to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 success: false,
                 error: "recipient_id is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+        Some(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "recipient_id cannot be empty".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
         }
@@ -384,11 +391,18 @@ pub async fn send_message(
         .and_then(|s| s.as_str())
         .unwrap_or("No Subject");
     let content = match body.get("content").and_then(|c| c.as_str()) {
-        Some(c) => c,
+        Some(c) if !c.trim().is_empty() => c.trim(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 success: false,
                 error: "content is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+        Some(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "content cannot be empty".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
         }
@@ -400,16 +414,29 @@ pub async fn send_message(
         .unwrap_or("normal");
     let related_patient_id = body.get("related_patient_id").and_then(|p| p.as_str());
 
-    // Patients can only message healthcare providers
-    if matches!(current_user.role, crate::Role::Patient) {
-        let recipient = get_user(&data, &recipient_id);
-        if recipient.is_none() || matches!(recipient.as_ref().unwrap().role, crate::Role::Patient) {
-            return HttpResponse::Forbidden().json(ErrorResponse {
+    // Resolve every recipient before persisting anything. Previously only a
+    // patient's recipient was checked, so a clinician could receive 201 for a
+    // typo or stale wallet id even though no account could ever open the copy.
+    let recipient = match get_user(&data, &recipient_id) {
+        Some(user) => user,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
                 success: false,
-                error: "Patients can only message healthcare providers".to_string(),
+                error: "Recipient account was not found".to_string(),
                 code: "INVALID_RECIPIENT".to_string(),
-            });
+            })
         }
+    };
+
+    // Patients can only message healthcare providers.
+    if matches!(current_user.role, crate::Role::Patient)
+        && matches!(recipient.role, crate::Role::Patient)
+    {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Patients can only message healthcare providers".to_string(),
+            code: "INVALID_RECIPIENT".to_string(),
+        });
     }
 
     let message_id = format!(
@@ -424,9 +451,10 @@ pub async fn send_message(
     let message = serde_json::json!({
         "message_id": message_id,
         "sender_id": current_user_id,
-        "sender_name": current_user.username,
+        "sender_name": current_user.name,
         "sender_role": current_user.role.to_string(),
         "recipient_id": recipient_id,
+        "recipient_name": recipient.name,
         "subject": subject,
         "content": content,
         "priority": priority,
@@ -515,11 +543,16 @@ pub async fn get_messages(
     // `send_message` stores an `:in` copy for the recipient and an `:out` copy
     // for the sender, so the folder is decided by which copy this is rather
     // than by re-comparing ids (a user messaging themselves would break that).
+    let unread_count = records
+        .iter()
+        .filter(|record| record.id.ends_with(":in"))
+        .filter(|record| record.data.get("read").and_then(|value| value.as_bool()) != Some(true))
+        .count();
     let wanted_suffix = if folder == "sent" { ":out" } else { ":in" };
     let mut messages: Vec<serde_json::Value> = records
         .into_iter()
         .filter(|r| folder == "all" || r.id.ends_with(wanted_suffix))
-        .map(|r| r.data)
+        .map(|r| enrich_message_display_names(&data, r.data))
         .collect();
     messages.sort_by_key(|m| std::cmp::Reverse(m.get("sent_at").and_then(|v| v.as_i64())));
 
@@ -544,7 +577,7 @@ pub async fn get_messages(
     let conversations: Vec<serde_json::Value> = order
         .into_iter()
         .map(|counterpart| {
-            let thread = grouped.remove(&counterpart).unwrap_or_default();
+            let mut thread = grouped.remove(&counterpart).unwrap_or_default();
             let latest = thread.first().cloned().unwrap_or(serde_json::Value::Null);
             let counterpart_name = thread
                 .iter()
@@ -567,6 +600,9 @@ pub async fn get_messages(
                         && m.get("sender_id").and_then(|v| v.as_str()) != Some(&current_user_id)
                 })
                 .count();
+            // The mailbox itself is newest-first, which is useful for the
+            // conversation list. A chat transcript must read oldest-to-newest.
+            thread.reverse();
             serde_json::json!({
                 "id": counterpart,
                 "providerId": counterpart,
@@ -586,6 +622,312 @@ pub async fn get_messages(
         "folder": folder,
         "messages": messages,
         "conversations": conversations,
-        "count": messages.len()
+        "count": messages.len(),
+        "unread_count": unread_count
     }))
+}
+
+/// Persist that the authenticated recipient opened one inbox message.
+///
+/// The inbox copy is the authority for the recipient's unread count. The
+/// sender's outbox copy is updated as a read receipt when it still exists.
+#[post("/api/messages/{message_id}/read")]
+pub async fn mark_message_read(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user.wallet_address,
+        Err(response) => return response,
+    };
+    let message_id = path.into_inner();
+    let inbox_id = format!("{message_id}:in");
+    let mut inbox = match data.repositories.messages.get_by_id(&inbox_id).await {
+        Ok(Some(record)) if record.owner_id == current_user_id => record,
+        Ok(Some(_)) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Only the recipient can mark this message as read".to_string(),
+                code: "FORBIDDEN".to_string(),
+            })
+        }
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Message not found".to_string(),
+                code: "MESSAGE_NOT_FOUND".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("message read lookup failed: {error}");
+            return message_read_failure();
+        }
+    };
+
+    if inbox.data.get("read").and_then(serde_json::Value::as_bool) != Some(true) {
+        inbox.data["read"] = serde_json::Value::Bool(true);
+        inbox.data["read_at"] = serde_json::json!(chrono::Utc::now().timestamp());
+        inbox.updated_at = chrono::Utc::now();
+        if let Err(error) = data.repositories.messages.create(inbox.clone()).await {
+            log::error!("message read update failed: {error}");
+            return message_read_failure();
+        }
+        sync_sender_read_receipt(&data, &message_id, &inbox.data).await;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message_id": message_id,
+        "read": true
+    }))
+}
+
+fn message_read_failure() -> HttpResponse {
+    HttpResponse::InternalServerError().json(ErrorResponse {
+        success: false,
+        error: "Could not update the message".to_string(),
+        code: "MESSAGE_UPDATE_FAILED".to_string(),
+    })
+}
+
+async fn sync_sender_read_receipt(
+    data: &web::Data<AppState>,
+    message_id: &str,
+    inbox_data: &serde_json::Value,
+) {
+    let sent_id = format!("{message_id}:out");
+    let Ok(Some(mut sent)) = data.repositories.messages.get_by_id(&sent_id).await else {
+        return;
+    };
+    sent.data["read"] = serde_json::Value::Bool(true);
+    sent.data["read_at"] = inbox_data["read_at"].clone();
+    sent.updated_at = chrono::Utc::now();
+    if let Err(error) = data.repositories.messages.create(sent).await {
+        log::warn!("message sender read-receipt update failed: {error}");
+    }
+}
+
+/// Add only server-authoritative display names to legacy message records.
+///
+/// Older rows predate `sender_name`; returning their opaque wallet identifiers
+/// made an inbox unreadable. Unknown users stay unnamed rather than being
+/// represented by a guessed person or a leaked identifier.
+fn enrich_message_display_names(
+    data: &web::Data<AppState>,
+    mut message: serde_json::Value,
+) -> serde_json::Value {
+    for (id_key, name_key) in [
+        ("sender_id", "sender_name"),
+        ("recipient_id", "recipient_name"),
+    ] {
+        let Some(id) = message.get(id_key).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if let Some(user) = crate::get_user(data, id) {
+            // Always prefer the current directory display name. Early message
+            // rows persisted usernames such as `btpatient`, which made the
+            // conversation list look like an implementation detail rather than
+            // a chat between people.
+            message[name_key] = serde_json::Value::String(user.name);
+        }
+    }
+    message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn register(state: &AppState, wallet: &str, name: &str, role: crate::Role) {
+        state.users.write().unwrap().insert(
+            wallet.to_string(),
+            crate::User {
+                wallet_address: wallet.to_string(),
+                username: Some(name.to_string()),
+                name: name.to_string(),
+                role,
+                created_at: chrono::Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+    }
+
+    #[actix_web::test]
+    async fn opening_message_persists_read_state_and_updates_counts() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Test", crate::Role::Doctor);
+        register(&state, "patient", "Patient Test", crate::Role::Patient);
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(send_message)
+                .service(get_messages)
+                .service(mark_message_read),
+        )
+        .await;
+
+        let sent = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/messages/send")
+                .insert_header(("X-User-Id", "doctor"))
+                .set_json(serde_json::json!({
+                    "recipient_id": "patient",
+                    "subject": "Follow-up",
+                    "content": "Your result is available"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(sent.status(), actix_web::http::StatusCode::CREATED);
+        let sent_body: serde_json::Value = test::read_body_json(sent).await;
+        let message_id = sent_body["message"]["message_id"].as_str().unwrap();
+
+        let inbox_response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/messages")
+                .insert_header(("X-User-Id", "patient"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(inbox_response.status(), actix_web::http::StatusCode::OK);
+        let inbox: serde_json::Value = test::read_body_json(inbox_response).await;
+        assert_eq!(inbox["unread_count"], 1);
+        assert_eq!(inbox["messages"][0]["recipient_name"], "Patient Test");
+
+        let opened = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/messages/{message_id}/read"))
+                .insert_header(("X-User-Id", "patient"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(opened.status(), actix_web::http::StatusCode::OK);
+
+        let inbox_response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/messages")
+                .insert_header(("X-User-Id", "patient"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(inbox_response.status(), actix_web::http::StatusCode::OK);
+        let inbox: serde_json::Value = test::read_body_json(inbox_response).await;
+        assert_eq!(inbox["unread_count"], 0);
+        assert_eq!(inbox["messages"][0]["read"], true);
+        let sender_copy = data
+            .repositories
+            .messages
+            .get_by_id(&format!("{message_id}:out"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(sender_copy.data["read"], true);
+    }
+
+    #[actix_web::test]
+    async fn two_way_messages_are_returned_as_one_chronological_conversation() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Test", crate::Role::Doctor);
+        register(&state, "patient", "Patient Test", crate::Role::Patient);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(send_message)
+                .service(get_messages),
+        )
+        .await;
+
+        let first = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/messages/send")
+                .insert_header(("X-User-Id", "doctor"))
+                .set_json(serde_json::json!({
+                    "recipient_id": "patient",
+                    "subject": "Follow-up",
+                    "content": "First message"
+                }))
+                .to_request(),
+        )
+        .await;
+        let first_body: serde_json::Value = test::read_body_json(first).await;
+        let thread_id = first_body["message"]["thread_id"].as_str().unwrap();
+
+        let reply = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/messages/send")
+                .insert_header(("X-User-Id", "patient"))
+                .set_json(serde_json::json!({
+                    "recipient_id": "doctor",
+                    "subject": "Re: Follow-up",
+                    "content": "Second message",
+                    "thread_id": thread_id
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(reply.status(), actix_web::http::StatusCode::CREATED);
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/messages?folder=all")
+                .insert_header(("X-User-Id", "doctor"))
+                .to_request(),
+        )
+        .await;
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["conversations"].as_array().unwrap().len(), 1);
+        let messages = body["conversations"][0]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"], "First message");
+        assert_eq!(messages[1]["content"], "Second message");
+        assert_eq!(messages[0]["sender_name"], "Dr Test");
+        assert_eq!(messages[1]["sender_name"], "Patient Test");
+        assert_eq!(body["conversations"][0]["unreadCount"], 1);
+    }
+
+    #[actix_web::test]
+    async fn unknown_recipient_is_rejected_before_persistence() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Test", crate::Role::Doctor);
+        let data = web::Data::new(state);
+        let app = test::init_service(App::new().app_data(data.clone()).service(send_message)).await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/messages/send")
+                .insert_header(("X-User-Id", "doctor"))
+                .set_json(serde_json::json!({
+                    "recipient_id": "missing-user",
+                    "content": "This must not be accepted"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert!(data
+            .repositories
+            .messages
+            .list_all()
+            .await
+            .unwrap()
+            .is_empty());
+    }
 }

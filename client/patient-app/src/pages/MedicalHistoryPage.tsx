@@ -4,6 +4,7 @@ import {
   getMyFamilyHistory,
   getMyImmunizations,
   getPatientRecords,
+  downloadMedicalRecord,
   useTranslation,
 } from '@medichain/shared';
 import type { FamilyHistoryMember, ImmunizationRecord, MedicalRecordReference } from '@medichain/shared';
@@ -64,6 +65,8 @@ export function MedicalHistoryPage() {
   const [documents, setDocuments] = useState<MedicalRecordReference[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
+  const [downloadingHash, setDownloadingHash] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !patient) {
@@ -107,6 +110,35 @@ export function MedicalHistoryPage() {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const downloadDocument = async (record: MedicalRecordReference) => {
+    setDownloadingHash(record.content_hash);
+    setDownloadError(null);
+    try {
+      const response = await downloadMedicalRecord({
+        content_hash: record.content_hash,
+        metadata_hash: record.metadata_hash,
+      });
+      const bytes = Uint8Array.from(atob(response.content_base64), (character) => character.charCodeAt(0));
+      const blob = new Blob([bytes], { type: response.content_type || 'application/octet-stream' });
+      const filename = response.filename
+        .replace(/[\\/:*?"<>|\u0000-\u001F]/g, '_')
+        .slice(0, 180) || 'medical-record';
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download medical record:', error);
+      setDownloadError(t('medicalHistory.downloadFailed'));
+    } finally {
+      setDownloadingHash(null);
+    }
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -251,6 +283,7 @@ export function MedicalHistoryPage() {
       {/* Documents Tab */}
       {activeTab === 'documents' && (
         <div className="space-y-3">
+          {downloadError && <p className="text-sm text-critical" role="alert">{downloadError}</p>}
           {documents.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
@@ -279,10 +312,15 @@ export function MedicalHistoryPage() {
                 </div>
                 {doc.content_hash && (
                   <button
+                    type="button"
+                    onClick={() => downloadDocument(doc)}
+                    disabled={downloadingHash === doc.content_hash}
                     className="p-2 text-content-muted hover:text-brand-subtle-fg hover:bg-brand-subtle rounded-lg transition-colors"
-                    title={t('medicalHistory.download')}
+                    title={downloadingHash === doc.content_hash ? t('medicalHistory.downloading') : t('medicalHistory.download')}
                   >
-                    <Download className="w-4 h-4" />
+                    {downloadingHash === doc.content_hash
+                      ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                      : <Download className="w-4 h-4" />}
                   </button>
                 )}
               </div>

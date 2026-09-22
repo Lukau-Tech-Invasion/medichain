@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMessages, getProviders, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
+import { getMessages, getProviders, markMessageRead, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
 import type { BookableProvider, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -8,7 +8,6 @@ import {
   Send,
   User,
   Search,
-  Paperclip,
   ChevronLeft,
   Clock,
   CheckCheck,
@@ -80,7 +79,6 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
  * Features:
  * - View conversations with providers
  * - Send/receive messages
- * - Attach documents
  * - Message history
  * 
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
@@ -185,6 +183,30 @@ export function MessagesPage() {
     setShowProviders(false);
   };
 
+  const selectConversation = async (conversation: Conversation) => {
+    setSelectedConversation(conversation);
+    const unreadIds = conversation.messages
+      .filter(message => !message.isPatient && !message.read)
+      .map(message => message.id);
+    if (unreadIds.length === 0) return;
+    try {
+      await Promise.all(unreadIds.map(markMessageRead));
+      const markConversationRead = (candidate: Conversation): Conversation =>
+        candidate.id === conversation.id
+          ? {
+              ...candidate,
+              unreadCount: 0,
+              messages: candidate.messages.map(message => ({ ...message, read: true })),
+            }
+          : candidate;
+      setConversations(current => current.map(markConversationRead));
+      setSelectedConversation(current => current ? markConversationRead(current) : current);
+      window.dispatchEvent(new Event('medichain:sidebar-refresh'));
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'The message could not be marked as read.');
+    }
+  };
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -267,10 +289,10 @@ export function MessagesPage() {
         {/* Input */}
         <div className="bg-surface border-t border-border p-4">
           {sendError && <p role="alert" className="mb-2 text-sm text-critical-subtle-fg">{sendError}</p>}
+          <p className="mb-2 text-xs text-content-muted">
+            {t('messages.attachmentsUnavailable')}
+          </p>
           <div className="flex items-center gap-3">
-            <button className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg" aria-label="Attach file">
-              <Paperclip className="w-5 h-5" />
-            </button>
             <input
               type="text"
               value={newMessage}
@@ -282,6 +304,7 @@ export function MessagesPage() {
             <button
               onClick={() => void sendMessage()}
               disabled={!newMessage.trim()}
+              aria-label={t('messages.send')}
               className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-5 h-5" />
@@ -358,13 +381,7 @@ export function MessagesPage() {
         {filteredConversations.map(conversation => (
           <button
             key={conversation.id}
-            onClick={() => {
-              setSelectedConversation(conversation);
-              // Mark as read
-              setConversations(prev => prev.map(c =>
-                c.id === conversation.id ? { ...c, unreadCount: 0 } : c
-              ));
-            }}
+            onClick={() => void selectConversation(conversation)}
             className="w-full patient-card flex items-center gap-4 p-4 hover:border-brand border-2 border-transparent text-left"
           >
             <div className="relative">

@@ -74,6 +74,30 @@ async fn require_registry_reader(
 }
 
 /// List lab chain of custody records
+/// Registry rows as the screens read them: each stored column, plus every
+/// field of the row's `data` document that no column already carries.
+///
+/// The registries returned bare entities, and most of these records keep the
+/// form's own fields -- `custody_id`, `patient_name`, `specimen_type`,
+/// `observed_value` -- only inside `data`. The pages read them at the top
+/// level, so custody records, QC runs and critical values rendered with no id,
+/// no patient and default types. Columns win a name clash: after a server-side
+/// transition they are the record.
+fn registry_rows<T: serde::Serialize>(list: Vec<T>) -> Vec<serde_json::Value> {
+    list.into_iter()
+        .map(|row| {
+            let mut row = serde_json::to_value(row).unwrap_or_default();
+            let document = row.get("data").and_then(|d| d.as_object()).cloned();
+            if let (Some(object), Some(document)) = (row.as_object_mut(), document) {
+                for (key, value) in document {
+                    object.entry(key).or_insert(value);
+                }
+            }
+            row
+        })
+        .collect()
+}
+
 /// Map a registry read failure to a response.
 ///
 /// A registry whose repository has no `list_all` on the active storage backend
@@ -105,7 +129,7 @@ pub async fn list_chain_of_custody(
         return resp;
     }
     match data.repositories.chain_of_custody.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -117,7 +141,24 @@ pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> im
         return resp;
     }
     match data.repositories.lab_qc_records.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// List laboratory instrument calibration runs. These are a separate durable
+/// record stream from measured QC controls, since an instrument recall needs
+/// to identify the calibrator lot used for each calibration.
+#[get("/api/platform/list/lab-calibrations")]
+pub async fn list_lab_calibrations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    match data.repositories.lab_calibrations.list_all().await {
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -132,7 +173,11 @@ pub async fn list_critical_values(
         return resp;
     }
     match data.repositories.critical_values.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(
+            list.iter()
+                .map(crate::clinical_endpoints::critical_value_view)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -147,7 +192,7 @@ pub async fn list_radiology_orders(
         return resp;
     }
     match data.repositories.radiology_orders.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -166,7 +211,7 @@ pub async fn list_radiology_reports(
         return resp;
     }
     match data.repositories.radiology_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -178,7 +223,7 @@ pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) ->
         return resp;
     }
     match data.repositories.pathology_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -193,7 +238,7 @@ pub async fn list_immunizations(
         return resp;
     }
     match data.repositories.immunization_records.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -306,7 +351,7 @@ pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> i
         return resp;
     }
     match data.repositories.autopsy_requests.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -344,7 +389,7 @@ pub async fn list_autopsy_reports(
         return resp;
     }
     match data.repositories.autopsy_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -423,7 +468,7 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -511,7 +556,7 @@ pub async fn list_progress_notes(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -531,7 +576,7 @@ pub async fn list_incident_reports(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -551,7 +596,7 @@ pub async fn list_intake_output(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -571,7 +616,7 @@ pub async fn list_ama_discharges(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }

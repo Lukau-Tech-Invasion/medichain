@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, createMar, getApiClient, getPatients, IS_DEMO, listMar, useTranslation, getApiErrorMessage } from '@medichain/shared';
+import { apiUrl, createMar, getApiClient, getPatients, listMar, scanBarcode, useTranslation, getApiErrorMessage } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -189,90 +189,10 @@ export default function MARPage() {
       console.warn('No MAR data from API:', err);
     }
 
-    // No API data. In production, show an empty state rather than sample
-    // patients; demo data is only for IS_DEMO.
-    if (!IS_DEMO) {
-      setMedicationOrders([]);
-      setScheduledMeds([]);
-      return;
-    }
-
-    // Fallback to demo data (demo mode only)
-    const sampleOrders: MedicationOrder[] = [
-      {
-        id: 'MO-001',
-        medicationName: 'Metoprolol Tartrate',
-        dose: '25mg',
-        route: 'PO',
-        frequency: 'BID',
-        startDate: '2024-01-15',
-        orderedBy: 'Dr. Smith',
-        prn: false,
-        highAlert: false,
-        instructions: 'Hold if HR < 60 or SBP < 100'
-      },
-      {
-        id: 'MO-002',
-        medicationName: 'Heparin Sodium',
-        dose: '5000 units',
-        route: 'SC',
-        frequency: 'Q8H',
-        startDate: '2024-01-15',
-        orderedBy: 'Dr. Smith',
-        prn: false,
-        highAlert: true,
-        instructions: 'DVT prophylaxis'
-      },
-      {
-        id: 'MO-003',
-        medicationName: 'Morphine Sulfate',
-        dose: '2-4mg',
-        route: 'IV',
-        frequency: 'Q4H PRN',
-        startDate: '2024-01-15',
-        orderedBy: 'Dr. Johnson',
-        prn: true,
-        highAlert: true,
-        instructions: 'For severe pain (>7/10)'
-      },
-      {
-        id: 'MO-004',
-        medicationName: 'Ondansetron',
-        dose: '4mg',
-        route: 'IV',
-        frequency: 'Q6H PRN',
-        startDate: '2024-01-15',
-        orderedBy: 'Dr. Johnson',
-        prn: true,
-        highAlert: false,
-        instructions: 'For nausea/vomiting'
-      }
-    ];
-
-    setMedicationOrders(sampleOrders);
-
-    // Generate scheduled medications for the day
-    const scheduled: ScheduledMedication[] = [];
-    sampleOrders.forEach(order => {
-      if (!order.prn) {
-        const times = getScheduledTimes(order.frequency);
-        times.forEach(time => {
-          scheduled.push({
-            id: `${order.id}-${time}`,
-            medicationName: order.medicationName,
-            dose: order.dose,
-            route: order.route,
-            frequency: order.frequency,
-            scheduledTime: time,
-            status: 'scheduled',
-            prn: false,
-            highAlert: order.highAlert
-          });
-        });
-      }
-    });
-
-    setScheduledMeds(scheduled);
+    // A patient without a stored MAR has no medication administration record.
+    // Demo fixtures belong in the database, never in a patient's chart.
+    setMedicationOrders([]);
+    setScheduledMeds([]);
   }, []);
 
   useEffect(() => {
@@ -420,19 +340,23 @@ export default function MARPage() {
     setTimeout(() => setSuccess(''), 3000);
   };
 
-  const handleBarcodeSccan = () => {
-    // Simulate barcode scan verification
-    if (barcodeInput) {
-      // In real implementation, verify barcode matches patient and medication
-      const verified = barcodeInput.includes('MED') || barcodeInput.includes('PAT');
-      if (verified) {
+  const handleBarcodeSccan = async () => {
+    const barcodeValue = barcodeInput.trim();
+    if (!barcodeValue) return;
+    try {
+      const result = await scanBarcode({ barcode_value: barcodeValue, location: 'MAR' });
+      const info = result.entity_info as { type?: string; resolved?: boolean };
+      if (info.type === 'medication' && info.resolved === true) {
         setSuccess(t('docMAR.barcodeVerifiedSuccess'));
         setBarcodeInput('');
       } else {
         setError(t('docMAR.barcodeVerifiedError'));
       }
-      setTimeout(() => { setSuccess(''); setError(''); }, 3000);
+    } catch (scanError) {
+      console.error('MAR barcode scan failed:', scanError);
+      setError(getApiErrorMessage(scanError, t('docMAR.barcodeVerifiedError')));
     }
+    setTimeout(() => { setSuccess(''); setError(''); }, 3000);
   };
 
   const navigateDate = (direction: 'prev' | 'next') => {

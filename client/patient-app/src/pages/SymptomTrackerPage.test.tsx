@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
-import { SymptomTrackerPage } from './SymptomTrackerPage';
+import { buildSymptomReport, SymptomTrackerPage } from './SymptomTrackerPage';
 import { usePatientAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -51,6 +51,16 @@ describe('SymptomTrackerPage (Patient)', () => {
       entry_id: 'sym1',
       message: 'Symptom entry retracted',
     });
+  });
+
+  it('creates a CSV report from loaded records and neutralizes spreadsheet formulas', () => {
+    expect(buildSymptomReport([{
+      id: 'sym1', symptom: '=SUM(A1:A2)', category: 'pain', severity: 4,
+      timestamp: '2026-09-20T08:00:00Z', notes: 'Quoted "note"', triggers: ['stress'], relievedBy: [],
+    }])).toBe(
+      'timestamp,symptom,category,severity,duration,notes,triggers,relieved_by\r\n' +
+      '"2026-09-20T08:00:00Z","\'=SUM(A1:A2)","pain","4","","Quoted ""note""","stress",""'
+    );
   });
 
   it('renders symptom tracker page with entries', async () => {

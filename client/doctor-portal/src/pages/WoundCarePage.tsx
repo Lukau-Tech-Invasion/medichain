@@ -780,7 +780,17 @@ const WoundCarePage: React.FC = () => {
                 </div>
               )}
 
-              <button className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2">
+              {/* Opens the assessment form with this wound's patient already
+                  chosen. It had no handler at all: the detail panel's only
+                  action answered a click with silence. */}
+              <button
+                onClick={() => {
+                  setForm(f => ({ ...f, patientId: selectedWound.patientId }));
+                  setSelectedWound(null);
+                  setActiveTab('assess');
+                }}
+                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2"
+              >
                 <Camera className="w-5 h-5" /> {t('docWoundCare.addNewAssessment')}
               </button>
             </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import PatientDetailPage from './PatientDetailPage';
+import PatientDetailPage, { downloadPatientSummary } from './PatientDetailPage';
 import { useAuthStore } from '../store';
 import * as shared from '@medichain/shared';
 
@@ -19,6 +19,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   publishEmergencyCapsule: vi.fn(),
   revokeEmergencyCapsule: vi.fn(),
   getGuardiansForWard: vi.fn(),
+  updatePatient: vi.fn(),
 }));
 
 describe('PatientDetailPage', () => {
@@ -46,6 +47,27 @@ describe('PatientDetailPage', () => {
     last_updated: '2025-01-01',
     primary_doctor: { provider_id: 'DOC-123' },
   };
+
+  it('exports only the displayed patient summary as JSON', () => {
+    const createObjectUrl = vi.fn(() => 'blob:summary');
+    const revokeObjectUrl = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+
+    downloadPatientSummary({
+      patientId: 'PAT-001', fullName: 'John Doe', dateOfBirth: '1980-05-15',
+      nationalHealthId: 'ID12345', bloodType: 'A+', allergies: ['Peanuts'],
+      currentMedications: ['Lisinopril'], chronicConditions: ['Hypertension'],
+      emergencyContacts: [], organDonor: true, dnrStatus: false,
+      lastUpdated: '2025-01-01', registeredBy: 'DOC-123',
+    });
+
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:summary');
+    click.mockRestore();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -147,6 +169,39 @@ describe('PatientDetailPage', () => {
 
     expect(screen.getByRole('heading', { name: /Medical Records/i })).toBeInTheDocument();
     expect(screen.getByText(/stored encrypted on IPFS/i)).toBeInTheDocument();
+  });
+
+  it('saves supported clinical details through the provider update API', async () => {
+    vi.mocked(shared.updatePatient).mockResolvedValue({
+      success: true,
+      patient_id: 'PAT-001',
+      updated_by: mockUser.walletAddress,
+      message: 'Patient record updated successfully',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/patients/PAT-001']}>
+        <Routes>
+          <Route path="/patients/:patientId" element={<PatientDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
+    fireEvent.change(screen.getByLabelText(/^Allergies$/i), { target: { value: 'Peanuts\nLatex' } });
+    fireEvent.click(screen.getByRole('button', { name: /save clinical details/i }));
+
+    await waitFor(() =>
+      expect(shared.updatePatient).toHaveBeenCalledWith('PAT-001', expect.objectContaining({
+        allergies: ['Peanuts', 'Latex'],
+        current_medications: ['Lisinopril'],
+        chronic_conditions: ['Hypertension'],
+        organ_donor: true,
+      }))
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Latex')).toBeInTheDocument();
   });
 
   // --- The emergency capsule -------------------------------------------------

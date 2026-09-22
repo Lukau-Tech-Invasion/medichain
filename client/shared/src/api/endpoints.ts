@@ -1280,7 +1280,8 @@ export async function verifyQRCode(
   return getApiClient().post('/api/nfc/verify-qr', { qr_data: qrData });
 }
 
-export async function getCardInfo(patientId: string): Promise<NFCCardInfo> {
+/** Returns null when the selected patient has not yet been issued a card. */
+export async function getCardInfo(patientId: string): Promise<NFCCardInfo | null> {
   return getApiClient().get(`/api/nfc/card/${patientId}`);
 }
 
@@ -1704,6 +1705,13 @@ export async function listMar(): Promise<unknown[]> {
   return Array.isArray(response) ? response : [];
 }
 
+/** Medication administrations stored in daily MAR records, newest first. */
+export async function listMarAdministrations(patientId?: string): Promise<unknown[]> {
+  const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+  const response = await getApiClient().get<{ administrations?: unknown[] }>(`/api/emergency/mar/administrations${query}`);
+  return response.administrations ?? [];
+}
+
 export async function administerMedication(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/nursing/mar/administer', data);
 }
@@ -1933,6 +1941,31 @@ export async function createChainOfCustody(data: unknown): Promise<FormCreateRes
   return getApiClient().post('/api/clinical/chain-of-custody', data);
 }
 
+/** What a custody hand-over records (`TransferCustodyRequest`). */
+export interface CustodyTransferPayload {
+  transferredTo: string;
+  location: string;
+  condition?: string;
+  sealIntact: boolean;
+  /** A witness's name. Nothing here captures a signature. */
+  witness?: string;
+  notes?: string;
+}
+
+/**
+ * Record a specimen hand-over. The server takes "from" as whoever holds the
+ * specimen now, and refuses (409) if the record changed while this was open.
+ */
+export async function transferChainOfCustody(
+  formId: string,
+  data: CustodyTransferPayload
+): Promise<{ success: boolean; record: Record<string, unknown> }> {
+  return getApiClient().post(
+    `/api/clinical/chain-of-custody/${encodeURIComponent(formId)}/transfers`,
+    data
+  );
+}
+
 export async function getChainOfCustody(formId: string): Promise<ChainOfCustody> {
   return getApiClient().get(`/api/clinical/chain-of-custody/${formId}`);
 }
@@ -1941,12 +1974,50 @@ export async function createLabQc(data: unknown): Promise<QcCreateResult> {
   return getApiClient().post('/api/clinical/lab-qc', data);
 }
 
+/** Persist a calibration run; the server assigns its ID, operator and time. */
+export async function createLabCalibration(data: unknown): Promise<{ calibration: unknown }> {
+  return getApiClient().post('/api/clinical/lab-calibrations', data);
+}
+
 export async function getLabQc(qcId: string): Promise<LabQCRecord> {
   return getApiClient().get(`/api/clinical/lab-qc/${qcId}`);
 }
 
 export async function createCriticalValue(data: unknown): Promise<NotificationCreateResult> {
   return getApiClient().post('/api/clinical/critical-value', data);
+}
+
+/** What the read-back form submits (`AcknowledgeCriticalValueRequest`). */
+export interface CriticalValueAcknowledgment {
+  notifiedProvider: string;
+  notificationMethod: 'phone' | 'in-person' | 'secure-message' | 'page';
+  readBackValue: string;
+  acknowledgmentNotes?: string;
+}
+
+/**
+ * Record that a clinician was told of a critical value and read it back.
+ * The server judges the read-back and closes the notification exactly once.
+ */
+export async function acknowledgeCriticalValue(
+  notificationId: string,
+  data: CriticalValueAcknowledgment
+): Promise<Record<string, unknown>> {
+  return getApiClient().post(
+    `/api/clinical/critical-value/${encodeURIComponent(notificationId)}/acknowledge`,
+    data
+  );
+}
+
+/** Withdraw a notification raised in error. It is kept, marked cancelled. */
+export async function cancelCriticalValue(
+  notificationId: string,
+  reason: string
+): Promise<Record<string, unknown>> {
+  return getApiClient().post(
+    `/api/clinical/critical-value/${encodeURIComponent(notificationId)}/cancel`,
+    { reason }
+  );
 }
 
 export async function getCriticalValue(notificationId: string): Promise<CriticalValueNotification> {
@@ -2240,6 +2311,12 @@ export async function createRadiologyOrder(data: unknown): Promise<ClinicalCreat
   return getApiClient().post('/api/surgical/radiology/order', data);
 }
 
+/** List durable radiology orders for clinical order-entry screens. */
+export async function listRadiologyOrders(): Promise<ListResponse<unknown>> {
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/radiology-orders');
+  return wrapListResponse(items || []);
+}
+
 export async function getRadiologyOrder(orderId: string): Promise<RadiologyOrder> {
   return getApiClient().get(`/api/surgical/radiology/order/${orderId}`);
 }
@@ -2262,6 +2339,11 @@ export async function createPathology(data: unknown): Promise<ClinicalCreateResu
 
 export async function getPathology(reportId: string): Promise<PathologyReport> {
   return getApiClient().get(`/api/surgical/pathology/${reportId}`);
+}
+
+/** Save the editable fields of an accessioned pathology report. */
+export async function updatePathologyReport(reportId: string, data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().put(`/api/surgical/pathology/${reportId}`, data);
 }
 
 // ============================================================================
@@ -3298,6 +3380,60 @@ export async function getOrderSets(): Promise<{ success: boolean; order_sets: Re
   return getApiClient().get('/api/order-sets');
 }
 
+/** One order inside a bundle (`OrderSetItemInput`). */
+export interface OrderSetItemPayload {
+  type: string;
+  description: string;
+  instructions?: string;
+  priority: string;
+  duration?: string;
+  frequency?: string;
+  route?: string;
+}
+
+/** What the order-set form submits (`CreateOrderSetRequest`). */
+export interface CreateOrderSetPayload {
+  name: string;
+  type: string;
+  specialty: string;
+  description: string;
+  indication?: string;
+  orders: OrderSetItemPayload[];
+  tags?: string[];
+}
+
+/**
+ * Draft an order set. It is saved awaiting a pharmacist's review and is not
+ * orderable until one approves it.
+ */
+export async function createOrderSet(
+  data: CreateOrderSetPayload
+): Promise<{ success: boolean; order_set: Record<string, unknown> }> {
+  return getApiClient().post('/api/clinical/order-sets', data);
+}
+
+/** A pharmacist's decision on a draft. A rejection carries its reason. */
+export async function decideOrderSet(
+  setId: string,
+  decision: 'approved' | 'rejected',
+  notes?: string
+): Promise<{ success: boolean; order_set: Record<string, unknown> }> {
+  return getApiClient().post(`/api/clinical/order-sets/${encodeURIComponent(setId)}/approval`, {
+    decision,
+    notes,
+  });
+}
+
+/** Retire an order set. It is hidden, not deleted. */
+export async function deactivateOrderSet(
+  setId: string
+): Promise<{ success: boolean; set_id: string }> {
+  return getApiClient().post(
+    `/api/clinical/order-sets/${encodeURIComponent(setId)}/deactivate`,
+    {}
+  );
+}
+
 export async function getNoteTemplates(): Promise<{
   success: boolean;
   templates: Record<string, unknown>[];
@@ -3509,6 +3645,7 @@ export interface SecureMessage {
   sender_name: string;
   sender_role: string;
   recipient_id: string;
+  recipient_name?: string;
   subject: string;
   content: string;
   priority: string;
@@ -3536,6 +3673,7 @@ export interface SecureMessagesResponse {
   messages: SecureMessage[];
   conversations: MessageConversation[];
   count: number;
+  unread_count: number;
 }
 
 export async function sendMessage(data: {
@@ -3544,6 +3682,8 @@ export async function sendMessage(data: {
   content: string;
   priority?: string;
   related_patient_id?: string;
+  thread_id?: string;
+  reply_to?: string;
 }): Promise<{ success: boolean; message: SecureMessage; info: string }> {
   return getApiClient().post('/api/messages/send', data);
 }
@@ -3551,6 +3691,15 @@ export async function sendMessage(data: {
 /** The caller's persisted message copies, optionally limited to a mailbox. */
 export async function getMessages(folder: 'inbox' | 'sent' | 'all' = 'inbox'): Promise<SecureMessagesResponse> {
   return getApiClient().get(`/api/messages?folder=${folder}`);
+}
+
+/** Persist that the authenticated recipient opened a message. */
+export async function markMessageRead(messageId: string): Promise<{
+  success: boolean;
+  message_id: string;
+  read: boolean;
+}> {
+  return getApiClient().post(`/api/messages/${encodeURIComponent(messageId)}/read`, {});
 }
 
 /**
@@ -3569,8 +3718,24 @@ export async function getNotifications(): Promise<{
   success: boolean;
   notifications: InboxNotification[];
   count: number;
+  unread_count: number;
+  /** Unix seconds of this caller's read marker; 0 when they never have. */
+  read_at: number;
 }> {
   return getApiClient().get('/api/notifications');
+}
+
+/**
+ * Mark everything up to now as read.
+ *
+ * A marker, not a per-entry flag: the list is derived from live clinical state,
+ * so its entries are not rows anybody can flag.
+ */
+export async function markNotificationsRead(): Promise<{
+  success: boolean;
+  read_at: number;
+}> {
+  return getApiClient().post('/api/notifications/read', {});
 }
 
 // ============================================================================
@@ -3936,6 +4101,12 @@ export async function listLabQc(): Promise<ListResponse<unknown>> {
   return wrapListResponse(items || []);
 }
 
+/** List durable instrument calibration runs separately from QC measurements. */
+export async function listLabCalibrations(): Promise<ListResponse<unknown>> {
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/lab-calibrations');
+  return wrapListResponse(items || []);
+}
+
 /**
  * List all critical value notifications
  */
@@ -4054,6 +4225,73 @@ export async function listConsults(): Promise<ListResponse<unknown>> {
 export async function listCdsAlerts(): Promise<ListResponse<unknown>> {
   const items = await getApiClient().get<unknown[]>('/api/platform/list/cds-alerts');
   return wrapListResponse(items || []);
+}
+
+// ---------------------------------------------------------------------------
+// CDS rules — the rules themselves, not the alerts they produce
+// ---------------------------------------------------------------------------
+
+/** One thing a rule does when it fires (`CdsRuleActionInput`). */
+export interface CdsRuleActionPayload {
+  type: string;
+  message: string;
+  severity: string;
+  notifyRoles?: string[];
+  blockAction?: boolean;
+  suggestedAction?: string;
+  escalateTo?: string;
+}
+
+/** What the rule builder submits (`CreateCdsRuleRequest`). */
+export interface CreateCdsRulePayload {
+  name: string;
+  category: string;
+  description: string;
+  severity: string;
+  triggerType: string;
+  conditions: unknown[];
+  actions: CdsRuleActionPayload[];
+  status?: string;
+  priority?: number;
+  isEnabled?: boolean;
+  testMode?: boolean;
+  targetRoles?: string[];
+  evidenceLevel?: string;
+  references?: string[];
+}
+
+/** The CDS rules in force. Readable by clinical staff; written by admins. */
+export async function listCdsRules(): Promise<{
+  success: boolean;
+  count: number;
+  rules: Record<string, unknown>[];
+}> {
+  return getApiClient().get('/api/admin/cds/rules');
+}
+
+/** Write a rule. Administrators only. */
+export async function createCdsRule(
+  data: CreateCdsRulePayload
+): Promise<{ success: boolean; rule: Record<string, unknown> }> {
+  return getApiClient().post('/api/admin/cds/rules', data);
+}
+
+/** Turn a rule on or off. Refused with 409 if it changed meanwhile. */
+export async function setCdsRuleEnablement(
+  ruleId: string,
+  isEnabled: boolean
+): Promise<{ success: boolean; rule: Record<string, unknown> }> {
+  return getApiClient().post(
+    `/api/admin/cds/rules/${encodeURIComponent(ruleId)}/enablement`,
+    { isEnabled }
+  );
+}
+
+/** Stop a rule firing. Retired, not deleted: the audit trail names it. */
+export async function retireCdsRule(
+  ruleId: string
+): Promise<{ success: boolean; rule_id: string }> {
+  return getApiClient().post(`/api/admin/cds/rules/${encodeURIComponent(ruleId)}/retire`, {});
 }
 
 // ---------------------------------------------------------------------------
@@ -5059,6 +5297,36 @@ export async function verifyNationalId(payload: {
   country: string;
 }): Promise<{ success: boolean; [key: string]: unknown }> {
   return getApiClient().post('/api/national-id/verify', payload);
+}
+
+/** A manual national-ID verification case. The submitted identifier is never returned. */
+export interface NationalIdManualReview {
+  id: string;
+  country: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  evidence_reference: string | null;
+}
+
+/** List identity cases awaiting or carrying an administrator decision. */
+export async function listNationalIdManualReviews(): Promise<{
+  success: boolean;
+  reviews: NationalIdManualReview[];
+}> {
+  return getApiClient().get('/api/admin/national-id-reviews');
+}
+
+/** Record an evidenced administrator decision for one pending identity case. */
+export async function decideNationalIdManualReview(
+  reviewId: string,
+  payload: { approved: boolean; evidence_reference: string },
+): Promise<{ success: boolean; status: 'approved' | 'rejected' }> {
+  return getApiClient().post(
+    `/api/admin/national-id-reviews/${encodeURIComponent(reviewId)}/decision`,
+    payload,
+  );
 }
 
 /**

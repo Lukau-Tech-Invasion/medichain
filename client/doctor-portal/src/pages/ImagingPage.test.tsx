@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { createRadiologyOrder, getPatients, listRadiologyOrders } from '@medichain/shared';
 import ImagingPage from './ImagingPage';
 import { useAuthStore } from '../store/authStore';
 
@@ -14,9 +15,15 @@ vi.mock('../store/authStore', async (importOriginal) => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.mock('@medichain/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return {
+    ...actual,
+    createRadiologyOrder: vi.fn(),
+    getPatients: vi.fn(),
+    listRadiologyOrders: vi.fn(),
+  };
+});
 
 describe('ImagingPage', () => {
   const mockUser = {
@@ -31,35 +38,19 @@ describe('ImagingPage', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        // This page orders imaging studies; it reads radiology *orders* as a
-        // bare array (or `{ orders }`) and renders no thumbnails.
-        json: () => Promise.resolve([
-          {
-            id: 'IMG-1',
-            patientId: 'PAT-001',
-            patientName: 'Test Patient',
-            modality: 'ct',
-            study: 'Abdominal CT',
-            bodyPart: 'Abdomen',
-            laterality: 'n/a',
-            indication: 'Abdominal pain',
-            priority: 'routine',
-            status: 'ordered',
-            orderedBy: 'Dr Smith',
-            orderedAt: new Date().toISOString(),
-            contrast: true,
-            allergies: '',
-            creatinine: '',
-            pregnant: false,
-            criticalValue: false,
-          },
-        ]),
-      });
+    vi.mocked(getPatients).mockResolvedValue([{ patient_id: 'PAT-001', full_name: 'Test Patient' }] as never);
+    vi.mocked(listRadiologyOrders).mockResolvedValue({
+      success: true,
+      total: 1,
+      items: [{
+        id: 'IMG-1', patientId: 'PAT-001', patientName: 'Test Patient',
+        modality: 'ct', study: 'Abdominal CT', bodyPart: 'Abdomen',
+        laterality: 'n/a', indication: 'Abdominal pain', priority: 'routine',
+        status: 'ordered', orderedBy: 'Dr Smith', orderedAt: new Date().toISOString(),
+        contrast: true, allergies: '', criticalValue: false,
+      }],
     });
+    vi.mocked(createRadiologyOrder).mockResolvedValue({ id: 'IMG-NEW', success: true } as never);
   });
 
   it('renders imaging page', async () => {
@@ -88,5 +79,23 @@ describe('ImagingPage', () => {
       expect(screen.getAllByText(/Abdominal CT/i).length).toBeGreaterThan(0)
     );
     expect(screen.getAllByText(/Test Patient/i).length).toBeGreaterThan(0);
+  });
+
+  it('writes through the typed client and refreshes the durable list', async () => {
+    render(<MemoryRouter><ImagingPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: /New Order/i }));
+    await waitFor(() => expect(listRadiologyOrders).toHaveBeenCalled());
+    const readsBeforeSubmit = vi.mocked(listRadiologyOrders).mock.calls.length;
+    fireEvent.change(screen.getByLabelText(/Patient \*/i), { target: { value: 'PAT-001' } });
+    fireEvent.change(screen.getByLabelText(/Clinical Indication/i), { target: { value: 'Persistent abdominal pain' } });
+    fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
+
+    await waitFor(() => expect(createRadiologyOrder).toHaveBeenCalledWith(expect.objectContaining({
+      patient_id: 'PAT-001',
+      indication: 'Persistent abdominal pain',
+      ordering_provider: mockUser.walletAddress,
+    })));
+    expect(vi.mocked(listRadiologyOrders).mock.calls.length).toBeGreaterThan(readsBeforeSubmit);
   });
 });
