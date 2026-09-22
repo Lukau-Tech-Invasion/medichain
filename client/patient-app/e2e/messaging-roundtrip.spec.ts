@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { signInAsFixturePatient, settle } from './support';
+import { seedDoctorMessage, signInAsFixturePatient, settle } from './support';
 
-const doctorMessage = 'Doctor browser round-trip 2026-09-21 20:31';
-const patientReply = 'Patient browser round-trip 2026-09-21 20:35';
+test('patient receives the doctor message, replies, and keeps the full history after reload', async ({ page, request }, testInfo) => {
+  // The message this test is about, sent now rather than assumed to survive
+  // from a previous session.
+  const doctorMessage = await seedDoctorMessage(request);
+  const patientReply = `Patient browser round-trip ${Date.now()}`;
 
-test('patient receives the doctor message, replies, and keeps the full history after reload', async ({ page }, testInfo) => {
   await signInAsFixturePatient(page);
   await settle(page, '/messages');
 

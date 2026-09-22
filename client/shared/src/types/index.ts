@@ -533,6 +533,14 @@ export interface AccessLogEntry {
   access_id: string;
   patient_id: string;
   accessor_id: string;
+  /**
+   * The accessor's display name, when the server could resolve their wallet.
+   *
+   * Null for an accessor who is not a known user. A patient cannot resolve a
+   * wallet themselves — the provider directory is staff-only — so without this
+   * their own access log reads as a list of SS58 addresses.
+   */
+  accessor_name?: string | null;
   accessor_role: string;
   access_type: string;
   location?: string;

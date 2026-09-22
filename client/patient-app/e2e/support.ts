@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 interface Fixtures {
   patient: { wallet: string; linked_patient_id: string };
   patient_b: { wallet: string; linked_patient_id: string };
+  staff?: Array<{ role: string; wallet: string; login_id: string }>;
 }
 
 function fixtures(): Fixtures {
@@ -154,3 +155,47 @@ export const ROUTES = [
   { path: '/appointments', name: 'Appointments' },
   { path: '/settings', name: 'Settings' },
 ];
+
+/** The seeded fixtures, for a test that needs to know an account. */
+export function testFixtures(): Fixtures {
+  return fixtures();
+}
+
+/**
+ * Have a doctor send this patient a message, through the API.
+ *
+ * The round-trip test used to assert on a message with a hand-typed timestamp
+ * in its text, created once by a person in an earlier session. It passed only
+ * while that exact row survived in whatever database was running, which is not
+ * a test — it is a coincidence with an expiry date. A test that needs a message
+ * to exist creates one.
+ *
+ * Returns the body it sent, so the test can look for it.
+ */
+export async function seedDoctorMessage(
+  request: { post: (url: string, options: Record<string, unknown>) => Promise<{ ok(): boolean; status(): number }> },
+  apiBase = 'http://127.0.0.1'
+): Promise<string> {
+  const data = fixtures();
+  const doctor = data.staff?.find((member) => member.role === 'Doctor');
+  if (!doctor) throw new Error('No Doctor in .browser-test/fixtures.json; re-run the seeder.');
+  const body = `Doctor browser round-trip ${Date.now()}`;
+  const response = await request.post(`${apiBase}/api/messages/send`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': doctor.wallet,
+      'X-Provider-Role': 'Doctor',
+      'Idempotency-Key': `roundtrip-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    },
+    data: {
+      recipient_id: data.patient.wallet,
+      subject: 'Browser round-trip',
+      content: body,
+      priority: 'normal',
+    },
+  });
+  if (!response.ok()) {
+    throw new Error(`Seeding the doctor message failed: ${response.status()}`);
+  }
+  return body;
+}

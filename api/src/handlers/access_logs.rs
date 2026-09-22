@@ -165,10 +165,33 @@ pub async fn get_access_logs(
     };
 
     let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
+    // Who looked, in words.
+    //
+    // This is the POPIA transparency control: the screen a patient opens to see
+    // who has touched their record. It returned the accessor's SS58 wallet and
+    // the patient app rendered it verbatim -- "5GnPcTux4PX1F8RchBGn9QBgS3fPu3An...
+    // accessed your records", which tells the person nothing and cannot
+    // distinguish one clinician from another. A patient cannot resolve it
+    // themselves: the provider directory is staff-only, and rightly so.
+    //
+    // The name is added here, beside the wallet rather than instead of it, and
+    // an accessor who is not a known user keeps only their address -- an
+    // unresolvable identity must never be rendered as somebody else's name.
+    let named_logs: Vec<serde_json::Value> = paginated_logs
+        .iter()
+        .map(|entry| {
+            let mut value = serde_json::to_value(entry).unwrap_or_default();
+            let name = get_user(&data, &entry.accessor_id).map(|user| user.name);
+            if let Some(object) = value.as_object_mut() {
+                object.insert("accessor_name".into(), serde_json::json!(name));
+            }
+            value
+        })
+        .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
-        "access_logs": paginated_logs,
+        "access_logs": named_logs,
         "total_accesses": result.total,
         "pagination": {
             "page": result.page,
