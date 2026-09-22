@@ -31,6 +31,7 @@ import {
   XCircle,
   RefreshCw,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 import PatientSelect from '../components/PatientSelect';
 
 /**
@@ -592,7 +593,7 @@ const CriticalValuePage: React.FC = () => {
                     <div>
                       <p className="text-sm text-content-muted mb-1">{t('docCriticalValue.lblReportedBy')}</p>
                       <p className="font-semibold text-content">
-                        {notification.reportedBy}
+                        <StaffName id={notification.reportedBy} />
                       </p>
                     </div>
                   </div>

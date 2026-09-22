@@ -31,6 +31,7 @@ import {
   AlertCircle,
   HelpCircle,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 import PatientSelect from '../components/PatientSelect';
 
 type ConsultSpecialty =
@@ -553,7 +554,7 @@ const ConsultPage: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblRequestedBy')}</p>
-                        <p className="text-sm text-content">{consult.requestedBy}</p>
+                        <StaffName id={consult.requestedBy} className="text-sm text-content block" />
                       </div>
                     </div>
 
