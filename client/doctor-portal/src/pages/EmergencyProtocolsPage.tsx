@@ -101,7 +101,22 @@ function EmergencyProtocolsPage() {
 
   const fetchEmergencyRecords = useCallback(async () => {
     if (!user) return;
-    
+    // No patient chosen yet means there is nothing to ask for. Without this
+    // the request went to `/api/emergency/code-blue/patient/` -- the id
+    // interpolated as an empty string -- and the server answered 404, which
+    // reads in the log as "this patient has no code blue" rather than "the
+    // screen asked about nobody". A nurse opening this from the sidebar
+    // carries no patient in the route, so it fired on every visit.
+    if (!patientId) {
+      setCodeBlueRecords([]);
+      setTraumaRecords([]);
+      setStrokeRecords([]);
+      setCardiacRecords([]);
+      setSepsisRecords([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const endpoints: Record<EmergencyType, string> = {
