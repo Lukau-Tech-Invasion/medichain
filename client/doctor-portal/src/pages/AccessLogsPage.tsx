@@ -6,6 +6,7 @@ import {
   listEmergencyGrants,
   revokeEmergencyGrant,
   useTranslation,
+  formatTimestamp as formatStamp,
 } from '@medichain/shared';
 import type { EmergencyAccessGrant } from '@medichain/shared';
 import { 
@@ -297,7 +298,7 @@ function AccessLogsPage() {
                           {grant.reason_text || grant.reason_code}
                         </td>
                         <td className="py-2 pr-4 text-content-muted">
-                          {new Date(grant.expires_at).toLocaleString()}
+                          {formatStamp(grant.expires_at)}
                         </td>
                         <td className="py-2 pr-4">
                           <span

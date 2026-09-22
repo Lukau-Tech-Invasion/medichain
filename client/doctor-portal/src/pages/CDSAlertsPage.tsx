@@ -15,6 +15,7 @@ import {
   cdsRuleSchema,
   Textarea,
   cdsActionSchema,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -548,7 +549,10 @@ const CDSAlertsPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    // `formatTimestamp`, not `new Date(x).toLocaleString()`: the latter writes
+    // the literal "Invalid Date" for an absent or unparseable value, which
+    // tells a clinician something false about when the record was made.
+    return formatTimestamp(isoString);
   };
 
   const getOperatorLabel = (operator: Condition['operator']) => {

@@ -13,6 +13,7 @@ import {
   useValidatedForm,
   consultRequestSchema,
   consultResponseSchema,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -380,7 +381,9 @@ const ConsultPage: React.FC = () => {
 
 
   const formatDateTime = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    // See formatTimestamp: an absent timestamp renders as nothing, never as
+    // the literal string "Invalid Date".
+    return formatTimestamp(isoString);
   };
 
 

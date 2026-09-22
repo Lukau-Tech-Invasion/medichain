@@ -22,7 +22,12 @@ export {
   DEFAULT_CURRENCY,
   formatCurrency,
   formatDate,
+  formatDateOnly,
   formatTime,
+  // Use this rather than `new Date(x).toLocaleString()` for any stored
+  // timestamp: an absent or unparseable value renders as nothing, never as
+  // the literal string "Invalid Date".
+  formatTimestamp,
   getDirection,
   detectLocale,
 } from './i18n';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation, Alert, LoadingSpinner, formatTimestamp } from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -398,7 +398,9 @@ const DrugInteractionsPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string): string => {
-    return new Date(isoString).toLocaleString();
+    // See formatTimestamp: an absent timestamp renders as nothing, never as
+    // the literal string "Invalid Date".
+    return formatTimestamp(isoString);
   };
 
   // Filtered interactions

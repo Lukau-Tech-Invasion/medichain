@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import { apiUrl, getApiClient, useTranslation, formatTimestamp } from '@medichain/shared';
 import { 
   AlertCircle, 
   Activity, 
@@ -153,8 +153,10 @@ function EmergencyProtocolsPage() {
     }
   }, [patientId, activeTab, user, fetchEmergencyRecords]);
 
-  const formatTimestamp = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
+  const formatRecordedAt = (timestamp: number) => {
+    // Epoch SECONDS from the API; 0 and undefined both mean "not recorded",
+    // and neither should print as a date in 1970 or as "Invalid Date".
+    return timestamp ? formatTimestamp(timestamp * 1000) : '';
   };
 
   /** Where each protocol is actually documented. */
@@ -252,7 +254,7 @@ function EmergencyProtocolsPage() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={16} />
-                    {formatTimestamp(record.initiated_at)}
+                    {formatRecordedAt(record.initiated_at)}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
                     <User size={16} />
@@ -332,7 +334,7 @@ function EmergencyProtocolsPage() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
+                    {formatRecordedAt(record.assessed_at)}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
                     <User size={16} />
@@ -400,7 +402,7 @@ function EmergencyProtocolsPage() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
+                    {formatRecordedAt(record.assessed_at)}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
                     <User size={16} />
@@ -412,7 +414,7 @@ function EmergencyProtocolsPage() {
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.lastKnownNormal')}</span>
-                  <p className="text-content">{formatTimestamp(record.last_known_normal)}</p>
+                  <p className="text-content">{formatRecordedAt(record.last_known_normal)}</p>
                 </div>
                 {record.stroke_type && (
                   <div>
@@ -458,7 +460,7 @@ function EmergencyProtocolsPage() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={16} />
-                    {formatTimestamp(record.started_at)}
+                    {formatRecordedAt(record.started_at)}
                   </div>
                 </div>
               </div>
@@ -527,7 +529,7 @@ function EmergencyProtocolsPage() {
                 <div className="text-right">
                   <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
+                    {formatRecordedAt(record.assessed_at)}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
                     <User size={16} />

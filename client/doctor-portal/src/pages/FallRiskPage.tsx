@@ -8,6 +8,7 @@ import {
   useScoringCatalog,
   morseTotal,
   bandFor,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
@@ -936,7 +937,7 @@ export default function FallRiskPage() {
                       <div>
                         <p className="font-bold">{assessment.patient_id}</p>
                         <p className="text-sm text-content-muted">
-                          {new Date(assessment.assessed_at).toLocaleString()}
+                          {formatTimestamp(assessment.assessed_at)}
                         </p>
                       </div>
                       {/* A row with no score was written before the six items
