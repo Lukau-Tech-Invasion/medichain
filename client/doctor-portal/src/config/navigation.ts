@@ -285,6 +285,11 @@ export const DOCTOR_NAV: NavSection[] = [
       // every provider, which is how a 09:00 gets offered with a surgeon whose
       // list starts at 14:00.
       { id: 'working-hours', to: '/working-hours', label: 'Working Hours', icon: Clock },
+      // Who opened a record is a clinician's question as much as an
+      // administrator's, and `get_all_access_logs` gates on
+      // is_healthcare_provider, not on Admin. Only ADMIN_NAV listed it, so
+      // every doctor and nurse was refused their own accountability trail.
+      { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText },
     ],
   },
   {
@@ -293,6 +298,10 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: ClipboardList,
     items: [
       { id: 'soap', to: '/soap', label: 'SOAP Notes', icon: FileText, priority: 'high' },
+      // `add_vital_signs` gates on can_edit_medical_records, which is Doctor,
+      // Nurse or Admin. Listing the route under NURSE_NAV alone meant the
+      // router refused a doctor a screen the API would have accepted from them.
+      { id: 'vitals', to: '/vitals', label: 'Vital Signs', icon: Activity },
       { id: 'progress', to: '/progress-note', label: 'Progress Notes', icon: FileText },
       { id: 'hp', to: '/history-physical', label: 'H&P', icon: Stethoscope },
       { id: 'discharge', to: '/discharge', label: 'Discharge', icon: FileCheck },
@@ -303,6 +312,13 @@ export const DOCTOR_NAV: NavSection[] = [
       // could use templates could not open the page and the one role that
       // could open it was refused by the API.
       { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
+      // A death certificate is signed by the attending physician -- that is
+      // what makes it a certificate -- and `create_death_certificate` gates on
+      // require_clinical_staff, which admits a doctor. Both routes were listed
+      // only under ADMIN_NAV, so the one professional qualified to complete
+      // them was the one the router turned away.
+      { id: 'death-cert', to: '/death-certificate', label: 'Death Certificates', icon: FileText },
+      { id: 'autopsy', to: '/autopsy', label: 'Autopsy Records', icon: FileText },
     ],
   },
   {
@@ -325,6 +341,12 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: Siren,
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
+      // `create_triage_assessment` accepts Doctor, Nurse or Admin, but the
+      // route was listed only under NURSE_NAV -- and the router authorizes
+      // from the nav config. The doctor dashboard offers "Triage Assessment"
+      // as a quick action, so a doctor pressed it and was told the screen is
+      // restricted to nurses, for work the API was willing to accept from them.
+      { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
       { id: 'trauma', to: '/trauma', label: 'Trauma', icon: AlertTriangle },
       { id: 'stroke', to: '/stroke', label: 'Stroke', icon: Brain },
