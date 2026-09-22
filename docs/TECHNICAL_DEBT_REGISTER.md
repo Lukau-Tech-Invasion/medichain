@@ -4318,3 +4318,46 @@ lookup; the unsafe direction is a directory that silently omits a revoked key.
     RESTART THE SERVER
     GET .../keys/active  200, the same key, still active
     revoke               200, status 'revoked' and revoked_at set in the table
+
+---
+
+## Controls that answer a click with silence — 2026-09-22
+
+Measured by walking every `<button>` in both portals and reporting those with
+no `onClick`, no `type="submit"` inside a form and no `disabled` state. Fifteen
+matched; two were scanner artefacts (the handler is on the next element), one
+was a radio group. **Eleven are real**, and they divide by what is missing.
+
+### Fixed in this pass
+
+| Screen | Control | What it does now |
+|---|---|---|
+| Wound Care | *Add new assessment* (detail panel) | Opens the assessment form with the wound's patient already chosen |
+
+### Blocked on an endpoint that does not exist
+
+Each needs a server-side write before the button can mean anything. **None of
+them should be given a local-state handler**: that is precisely the "successful
+save no reader can see" defect this campaign has been closing.
+
+| Screen | Control | What is missing |
+|---|---|---|
+| AMA | *Collect signatures* | No signature capture or storage anywhere in the system; the AMA record has no signature field a page could fill |
+| Death certificate | *Save as draft* | `POST /api/surgical/death-certificate` requires cause of death and certifier before it will accept a record, so it cannot store an incomplete draft |
+| Death certificate | *Edit* (unfiled certificates) | No update endpoint — create and read only |
+| Pharmacist dashboard | *Reject* / *Contact MD* on an allergy alert | No endpoint records a pharmacist's refusal or opens a query to the prescriber |
+| Pharmacist dashboard | *DEA report* | No controlled-substance report endpoint |
+| Settings | *Change avatar* | No avatar upload |
+| Settings | *Change password* | No password-change endpoint for a staff credential |
+| Barcode scanner | Five setting toggles | Their state is a literal in the JSX; nothing reads them and the scan path honours none of them |
+| Barcode scanner | *Clear history* | Scan history is durable server-side, and irreversible deletion is deferred by ADR-0005 |
+
+### Redundant rather than broken
+
+| Screen | Control | Why |
+|---|---|---|
+| Death certificate | *View* (eye icon) | The card it sits on already renders the whole certificate — cause, place, certifier. Removing it needs an owner decision (rule 7). |
+| Radiology | *View images* | There is no image store; the study row carries no image reference to open |
+
+The count to watch is the middle table. Every row in it is a control offered to
+a clinician that cannot do the thing its label promises.

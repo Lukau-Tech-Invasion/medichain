@@ -166,8 +166,9 @@ Migrations run on boot. The isolated compose project is deliberately separate
 from any local dev stack — distinct container names, volume, credentials, and
 loopback-only port `55432`.
 
-> **Port note:** the API defaults to 8080, which collides with the IPFS gateway.
-> The Postgres script uses 8091 to avoid the ambiguity.
+> **Port note:** the standalone API defaults to 8090. Port 8080 is reserved for
+> the IPFS gateway. The isolated PostgreSQL script uses 8091 so it cannot be
+> mistaken for the ordinary local API.
 
 ### Frontend
 
