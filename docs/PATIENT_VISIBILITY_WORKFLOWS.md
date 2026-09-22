@@ -66,6 +66,36 @@ emergency card.
 > day; see `docs/UNBUILT_INVENTORY.md`. The lesson is the one this campaign
 > keeps relearning — a name in a list is not evidence.
 
+## Re-verified live, 2026-09-22
+
+Against the rebuilt Docker stack, in the fixture patient's own session, with a
+second unrelated patient used as the negative case. Every patient-facing read
+the ledger names answers the patient and refuses somebody else's record:
+
+    history & physical    own 200   another patient 403
+    progress notes        own 200   another patient 403
+    wounds                own 200   another patient 403
+    discharges            own 200   another patient 403
+    imaging reports       own 200   another patient 403
+    pathology             own 200   another patient 403
+    consults              own 200   another patient 403
+    care plans            own 200   another patient 403
+    blood / transfusion   own 200   another patient 403
+    procedures            own 200   another patient 403
+    AMA discharges        own 200   another patient 403
+    intake / output       own 200   another patient 403
+    e-prescriptions       own 200   another patient 403
+    appointments          own 200   another patient 403
+
+Fourteen of fourteen. The boundary this asks about is not the 403 on its own —
+it is that no row belonging to the other patient appeared in any of the 200s.
+
+A first pass reported five of these as "no such route". That was wrong: the
+paths had been guessed rather than read out of the handlers, and the real
+routes answered correctly. Recorded because it is the same mistake this
+document's own 2026-09-15 correction records — a name in a list is not
+evidence.
+
 ## Method, per workflow
 
 One at a time, each finished before the next begins:
