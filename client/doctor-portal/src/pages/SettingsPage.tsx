@@ -10,8 +10,11 @@ import {
   mfaStatus,
   mfaVerify,
   saveUserSettings,
+  setMyAvatar,
+  getUserAvatar,
   useTranslation,
 } from '@medichain/shared';
+import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { 
   Settings, 
   User, 
@@ -76,6 +79,11 @@ function SettingsPage() {
   const loadErrorMessage = t('docSettings.loadError');
   const [settings, setSettings] = useState<UserSettings>(initialSettings);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'display'>('profile');
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  // The profile picture, read from the server so it follows the clinician
+  // between devices rather than living in one browser.
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatarNotice, setAvatarNotice] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -198,6 +206,70 @@ function SettingsPage() {
     void loadSettings();
   }, [isAuthenticated, loadErrorMessage, user]);
 
+  // The server bounds this too; checking here as well means a clinician who
+  // picks a 4 MB photograph is told so immediately instead of after an upload.
+  const AVATAR_MAX_BYTES = 256 * 1024;
+
+  const handleAvatarFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Let the same file be chosen twice: without this, re-picking after an
+    // error fires no change event.
+    event.target.value = '';
+    if (!file) return;
+    setAvatarNotice('');
+
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      setAvatarNotice(t('docSettings.avatarBadType'));
+      return;
+    }
+    const encoded = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    }).catch(() => '');
+    if (!encoded) {
+      setAvatarNotice(t('docSettings.avatarFailed'));
+      return;
+    }
+    if (encoded.length > AVATAR_MAX_BYTES) {
+      setAvatarNotice(t('docSettings.avatarTooLarge'));
+      return;
+    }
+
+    try {
+      await setMyAvatar(encoded);
+      setAvatar(encoded);
+      setAvatarNotice(t('docSettings.avatarSaved'));
+    } catch (err) {
+      setAvatarNotice(getApiErrorMessage(err, t('docSettings.avatarFailed')));
+    }
+  };
+
+  const handleAvatarRemove = async () => {
+    setAvatarNotice('');
+    try {
+      await setMyAvatar(null);
+      setAvatar(null);
+    } catch (err) {
+      setAvatarNotice(getApiErrorMessage(err, t('docSettings.avatarFailed')));
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.walletAddress) return;
+    let cancelled = false;
+    getUserAvatar(user.walletAddress)
+      .then((res) => {
+        if (!cancelled) setAvatar(res.avatar ?? null);
+      })
+      // A missing picture is the normal case, not an error worth a banner.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.walletAddress]);
+
   const handleSave = async () => {
     if (!user) return;
 
@@ -313,15 +385,48 @@ function SettingsPage() {
               <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.profileInfo')}</h2>
 
               <div className="flex items-start gap-6 mb-8">
-                <div className="w-20 h-20 bg-brand-subtle rounded-full flex items-center justify-center">
-                  <User className="text-brand" size={32} />
+                <div className="w-20 h-20 bg-brand-subtle rounded-full flex items-center justify-center overflow-hidden">
+                  {avatar ? (
+                    <img src={avatar} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="text-brand" size={32} />
+                  )}
                 </div>
                 <div>
                   <h3 className="font-medium text-content">{user?.username || t('docSettings.userFallback')}</h3>
                   <p className="text-sm text-content-muted">{user?.role || t('docSettings.roleFallback')}</p>
-                  <button className="mt-2 inline-flex items-center min-h-[24px] py-1 text-sm text-brand hover:text-brand">
-                    {t('docSettings.changeAvatar')}
-                  </button>
+                  <div className="mt-2 flex items-center gap-3">
+                    {/* A label over a hidden input: the file picker is the
+                        browser's, and styling a bare <input type="file"> is
+                        not portable. */}
+                    <label
+                      htmlFor="avatar-upload"
+                      className="inline-flex items-center min-h-[24px] py-1 text-sm text-brand hover:underline cursor-pointer"
+                    >
+                      {t('docSettings.changeAvatar')}
+                    </label>
+                    <input
+                      id="avatar-upload"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={handleAvatarFile}
+                    />
+                    {avatar && (
+                      <button
+                        type="button"
+                        onClick={handleAvatarRemove}
+                        className="inline-flex items-center min-h-[24px] py-1 text-sm text-critical-subtle-fg hover:underline"
+                      >
+                        {t('docSettings.avatarRemove')}
+                      </button>
+                    )}
+                  </div>
+                  {avatarNotice && (
+                    <p role="status" className="mt-1 text-xs text-content-muted">
+                      {avatarNotice}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -633,7 +738,11 @@ function SettingsPage() {
                 </div>
 
                 <div className="pt-4">
-                  <button className="px-4 py-2 text-critical-subtle-fg border border-critical-subtle-fg/30 rounded-lg hover:bg-critical-subtle transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordDialog(true)}
+                    className="px-4 py-2 text-critical-subtle-fg border border-critical-subtle-fg/30 rounded-lg hover:bg-critical-subtle transition-colors"
+                  >
                     {t('docSettings.changePassword')}
                   </button>
                 </div>
@@ -751,6 +860,13 @@ function SettingsPage() {
           )}
         </div>
       </div>
+
+      {showPasswordDialog && (
+        <ChangePasswordDialog
+          loginId={user?.username || ''}
+          onClose={() => setShowPasswordDialog(false)}
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,9 @@ import {
 import { createDeathCertificate } from '../../../shared/src/api/endpoints';
 import {
   listDeathCertificates,
+  draftDeathCertificate,
+  updateDeathCertificateDraft,
+  getApiErrorMessage,
   useTranslation,
   clickable,
   Input,
@@ -188,6 +191,19 @@ const DeathCertificatePage: React.FC = () => {
   // one.
   const [registerUnknown, setRegisterUnknown] = useState(false);
   const [registerLoaded, setRegisterLoaded] = useState(false);
+  // The draft being revised, when the clinician reopened one. Null means the
+  // form is composing a new certificate.
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+
+  const loadCertificates = React.useCallback(async () => {
+    try {
+      const rows = await listDeathCertificates();
+      setCertificates(rows.map(toCertificate));
+      setRegisterUnknown(false);
+    } catch {
+      setRegisterUnknown(true);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,6 +274,57 @@ const DeathCertificatePage: React.FC = () => {
     certifierName: certifierInfo.certifierName,
     licenseNumber: certifierInfo.licenseNumber,
   });
+  /** The certificate as it stands, with nothing required. */
+  const draftPayload = () => ({
+    patient_id: patientId,
+    deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`.trim(),
+    date_of_birth: deceasedInfo.dateOfBirth,
+    date_of_death: deathInfo.dateOfDeath,
+    time_of_death: deathInfo.timeOfDeath,
+    place_of_death: deathInfo.placeOfDeath,
+    manner_of_death: causeInfo.mannerOfDeath,
+    cause_of_death: causeInfo.immediateCause,
+    other_conditions: causeInfo.underlyingCauses.map((c) => c.cause).filter(Boolean),
+    certifier_name: certifierInfo.certifierName,
+    certifier_license: certifierInfo.licenseNumber,
+    certifier_type: certifierInfo.certifierType,
+  });
+
+  /**
+   * Save without filing.
+   *
+   * A draft is a different record from a certificate: filing runs the
+   * legal-instrument checks (deceased name, date, place, cause, certifier),
+   * and a draft requires only the patient it concerns. Completing a
+   * certificate spans a shift, and until this existed the only way to keep
+   * partial work was not to leave the page.
+   */
+  const handleSaveDraft = async () => {
+    if (!patientId) {
+      showError(t('docDeathCertificate.errorSelectPatient'));
+      return;
+    }
+    try {
+      if (editingDraftId) {
+        await updateDeathCertificateDraft(editingDraftId, draftPayload());
+      } else {
+        const created = await draftDeathCertificate(draftPayload());
+        setEditingDraftId(created.id);
+      }
+      showSuccess(t('docDeathCertificate.draftSaved'));
+      await loadCertificates();
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docDeathCertificate.draftFailed')));
+    }
+  };
+
+  /** Reopen a draft in the form it was written in. */
+  const handleEditDraft = (cert: DeathCertificate) => {
+    setEditingDraftId(cert.id);
+    setActiveTab('new');
+    setCurrentStep(1);
+  };
+
   const handleSignAndSubmit = async () => {
     // Basic validation
     if (!patientId) {
@@ -416,7 +483,12 @@ const DeathCertificatePage: React.FC = () => {
                       <Eye className="w-5 h-5 text-content-muted" />
                     </button>
                     {cert.status !== 'filed' && (
-                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.editTitle')}>
+                      <button
+                        type="button"
+                        onClick={() => handleEditDraft(cert)}
+                        className="p-2 hover:bg-surface-sunken rounded-lg"
+                        title={t('docDeathCertificate.editTitle')}
+                      >
                         <Edit className="w-5 h-5 text-content-muted" />
                       </button>
                     )}
@@ -1080,7 +1152,11 @@ const DeathCertificatePage: React.FC = () => {
                   {t('docDeathCertificate.backBtn')}
                 </button>
                 <div className="flex gap-3">
-                  <button className="px-6 py-2 border border-border-strong rounded-lg font-medium">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraft}
+                    className="px-6 py-2 border border-border-strong rounded-lg font-medium"
+                  >
                     {t('docDeathCertificate.saveAsDraftBtn')}
                   </button>
                   <button

@@ -348,3 +348,71 @@ export function wipe(...buffers: Array<Uint8Array | undefined | null>): void {
 }
 
 export { hexToU8a };
+
+/**
+ * Change the password guarding a clinician's keystore.
+ *
+ * # Why the client does this and the server cannot
+ *
+ * The password has two one-way branches: the auth proof the server stores a
+ * verifier for, and the keystore key that opens the signing key. The server
+ * holds a verifier and an opaque blob, so it can check a password and it can
+ * never open the keystore — which is the property that stops a compromised
+ * database from being able to sign as a clinician.
+ *
+ * The same property means the server cannot re-encrypt the keystore, so a
+ * password change has to happen here: derive from the old password, open the
+ * keystore, seal the same secret under the new password's key, and send the
+ * server proof of the old password plus the new verifier and blob. The server
+ * swaps them together.
+ *
+ * It follows that this needs the CURRENT password. A clinician who has
+ * forgotten theirs cannot use it, and is re-enrolled by an administrator
+ * against a freshly generated keypair — the same trade-off documented on
+ * `openKeystore`. There is no reset, because a server able to reset would be a
+ * server able to forge.
+ *
+ * @returns the body to POST to `/api/auth/staff/rotate-credentials`.
+ */
+export async function rotateStaffPassword(
+  identifier: string,
+  currentPassword: string,
+  newPassword: string,
+  encryptedKeystore: string
+): Promise<{
+  loginId: string;
+  currentAuthProof: string;
+  newAuthProof: string;
+  newEncryptedKeystore: string;
+}> {
+  if (!newPassword || newPassword === currentPassword) {
+    throw new Error('Choose a new password that is different from the current one');
+  }
+
+  const current = await deriveCredential(currentPassword, identifier);
+  let opened: { miniSecret: Uint8Array; address: string } | null = null;
+  let next: DerivedCredential | null = null;
+  try {
+    // Opening it IS the check that the current password is right: AES-GCM's
+    // tag makes a wrong key a cryptographic failure, not a silently wrong
+    // result. So a mistyped current password fails here, locally, before
+    // anything is sent.
+    opened = await openKeystore(encryptedKeystore, current.keystoreKey);
+
+    // The identifier is part of the derivation, so it has to be the same on
+    // both sides or the new keystore could never be opened at login.
+    next = await deriveCredential(newPassword, identifier);
+    const resealed = await createKeystore(opened.miniSecret, opened.address, next.keystoreKey);
+
+    return {
+      loginId: identifier.trim(),
+      currentAuthProof: current.authProof,
+      newAuthProof: next.authProof,
+      newEncryptedKeystore: resealed,
+    };
+  } finally {
+    // The secret and both keystore keys are the whole security of this; do not
+    // leave them in memory for the rest of the session.
+    wipe(current.keystoreKey, next?.keystoreKey, opened?.miniSecret);
+  }
+}

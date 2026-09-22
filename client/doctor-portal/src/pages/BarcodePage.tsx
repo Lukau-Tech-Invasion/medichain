@@ -16,7 +16,19 @@ import {
   Barcode,
   Activity
 } from 'lucide-react';
-import { apiUrl, EmptyState, getApiClient, scanBarcode, useTranslation, LoadingSpinner } from '@medichain/shared';
+import {
+  apiUrl,
+  EmptyState,
+  getApiClient,
+  scanBarcode,
+  useTranslation,
+  LoadingSpinner,
+  getScannerSettings,
+  updateScannerSettings,
+  clearScanHistory,
+  getApiErrorMessage,
+  type ScannerSettings,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -91,6 +103,17 @@ function mapPersistedScan(scan: PersistedBarcodeScan): ScannedItem {
 const BarcodePage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'settings'>('scan');
+  // The five toggles used to be literals in this file's JSX: nothing read
+  // them and the scan path honoured none of them, including `saveHistory`,
+  // which governs whether a durable record is written at all.
+  const [scannerSettings, setScannerSettings] = useState<ScannerSettings>({
+    autoScan: true,
+    vibrate: true,
+    sound: true,
+    continuous: false,
+    saveHistory: true,
+  });
+  const [settingsNotice, setSettingsNotice] = useState('');
   const [scanMode, setScanMode] = useState<ScanMode>('patient');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
@@ -106,6 +129,71 @@ const BarcodePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { user } = useAuthStore();
+
+  /** Re-read this clinician's scan list from the server. */
+  const loadScanHistory = async () => {
+    const user = useAuthStore.getState().user;
+    if (!user?.walletAddress) return;
+    try {
+      const response = await fetch(apiUrl('/api/barcode/scans/my'), {
+        headers: getApiClient().getSessionHeaders(user.walletAddress),
+      });
+      if (!response.ok) return;
+      const history = await response.json();
+      if (Array.isArray(history)) {
+        setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
+      }
+    } catch (error) {
+      console.error('Barcode scan history could not be loaded:', error);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    getScannerSettings()
+      .then((res) => {
+        if (!cancelled && res.settings) setScannerSettings(res.settings);
+      })
+      // No stored settings is the normal first visit, not an error: the
+      // defaults above are the ones the panel always drew.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Flip one toggle and save the set. */
+  const toggleSetting = async (key: keyof ScannerSettings) => {
+    const next = { ...scannerSettings, [key]: !scannerSettings[key] };
+    setScannerSettings(next);
+    setSettingsNotice('');
+    try {
+      await updateScannerSettings(next);
+    } catch (err) {
+      // Put it back: a toggle that looks saved and is not is the defect this
+      // whole change exists to remove.
+      setScannerSettings(scannerSettings);
+      setSettingsNotice(getApiErrorMessage(err, t('docBarcode.settingsFailed')));
+    }
+  };
+
+  /**
+   * Clear this clinician's scan list.
+   *
+   * Deletes nothing. A scan is the record of somebody handling a specimen, and
+   * ADR-0005 defers irreversible deletion here; the list starts again from now
+   * and the scans stay for anyone asking who handled what.
+   */
+  const handleClearHistory = async () => {
+    setSettingsNotice('');
+    try {
+      const res = await clearScanHistory();
+      setSettingsNotice(res.message);
+      await loadScanHistory();
+    } catch (err) {
+      setSettingsNotice(getApiErrorMessage(err, t('docBarcode.clearFailed')));
+    }
+  };
 
   useEffect(() => {
     // Fetch scan history from API - start with empty state
@@ -577,28 +665,38 @@ const BarcodePage: React.FC = () => {
             <div className="p-4">
               <h3 className="font-semibold text-content">{t('docBarcode.scannerSettings')}</h3>
             </div>
-            {[
-              { label: t('docBarcode.setAutoScan'), enabled: true },
-              { label: t('docBarcode.setVibrate'), enabled: true },
-              { label: t('docBarcode.setSound'), enabled: true },
-              { label: t('docBarcode.setContinuous'), enabled: false },
-              { label: t('docBarcode.setSaveHistory'), enabled: true }
-            ].map((setting, idx) => (
-              <div key={idx} className="p-4 flex items-center justify-between">
-                <span className="text-content-secondary">{setting.label}</span>
-                <button
-                  className={`w-12 h-6 rounded-full transition-colors ${
-                    setting.enabled ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
-                      setting.enabled ? 'translate-x-6' : 'translate-x-0.5'
+            {([
+              { key: 'autoScan', label: t('docBarcode.setAutoScan') },
+              { key: 'vibrate', label: t('docBarcode.setVibrate') },
+              { key: 'sound', label: t('docBarcode.setSound') },
+              { key: 'continuous', label: t('docBarcode.setContinuous') },
+              { key: 'saveHistory', label: t('docBarcode.setSaveHistory') },
+            ] as Array<{ key: keyof ScannerSettings; label: string }>).map((setting) => {
+              const enabled = scannerSettings[setting.key];
+              return (
+                <div key={setting.key} className="p-4 flex items-center justify-between">
+                  <span id={`scanner-${setting.key}-label`} className="text-content-secondary">
+                    {setting.label}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-labelledby={`scanner-${setting.key}-label`}
+                    onClick={() => toggleSetting(setting.key)}
+                    className={`w-12 h-6 rounded-full transition-colors ${
+                      enabled ? 'bg-brand' : 'bg-disabled'
                     }`}
-                  />
-                </button>
-              </div>
-            ))}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                        enabled ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           <div className="bg-surface rounded-lg shadow divide-y">
@@ -617,10 +715,22 @@ const BarcodePage: React.FC = () => {
           </div>
 
           <div className="bg-surface rounded-lg shadow p-4">
-            <button className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium">
+            <button
+              type="button"
+              onClick={handleClearHistory}
+              className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium"
+            >
               <History className="w-5 h-5" />
               {t('docBarcode.clearHistory')}
             </button>
+            <p className="mt-2 text-xs text-content-muted">
+              {t('docBarcode.clearHistoryNote')}
+            </p>
+            {settingsNotice && (
+              <p role="status" className="mt-2 text-xs text-content-muted">
+                {settingsNotice}
+              </p>
+            )}
           </div>
         </div>
       )}

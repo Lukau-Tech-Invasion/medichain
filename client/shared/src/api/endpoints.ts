@@ -572,6 +572,226 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   return getApiClient().get('/api/auth/me');
 }
 
+/**
+ * Change the password behind an employee identifier.
+ *
+ * A rotation, not a reset. The caller derives both values from the old
+ * password locally, opens its own keystore, re-encrypts the keypair under the
+ * new password, and sends proof it knew the old one. The server never sees
+ * either password and never holds the key — which is the same property that
+ * makes a forgotten password unrecoverable here, by design.
+ *
+ * `rotateStaffPassword` in `auth/credentials.ts` does the derivation; call
+ * that rather than assembling this body by hand.
+ */
+export async function rotateCredentials(body: {
+  loginId: string;
+  currentAuthProof: string;
+  newAuthProof: string;
+  newEncryptedKeystore: string;
+}): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/auth/staff/rotate-credentials', body);
+}
+
+/** Set the signed-in clinician's profile picture, or clear it with `null`. */
+export async function setMyAvatar(
+  avatar: string | null
+): Promise<{ success: boolean; updatedAt?: string }> {
+  return getApiClient().post('/api/users/me/avatar', { avatar });
+}
+
+/** One clinician's profile picture, or `null` when they have not set one. */
+export async function getUserAvatar(
+  walletAddress: string
+): Promise<{ success: boolean; avatar: string | null }> {
+  return getApiClient().get(`/api/users/${encodeURIComponent(walletAddress)}/avatar`);
+}
+
+// ============================================================================
+// Death certificate drafts
+// ============================================================================
+
+/** The fields a certificate carries while it is still being written. */
+export interface DeathCertificateDraft {
+  patient_id: string;
+  deceased_name?: string | null;
+  date_of_birth?: string | null;
+  date_of_death?: string | null;
+  time_of_death?: string | null;
+  place_of_death?: string | null;
+  manner_of_death?: string | null;
+  cause_of_death?: string | null;
+  other_conditions?: string[];
+  certifier_name?: string | null;
+  certifier_license?: string | null;
+  certifier_type?: string | null;
+}
+
+/**
+ * Start a certificate without filing it.
+ *
+ * `createDeathCertificate` requires deceased name, date, place, cause and
+ * certifier, because a filed certificate missing any of them is void. A draft
+ * requires only the patient it concerns.
+ */
+export async function draftDeathCertificate(
+  draft: DeathCertificateDraft
+): Promise<{ success: boolean; id: string; status: string }> {
+  return getApiClient().post('/api/surgical/death-certificate/draft', draft);
+}
+
+/** Revise a draft. Refused once the certificate has been filed. */
+export async function updateDeathCertificateDraft(
+  id: string,
+  draft: DeathCertificateDraft
+): Promise<{ success: boolean; id: string; status: string }> {
+  return getApiClient().put(
+    `/api/surgical/death-certificate/${encodeURIComponent(id)}`,
+    draft
+  );
+}
+
+/**
+ * File a draft as a certificate.
+ *
+ * This is where the legal-instrument checks run, so an incomplete draft is
+ * refused here rather than stored as a void certificate.
+ */
+export async function fileDeathCertificate(
+  id: string
+): Promise<{ success: boolean; id: string; status: string }> {
+  return getApiClient().post(
+    `/api/surgical/death-certificate/${encodeURIComponent(id)}/file`,
+    {}
+  );
+}
+
+// ============================================================================
+// Pharmacy safety decisions
+// ============================================================================
+
+/**
+ * Record what a pharmacist did about an allergy alert.
+ *
+ * `refused_to_dispense` or `prescriber_queried`. Both need a reason: a refusal
+ * nobody can account for is not a clinical decision, and the prescriber and
+ * the patient both have to be able to find out why a medicine did not arrive.
+ */
+export async function recordPharmacyDecision(body: {
+  patientId: string;
+  allergen: string;
+  decision: 'refused_to_dispense' | 'prescriber_queried';
+  reason: string;
+  prescriptionId?: string | null;
+  prescriberId?: string | null;
+}): Promise<{ success: boolean; id: string; decision: string }> {
+  return getApiClient().post('/api/pharmacy/allergy-decisions', body);
+}
+
+/** Every dispensing decision recorded for one patient. */
+export async function listPharmacyDecisions(
+  patientId: string
+): Promise<{ success: boolean; decisions: Array<Record<string, unknown>> }> {
+  return getApiClient().get(
+    `/api/pharmacy/allergy-decisions/patient/${encodeURIComponent(patientId)}`
+  );
+}
+
+/**
+ * The controlled-substance dispensing register for a period.
+ *
+ * Bounds are ISO dates and both are optional; an absent bound means no bound
+ * on that side, rather than a silent default period that would be wrong for
+ * anyone asking about a different one.
+ */
+export async function controlledSubstanceReport(range: {
+  from?: string;
+  to?: string;
+} = {}): Promise<{
+  success: boolean;
+  count: number;
+  produced_at: string;
+  events: Array<Record<string, unknown>>;
+}> {
+  const params = new URLSearchParams();
+  if (range.from) params.set('from', range.from);
+  if (range.to) params.set('to', range.to);
+  const query = params.toString();
+  return getApiClient().get(
+    `/api/pharmacy/controlled-substances/report${query ? `?${query}` : ''}`
+  );
+}
+
+// ============================================================================
+// AMA signatures
+// ============================================================================
+
+/**
+ * Record the signatures on an against-medical-advice discharge.
+ *
+ * Either a patient signature or a stated reason they would not sign — never
+ * neither, because a request carrying no signature and no reason would mark
+ * the form handled while leaving the record exactly as unevidenced as before.
+ * Signatures are taken once; a second attempt is refused.
+ */
+export async function collectAmaSignatures(
+  amaId: string,
+  body: {
+    patientSignature?: string | null;
+    refusedReason?: string | null;
+    witnessName?: string | null;
+    witnessSignature?: string | null;
+  }
+): Promise<{ success: boolean; id: string; signed: boolean }> {
+  return getApiClient().post(
+    `/api/clinical/ama/${encodeURIComponent(amaId)}/signatures`,
+    body
+  );
+}
+
+// ============================================================================
+// Barcode scanner preferences
+// ============================================================================
+
+export interface ScannerSettings {
+  autoScan: boolean;
+  vibrate: boolean;
+  sound: boolean;
+  continuous: boolean;
+  /** Governs whether a scan is written to this clinician's durable history. */
+  saveHistory: boolean;
+}
+
+export async function getScannerSettings(): Promise<{
+  success: boolean;
+  settings: ScannerSettings;
+  historyClearedAt: string | null;
+}> {
+  return getApiClient().get('/api/barcode/settings');
+}
+
+export async function updateScannerSettings(
+  settings: ScannerSettings
+): Promise<{ success: boolean; settings: ScannerSettings }> {
+  return getApiClient().put('/api/barcode/settings', settings);
+}
+
+/**
+ * Clear this clinician's scan history view.
+ *
+ * Deletes nothing: a barcode scan is the record of somebody handling a
+ * specimen, and ADR-0005 defers irreversible deletion. The list starts again
+ * from now and the scans remain for anyone asking who handled what.
+ */
+export async function clearScanHistory(): Promise<{
+  success: boolean;
+  historyClearedAt: string;
+  message: string;
+}> {
+  return getApiClient().post('/api/barcode/history/clear', {});
+}
+
+
 // ============================================================================
 // JWT authentication (Phase 9.4)
 // ============================================================================

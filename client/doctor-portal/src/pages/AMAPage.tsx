@@ -27,6 +27,8 @@ import {
   useValidatedForm,
   Input,
   amaDetailsSchema,
+  collectAmaSignatures,
+  getApiErrorMessage,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -71,6 +73,13 @@ const AMAPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'view'>('list');
   const [records, setRecords] = useState<AMARecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<AMARecord | null>(null);
+  // Signatures are taken at the bedside after the form is written, which is
+  // why they are a separate step rather than a field on the create payload.
+  const [signingRecord, setSigningRecord] = useState<AMARecord | null>(null);
+  const [signatureText, setSignatureText] = useState('');
+  const [signatureRefusedReason, setSignatureRefusedReason] = useState('');
+  const [signatureWitness, setSignatureWitness] = useState('');
+  const [signatureBusy, setSignatureBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<AMAStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
@@ -570,7 +579,16 @@ const AMAPage: React.FC = () => {
                 {t('docAMA.printDocument')}
               </button>
               {selectedRecord.status === 'pending-signatures' && (
-                <button className="flex-1 py-3 border border-red-600 text-critical-subtle-fg rounded-lg font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSigningRecord(selectedRecord);
+                    setSignatureText('');
+                    setSignatureRefusedReason('');
+                    setSignatureWitness('');
+                  }}
+                  className="flex-1 py-3 border border-critical text-critical-subtle-fg rounded-lg font-semibold"
+                >
                   {t('docAMA.collectSignatures')}
                 </button>
               )}
@@ -1008,6 +1026,95 @@ const AMAPage: React.FC = () => {
         )}
           </div>
         </>
+      )}
+
+      {/* Either a signature or a stated reason there is none -- never neither.
+          A form marked handled with nothing behind it leaves the record as
+          unevidenced as before, which is what this button used to do. */}
+      {signingRecord && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-semibold text-content">
+              {t('docAMA.collectSignaturesTitle')}
+            </h2>
+            <div>
+              <label htmlFor="ama-sig-patient" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docAMA.lblPatientSignature')}
+              </label>
+              <input
+                id="ama-sig-patient"
+                type="text"
+                value={signatureText}
+                onChange={(e) => setSignatureText(e.target.value)}
+                placeholder={t('docAMA.sigTypedPlaceholder')}
+                className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
+              />
+            </div>
+            <div>
+              <label htmlFor="ama-sig-refused" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docAMA.sigRefusedLabel')}
+              </label>
+              <input
+                id="ama-sig-refused"
+                type="text"
+                value={signatureRefusedReason}
+                onChange={(e) => setSignatureRefusedReason(e.target.value)}
+                className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
+              />
+              <p className="mt-1 text-xs text-content-muted">{t('docAMA.sigRefusedHint')}</p>
+            </div>
+            <div>
+              <label htmlFor="ama-sig-witness" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docAMA.lblWitnessSignature')}
+              </label>
+              <input
+                id="ama-sig-witness"
+                type="text"
+                value={signatureWitness}
+                onChange={(e) => setSignatureWitness(e.target.value)}
+                className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setSigningRecord(null)}
+                className="flex-1 px-4 py-2 border border-border rounded-lg text-content"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={signatureBusy}
+                onClick={async () => {
+                  if (!signatureText.trim() && !signatureRefusedReason.trim()) {
+                    showError(t('docAMA.sigNeedOne'));
+                    return;
+                  }
+                  setSignatureBusy(true);
+                  try {
+                    await collectAmaSignatures(signingRecord.id, {
+                      patientSignature: signatureText.trim() || null,
+                      refusedReason: signatureRefusedReason.trim() || null,
+                      witnessName: signatureWitness.trim() || null,
+                      witnessSignature: signatureWitness.trim() || null,
+                    });
+                    showSuccess(t('docAMA.sigRecorded'));
+                    setSigningRecord(null);
+                    setSelectedRecord(null);
+                  } catch (err) {
+                    showError(getApiErrorMessage(err, t('docAMA.sigFailed')));
+                  } finally {
+                    setSignatureBusy(false);
+                  }
+                }}
+                className="flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-disabled disabled:text-disabled-fg"
+              >
+                {t('docAMA.sigSubmit')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

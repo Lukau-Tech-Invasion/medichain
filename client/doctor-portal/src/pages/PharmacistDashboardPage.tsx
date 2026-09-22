@@ -29,6 +29,9 @@ import {
   getDispenseEvents,
   reverseDispense,
   getApiErrorCode,
+  getApiErrorMessage,
+  recordPharmacyDecision,
+  controlledSubstanceReport,
 } from '@medichain/shared';
 
 interface SecondaryVerification {
@@ -113,11 +116,93 @@ export default function PharmacistDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<PharmacistDashboardData | null>(null);
+  // A pharmacist's decision on an allergy alert needs a reason: a refusal
+  // nobody can account for is not a clinical decision, and the prescriber and
+  // the patient both have to be able to find out why a medicine did not come.
+  const [decisionFor, setDecisionFor] = useState<
+    { alert: AllergyAlert; decision: 'refused_to_dispense' | 'prescriber_queried' } | null
+  >(null);
+  const [decisionReason, setDecisionReason] = useState('');
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [decisionError, setDecisionError] = useState('');
+  const [reportNotice, setReportNotice] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  /** Send the pharmacist's decision, with the reason they gave. */
+  const submitDecision = async () => {
+    if (!decisionFor) return;
+    if (!decisionReason.trim()) {
+      setDecisionError(t('docPharmDashboard.decisionReasonRequired'));
+      return;
+    }
+    setDecisionBusy(true);
+    setDecisionError('');
+    try {
+      await recordPharmacyDecision({
+        patientId: decisionFor.alert.patient_id,
+        allergen: decisionFor.alert.allergen,
+        decision: decisionFor.decision,
+        reason: decisionReason.trim(),
+      });
+      setDecisionFor(null);
+      setDecisionReason('');
+      await loadDashboard();
+    } catch (err) {
+      setDecisionError(getApiErrorMessage(err, t('docPharmDashboard.decisionFailed')));
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
+  /**
+   * Produce the controlled-substance register as a file.
+   *
+   * The link had no endpoint, so the register could be read on screen and
+   * never produced as the document a regulator asks for. CSV rather than a
+   * rendered PDF: it is what an inspector imports, and the rows are the
+   * evidence.
+   */
+  const downloadControlledSubstanceReport = async () => {
+    setReportNotice('');
+    try {
+      const report = await controlledSubstanceReport();
+      const columns = [
+        'dispense_id',
+        'prescription_id',
+        'patient_id',
+        'medication',
+        'quantity',
+        'dispensed_by',
+        'dispensed_at',
+        'status',
+      ];
+      const escape = (value: unknown) =>
+        `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const csv = [
+        columns.join(','),
+        ...report.events.map((row) =>
+          columns.map((column) => escape((row as Record<string, unknown>)[column])).join(',')
+        ),
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `controlled-substances-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setReportNotice(
+        t('docPharmDashboard.reportReady', { count: report.count })
+      );
+    } catch (err) {
+      setReportNotice(getApiErrorMessage(err, t('docPharmDashboard.reportFailed')));
+    }
+  };
 
   const loadDashboard = async () => {
     try {
@@ -619,10 +704,26 @@ export default function PharmacistDashboardPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button className="px-3 py-1 text-xs bg-critical text-critical-fg rounded hover:bg-critical">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDecisionFor({ alert, decision: 'refused_to_dispense' });
+                          setDecisionReason('');
+                          setDecisionError('');
+                        }}
+                        className="px-3 py-1 text-xs bg-critical text-critical-fg rounded hover:bg-critical/90"
+                      >
                         {t('docPharmDashboard.reject')}
                       </button>
-                      <button className="px-3 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-gray-300">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDecisionFor({ alert, decision: 'prescriber_queried' });
+                          setDecisionReason('');
+                          setDecisionError('');
+                        }}
+                        className="px-3 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-surface"
+                      >
                         {t('docPharmDashboard.contactMd')}
                       </button>
                     </div>
@@ -646,7 +747,11 @@ export default function PharmacistDashboardPage() {
             <Clock className="text-purple-500" size={18} />
             {t('docPharmDashboard.controlledLog')}
           </h3>
-          <button className="inline-flex items-center min-h-[24px] py-1 text-xs text-notice-subtle-fg hover:text-notice-subtle-fg">
+          <button
+            type="button"
+            onClick={downloadControlledSubstanceReport}
+            className="inline-flex items-center min-h-[24px] py-1 text-xs text-notice-subtle-fg hover:underline"
+          >
             {t('docPharmDashboard.deaReport')}
           </button>
         </div>
@@ -747,6 +852,73 @@ export default function PharmacistDashboardPage() {
           </div>
         </div>
       </div>
+
+      {reportNotice && (
+        <p role="status" className="mt-2 text-xs text-content-muted">
+          {reportNotice}
+        </p>
+      )}
+
+      {/* The reason is the point. A refusal to dispense reaches the prescriber
+          and the patient, and "the pharmacist said no" is not an answer either
+          of them can act on. */}
+      {decisionFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-semibold text-content">
+              {decisionFor.decision === 'refused_to_dispense'
+                ? t('docPharmDashboard.refuseTitle')
+                : t('docPharmDashboard.queryTitle')}
+            </h2>
+            <p className="text-sm text-content-secondary">
+              {t('docPharmDashboard.decisionContext', {
+                patient: decisionFor.alert.patient_name || decisionFor.alert.patient_id,
+                allergen: decisionFor.alert.allergen,
+              })}
+            </p>
+            {decisionError && (
+              <p
+                role="alert"
+                className="rounded-lg border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-sm text-critical-subtle-fg"
+              >
+                {decisionError}
+              </p>
+            )}
+            <div>
+              <label
+                htmlFor="pharmacy-decision-reason"
+                className="block text-sm font-medium text-content-secondary mb-1"
+              >
+                {t('docPharmDashboard.decisionReason')}
+              </label>
+              <textarea
+                id="pharmacy-decision-reason"
+                rows={3}
+                value={decisionReason}
+                onChange={(e) => setDecisionReason(e.target.value)}
+                className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDecisionFor(null)}
+                className="flex-1 px-4 py-2 border border-border rounded-lg text-content"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={submitDecision}
+                disabled={decisionBusy}
+                className="flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-disabled disabled:text-disabled-fg"
+              >
+                {t('docPharmDashboard.decisionSubmit')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
