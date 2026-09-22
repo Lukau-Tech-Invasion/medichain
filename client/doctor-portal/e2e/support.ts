@@ -291,3 +291,61 @@ export async function settle(page: Page, path: string) {
 
   await page.waitForTimeout(1200);
 }
+
+/**
+ * Choose a patient through the searchable picker.
+ *
+ * Screens used to ask for a patient with a native `<select>`, so a spec did
+ * `locator('#id').selectOption(value)` and read the roster out of its
+ * `<option>` elements. `PatientSelect` is a combobox: a text input that queries
+ * the server as the clinician types, and a list of buttons to press. Nobody
+ * remembers a `PAT-` id, which is why the screens changed — and nine browser
+ * specs went on driving the old control, failing in a way that looks exactly
+ * like a broken page.
+ *
+ * `search` narrows the list; omitting it opens the picker and takes whatever
+ * the server offers first, which is what the specs that deliberately do not
+ * name a fixture want. Returns the chosen patient's visible name.
+ */
+export async function selectPatient(
+  page: Page,
+  selector: string,
+  search?: string
+): Promise<string> {
+  const input = page.locator(selector);
+  // Once a patient is chosen the control collapses and the search input is
+  // gone, so `#id` matches nothing. Open it first: the collapsed display
+  // carries `#id-selected` and clicking it brings the input back.
+  if (!(await input.isVisible().catch(() => false))) {
+    const collapsed = page.locator(`${selector}-selected`);
+    await expect(collapsed).toBeVisible({ timeout: 20000 });
+    await collapsed.click();
+  }
+  await expect(input).toBeVisible({ timeout: 20000 });
+  await input.click();
+  // Typing drives the query; an empty search still opens the list.
+  await input.fill(search ?? '');
+
+  // The picker debounces, and the options are buttons inside the dropdown that
+  // follows the input's own container.
+  const options = page
+    .locator('div.absolute.z-50 button[type="button"]')
+    .or(page.locator('[role="listbox"] button'));
+  await expect(options.first()).toBeVisible({ timeout: 20000 });
+
+  // An option renders as: the avatar initial, then the full name, then
+  // "PAT-... • HID-...". Taking line 0 yields the single-letter initial, which
+  // is not the patient's name and is useless as a later search term.
+  const chosen =
+    (await options.first().innerText())
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 1 && !line.startsWith('PAT-')) ?? '';
+  await options.first().click();
+
+  // The control collapses to the chosen patient once the selection lands.
+  await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible({
+    timeout: 10000,
+  });
+  return chosen;
+}

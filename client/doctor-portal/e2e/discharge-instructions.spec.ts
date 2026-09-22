@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { signIn, settle, selectPatient } from './support';
 
 /**
  * Filing a discharge files the patient's take-home instructions too.
@@ -36,12 +36,9 @@ test('filing a discharge also files the take-home instructions', async ({ browse
 
   await page.getByRole('button', { name: /new discharge/i }).click();
 
-  // The patient roster on this form is a native select.
-  const patientSelect = page.locator('#dc-patient');
-  await expect(patientSelect).toBeVisible({ timeout: 20000 });
-  const patientValue = await patientSelect.locator('option').nth(1).getAttribute('value');
-  expect(patientValue, 'no patients were offered').toBeTruthy();
-  await patientSelect.selectOption(patientValue as string);
+  // The patient on this form is chosen through the searchable picker: a
+  // clinician types a name rather than recalling a `PAT-` id.
+  await selectPatient(page, '#dc-patient');
 
   const diagnosis = `Community-acquired pneumonia (e2e ${Date.now()})`;
   await page.locator('#dc-primary-diagnosis').fill(diagnosis);

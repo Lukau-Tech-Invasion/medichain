@@ -137,11 +137,18 @@ export default function PatientSelect({
       <div className="relative">
         {/* Selected patient display or search input */}
         {selectedPatient && !isOpen ? (
-          <div 
+          // `${id}-selected`: the search input carries `id` only while the
+          // picker is open, so once a patient is chosen there is nothing at
+          // `#id` to address. That left anything driving this control — a
+          // browser test, a keyboard shortcut, a label — with no handle on the
+          // collapsed state, and it is the state the screen spends most of its
+          // life in.
+          <div
+            id={id ? `${id}-selected` : undefined}
             className={`
-              w-full flex items-center justify-between px-4 py-2.5 
-              border border-border-strong dark:border-slate-600 rounded-lg 
-              bg-surface dark:bg-slate-800 
+              w-full flex items-center justify-between px-4 py-2.5
+              border border-border-strong dark:border-slate-600 rounded-lg
+              bg-surface dark:bg-slate-800
               ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand'}
             `}
             {...clickable(() => !disabled && setIsOpen(true))}

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { signIn, settle, selectPatient } from './support';
 
 /**
  * The laceration-repair page files a repair, and the repair comes back.
@@ -29,16 +29,9 @@ test('a doctor documents a laceration repair and it appears on the list', async 
 
   await page.getByRole('button', { name: /new repair/i }).click();
 
-  // The patient select is populated from /api/patients; take the first real
-  // option rather than naming a fixture, so the test does not encode a roster.
-  const patientSelect = page.locator('#laceration-patient');
-  await expect(patientSelect).toBeVisible();
-  const patientValue = await patientSelect
-    .locator('option')
-    .nth(1)
-    .getAttribute('value');
-  expect(patientValue, 'no patients were offered to document a repair against').toBeTruthy();
-  await patientSelect.selectOption(patientValue as string);
+  // The picker queries /api/patients as the clinician types; take whatever it
+  // offers first rather than naming a fixture, so this encodes no roster.
+  await selectPatient(page, '#laceration-patient');
 
   await page.locator('#laceration-length').fill('3.5');
   await page.locator('#laceration-location').fill(site);
@@ -75,9 +68,7 @@ test('a repair with no length is refused before it is sent', async ({ browser })
   await settle(page, '/laceration-repair');
   await page.getByRole('button', { name: /new repair/i }).click();
 
-  const patientSelect = page.locator('#laceration-patient');
-  const patientValue = await patientSelect.locator('option').nth(1).getAttribute('value');
-  await patientSelect.selectOption(patientValue as string);
+  await selectPatient(page, '#laceration-patient');
   await page.locator('#laceration-location').fill('Left knee');
   // Length deliberately left at its initial 0.
 

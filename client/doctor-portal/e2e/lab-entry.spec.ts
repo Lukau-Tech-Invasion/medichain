@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { signIn, settle } from './support';
+import { signIn, settle, selectPatient } from './support';
 
 /**
  * A lab technician can enter a result.
@@ -45,11 +45,10 @@ test('a lab technician enters a result and it reaches the review queue', async (
 
   await page.getByRole('tab', { name: /enter result/i }).click();
 
-  const patient = page.locator('#lab-entry-patient');
-  await expect(patient).toBeVisible({ timeout: 20000 });
-  const patientValue = await patient.locator('option').nth(1).getAttribute('value');
-  expect(patientValue, 'no patients were offered').toBeTruthy();
-  await patient.selectOption(patientValue as string);
+  // `PatientSelect` is a searchable combobox, not a native <select>: nobody
+  // remembers a PAT- id, so the screens ask for a name. `selectPatient` takes
+  // whatever the server offers first, so this still encodes no roster.
+  const patientName = await selectPatient(page, '#lab-entry-patient');
 
   // The panels come from the server catalogue, so this asserts that reached
   // the screen at all.
@@ -90,7 +89,7 @@ test('a lab technician enters a result and it reaches the review queue', async (
   // API's 120/minute limiter, which fails as something that looks like a
   // product defect and is not.
   await page.getByRole('tab', { name: /enter result/i }).click();
-  await page.locator('#lab-entry-patient').selectOption(patientValue as string);
+  await selectPatient(page, '#lab-entry-patient', patientName);
   await page.locator('#lab-entry-panel').selectOption(panelValue as string);
   // Every analyte left blank this time.
   await page.getByRole('button', { name: /submit for review/i }).click();

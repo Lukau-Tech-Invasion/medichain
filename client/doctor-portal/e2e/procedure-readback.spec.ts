@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { signIn, settle } from './support';
+import { signIn, settle, selectPatient } from './support';
 
 /**
  * Three screens that documented a procedure and then forgot it.
@@ -35,13 +35,14 @@ async function openHistory(page: Page): Promise<void> {
   await page.getByRole('button', { name: /^history$/i }).click();
 }
 
-/** Pick the first real patient the page offers, rather than naming a fixture. */
+/**
+ * Pick the first real patient the page offers, rather than naming a fixture.
+ *
+ * These are `PatientSelect` comboboxes now, not native selects: a clinician
+ * types a name instead of recalling a `PAT-` id.
+ */
 async function selectFirstPatient(page: Page, selector: string): Promise<void> {
-  const select = page.locator(selector);
-  await expect(select).toBeVisible({ timeout: 20000 });
-  const value = await select.locator('option').nth(1).getAttribute('value');
-  expect(value, `no patients were offered by ${selector}`).toBeTruthy();
-  await select.selectOption(value as string);
+  await selectPatient(page, selector);
 }
 
 test('an intubation survives leaving the page and coming back', async ({ browser }) => {

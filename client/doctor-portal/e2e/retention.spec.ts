@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { signIn, settle, selectPatient } from './support';
 
 /**
  * Data retention, through the screen rather than through curl.
@@ -33,7 +33,9 @@ test('a legal hold is placed, listed and released', async ({ browser }) => {
   await page.getByRole('button', { name: /place hold/i }).click();
   await expect(page.getByRole('alert')).toContainText(/patient ID or a record type/i);
 
-  await page.locator('#hold-patient').fill('PAT-e2e-retention');
+  // `#hold-patient` is the searchable picker, so a hold is placed against a
+  // patient who exists rather than a made-up id typed into a text box.
+  await selectPatient(page, '#hold-patient');
   await page.getByRole('button', { name: /place hold/i }).click();
 
   const row = page.locator('[data-testid="hold-list"] li').filter({ hasText: reason });
