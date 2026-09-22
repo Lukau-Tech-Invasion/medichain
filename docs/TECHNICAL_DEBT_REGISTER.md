@@ -4414,3 +4414,20 @@ as somebody else's name.
 
 Not urgent, and not a correctness defect: the stored attribution is right. It
 is a legibility defect on every screen that names who did something.
+
+---
+
+## `telehealth_retention`: constructed twice, read never — re-confirmed 2026-09-22
+
+`TelehealthRetentionStore::new()` is called in both `AppState` constructors and
+the module is declared in `main.rs`, so it compiles and carries no dead-code
+warning. No handler reads it: zero references anywhere under
+`clinical_endpoints/` or `handlers/`.
+
+Removal was approved by the owner. It is deliberately **not** done here, per
+the standing rule that dead-code removal is the last task, after the
+application works end to end — and this tree has just been verified green
+(771 API tests, 78+ browser checks, live probes). Ripping a module out of both
+AppState constructors invalidates that evidence for no functional gain.
+
+It is three references and one file when the time comes.
