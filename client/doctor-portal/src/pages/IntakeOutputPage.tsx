@@ -643,7 +643,7 @@ const IntakeOutputPage: React.FC = () => {
                 onClick={handleAddEntry}
                 disabled={isSubmitting}
                 className={`w-full py-3 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
-                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'
+                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-800'
                 }`}
               >
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}

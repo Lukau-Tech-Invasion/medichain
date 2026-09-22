@@ -424,7 +424,7 @@ export default function AppointmentSchedulerPage() {
 
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} aria-hidden="true" />
+            <Loader2 className="mx-auto animate-spin text-notice-subtle-fg mb-2" size={32} aria-hidden="true" />
             <p className="text-content-muted dark:text-gray-300">{t('docAppointments.loading')}</p>
           </div>
         ) : loadError ? (

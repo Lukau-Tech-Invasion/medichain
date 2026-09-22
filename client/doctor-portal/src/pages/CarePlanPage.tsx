@@ -184,7 +184,7 @@ export default function CarePlanPage() {
     switch (status) {
       case 'met': return 'bg-green-500 text-white';
       case 'partially-met': return 'bg-caution text-white';
-      case 'in-progress': return 'bg-blue-500 text-white';
+      case 'in-progress': return 'bg-blue-600 text-white';
       case 'not-met': return 'bg-red-500 text-white';
       case 'revised': return 'bg-purple-500 text-white';
       default: return 'bg-gray-300 text-content-secondary';

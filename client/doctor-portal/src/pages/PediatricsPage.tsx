@@ -162,9 +162,9 @@ const PediatricsPage: React.FC = () => {
     let cancelled = false;
     const loadGrowth = async () => {
       try {
-        const response = await listPedsForPatient(selectedPatient.id);
+        const rows = await listPedsForPatient(selectedPatient.id);
         if (cancelled) return;
-        const points: GrowthData[] = (response.items || [])
+        const points: GrowthData[] = rows
           .map((item) => {
             const wrapper = item as { data?: Record<string, unknown>; created_at?: string };
             const record = wrapper.data ?? (item as Record<string, unknown>);

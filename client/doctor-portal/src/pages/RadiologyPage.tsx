@@ -593,7 +593,7 @@ const RadiologyPage: React.FC = () => {
                 <button
                   onClick={() => saveReport(false)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-orange-600 text-white rounded hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.savePreliminary')}
                 </button>

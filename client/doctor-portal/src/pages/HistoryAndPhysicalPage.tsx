@@ -583,7 +583,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <span className="font-medium">{record.vitalSigns.bloodPressure}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Activity className="w-4 h-4 text-blue-500" />
+                      <Activity className="w-4 h-4 text-notice-subtle-fg" />
                       <span className="text-content-muted">{t('docHistoryPhysical.hrAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.heartRate}</span>
                     </div>

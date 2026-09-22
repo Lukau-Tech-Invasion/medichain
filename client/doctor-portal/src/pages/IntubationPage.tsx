@@ -627,7 +627,7 @@ const IntubationPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>

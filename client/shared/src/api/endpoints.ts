@@ -1900,13 +1900,16 @@ export async function getSplint(recordId: string): Promise<SplintCastRecord> {
  * series, and an all-patients read would expose every child's record to
  * satisfy a single patient's page.
  */
-export async function listPedsForPatient(
-  patientId: string,
-): Promise<{ success: boolean; items: unknown[] }> {
-  const response = await getApiClient().get<{ success?: boolean; items?: unknown[] } | null>(
+export async function listPedsForPatient(patientId: string): Promise<unknown[]> {
+  // `ApiClient` unwraps a recognised `{items: [...]}` envelope, so this
+  // resolves to the bare array. Reading `.items` off the result returned an
+  // empty list for every child who HAD growth measurements, and was correct
+  // only while the list was empty -- which is how it went unnoticed.
+  const response = await getApiClient().get<unknown[] | { items?: unknown[] } | null>(
     `/api/clinical/peds/patient/${encodeURIComponent(patientId)}`,
   );
-  return { success: true, items: response?.items ?? [] };
+  if (Array.isArray(response)) return response;
+  return response?.items ?? [];
 }
 
 export async function createPeds(data: unknown): Promise<AssessmentCreateResult> {
@@ -2068,7 +2071,18 @@ export async function getOrder(orderId: string): Promise<PhysicianOrder> {
   return getApiClient().get(`/api/clinical/order/${orderId}`);
 }
 
-export async function listOrders(): Promise<{ success: boolean; orders: PhysicianOrderListItem[] }> {
+/**
+ * The physician order list.
+ *
+ * Returns the bare array, which is what a caller actually receives: the API
+ * answers `{"orders": [...]}` and `ApiClient` unwraps a recognised list
+ * envelope before this function returns. Declaring the envelope here was a
+ * fiction TypeScript could not catch, and the orders screen believed it --
+ * reading `data.orders` (undefined) and `data.success` (undefined), so it
+ * cleared the list it had just loaded and showed "Failed to connect to
+ * server" on every visit while the endpoint answered 200.
+ */
+export async function listOrders(): Promise<PhysicianOrderListItem[]> {
   return getApiClient().get('/api/clinical/orders');
 }
 

@@ -1022,7 +1022,7 @@ const AutopsyPage: React.FC = () => {
 
             <button
               onClick={handleCreateAutopsy}
-              className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-orange-600 hover:bg-orange-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
               {t('docAutopsy.createBtn')}

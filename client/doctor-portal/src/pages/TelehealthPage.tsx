@@ -265,7 +265,7 @@ export default function TelehealthPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-2">
-            <Video className="text-blue-500" size={24} />
+            <Video className="text-notice-subtle-fg" size={24} />
             {t('docTelehealth.title')}
           </h1>
           <p className="text-content-muted text-sm mt-1">{t('docTelehealth.subtitle')}</p>
@@ -317,7 +317,7 @@ export default function TelehealthPage() {
         </div>
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
+            <Loader2 className="mx-auto animate-spin text-notice-subtle-fg mb-2" size={32} />
             <p className="text-content-muted">{t('docTelehealth.loading')}</p>
           </div>
         ) : sessions.length === 0 ? (

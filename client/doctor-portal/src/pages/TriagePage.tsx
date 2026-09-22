@@ -525,7 +525,7 @@ function TriagePage() {
               {/* Respiratory Rate */}
               <div>
                 <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
-                  <Wind size={14} className="text-blue-500" />
+                  <Wind size={14} className="text-notice-subtle-fg" />
                   {t('docTriage.respRateLabel')}
                 </label>
                 <input

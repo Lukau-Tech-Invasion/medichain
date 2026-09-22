@@ -1295,7 +1295,7 @@ const CDSAlertsPage: React.FC = () => {
               </div>
               <button
                 onClick={handleAddAction}
-                className="mt-3 flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                className="mt-3 flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-lg hover:bg-orange-800 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 {t('docCDS.addActionBtn')}

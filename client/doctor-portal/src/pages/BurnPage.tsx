@@ -586,7 +586,7 @@ export default function BurnPage() {
                   {t('docBurn.lundBrowderTitle')}
                 </h2>
                 <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
-                  <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <Info className="h-5 w-5 mr-2 text-notice-subtle-fg flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-notice-subtle-fg">
                     {t('docBurn.lundBrowderInfo')}
                   </p>

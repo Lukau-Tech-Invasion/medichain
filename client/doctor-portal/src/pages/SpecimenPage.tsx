@@ -227,7 +227,7 @@ const SpecimenPage: React.FC = () => {
       'blood': <Droplet className="w-5 h-5 text-red-500" />,
       'urine': <TestTube className="w-5 h-5 text-yellow-500" />,
       'stool': <TestTube className="w-5 h-5 text-caution-subtle-fg" />,
-      'swab': <TestTube className="w-5 h-5 text-blue-500" />,
+      'swab': <TestTube className="w-5 h-5 text-notice-subtle-fg" />,
       'tissue': <FlaskConical className="w-5 h-5 text-pink-500" />,
       'csf': <Droplet className="w-5 h-5 text-purple-500" />,
       'sputum': <TestTube className="w-5 h-5 text-green-500" />,

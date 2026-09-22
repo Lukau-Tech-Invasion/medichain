@@ -455,7 +455,7 @@ export default function MCIPage() {
                 {showAddPatient && (
                   <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-notice">
                     <h3 className="text-lg font-bold mb-4 flex items-center">
-                      <Tag className="h-5 w-5 mr-2 text-blue-500" />
+                      <Tag className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                       {t('docMCI.newPatientTagHeading', { num: tagCounter.toString().padStart(4, '0') })}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -491,7 +491,7 @@ export default function IVSitePage() {
           <div className="lg:col-span-1">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-bold text-content mb-4 flex items-center">
-                <User className="h-5 w-5 mr-2 text-blue-500" />
+                <User className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                 {t('docIVSite.selectPatientTitle')}
               </h2>
               <div className="relative mb-4">
@@ -642,7 +642,7 @@ export default function IVSitePage() {
                               <div className="flex justify-between items-start">
                                 <div>
                                   <div className="flex items-center space-x-3">
-                                    <MapPin className="h-5 w-5 text-blue-500" />
+                                    <MapPin className="h-5 w-5 text-notice-subtle-fg" />
                                     <h3 className="font-bold text-content">{locationLabels[site.location]}</h3>
                                     <span className="text-xs px-2 py-1 rounded bg-notice-subtle text-notice-subtle-fg">
                                       {site.gauge}

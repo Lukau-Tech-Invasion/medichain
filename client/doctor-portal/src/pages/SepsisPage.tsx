@@ -453,10 +453,10 @@ export default function SepsisPage() {
                 <h2 className="text-lg font-semibold text-content mb-4">{t('docSepsis.classification')}</h2>
                 <div className="space-y-2">
                   {[
-                    { value: 'sirs', label: t('docSepsis.classification_sirs'), color: 'bg-caution' },
-                    { value: 'sepsis', label: t('docSepsis.classification_sepsis'), color: 'bg-orange-500' },
-                    { value: 'severe_sepsis', label: t('docSepsis.classification_severe_sepsis'), color: 'bg-red-500' },
-                    { value: 'septic_shock', label: t('docSepsis.classification_septic_shock'), color: 'bg-red-800' }
+                    { value: 'sirs', label: t('docSepsis.classification_sirs'), color: 'bg-caution text-caution-fg' },
+                    { value: 'sepsis', label: t('docSepsis.classification_sepsis'), color: 'bg-orange-700 text-white' },
+                    { value: 'severe_sepsis', label: t('docSepsis.classification_severe_sepsis'), color: 'bg-red-700 text-white' },
+                    { value: 'septic_shock', label: t('docSepsis.classification_septic_shock'), color: 'bg-red-900 text-white' }
                   ].map(cls => (
                     <button
                       key={cls.value}
@@ -464,7 +464,7 @@ export default function SepsisPage() {
                       onClick={() => setClassification(cls.value as typeof classification)}
                       className={`w-full p-3 rounded-lg text-left font-medium transition-all ${
                         classification === cls.value
-                          ? `${cls.color} text-white`
+                          ? cls.color
                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
@@ -695,7 +695,7 @@ export default function SepsisPage() {
                   <button
                     type="button"
                     onClick={addLactateReading}
-                    className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700"
+                    className="bg-orange-700 text-white px-4 py-2 rounded-lg hover:bg-orange-800"
                   >
                     {t('docSepsis.add')}
                   </button>
@@ -918,7 +918,7 @@ export default function SepsisPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

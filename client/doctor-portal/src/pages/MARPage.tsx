@@ -552,7 +552,7 @@ export default function MARPage() {
                                   <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.highAlertBadge')}</span>
                                 )}
                                 {order.prn && (
-                                  <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.prnBadge')}</span>
+                                  <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.prnBadge')}</span>
                                 )}
                               </div>
                               <p className="text-sm text-content-muted">
@@ -639,7 +639,7 @@ export default function MARPage() {
                 {/* PRN Medications */}
                 <div className="p-4 border-t bg-notice-subtle">
                   <h3 className="font-bold text-content mb-4 flex items-center">
-                    <ThermometerSun className="h-5 w-5 mr-2 text-blue-500" />
+                    <ThermometerSun className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                     {t('docMAR.prnMedicationsAvailableHeading')}
                   </h3>
                   <div className="flex flex-wrap gap-2">

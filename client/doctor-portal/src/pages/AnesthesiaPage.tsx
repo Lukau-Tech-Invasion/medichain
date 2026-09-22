@@ -573,7 +573,7 @@ const AnesthesiaPage: React.FC = () => {
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
-                <button onClick={addVital} className="bg-cyan-600 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
+                <button onClick={addVital} className="bg-cyan-700 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
               </div>
             </div>
 
@@ -616,7 +616,7 @@ const AnesthesiaPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700"
+              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800"
             >
               {t('docAnesthesia.save')}
             </button>

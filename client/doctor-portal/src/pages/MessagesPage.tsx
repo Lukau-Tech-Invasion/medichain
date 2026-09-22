@@ -185,7 +185,7 @@ export default function MessagesPage() {
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-2">
-            <MessageSquare className="text-blue-500" size={24} />
+            <MessageSquare className="text-notice-subtle-fg" size={24} />
             {t('docMessages.title')}
             {unreadCount > 0 && (
               <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full ml-1">
@@ -229,7 +229,7 @@ export default function MessagesPage() {
           </div>
           {loading ? (
             <div className="p-8 text-center">
-              <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
+              <Loader2 className="mx-auto animate-spin text-notice-subtle-fg mb-2" size={32} />
               <p className="text-content-muted">{t('docMessages.loading')}</p>
             </div>
           ) : conversations.length === 0 ? (

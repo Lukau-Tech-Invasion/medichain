@@ -28,22 +28,24 @@ describe('OrdersPage', () => {
       isAuthenticated: true,
     });
 
-    vi.mocked(shared.listOrders).mockResolvedValue({
-      success: true,
-      orders: [
-        {
-          order_id: 'o1',
-          patient_id: 'PAT-001',
-          order_type: 'lab',
-          order_details: 'CBC with diff',
-          priority: 'routine',
-          status: 'in_progress',
-          notes: null,
-          ordering_provider: 'Dr Smith',
-          ordered_at: '2026-08-12T10:00:00Z',
-        },
-      ],
-    });
+    // The bare array, which is what a caller receives: ApiClient unwraps the
+    // `{orders: [...]}` envelope. This mock used to return the envelope, so
+    // the test passed against a shape the running application never sees --
+    // and the page's live behaviour (an error banner and an empty list on
+    // every visit) went unnoticed for as long as the mock disagreed.
+    vi.mocked(shared.listOrders).mockResolvedValue([
+      {
+        order_id: 'o1',
+        patient_id: 'PAT-001',
+        order_type: 'lab',
+        order_details: 'CBC with diff',
+        priority: 'routine',
+        status: 'in_progress',
+        notes: null,
+        ordering_provider: 'Dr Smith',
+        ordered_at: '2026-08-12T10:00:00Z',
+      },
+    ]);
   });
 
   it('renders orders page', async () => {

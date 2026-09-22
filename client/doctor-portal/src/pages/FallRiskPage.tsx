@@ -897,7 +897,7 @@ export default function FallRiskPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-orange-600 text-white px-8 py-3 rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center"
+                  className="bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 disabled:opacity-50 flex items-center"
                 >
                   {isSubmitting ? (
                     <>

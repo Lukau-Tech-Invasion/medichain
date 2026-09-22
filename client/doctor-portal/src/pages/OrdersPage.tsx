@@ -75,8 +75,8 @@ function OrdersPage() {
     if (!user) return;
     try {
       setLoading(true);
-      const data = await listOrders();
-      setOrders((data.orders || []).map((order) => ({
+      const rows = await listOrders();
+      setOrders(rows.map((order) => ({
           ...order,
           order_type: order.order_type.toLowerCase() === 'laboratory'
             ? 'lab'
@@ -86,12 +86,10 @@ function OrdersPage() {
           ordered_at: Date.parse(order.ordered_at) || 0,
           notes: order.notes || '',
         })));
-      if (data.success) {
-        setError(null);
-      } else {
-        setError(t('docOrders.failConnect'));
-        setOrders([]);
-      }
+      // A request that resolved IS the success signal. The old code also
+      // required a `success` flag the response does not carry, so it reported
+      // a connection failure on every load and discarded the orders with it.
+      setError(null);
     } catch (err) {
       setError(t('docOrders.failFetch'));
       setOrders([]);
@@ -335,7 +333,7 @@ function OrdersPage() {
             <p className="text-content-muted mt-3">{t('docOrders.loading')}</p>
           </div>
         ) : error ? (
-          <div className="p-12 text-center text-red-500">{error}</div>
+          <div className="p-12 text-center text-critical-subtle-fg">{error}</div>
         ) : filteredOrders.length === 0 ? (
           <div className="p-12 text-center text-content-muted">{t('docOrders.noneFound')}</div>
         ) : (

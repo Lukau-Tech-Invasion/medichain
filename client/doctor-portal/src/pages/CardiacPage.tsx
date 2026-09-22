@@ -252,12 +252,12 @@ export default function CardiacPage() {
   };
 
   const eventTypes = [
-    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-critical' },
-    { value: 'nstemi', label: t('docCardiac.eventType_nstemi'), color: 'bg-orange-500' },
-    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-caution' },
-    { value: 'heart_failure', label: t('docCardiac.eventType_heart_failure'), color: 'bg-purple-500' },
-    { value: 'arrhythmia', label: t('docCardiac.eventType_arrhythmia'), color: 'bg-blue-500' },
-    { value: 'cardiac_arrest', label: t('docCardiac.eventType_cardiac_arrest'), color: 'bg-red-800' }
+    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-critical text-critical-fg' },
+    { value: 'nstemi', label: t('docCardiac.eventType_nstemi'), color: 'bg-orange-700 text-white' },
+    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-caution text-caution-fg' },
+    { value: 'heart_failure', label: t('docCardiac.eventType_heart_failure'), color: 'bg-purple-700 text-white' },
+    { value: 'arrhythmia', label: t('docCardiac.eventType_arrhythmia'), color: 'bg-blue-600 text-white' },
+    { value: 'cardiac_arrest', label: t('docCardiac.eventType_cardiac_arrest'), color: 'bg-red-800 text-white' }
   ];
 
   const rhythmTypes = [
@@ -285,7 +285,7 @@ export default function CardiacPage() {
               </div>
             </div>
             {eventType && (
-              <div className={`px-4 py-2 rounded-full text-white font-bold ${eventTypes.find(e => e.value === eventType)?.color}`}>
+              <div className={`px-4 py-2 rounded-full font-bold ${eventTypes.find(e => e.value === eventType)?.color}`}>
                 {eventTypes.find(e => e.value === eventType)?.label}
               </div>
             )}

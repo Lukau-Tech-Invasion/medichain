@@ -772,7 +772,7 @@ const WoundCarePage: React.FC = () => {
               <div className="bg-notice-subtle rounded-lg p-4">
                 <p className="text-sm text-notice-subtle-fg font-medium mb-1">{t('docWoundCare.currentDressing')}</p>
                 <p className="text-sm">{selectedWound.dressing}</p>
-                <p className="text-xs text-blue-500 mt-1">{t('docWoundCare.changeFreq', { freq: selectedWound.frequency })}</p>
+                <p className="text-xs text-notice-subtle-fg mt-1">{t('docWoundCare.changeFreq', { freq: selectedWound.frequency })}</p>
               </div>
 
               {selectedWound.notes && (

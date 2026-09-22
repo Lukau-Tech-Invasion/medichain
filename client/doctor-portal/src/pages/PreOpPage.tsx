@@ -814,7 +814,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Pill className="h-5 w-5 mr-2 text-blue-500" />
+                    <Pill className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                     {t('docPreOp.currentMedicationsHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
@@ -831,7 +831,7 @@ export default function PreOpPage() {
                     <button
                       type="button"
                       onClick={addMedication}
-                      className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                     >
                       {t('docPreOp.addButton')}
                     </button>
@@ -974,7 +974,7 @@ export default function PreOpPage() {
             </h2>
 
             <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
-              <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
+              <Info className="h-5 w-5 mr-2 text-notice-subtle-fg flex-shrink-0 mt-0.5" />
               <p className="text-sm text-notice-subtle-fg">
                 {t('docPreOp.checklistInfoBanner')}
               </p>

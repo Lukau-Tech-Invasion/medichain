@@ -584,7 +584,7 @@ function DischargePage() {
         </div>
         <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-blue-500">
           <div className="flex items-center gap-3">
-            <Home className="text-blue-500" size={24} />
+            <Home className="text-notice-subtle-fg" size={24} />
             <div>
               <p className="text-2xl font-bold text-content">{discharges.filter(d => d.discharge_disposition === 'home').length}</p>
               <p className="text-sm text-content-muted">{t('docDischarge.statDischargedHome')}</p>
