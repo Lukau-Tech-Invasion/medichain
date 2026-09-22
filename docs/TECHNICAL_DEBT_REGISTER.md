@@ -4466,3 +4466,68 @@ physician was the one person turned away).
 
 If a nursing or lab screen is later linked from a doctor's view, it moves into
 the first group and should be added then.
+
+---
+
+## What "running in Docker" turned out to mean — 2026-09-22
+
+The stack ran five containers and looked complete. It was not, in a way no
+screen showed: **the API read 76 environment variables and Compose passed
+through 14**. Every feature governed by the other 62 was off in the running
+deployment *however it was configured*, because the value could not reach the
+process. `docker exec medichain_api env` was the only place that fact was
+visible, and nothing pointed there.
+
+What that silently disabled, each confirmed from the API's own startup output:
+
+| Feature | How it failed | Now |
+| --- | --- | --- |
+| Blockchain anchoring | `No SUBSTRATE_WS_URL set - blockchain features disabled` | node containerised; see below |
+| Self-hosted telehealth | fell back to public `meet.jit.si`, open rooms | four Jitsi services in the stack, JWT auth, guests off |
+| Regulator breach email | `SMTP_HOST` unset — never sent, never faked | MailHog, real SMTP, inbox at :8025 |
+| Appointment + join windows | "appointment times are being treated as UTC" | `CLINIC_TIMEZONE=Africa/Johannesburg` |
+| Session, JWT, metrics secrets | three insecure defaults announced at every boot | generated |
+| SMS, push, translation, dictation, national ID | default-off or unkeyed | wired; fail-closed until keyed |
+
+### Three defects the bring-up itself exposed
+
+None would have surfaced from reading the code.
+
+**An empty environment variable is not a misconfiguration.** Wiring the
+variables through broke the boot: `${VAR:-}` sets a variable to an empty
+string, and `EmergencyAuditMode::from_env` defaulted only on *absence*. The
+container refused to start, quoting a value nobody had written. A container
+almost never expresses "not configured" by omitting a variable.
+
+**One name for three addresses.** `JITSI_DOMAIN` was the JWT's `sub`, the host
+in the browser's join URL, *and* the host the server health-probed. Those are
+three different values on any deployment not served from 443 — the token must
+be scoped to `localhost`, the browser opens `https://localhost:8443`, the API
+reaches `http://jitsi-web/`, and `auth.localhost:8443` is not a valid XMPP
+domain at all. Configuring any one of them broke the other two.
+
+**Prosody creates the accounts its components log in with.** The Jitsi
+component passwords were absent. Supplied to only jicofo and jvb, the accounts
+would not exist and those two would fail to *authenticate* rather than fail to
+*start* — containers up, no call ever connecting, which is the harder version
+to diagnose.
+
+### Still open
+
+* **The Substrate node.** `blockchain/Dockerfile` and
+  `docker-compose.blockchain.yml` now exist and the compose config validates,
+  so there is something to start where previously `docker-compose.prod.yml`
+  declared a `substrate-node` service with a healthcheck, no image and no
+  build. Whether it can be built *on this host* is a disk question: a Polkadot
+  SDK node wants 20-30 GB of intermediate artifacts, and C: had 3.9 GB free
+  with roughly 14 GB reclaimed inside the Docker VHDX — which does not shrink,
+  so freeing space inside it does not return space to the host. If the build
+  cannot complete here it is not a code defect: production points
+  `SUBSTRATE_WS_URL` at an externally managed, independently qualified node by
+  design, and the dev chain is a convenience.
+* **SMS, push, translation, dictation, national ID** need real third-party
+  credentials. Deliberately not stubbed: a fake SMS gateway would make "the
+  message was sent" true in the stack and false in the world.
+* **The dispensing policy is still the example file.** Its version string is
+  recorded against every secondary-verification decision, so a real deployment
+  must mount its own approved policy at the same path.
