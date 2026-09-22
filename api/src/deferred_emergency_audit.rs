@@ -23,7 +23,19 @@ pub enum EmergencyAuditMode {
 
 impl EmergencyAuditMode {
     pub fn from_env() -> Result<Self, String> {
-        Self::parse(&std::env::var(MODE_ENV).unwrap_or_else(|_| "deny".to_string()))
+        // An EMPTY value means the same as an unset one.
+        //
+        // `unwrap_or_else` alone only covers "the variable does not exist",
+        // and a container almost never expresses "not configured" that way: a
+        // Compose pass-through written `${VAR:-}` sets the variable to an
+        // empty string, which reached `parse` and refused to boot with
+        // "must be deny or durable_defer, got ". The API would not start, and
+        // the message pointed at a value nobody had written.
+        let configured = std::env::var(MODE_ENV).unwrap_or_default();
+        if configured.trim().is_empty() {
+            return Ok(Self::Deny);
+        }
+        Self::parse(&configured)
     }
 
     fn parse(value: &str) -> Result<Self, String> {
