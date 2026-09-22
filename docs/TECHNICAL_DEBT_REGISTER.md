@@ -4431,3 +4431,38 @@ application works end to end — and this tree has just been verified green
 AppState constructors invalidates that evidence for no functional gain.
 
 It is three references and one file when the time comes.
+
+---
+
+## Nursing, lab and pharmacy screens a doctor cannot open — surveyed 2026-09-22
+
+Signing in as a doctor and opening all 76 doctor-portal routes found five
+screens the router refused that the API serves a doctor. Those five are fixed
+(see `fix(nav): five screens refused a doctor that the API serves them`).
+
+The same survey found a second group, left alone deliberately:
+
+| Route | Refused to a doctor as | API gate |
+| --- | --- | --- |
+| `/nursing`, `/nursing-care-plan`, `/mar`, `/care-plan`, `/intake-output`, `/wound-care`, `/iv-site`, `/shift-handoff`, `/fall-risk` | nurses | mostly `can_edit_medical_records`, which admits a doctor |
+| `/incident-report` | nurses | `require_clinical_staff` |
+| `/immunization` | nurses | `require_clinical_staff` |
+| `/specimen`, `/chain-of-custody`, `/lab-qc`, `/blood-bank` | laboratory technicians | clinical-staff or lab-specific |
+| `/medication-admin` | pharmacists | pharmacy gate |
+| `/mci` | administrators | — |
+
+These are **not** being opened up, for a reason the five fixed ones did not
+share: nothing in a doctor's interface links to any of them, so no control is
+dead and no workflow is blocked. They are reachable only by typing the URL.
+Adding twenty routes to `DOCTOR_NAV` to close a gap nobody can walk into
+would bloat the sidebar the role configuration exists to keep focused.
+
+The criterion used, and worth keeping: **a route belongs in a role's nav when
+the API admits that role AND either the product offers them a way in, or the
+screen is that role's own professional responsibility.** `/triage` met the
+first (a dashboard quick action pressed straight into a refusal);
+`/death-certificate` met the second (an attending physician signs it, and the
+physician was the one person turned away).
+
+If a nursing or lab screen is later linked from a doctor's view, it moves into
+the first group and should be added then.
