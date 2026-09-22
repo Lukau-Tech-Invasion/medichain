@@ -376,7 +376,7 @@ const LabTrendsPage: React.FC = () => {
               onClick={() => setTimeRange(option.value as typeof timeRange)}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                 timeRange === option.value
-                  ? 'bg-emerald-500 text-white'
+                  ? 'bg-ok text-ok-fg'
                   : 'text-content-muted hover:bg-surface-sunken'
               }`}
             >
@@ -393,7 +393,7 @@ const LabTrendsPage: React.FC = () => {
             onClick={() => setSelectedCategory('all')}
             className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
               selectedCategory === 'all'
-                ? 'bg-emerald-500 text-white'
+                ? 'bg-ok text-ok-fg'
                 : 'bg-surface text-content-muted border border-border'
             }`}
           >
@@ -405,7 +405,7 @@ const LabTrendsPage: React.FC = () => {
               onClick={() => setSelectedCategory(cat)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
                 selectedCategory === cat
-                  ? 'bg-emerald-500 text-white'
+                  ? 'bg-ok text-ok-fg'
                   : 'bg-surface text-content-muted border border-border'
               }`}
             >

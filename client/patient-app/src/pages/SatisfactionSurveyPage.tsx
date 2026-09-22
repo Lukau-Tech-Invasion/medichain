@@ -325,7 +325,7 @@ const SatisfactionSurveyPage: React.FC = () => {
 
               <button
                 onClick={() => setStep('visit')}
-                className="w-full py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
+                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
               >
                 {t('survey.startSurvey')}
                 <ChevronRight className="w-5 h-5" />
@@ -334,7 +334,7 @@ const SatisfactionSurveyPage: React.FC = () => {
 
             <div className="bg-notice-subtle rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-notice-subtle-fg mt-0.5" />
                 <div>
                   <h4 className="font-medium text-notice-subtle-fg">{t('survey.anonTitle')}</h4>
                   <p className="text-sm text-notice-subtle-fg mt-1">
@@ -368,7 +368,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={!isStepComplete(visitQuestions)}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   isStepComplete(visitQuestions)
-                    ? 'bg-pink-500 text-white hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -399,7 +399,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={!isStepComplete(staffQuestions)}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   isStepComplete(staffQuestions)
-                    ? 'bg-pink-500 text-white hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -427,7 +427,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setStep('feedback')}
-                className="flex-1 py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
               >
                 {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />
@@ -543,7 +543,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={overallRating === 0 || wouldRecommend === null || isSubmitting}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   overallRating > 0 && wouldRecommend !== null && !isSubmitting
-                    ? 'bg-pink-500 text-white hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -579,7 +579,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 setAdditionalComments('');
                 setSubmitError(null);
               }}
-              className="px-6 py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600"
             >
               {t('survey.submitAnother')}
             </button>

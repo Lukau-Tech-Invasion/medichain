@@ -455,7 +455,7 @@ export function MyProfilePage() {
       {/* Success Message */}
       {saveSuccess && (
         <div className="success-card flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-success-500" />
+          <CheckCircle className="w-5 h-5 text-ok-subtle-fg" />
           <span>{saveSuccess}</span>
         </div>
       )}
@@ -1036,8 +1036,8 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-success-50 rounded-xl flex items-center justify-center">
-              <Phone className="w-6 h-6 text-success-500" />
+            <div className="w-12 h-12 bg-ok-subtle rounded-xl flex items-center justify-center">
+              <Phone className="w-6 h-6 text-ok-subtle-fg" />
             </div>
             <div>
               <h2 className="font-semibold text-lg text-content">{t('profile.emergencyContacts')}</h2>
@@ -1047,7 +1047,7 @@ export function MyProfilePage() {
           {!isAddingContact && profile !== null && profile.emergencyContacts.length < MAX_EMERGENCY_CONTACTS && (
             <button
               onClick={() => setIsAddingContact(true)}
-              className="flex items-center gap-2 px-4 py-2 text-success-600 hover:bg-success-50 rounded-xl transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-xl transition-colors"
             >
               <Plus className="w-5 h-5" />
               {t('common.add')}
@@ -1121,7 +1121,7 @@ export function MyProfilePage() {
                 <button
                   onClick={handleAddContact}
                   disabled={isSaving || !newContact.name || !newContact.phone || !newContact.relationship}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1156,7 +1156,7 @@ export function MyProfilePage() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
                   href={`tel:${sanitizePhoneForTel(contact.phone)}`}
-                  className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                 >
                   <Phone className="w-4 h-4" />
                   {t('profile.call')}

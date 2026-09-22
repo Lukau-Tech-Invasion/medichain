@@ -347,7 +347,7 @@ const OfflineSyncPage: React.FC = () => {
 
   const getCategoryIcon = (category: DataCategory) => {
     switch (category) {
-      case 'medical-records': return <FileText className="w-5 h-5 text-blue-500" />;
+      case 'medical-records': return <FileText className="w-5 h-5 text-notice-subtle-fg" />;
       case 'appointments': return <Clock className="w-5 h-5 text-purple-500" />;
       case 'medications': return <Shield className="w-5 h-5 text-green-500" />;
       case 'lab-results': return <Database className="w-5 h-5 text-orange-500" />;
@@ -360,7 +360,7 @@ const OfflineSyncPage: React.FC = () => {
     switch (status) {
       case 'synced': return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
-      case 'syncing': return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
+      case 'syncing': return <RefreshCw className="w-4 h-4 text-notice-subtle-fg animate-spin" />;
       case 'error': return <AlertTriangle className="w-4 h-4 text-red-500" />;
       case 'offline': return <CloudOff className="w-4 h-4 text-content-muted" />;
     }
@@ -482,7 +482,7 @@ const OfflineSyncPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id as typeof activeTab)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-sky-500 text-white'
+                  ? 'bg-brand text-brand-fg'
                   : 'text-content-muted hover:bg-surface-sunken'
               }`}
             >
@@ -601,7 +601,7 @@ const OfflineSyncPage: React.FC = () => {
                   <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex items-center gap-3">
                       {item.action === 'upload' ? (
-                        <Upload className="w-4 h-4 text-blue-500" />
+                        <Upload className="w-4 h-4 text-notice-subtle-fg" />
                       ) : (
                         <Download className="w-4 h-4 text-green-500" />
                       )}
@@ -762,7 +762,7 @@ const OfflineSyncPage: React.FC = () => {
           {/* Service Worker Info */}
           <div className="bg-notice-subtle rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <Settings className="w-5 h-5 text-blue-500 mt-0.5" />
+              <Settings className="w-5 h-5 text-notice-subtle-fg mt-0.5" />
               <div>
                 <h4 className="font-medium text-notice-subtle-fg">{t('offlineSync.swActive')}</h4>
                 <p className="text-sm text-notice-subtle-fg mt-1">

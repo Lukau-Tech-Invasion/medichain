@@ -822,7 +822,7 @@ export function MyRecordsPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-medium text-content truncate">{record.title}</h3>
                   {record.verified && (
-                    <Shield className="w-4 h-4 text-success-500 flex-shrink-0" />
+                    <Shield className="w-4 h-4 text-ok-subtle-fg flex-shrink-0" />
                   )}
                 </div>
                 <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
@@ -967,7 +967,7 @@ export function MyRecordsPage() {
                   </div>
                   {selectedRecord.reviewedBy && (
                     <p className="text-xs text-content-muted flex items-center gap-1">
-                      <Shield className="w-3 h-3 text-success-500" />
+                      <Shield className="w-3 h-3 text-ok-subtle-fg" />
                       {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
                     </p>
                   )}

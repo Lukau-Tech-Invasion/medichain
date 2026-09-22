@@ -241,9 +241,9 @@ export function ConsentManagementPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
-        return 'text-success-600';
+        return 'text-ok-subtle-fg';
       case 'expired':
-        return 'text-warning-600';
+        return 'text-caution-subtle-fg';
       case 'revoked':
         return 'text-critical-subtle-fg';
       default:
@@ -337,11 +337,11 @@ export function ConsentManagementPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-success-600">{activeGrants.length}</div>
+          <div className="text-2xl font-bold text-ok-subtle-fg">{activeGrants.length}</div>
           <div className="text-xs text-content-muted">{t('consent.active')}</div>
         </div>
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-warning-600">{pendingRequests.length}</div>
+          <div className="text-2xl font-bold text-caution-subtle-fg">{pendingRequests.length}</div>
           <div className="text-xs text-content-muted">{t('consent.pending')}</div>
         </div>
         <div className="patient-card text-center">
@@ -608,7 +608,7 @@ export function ConsentManagementPage() {
                   </select>
                   <button
                     onClick={() => handleApproveRequest(request.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                   >
                     <CheckCircle className="w-5 h-5" />
                     {t('consent.approve')}

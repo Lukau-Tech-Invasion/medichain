@@ -388,9 +388,12 @@ export function MedicalIdPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Lock className={data.preferences.show_when_locked ? 'text-ok-subtle-fg' : 'text-content-muted'} />
-            <div>
+            <div className={data.preferences.show_when_locked ? 'text-ok-subtle-fg' : 'text-content'}>
               <p className="font-medium">{t('medicalId.showWhenLocked')}</p>
-              <p className="text-sm text-content-muted">{t('medicalId.showWhenLockedDesc')}</p>
+              {/* Muted grey is a colour for a neutral card. On the green
+                  `bg-ok-subtle` this panel takes when the setting is on it
+                  measured 3.59:1, so the copy follows the panel's own pair. */}
+              <p className="text-sm opacity-90">{t('medicalId.showWhenLockedDesc')}</p>
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -419,7 +422,7 @@ export function MedicalIdPage() {
               <h2 className="text-2xl font-bold">
                 {data.name ?? t('medicalId.nameUnavailable')}
               </h2>
-              <div className="flex items-center gap-2 text-critical-fg">
+              <div className="flex items-center gap-2 text-white/90">
                 <Calendar className="w-4 h-4" />
                 <span>
                   {data.date_of_birth
@@ -509,7 +512,7 @@ export function MedicalIdPage() {
         {/* Medical Conditions */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
-            <Stethoscope className="w-5 h-5 text-blue-500" />
+            <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
             <h3 className="font-bold text-content">{t('medicalId.conditionsTitle')}</h3>
           </div>
           {(data.conditions ?? []).length > 0 ? (
@@ -563,7 +566,7 @@ export function MedicalIdPage() {
                   {normalized ? (
                     <a
                       href={`tel:${normalized}`}
-                      className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
+                      className="bg-ok text-ok-fg px-4 py-2 rounded-lg font-medium flex items-center gap-2"
                     >
                       <Phone className="w-4 h-4" />
                       {t('medicalId.callButton')}
@@ -588,7 +591,7 @@ export function MedicalIdPage() {
         {data.primary_doctor && (
           <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
-              <Stethoscope className="w-5 h-5 text-blue-500" />
+              <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
               <h3 className="font-bold text-content">{t('medicalId.primaryCareProviderTitle')}</h3>
             </div>
             <div className="bg-notice-subtle p-3 rounded-lg">

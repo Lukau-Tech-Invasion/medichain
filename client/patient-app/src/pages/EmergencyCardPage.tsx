@@ -646,7 +646,7 @@ export function EmergencyCardPage() {
             return normalized ? (
               <a
                 href={`tel:${normalized}`}
-                className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
               >
                 <Phone className="w-4 h-4" />
                 {t('emergency.call')}

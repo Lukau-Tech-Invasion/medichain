@@ -118,7 +118,7 @@ export function VitalsPage() {
 
   const TrendIcon = ({ direction }: { direction: 'up' | 'down' | 'stable' }) => {
     if (direction === 'up') return <TrendingUp className="w-4 h-4 text-orange-500" />;
-    if (direction === 'down') return <TrendingDown className="w-4 h-4 text-blue-500" />;
+    if (direction === 'down') return <TrendingDown className="w-4 h-4 text-notice-subtle-fg" />;
     return <Minus className="w-4 h-4 text-content-muted" />;
   };
 
