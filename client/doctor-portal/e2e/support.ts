@@ -1,4 +1,6 @@
 import { expect, type Page } from '@playwright/test';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 /** Where the shared signed-in session is stored between projects. */
 export const AUTH_STATE = 'e2e/.auth/doctor.json';
@@ -6,15 +8,10 @@ export const AUTH_STATE = 'e2e/.auth/doctor.json';
 /**
  * Shared harness for the doctor-portal browser suites.
  *
- * Sign-in goes through the demo-credential shortcut, which the login page
- * populates from `GET /api/auth/demo-credentials`. That endpoint answers only
- * when the API runs with **`MEDICHAIN_DEV_MODE`** *and* demo mode — anywhere
- * else it is a deliberate 403/404, so the demo buttons never render.
- *
- * When that happens the old `beforeEach` clicked a button that did not exist
- * and sat there for the full 30-second timeout, once per test, reporting only
- * "locator.click: Test timeout exceeded". The guard below turns a
- * ten-minute mystery into one line naming the missing environment variable.
+ * Sign-in uses the exact synthetic credentials emitted by the current fixture
+ * seed. Legacy quick-login accounts can remain in a long-lived database, so a
+ * role-labelled demo button is not sufficient proof that the suite exercised
+ * the patient and staff identities named in `.browser-test/fixtures.json`.
  */
 /**
  * Every account the portal serves.
@@ -32,21 +29,74 @@ export const AUTH_STATE = 'e2e/.auth/doctor.json';
 export const ROLES = ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] as const;
 export type RoleName = (typeof ROLES)[number];
 
+interface StaffFixture {
+  role: RoleName;
+  login_id: string;
+  password: string;
+}
+
+const fixtureCursor = new Map<RoleName, number>();
+const fixtureLoginTimes = new Map<string, number[]>();
+
 /**
- * How each role's demo button is identified on the sign-in screen.
+ * Locate `.browser-test/fixtures.json` from wherever the run was launched.
  *
- * Matched on the ROLE the button advertises, never the person's name. The
- * hardcoded demo identities were removed and the list now comes from the
- * database, so a selector naming "Mbeki" or "Dr Browser Test" breaks silently
- * the next time a seed changes — which is exactly what happened once already.
+ * This was `resolve(cwd, '..', ...)`, which only resolves when the suite is
+ * started from inside `client/doctor-portal`. Started from the repository root
+ * -- which is how the documented `npx playwright test --config=...` line reads,
+ * and how CI invokes it -- every test failed with a bare ENOENT naming a
+ * `client/.browser-test` that has never existed, and the failure reads as
+ * "nobody seeded the fixtures" rather than "the harness looked in the wrong
+ * place". Walking up is cwd-independent and bounded by the filesystem root.
  */
-const ROLE_BUTTON: Record<RoleName, RegExp> = {
-  Doctor: /doctor/i,
-  Nurse: /nurse/i,
-  Pharmacist: /pharmacist/i,
-  LabTechnician: /lab\s*tech/i,
-  Admin: /admin/i,
-};
+function findFixtureFile(): string {
+  let directory = process.cwd();
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = resolve(directory, '.browser-test', 'fixtures.json');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      break;
+    }
+    directory = parent;
+  }
+  throw new Error(
+    `No .browser-test/fixtures.json above ${process.cwd()}; run the browser fixture seed ` +
+      '(npx tsx scripts/seed-browser-test-fixtures.ts --i-understand-this-writes-accounts).'
+  );
+}
+
+/** Read the exact synthetic account produced by the current seed run. */
+function getStaffFixture(role: RoleName): StaffFixture {
+  const fixturePath = findFixtureFile();
+  const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8')) as { staff?: StaffFixture[] };
+  const candidates = fixtures.staff?.filter((staff) => staff.role === role) ?? [];
+  if (candidates.length === 0) {
+    throw new Error(`No ${role} account exists in ${fixturePath}; run the browser fixture seed.`);
+  }
+  const cursor = fixtureCursor.get(role) ?? 0;
+  fixtureCursor.set(role, cursor + 1);
+  return candidates[cursor % candidates.length];
+}
+
+/** Respect the API's durable five-challenges-per-wallet rolling budget. */
+async function waitForFixtureAuthBudget(loginId: string): Promise<void> {
+  const windowMs = 61_000;
+  const recent = (fixtureLoginTimes.get(loginId) ?? []).filter(
+    (startedAt) => Date.now() - startedAt < windowMs
+  );
+  if (recent.length >= 5) {
+    await new Promise((resolveWait) =>
+      setTimeout(resolveWait, windowMs - (Date.now() - recent[0]))
+    );
+  }
+  const current = (fixtureLoginTimes.get(loginId) ?? []).filter(
+    (startedAt) => Date.now() - startedAt < windowMs
+  );
+  fixtureLoginTimes.set(loginId, [...current, Date.now()]);
+}
 
 /**
  * Where each role lands after signing in.
@@ -113,31 +163,11 @@ export async function skipFirstVisitReload(page: Page) {
 export async function signIn(page: Page, role: RoleName = 'Doctor') {
   await skipFirstVisitReload(page);
   await page.goto('/login');
-
-  const pattern = ROLE_BUTTON[role];
-  // `.first()` is deliberate: there are two Pharmacist fixtures, and either
-  // will do for an audit that only reads.
-  const demoButton = page.locator('button').filter({ hasText: pattern });
-  const available = await demoButton
-    .first()
-    .waitFor({ state: 'visible', timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-
-  expect(
-    available,
-    `No demo sign-in button for ${role} on the login page.\n` +
-      'They are populated from GET /api/auth/demo-credentials, which answers only when the\n' +
-      'API runs with MEDICHAIN_DEV_MODE set AND demo mode enabled. The Docker compose file\n' +
-      'does not set MEDICHAIN_DEV_MODE — that is deliberate, since the endpoint exposes\n' +
-      'credentials and should not be on by default in a file anyone might deploy from.\n' +
-      'To run these suites, start the API with MEDICHAIN_DEV_MODE=1.\n' +
-      'The accounts also have to exist. That endpoint only offers fixtures carrying a\n' +
-      'keystore, so a database seeded for Doctor and Nurse alone silently offers two\n' +
-      'buttons and no more: run scripts/seed-browser-test-fixtures.ts.'
-  ).toBe(true);
-
-  await demoButton.first().click();
+  const fixture = getStaffFixture(role);
+  await waitForFixtureAuthBudget(fixture.login_id);
+  await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
+  await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
   // Wait for the signed-in PAGE, not for the URL.
   //

@@ -124,6 +124,8 @@ __pycache__/
 # non-globbed patterns matched neither, and .last-run.json was committed.
 client/**/test-results/
 client/**/playwright-report/
+# Console logs captured by the Playwright CLI helper; a debugging artefact.
+.playwright-cli/
 client/**/*.png
 *.png
 fix-results.tsv

@@ -100,6 +100,11 @@ services:
       # all, so the doctor-portal Playwright suites clicked a demo button that
       # never rendered and reported a bare 30-second timeout.
       MEDICHAIN_DEV_MODE: ${MEDICHAIN_DEV_MODE:-}
+      # Keep production-safe defaults while allowing the synthetic browser
+      # harness to opt into a larger per-minute budget. The API rejects zero
+      # and invalid values, so a malformed override cannot disable limiting.
+      MEDICHAIN_RATE_LIMIT_ANONYMOUS: ${MEDICHAIN_RATE_LIMIT_ANONYMOUS:-60}
+      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: ${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-120}
       # The dispensing policy is deployment-supplied on purpose: the API ships
       # no built-in drug schedule (`api/src/dispensing_policy.rs`), so a
       # deployment that does not provide one cannot dispense a policy-governed
@@ -168,6 +173,8 @@ services:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        VITE_DEMO_CREDENTIALS_ENABLED: ${VITE_DEMO_CREDENTIALS_ENABLED:-false}
     image: medichain-web:local
     container_name: medichain_nginx
     restart: unless-stopped

@@ -1,7 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const playwrightPort = process.env.PLAYWRIGHT_PORT || '5173';
+const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
+
 export default defineConfig({
   testDir: './e2e',
+  // Authentication intentionally honours a durable per-wallet rolling
+  // challenge budget. The shared harness may pause before reusing a fixture.
+  timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -17,7 +23,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: playwrightBaseUrl,
     trace: 'on-first-retry',
   },
   projects: [
@@ -27,10 +33,16 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev -- --port ${playwrightPort}`,
+    url: playwrightBaseUrl,
+    // A reused server can carry an arbitrary proxy target from a previous
+    // session. Refuse it so this suite's Docker target is deterministic.
+    reuseExistingServer: false,
     env: {
+      // Keep Vite's HMR WebSocket on the same isolated port as the HTTP
+      // listener. If this is omitted, the client repeatedly reloads while
+      // trying the default 5173 and destroys the in-memory auth session.
+      VITE_DEV_PORT: playwrightPort,
       // Point the dev server's /api proxy at the Nginx front door.
       //
       // Its default is 127.0.0.1:8090, which is where a standalone `cargo run`

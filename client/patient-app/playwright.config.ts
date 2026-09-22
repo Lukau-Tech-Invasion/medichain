@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const playwrightPort = process.env.PLAYWRIGHT_PORT || '5174';
+const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -8,7 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: playwrightBaseUrl,
     trace: 'on-first-retry',
   },
   projects: [
@@ -19,10 +22,15 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5174',
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev -- --port ${playwrightPort}`,
+    url: playwrightBaseUrl,
+    // A reused server can carry an arbitrary proxy target from a previous
+    // session. Refuse it so this suite's Docker target is deterministic.
+    reuseExistingServer: false,
     env: {
+      // Keep the HMR WebSocket and HTTP listener together on the selected
+      // isolated port; otherwise Vite's reconnect loop reloads the app.
+      VITE_DEV_PORT: playwrightPort,
       // Point the dev server's /api proxy at the Nginx front door, matching the
       // clinician portal's config.
       //
