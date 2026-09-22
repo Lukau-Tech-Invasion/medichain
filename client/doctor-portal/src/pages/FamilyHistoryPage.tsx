@@ -37,6 +37,8 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 type RelationshipType =
   | 'mother'
@@ -600,20 +602,12 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label htmlFor="family-patient-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.patientFilterLabel')}</label>
-                <select
+                <PatientSelect
                   id="family-patient-filter"
+                  label={t('docFamilyHistory.patientFilterLabel')}
                   value={selectedPatient}
-                  onChange={(e) => setSelectedPatient(e.target.value)}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docFamilyHistory.allPatients')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                />
               </div>
               <div>
                 <label htmlFor="famhx-search" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.searchLabel')}</label>
@@ -697,7 +691,7 @@ const FamilyHistoryPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.recordedByLabel')}</p>
-                    <p className="text-sm text-content">{member.recordedBy}</p>
+                    <StaffName id={member.recordedBy} className="text-sm text-content block" />
                   </div>
                 </div>
 
@@ -777,22 +771,12 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="famhx-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docFamilyHistory.patientRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="famhx-patient"
+                  label={t('docFamilyHistory.patientRequired')}
                   value={newMember.patientId}
-                  onChange={(e) => setNewMember({ ...newMember, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewMember({ ...newMember, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>
@@ -1046,20 +1030,12 @@ const FamilyHistoryPage: React.FC = () => {
       {activeTab === 'risk-assessment' && (
         <div className="space-y-4">
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
-            <label htmlFor="famhx-risk-patient" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.selectPatientRiskLabel')}</label>
-            <select
+            <PatientSelect
               id="famhx-risk-patient"
+              label={t('docFamilyHistory.selectPatientRiskLabel')}
               value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
-              className="w-full border border-border-interactive rounded-lg px-3 py-2"
-            >
-              <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
-              {patients.map((p) => (
-                <option key={p.patient_id} value={p.patient_id}>
-                  {p.full_name} ({p.patient_id})
-                </option>
-              ))}
-            </select>
+              onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+            />
           </div>
 
           {selectedPatient && (

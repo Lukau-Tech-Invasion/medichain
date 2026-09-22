@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
@@ -259,18 +260,12 @@ const OperativeNotePage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="opnote-patient" className="text-sm text-content-muted">{t('docOperativeNote.patientLabel')}</label>
-                  <select
+                  <PatientSelect
                     id="opnote-patient"
+                    label={t('docOperativeNote.patientLabel')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docOperativeNote.selectEllipsis')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="opnote-procedure-date" className="text-sm text-content-muted">{t('docOperativeNote.procedureDateLabel')}</label>

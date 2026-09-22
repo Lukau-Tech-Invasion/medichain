@@ -324,7 +324,7 @@ function DashboardPage() {
               </p>
             </div>
           </div>
-          <Link to="/alerts" className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle">
+          <Link to="/critical-value" className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle">
             {t('docDashboard.viewAlertsBtn')}
           </Link>
         </div>

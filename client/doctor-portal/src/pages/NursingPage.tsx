@@ -7,6 +7,8 @@ import {
   AlertCircle, CheckCircle, User, Calendar, Loader2,
   TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 // Types for Medication Administration Record
 interface MedicationDose {
@@ -237,7 +239,9 @@ function NursingPage() {
   
   // Selected patient for new entries
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [patients, setPatients] = useState<{ id: string; name: string }[]>([]);
+  // The page-level roster existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types, so the
+  // whole roster is no longer fetched into this screen.
 
   // Auth redirect
   useEffect(() => {
@@ -291,13 +295,8 @@ function NursingPage() {
           'X-Provider-Role': user.role,
         },
       });
-      if (response.ok) {
-        const data = await response.json();
-        const patientArray = Array.isArray(data) ? data : (data.data || []);
-        setPatients(patientArray.map((p: { patient_id: string; full_name: string }) => ({
-          id: p.patient_id,
-          name: p.full_name,
-        })));
+      if (!response.ok) {
+        console.error('Failed to fetch patients:', response.status);
       }
     } catch (err) {
       console.error('Failed to fetch patients:', err);
@@ -588,7 +587,7 @@ function NursingPage() {
                                   {dose.status === 'given' && dose.administered_by && (
                                     <span className="text-xs text-content-muted">
                                       <User className="inline mr-1" size={12} />
-                                      {dose.administered_by}
+                                      <StaffName id={dose.administered_by} />
                                     </span>
                                   )}
                                 </td>
@@ -615,18 +614,12 @@ function NursingPage() {
                 </h3>
                 <div className="grid grid-cols-5 gap-4">
                   <div>
-                    <label htmlFor="nursing-patient-select" className="sr-only">{t('docNursing.selectPatientLabel')}</label>
-                    <select
+                    <PatientSelect
                       id="nursing-patient-select"
+                      label={t('docNursing.selectPatientLabel')}
                       value={selectedPatient}
-                      onChange={(e) => setSelectedPatient(e.target.value)}
-                      className="w-full px-3 py-2 border border-border-interactive rounded-lg"
-                    >
-                      <option value="">{t('docNursing.selectPatientLabel')}</option>
-                    {patients.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                    </select>
+                      onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                    />
                   </div>
                   <div>
                     <label htmlFor="nursing-entry-type" className="sr-only">{t('docNursing.entryTypeLabel')}</label>

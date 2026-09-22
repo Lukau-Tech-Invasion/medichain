@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import PatientSelect from '../components/PatientSelect';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import { createOrder, listOrders, updateOrderStatus, useTranslation } from '@medichain/shared';
@@ -400,18 +401,16 @@ function OrdersPage() {
           <div className="bg-surface rounded-xl shadow-xl w-full max-w-lg p-6">
             <h2 className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
-              <div>
-                <label htmlFor="order-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.patientId')}</label>
-                <input
-                  id="order-patient-id"
-                  type="text"
-                  value={newOrder.patient_id}
-                  onChange={(e) => setNewOrder({ ...newOrder, patient_id: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  placeholder={t('docOrders.patientIdPlaceholder')}
-                  required
-                />
-              </div>
+              {/* Search by name, not a remembered identifier. This was a bare
+                  text box asking for a patient id: nobody memorises those, so
+                  the order was either abandoned or filed against a typo. */}
+              <PatientSelect
+                id="order-patient-id"
+                label={t('docOrders.patientId')}
+                value={newOrder.patient_id}
+                onChange={(patientId) => setNewOrder({ ...newOrder, patient_id: patientId })}
+                required
+              />
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="order-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.orderType')}</label>

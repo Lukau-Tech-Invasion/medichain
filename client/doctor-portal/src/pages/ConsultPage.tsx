@@ -31,6 +31,7 @@ import {
   AlertCircle,
   HelpCircle,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 type ConsultSpecialty =
   | 'cardiology'
@@ -366,7 +367,7 @@ const ConsultPage: React.FC = () => {
         routine: 'bg-surface-sunken text-content-secondary',
         urgent: 'bg-surface-sunken text-content-secondary',
         emergent: 'bg-critical-subtle text-critical-subtle-fg',
-        stat: 'bg-red-200 text-critical-subtle-fg',
+        stat: 'bg-critical-subtle text-critical-subtle-fg',
       },
       urgency,
       'bg-surface-sunken text-content-secondary'
@@ -772,22 +773,12 @@ const ConsultPage: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="consult-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docConsult.patientLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="consult-patient"
+                  label={t('docConsult.patientLabel')}
                   value={newConsult.patientId}
-                  onChange={(e) => setNewConsult({ ...newConsult, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docConsult.selectPatientPh')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewConsult({ ...newConsult, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>

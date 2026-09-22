@@ -14,6 +14,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
   apiUrl,
   createIntakeOutput,
@@ -535,15 +536,13 @@ const IntakeOutputPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="io-patient" className="block text-sm font-medium mb-1">{t('docIntakeOutput.patientRequired')} *</label>
-                <select id="io-patient" className="w-full border rounded-lg px-3 py-2"
+                <PatientSelect
+                  id="io-patient"
+                  label={t('docIntakeOutput.patientRequired')}
+                  required
                   value={selectedPatient?.patientId || ''}
-                  onChange={(e) => setSelectedPatient(patients.find(p => p.patientId === e.target.value) || null)}>
-                  <option value="">{t('docIntakeOutput.selectPatientPh')}</option>
-                  {patients.map(p => (
-                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.patientId}</option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setSelectedPatient(patients.find(p => p.patientId === selectedPatientId) || null)}
+                />
               </div>
 
               <div>

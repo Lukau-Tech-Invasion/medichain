@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import RetentionPage from './RetentionPage';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -13,6 +14,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getRetentionReport: vi.fn(),
+  getPatients: vi.fn(),
   listRetentionRuns: vi.fn(),
   listLegalHolds: vi.fn(),
   listRetentionApprovals: vi.fn(),
@@ -58,6 +60,10 @@ const approval = (over: Partial<shared.RetentionApproval> = {}): shared.Retentio
 
 describe('RetentionPage', () => {
   beforeEach(() => {
+    // The picker can only offer a patient the server knows.
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
+    ] as never);
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({ user: { walletAddress: ADMIN, role: 'Admin' } });
     vi.mocked(shared.getRetentionReport).mockResolvedValue({
@@ -121,7 +127,7 @@ describe('RetentionPage', () => {
       success: true,
       hold: {
         id: 'LH-1',
-        patient_id: 'PAT-1',
+        patient_id: 'PAT-001',
         entity_type: null,
         reason: 'Litigation',
         reference: null,
@@ -132,13 +138,13 @@ describe('RetentionPage', () => {
     render(<RetentionPage />);
     await waitFor(() => expect(shared.listLegalHolds).toHaveBeenCalled());
 
-    await userEvent.type(screen.getByLabelText(/Patient ID/i), 'PAT-1');
+    await selectPatient(/Patient/i, 'Test Patient');
     await userEvent.type(screen.getByLabelText(/^Reason$/i), 'Litigation');
     await userEvent.click(screen.getByRole('button', { name: /place hold/i }));
 
     await waitFor(() => expect(shared.createLegalHold).toHaveBeenCalled());
     expect(vi.mocked(shared.createLegalHold).mock.calls[0][0]).toMatchObject({
-      patient_id: 'PAT-1',
+      patient_id: 'PAT-001',
       reason: 'Litigation',
       entity_type: null,
       reference: null,

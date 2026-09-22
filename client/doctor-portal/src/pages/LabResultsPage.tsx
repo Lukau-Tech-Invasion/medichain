@@ -4,7 +4,6 @@ import {
   getApiErrorMessage,
   getAllLabSubmissions,
   getLabPanels,
-  getPatients,
   reviewLabResult,
   submitLabResults,
   useTranslation,
@@ -27,6 +26,7 @@ import {
   Download,
   Plus,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 interface LabTestResult {
   parameter: string;
@@ -73,7 +73,9 @@ function LabResultsPage() {
   // unless the API was driven directly.
   const [view, setView] = useState<'queue' | 'enter'>('queue');
   const [panels, setPanels] = useState<LabPanelTemplate[]>([]);
-  const [patients, setPatients] = useState<Array<{ patient_id: string; full_name: string }>>([]);
+  // The page-level roster existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types, so the
+  // whole roster is no longer fetched into this screen.
   const [entryPatientId, setEntryPatientId] = useState('');
   const [entryPanelCode, setEntryPanelCode] = useState('');
   const [entryValues, setEntryValues] = useState<Record<string, string>>({});
@@ -93,15 +95,6 @@ function LabResultsPage() {
     getLabPanels()
       .then((body) => setPanels(body.panels ?? []))
       .catch(() => setPanels([]));
-    getPatients()
-      .then((rows) =>
-        setPatients(
-          (rows as Array<{ patient_id?: string; full_name?: string }>).flatMap((r) =>
-            r.patient_id ? [{ patient_id: r.patient_id, full_name: r.full_name ?? r.patient_id }] : []
-          )
-        )
-      )
-      .catch(() => setPatients([]));
   }, []);
 
   const resetEntry = () => {
@@ -356,22 +349,12 @@ function LabResultsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label htmlFor="lab-entry-patient" className="block text-sm font-medium mb-1">
-                {t('docLabResults.patientRequired')}
-              </label>
-              <select
+              <PatientSelect
                 id="lab-entry-patient"
+                label={t('docLabResults.patientRequired')}
                 value={entryPatientId}
-                onChange={(e) => setEntryPatientId(e.target.value)}
-                className="w-full border border-border-interactive rounded-lg px-3 py-2"
-              >
-                <option value="">{t('docLabResults.selectPatient')}</option>
-                {patients.map((patient) => (
-                  <option key={patient.patient_id} value={patient.patient_id}>
-                    {patient.full_name} ({patient.patient_id})
-                  </option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => setEntryPatientId(selectedPatientId)}
+              />
             </div>
             <div>
               <label htmlFor="lab-entry-panel" className="block text-sm font-medium mb-1">

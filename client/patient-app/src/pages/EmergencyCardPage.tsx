@@ -522,7 +522,7 @@ export function EmergencyCardPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {emergencyData.allergies.map((allergy, i) => (
-                    <span key={i} className="px-3 py-1 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm">
+                    <span key={i} className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm">
                       {allergy}
                     </span>
                   ))}
@@ -606,7 +606,7 @@ export function EmergencyCardPage() {
               </div>
               <div className={`flex-1 p-3 rounded-xl text-center ${
                 dnrVerified
-                  ? 'bg-emergency-100 text-critical-subtle-fg'
+                  ? 'bg-critical-subtle text-critical-subtle-fg'
                   : emergencyData.dnrStatus === true
                   ? 'bg-warning-100 text-warning-800'
                   : emergencyData.dnrStatus === false

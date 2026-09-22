@@ -23,14 +23,13 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
-  getPatients,
   createHistoryPhysical,
   updateHistoryPhysicalDraft,
   addHistoryPhysicalAddendum,
   listHistoryPhysicals,
   useTranslation,
-  type PatientProfile,
   Input,
   useValidatedForm,
   historyAndPhysicalSchema,
@@ -141,7 +140,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
+  // The roster existed only to fill a patient dropdown;
+  // `PatientSelect` queries the server as the clinician types.
   const [editingHpId, setEditingHpId] = useState<string | null>(null);
   const [addendumText, setAddendumText] = useState('');
   const [isAppendingAddendum, setIsAppendingAddendum] = useState(false);
@@ -233,12 +233,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       }
       
       try {
-        const [hpData, pts] = await Promise.all([
-          listHistoryPhysicals(),
-          getPatients()
-        ]);
-        
-        setAvailablePatients(pts);
+        // The roster is no longer read here; the picker fetches its own.
+        const [hpData] = await Promise.all([listHistoryPhysicals()]);
         
         const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
         if (Array.isArray(records)) {
@@ -663,48 +659,35 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
                     <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
-                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
-                      <select
+                      {/* Search by name or id. This was a dropdown of whatever
+                          roster the page had fetched, with the id and the name
+                          also free-typed beside it -- so an H&P could be filed
+                          against an id nobody chose and a name that disagreed
+                          with it. */}
+                      <PatientSelect
                         id="hp-patient-select"
-                        onChange={(e) => {
-                          const p = availablePatients.find(p => p.patient_id === e.target.value);
-                          if (p) {
-                            setFormData({
-                              ...formData,
-                              patientId: p.patient_id,
-                              patientName: p.full_name,
-                              mrn: p.national_id || ''
-                            });
-                          }
+                        label={t('docHistoryPhysical.selectExistingPatient')}
+                        value={formData.patientId}
+                        onChange={(selectedPatientId, selectedPatient) => {
+                          setFormData({
+                            ...formData,
+                            patientId: selectedPatientId,
+                            patientName: selectedPatient?.full_name ?? formData.patientName,
+                            mrn: selectedPatient?.health_id ?? formData.mrn,
+                          });
                         }}
-                        className="w-full border-indigo-200 rounded-lg px-3 py-2 bg-surface"
-                      >
-                        <option value="">{t('docHistoryPhysical.selectPatientPlaceholder')}</option>
-                        {availablePatients.map(p => (
-                          <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
-                        ))}
-                      </select>
+                        required
+                      />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label htmlFor="hp-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientIdLabel')}</label>
-                        <input
-                          id="hp-patient-id"
-                          type="text"
-                          value={formData.patientId}
-                          onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2"
-                          placeholder={t('docHistoryPhysical.patientIdPh')}
-                        />
-                      </div>
                       <div>
                         <label htmlFor="hp-patient-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientNameLabel')}</label>
                         <input
                           id="hp-patient-name"
                           type="text"
                           value={formData.patientName}
-                          onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
+                          readOnly
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content-muted"
                         />
                       </div>
                       <div>

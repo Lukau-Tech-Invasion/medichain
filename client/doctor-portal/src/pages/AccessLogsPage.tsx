@@ -22,6 +22,7 @@ import {
   Loader2,
   Download
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 
 interface AccessLog {
   access_id: string;
@@ -475,7 +476,7 @@ function AccessLogsPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div>
-                            <span className="text-sm font-mono text-content">{log.accessor_id}</span>
+                            <StaffName id={log.accessor_id} className="text-sm text-content" />
                             <p className="text-xs text-content-muted">{log.accessor_role}</p>
                           </div>
                         </td>
@@ -492,7 +493,7 @@ function AccessLogsPage() {
                         </td>
                         <td className="px-6 py-4">
                           {log.emergency ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emergency-100 text-critical-subtle-fg text-xs font-medium rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs font-medium rounded-full">
                               <AlertTriangle size={12} />
                               {t('docAccessLogs.statusEmergency')}
                             </span>

@@ -10,6 +10,7 @@ import {
   useTranslation,
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { JitsiMeetComponent } from '@medichain/shared';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
@@ -287,18 +288,16 @@ export default function TelehealthPage() {
 
       {/* Patient Selector */}
       <div className="bg-surface rounded-xl shadow p-4 mb-6">
-        <label htmlFor="telehealth-patient-id" className="block text-sm font-medium text-content-secondary mb-1">
-          {t('docTelehealth.viewForPatient')}
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="telehealth-patient-id"
-            type="text"
-            value={patientId}
-            onChange={e => setPatientId(e.target.value)}
-            placeholder={t('docTelehealth.patientIdPlaceholder')}
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-          />
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            {/* A remembered patient id is not something anyone has; search by name. */}
+            <PatientSelect
+              id="telehealth-patient-id"
+              label={t('docTelehealth.viewForPatient')}
+              value={patientId}
+              onChange={(selectedPatientId) => setPatientId(selectedPatientId)}
+            />
+          </div>
           <button
             onClick={() => fetchSessions(patientId)}
             className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken text-sm"
@@ -386,13 +385,11 @@ export default function TelehealthPage() {
           <h2 className="font-semibold text-content mb-4">{t('docTelehealth.scheduleNew')}</h2>
           <form onSubmit={handleCreate} className="max-w-lg space-y-4">
             <div>
-              <label htmlFor="telehealth-form-patient" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.patientId')}</label>
-              <input
+              <PatientSelect
                 id="telehealth-form-patient"
-                type="text"
+                label={t('docTelehealth.patientId')}
                 value={formData.patient_id}
-                onChange={e => setFormData({ ...formData, patient_id: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2"
+                onChange={(selectedPatientId) => setFormData({ ...formData, patient_id: selectedPatientId })}
                 required
               />
             </div>

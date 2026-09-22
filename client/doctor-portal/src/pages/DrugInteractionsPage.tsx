@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 // ===== PART 1: Types, State, Data, Helpers =====
 
@@ -584,14 +585,12 @@ const DrugInteractionsPage: React.FC = () => {
             <h2 className="text-xl font-bold text-content mb-4">{t('docDrugInteractions.patientContextTitle')}</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="ddi-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docDrugInteractions.patientIdLabel')}</label>
-                <input
+                {/* A remembered patient id is not something anyone has; search by name. */}
+                <PatientSelect
                   id="ddi-patient-id"
-                  type="text"
+                  label={t('docDrugInteractions.patientIdLabel')}
                   value={patientContext.patientId}
-                  onChange={(e) => setPatientContext({ ...patientContext, patientId: e.target.value })}
-                  placeholder={t('docDrugInteractions.patientIdPh')}
-                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
+                  onChange={(selectedPatientId) => setPatientContext({ ...patientContext, patientId: selectedPatientId })}
                 />
               </div>
               <div>

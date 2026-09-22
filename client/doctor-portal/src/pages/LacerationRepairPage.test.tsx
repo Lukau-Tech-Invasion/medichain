@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import LacerationRepairPage from './LacerationRepairPage';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -12,6 +13,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createLaceration: vi.fn(),
+  getPatients: vi.fn(),
   getApiClient: vi.fn(),
 }));
 
@@ -19,6 +21,10 @@ describe('LacerationRepairPage', () => {
   const mockGet = vi.fn();
 
   beforeEach(() => {
+    // The picker can only offer a patient the server knows.
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
+    ] as never);
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: {
@@ -81,7 +87,7 @@ describe('LacerationRepairPage', () => {
     render(<LacerationRepairPage />);
 
     fireEvent.click(await screen.findByRole('button', { name: /New Repair/i }));
-    fireEvent.change(screen.getByLabelText(/Patient/i), { target: { value: 'PAT-001' } });
+    await selectPatient(/Patient/i, 'Test Patient');
     fireEvent.change(screen.getByLabelText(/^Location/i), { target: { value: 'Left forearm' } });
     fireEvent.change(screen.getByLabelText(/Length \(cm\)/i), { target: { value: '3.5' } });
     fireEvent.change(screen.getByLabelText(/^Count/i), { target: { value: '4' } });

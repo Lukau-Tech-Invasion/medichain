@@ -3,6 +3,8 @@ import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import * as shared from '@medichain/shared';
 import CodeBluePage from './CodeBluePage';
+import { useAuthStore } from '../store/authStore';
+import { selectPatient } from '../test/selectPatient';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -17,14 +19,25 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
  * with no patient attached is not a record.
  */
 const startCode = async () => {
-  const picker = await screen.findByLabelText(/Select Patient/i);
-  const option = picker.querySelector('option[value]:not([value=""])') as HTMLOptionElement | null;
-  if (option) fireEvent.change(picker, { target: { value: option.value } });
+  // The chooser is a searchable combobox now, not a native <select> whose
+  // options a test could read off the DOM.
+  await selectPatient(/Select Patient/i, 'Test Patient');
   fireEvent.click(screen.getByText(/Start Code/i));
   await waitFor(() => expect(screen.getByText(/Stop Code/i)).toBeInTheDocument());
 };
 
 beforeEach(() => {
+  // `PatientSelect` only queries while somebody is signed in, so a test that
+  // chooses a patient has to be signed in too.
+  useAuthStore.setState({
+    user: {
+      walletAddress: '5Test',
+      username: 'Dr Test',
+      role: 'Doctor',
+      userId: 'doc-1',
+    },
+    isAuthenticated: true,
+  } as never);
   vi.mocked(shared.getPatients).mockResolvedValue([
     patientProfile(),
   ]);

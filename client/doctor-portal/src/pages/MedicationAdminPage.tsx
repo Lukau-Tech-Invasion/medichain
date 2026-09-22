@@ -15,8 +15,8 @@ import {
   useValidatedForm,
   medicationAdministrationSchema,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -101,7 +101,9 @@ const MedicationAdminPage: React.FC = () => {
   const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // The page-level roster existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types, so the
+  // whole roster is no longer fetched into this screen.
   const [medications, setMedications] = useState<ScheduledMedication[]>([]);
   const [administrations, setAdministrations] = useState<MedicationAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -130,7 +132,6 @@ const MedicationAdminPage: React.FC = () => {
     try {
       // Fetch patients
       const loadedPatients = await getPatients();
-      setPatients(Array.isArray(loadedPatients) ? loadedPatients : []);
 
       // Fetch MAR (Medication Administration Records)
       const [marData, storedAdministrations] = await Promise.all([listMar(), listMarAdministrations()]);
@@ -355,19 +356,11 @@ const MedicationAdminPage: React.FC = () => {
               <User className="inline h-4 w-4 mr-1" />
               {t('docMedicationAdmin.patientLabel')}
             </label>
-            <select
+            <PatientSelect
               id="medadmin-patient"
               value={selectedPatientId}
-              onChange={(e) => setSelectedPatientId(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md"
-            >
-              <option value="">{t('docMedicationAdmin.allPatients')}</option>
-              {patients.map((patient) => (
-                <option key={patient.patient_id} value={patient.patient_id}>
-                  {patient.full_name} ({patient.patient_id})
-                </option>
-              ))}
-            </select>
+              onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
+            />
           </div>
           <div>
             <label htmlFor="medadmin-date" className="block text-sm font-medium text-content-secondary mb-1">

@@ -16,12 +16,12 @@ import {
   UserCheck,
   Loader2
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
   listAMADischarges,
   createAMADischarge,
   getPatients,
   useTranslation,
-  type PatientProfile,
   clickable,
   Textarea,
   useValidatedForm,
@@ -78,7 +78,8 @@ const AMAPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
+  // The roster this held existed only to fill a patient dropdown;
+  // `PatientSelect` queries the server as the clinician types.
 
   // Form state
   const [formStep, setFormStep] = useState(1);
@@ -132,8 +133,7 @@ const AMAPage: React.FC = () => {
 
     const fetchPatients = async () => {
       try {
-        const pts = await getPatients();
-        setAvailablePatients(pts);
+        await getPatients();
       } catch (err) {
         console.error('Error fetching patients:', err);
       }
@@ -614,53 +614,26 @@ const AMAPage: React.FC = () => {
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold text-content mb-4">{t('docAMA.patientInfoTitle')}</h3>
                 <div className="space-y-4">
-                  <div>
-                    <label htmlFor="ama-patient-select" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docAMA.selectPatientLabel')}
-                    </label>
-                    <select
-                      id="ama-patient-select"
-                      onChange={(e) => {
-                        const p = availablePatients.find(p => p.patient_id === e.target.value);
-                        if (p) {
-                          setPatientId(p.patient_id);
-                          setPatientName(p.full_name);
-                        }
-                      }}
-                      className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="">{t('docAMA.selectExistingPatient')}</option>
-                      {availablePatients.map(p => (
-                        <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="ama-patient-id" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docAMA.patientIdLabel')} <span className="text-critical">*</span>
-                    </label>
-                    <input
-                      id="ama-patient-id"
-                      type="text"
-                      value={patientId}
-                      onChange={(e) => setPatientId(e.target.value)}
-                      placeholder={t('docAMA.patientIdPh')}
-                      className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="ama-patient-name" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docAMA.patientNameLabel')} <span className="text-critical">*</span>
-                    </label>
-                    <input
-                      id="ama-patient-name"
-                      type="text"
-                      value={patientName}
-                      onChange={(e) => setPatientName(e.target.value)}
-                      placeholder={t('docAMA.patientNamePh')}
-                      className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
+                  {/* One control, not three. This was a dropdown of whoever
+                      the page had fetched, plus a free-text patient id and a
+                      free-text name that could disagree with it -- an AMA
+                      record filed against a typed id belongs to nobody. The
+                      picker searches the server by name or id and fills both. */}
+                  <PatientSelect
+                    id="ama-patient-select"
+                    label={t('docAMA.selectPatientLabel')}
+                    value={patientId}
+                    onChange={(selectedPatientId, selectedPatient) => {
+                      setPatientId(selectedPatientId);
+                      if (selectedPatient) setPatientName(selectedPatient.full_name);
+                    }}
+                    required
+                  />
+                  {patientName && (
+                    <p className="text-sm text-content-muted px-1">
+                      {t('docAMA.patientNameLabel')}: <span className="text-content font-medium">{patientName}</span>
+                    </p>
+                  )}
                   <div>
                     <label htmlFor="ama-mrn" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.mrnLabel')} <span className="text-critical">*</span>

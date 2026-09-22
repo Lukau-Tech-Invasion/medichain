@@ -13,11 +13,11 @@ interface EmergencyPatientCardProps {
  */
 const BLOOD_TYPE_COLORS: Record<string, string> = {
   'O+': 'bg-critical-subtle text-critical-subtle-fg',
-  'O-': 'bg-red-200 text-critical-subtle-fg',
+  'O-': 'bg-critical-subtle text-critical-subtle-fg',
   'A+': 'bg-notice-subtle text-notice-subtle-fg',
-  'A-': 'bg-blue-200 text-notice-subtle-fg',
+  'A-': 'bg-notice-subtle text-notice-subtle-fg',
   'B+': 'bg-ok-subtle text-ok-subtle-fg',
-  'B-': 'bg-green-200 text-ok-subtle-fg',
+  'B-': 'bg-ok-subtle text-ok-subtle-fg',
   'AB+': 'bg-surface-sunken text-content-secondary',
   'AB-': 'bg-purple-200 text-content-secondary',
 };

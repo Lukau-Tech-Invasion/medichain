@@ -30,6 +30,8 @@ import {
   XCircle,
   RefreshCw,
 } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 type SpecimenType = 'blood' | 'urine' | 'other-fluid' | 'tissue' | 'swab' | 'evidence';
 type SpecimenStatus = 'collected' | 'in-transit' | 'received' | 'analyzed' | 'stored' | 'released' | 'destroyed';
@@ -79,6 +81,8 @@ interface ChainOfCustody {
 
 const ChainOfCustodyPage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -512,7 +516,7 @@ const ChainOfCustodyPage: React.FC = () => {
                             <p className="text-content-muted text-xs">{formatTimestamp(hop.transferredAt)} • {hop.location}</p>
                             {(hop.recordedBy || hop.witness) && (
                               <p className="text-content-muted text-xs">
-                                {hop.recordedBy && t('docChainOfCustody.recordedBy', { who: hop.recordedBy })}
+                                {hop.recordedBy && t('docChainOfCustody.recordedBy', { who: staffName(hop.recordedBy) })}
                                 {hop.recordedBy && hop.witness && ' • '}
                                 {hop.witness && t('docChainOfCustody.witnessedBy', { who: hop.witness })}
                               </p>
@@ -550,22 +554,12 @@ const ChainOfCustodyPage: React.FC = () => {
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="coc-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docChainOfCustody.patientLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="coc-patient"
+                  label={t('docChainOfCustody.patientLabel')}
                   value={newCollection.patientId}
-                  onChange={(e) => setNewCollection({ ...newCollection, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docChainOfCustody.selectPatientPh')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewCollection({ ...newCollection, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>

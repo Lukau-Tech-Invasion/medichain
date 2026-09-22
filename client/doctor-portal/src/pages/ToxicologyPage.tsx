@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { getPatients, createTox, useTranslation } from '@medichain/shared';
@@ -217,18 +218,12 @@ const ToxicologyPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="tox-patient" className="text-sm text-content-muted">{t('docToxicology.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="tox-patient"
+                    label={t('docToxicology.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docToxicology.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="tox-substance" className="text-sm text-content-muted">{t('docToxicology.substance')}</label>

@@ -12,6 +12,7 @@ import {
   Heart,
   FileSignature
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
 import {
   getPatients,
@@ -458,18 +459,13 @@ const PediatricsPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="peds-patient" className="block text-sm font-medium mb-1">{t('docPediatrics.patientRequired')} *</label>
-                <select
+                <PatientSelect
                   id="peds-patient"
+                  label={t('docPediatrics.patientRequired')}
+                  required
                   value={assessmentForm.patientId}
-                  onChange={(e) => setAssessmentForm({ ...assessmentForm, patientId: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docPediatrics.selectPatientPh')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {getAgeDisplay(p.ageMonths)}</option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setAssessmentForm({ ...assessmentForm, patientId: selectedPatientId })}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">

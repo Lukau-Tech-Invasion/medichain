@@ -26,6 +26,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 type VaccineType =
   | 'covid-19'
@@ -649,22 +650,12 @@ const ImmunizationPage: React.FC = () => {
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="imm-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.patientRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="imm-patient"
+                  label={t('docImmunization.patientRequired')}
                   value={newVaccine.patientId}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docImmunization.selectPatientPh')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewVaccine({ ...newVaccine, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>
@@ -1006,20 +997,12 @@ const ImmunizationPage: React.FC = () => {
       {activeTab === 'history' && (
         <div className="space-y-4">
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
-            <label htmlFor="imm-select-patient" className="block text-sm font-semibold text-content-secondary mb-2">{t('docImmunization.selectPatientLabel')}</label>
-            <select
+            <PatientSelect
               id="imm-select-patient"
+              label={t('docImmunization.selectPatientLabel')}
               value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
-              className="w-full border border-border-interactive rounded-lg px-3 py-2"
-            >
-              <option value="">{t('docImmunization.allPatients')}</option>
-              {patients.map((p) => (
-                <option key={p.patient_id} value={p.patient_id}>
-                  {p.full_name} ({p.patient_id})
-                </option>
-              ))}
-            </select>
+              onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+            />
           </div>
 
           {selectedPatient && (

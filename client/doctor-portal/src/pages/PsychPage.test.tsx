@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PsychPage from './PsychPage';
+import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -96,14 +97,8 @@ describe('PsychPage', () => {
     // option must exist before the change fires: the roster arrives from an
     // async fetch, and selecting a value the <select> does not yet offer is a
     // silent no-op.
-    const select = await waitFor(() => {
-      const el = container.querySelector<HTMLSelectElement>('#psych-patient');
-      if (!el?.querySelector('option[value="PAT-001"]')) {
-        throw new Error('patient roster not loaded yet');
-      }
-      return el;
-    }, slow);
-    fireEvent.change(select, { target: { value: 'PAT-001' } });
+    // The chooser is a searchable combobox; a test picks the way a person does.
+    await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
 
     // The tab, not the "Psychiatric History" section heading on the form.
     fireEvent.click(screen.getByRole('button', { name: 'History' }));

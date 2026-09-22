@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
@@ -288,18 +289,11 @@ const IntubationPage: React.FC = () => {
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
-              <select
+              <PatientSelect
                 id="intub-patient"
-                aria-label={t('docIntubation.patientSelectionHeading')}
                 value={selectedPatient}
-                onChange={e => setSelectedPatient(e.target.value)}
-                className="w-full border rounded p-2"
-              >
-                <option value="">{t('docIntubation.selectPatientPh')}</option>
-                {patients.map(p => (
-                  <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+              />
             </div>
 
             {/* Airway Assessment */}

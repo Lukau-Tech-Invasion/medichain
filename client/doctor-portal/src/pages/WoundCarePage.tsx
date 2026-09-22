@@ -16,6 +16,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
   apiUrl,
   getApiClient,
@@ -23,7 +24,6 @@ import {
   useTranslation,
   clickable,
   Input,
-  Select,
   useValidatedForm,
   woundAssessmentSchema,
 } from '@medichain/shared';
@@ -157,7 +157,10 @@ const WoundCarePage: React.FC = () => {
 
   // The assessment tab was previously pure markup: no state, no handler, and a
   // Save button with no onClick at all, so nothing a nurse typed was ever sent.
-  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  // Still held after the dropdown became `PatientSelect`: the wound list
+  // labels each record with the patient's NAME, and that lookup is the
+  // only thing this roster is for now.
+  const [patients, setPatients] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -510,18 +513,17 @@ const WoundCarePage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">{t('docWoundCare.newAssessment')}</h2>
 
             <div className="space-y-4">
-              <Select
+              <PatientSelect
                 id="wound-patient"
                 label={t('docWoundCare.patientReq')}
                 value={form.patientId}
-                onChange={(e) => { clearField('patientId'); setForm(f => ({ ...f, patientId: e.target.value })); }}
+                onChange={(selectedPatientId) => {
+                  clearField('patientId');
+                  setForm(f => ({ ...f, patientId: selectedPatientId }));
+                }}
                 onBlur={() => validateField('patientId', form)}
                 error={errors.patientId}
                 required
-                options={[
-                  { value: '', label: t('docWoundCare.selectPatient') },
-                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
-                ]}
               />
 
               <div className="grid grid-cols-2 gap-4">

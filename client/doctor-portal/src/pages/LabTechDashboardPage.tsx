@@ -188,7 +188,7 @@ export default function LabTechDashboardPage() {
       {/* Critical Values Banner */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onViewAll={() => navigate('/lab/critical-values')}
+        onViewAll={() => navigate('/critical-value')}
       />
 
       {/* Stat Cards Row */}
@@ -296,7 +296,7 @@ export default function LabTechDashboardPage() {
             <p className="text-sm text-content-muted">{t('docLabDashboard.noQc')}</p>
           )}
           <button
-            onClick={() => navigate('/lab/qc')}
+            onClick={() => navigate('/lab-qc')}
             className="mt-3 w-full py-2 text-sm bg-notice-subtle text-notice-subtle-fg rounded hover:bg-notice-subtle"
           >
             {t('docLabDashboard.runQc')}

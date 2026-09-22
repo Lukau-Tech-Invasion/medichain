@@ -12,6 +12,7 @@ import {
   LoadingSpinner,
 } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
 type TemplateCategory = 'general' | 'emergency' | 'surgery' | 'medicine' | 'pediatrics' | 'psychiatry';
@@ -93,6 +94,8 @@ export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => 
  */
 const NoteTemplatesPage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
@@ -503,7 +506,7 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-1">
                       <User className="w-4 h-4" />
-                      <span>{t('docNoteTemplates.createdByLine', { name: template.createdBy })}</span>
+                      <span>{t('docNoteTemplates.createdByLine', { name: staffName(template.createdBy) })}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <FileCheck className="w-4 h-4" />

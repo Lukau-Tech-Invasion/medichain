@@ -539,7 +539,7 @@ function PatientDetailPage() {
                 <span className="text-sm bg-surface-sunken px-2 py-1 rounded">
                   {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
                 </span>
-                <span className="text-sm bg-emergency-100 text-critical-subtle-fg px-2 py-1 rounded font-medium">
+                <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
                   {t('docPatientDetail.blood', { type: patient.bloodType })}
                 </span>
                 {patient.dnrStatus && (
@@ -606,7 +606,7 @@ function PatientDetailPage() {
             {patient.allergies.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {patient.allergies.map((allergy, i) => (
-                  <span key={i} className="bg-emergency-100 text-critical-subtle-fg px-3 py-1 rounded-full text-sm">
+                  <span key={i} className="bg-critical-subtle text-critical-subtle-fg px-3 py-1 rounded-full text-sm">
                     {allergy}
                   </span>
                 ))}

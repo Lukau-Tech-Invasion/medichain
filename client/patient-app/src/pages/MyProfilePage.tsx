@@ -544,7 +544,7 @@ export function MyProfilePage() {
               {profile?.allergies.map((allergy, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1.5 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
+                  className="px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm font-medium"
                 >
                   {allergy}
                 </span>
@@ -620,7 +620,7 @@ export function MyProfilePage() {
               <span className="text-sm font-medium text-content-secondary">{t('profile.dnrStatus')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 profile?.dnrStatus === true
-                  ? 'bg-emergency-100 text-critical-subtle-fg'
+                  ? 'bg-critical-subtle text-critical-subtle-fg'
                   : profile?.dnrStatus === false
                   ? 'bg-surface-sunken text-content-muted'
                   : 'bg-warning-100 text-warning-800'

@@ -8,6 +8,8 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
+import StaffName from '../components/StaffName';
 import {
   createProgressNote,
   getPatients,
@@ -55,6 +57,8 @@ interface ProgressNote {
 
 const ProgressNotePage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
   const [notes, setNotes] = useState<ProgressNote[]>([]);
@@ -365,7 +369,7 @@ const ProgressNotePage: React.FC = () => {
                 <div className="flex items-center justify-between text-xs text-content-muted">
                   <div className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    <span>{note.author}</span>
+                    <StaffName id={note.author} />
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
@@ -488,7 +492,7 @@ const ProgressNotePage: React.FC = () => {
                       </div>
                       <h4 className="font-medium">{note.patientName}</h4>
                       <p className="text-sm text-content-muted mt-1">{note.assessment.split('\n')[0]}</p>
-                      <p className="text-xs text-content-muted mt-2">{t('docProgressNote.by', { author: note.author })}</p>
+                      <p className="text-xs text-content-muted mt-2">{t('docProgressNote.by', { author: staffName(note.author) })}</p>
                     </div>
                   </div>
                 ))}
@@ -538,7 +542,7 @@ const ProgressNotePage: React.FC = () => {
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-content-muted">
-                  <strong>{t('docProgressNote.authorLabel')}</strong> {selectedNote.author} ({selectedNote.authorRole})
+                  <strong>{t('docProgressNote.authorLabel')}</strong> {staffName(selectedNote.author)} ({selectedNote.authorRole})
                 </p>
                 {selectedNote.signedAt && (
                   <p className="text-sm text-content-muted">

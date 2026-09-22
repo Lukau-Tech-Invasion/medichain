@@ -33,6 +33,7 @@ import {
   Server,
   RefreshCw,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth, RestrictedSection } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -368,7 +369,7 @@ export default function AdminDashboardPage() {
           label={t('docAdmin.totalPatients')}
           value={data.system_stats?.total_patients || 0}
           color="bg-notice-subtle"
-          onClick={() => navigate('/patient-search')}
+          onClick={() => navigate('/patients')}
         />
         <StatCard
           icon={<Siren size={24} />}
@@ -494,7 +495,7 @@ export default function AdminDashboardPage() {
                     {formatWhen(log.accessed_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-content">
-                    {truncateId(log.accessor_id)}
+                    <StaffName id={log.accessor_id} />
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-content-muted">
                     {log.action || '—'}

@@ -329,7 +329,7 @@ export function DashboardPage() {
             {patientData.allergies.map((allergy, idx) => (
               <span
                 key={idx}
-                className="px-3 py-1 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
+                className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm font-medium"
               >
                 {allergy}
               </span>

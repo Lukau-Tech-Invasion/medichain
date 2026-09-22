@@ -13,13 +13,13 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
   apiUrl,
   getApiClient,
   useTranslation,
   clickable,
   Input,
-  Select,
   useValidatedForm,
   specimenSchema,
 } from '@medichain/shared';
@@ -89,7 +89,8 @@ const SpecimenPage: React.FC = () => {
 
   // The collection tab was markup only: no state, no handler, and a button with
   // no onClick, so nothing a collector entered was ever sent.
-  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  // The roster existed only to fill a patient dropdown; `PatientSelect`
+  // queries the server as the clinician types.
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const CHECKS = ['verify-id', 'requirements', 'label', 'time'];
@@ -112,11 +113,8 @@ const SpecimenPage: React.FC = () => {
       headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
     })
       .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(body => {
-        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
-        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
-      })
-      .catch(() => setPatients([]));
+      .then(() => undefined)
+      .catch(() => undefined);
   }, [user?.walletAddress]);
 
   const toggleCheck = (key: string) =>
@@ -452,18 +450,17 @@ const SpecimenPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.collectTitle')}</h2>
 
             <div className="space-y-4">
-              <Select
+              <PatientSelect
                 id="specimen-patient"
                 label={t('docSpecimen.patientRequired')}
                 value={form.patientId}
-                onChange={(e) => { clearField('patientId'); setForm(f => ({ ...f, patientId: e.target.value })); }}
+                onChange={(selectedPatientId) => {
+                  clearField('patientId');
+                  setForm(f => ({ ...f, patientId: selectedPatientId }));
+                }}
                 onBlur={() => validateField('patientId', form)}
                 error={errors.patientId}
                 required
-                options={[
-                  { value: '', label: t('docSpecimen.selectPatient') },
-                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
-                ]}
               />
 
               <div className="grid grid-cols-2 gap-4">

@@ -144,7 +144,7 @@ export default function NurseDashboardPage() {
       {/* Critical Alerts */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onViewAll={() => navigate('/critical-alerts')}
+        onViewAll={() => navigate('/critical-value')}
       />
 
       {/* Medications Due Banner */}
@@ -221,7 +221,7 @@ export default function NurseDashboardPage() {
           value={data?.tasks?.ivs_to_check || 0}
           icon={<Droplets className="text-notice-subtle-fg" size={24} />}
           color="bg-notice-subtle"
-          onClick={() => navigate('/iv-sites')}
+          onClick={() => navigate('/iv-site')}
           loading={loading}
         />
         {/* Wounds overdue for reassessment. The API counts this now; the badge

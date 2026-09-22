@@ -38,6 +38,8 @@ import {
   Save,
   X,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * CDSAlertsPage - Part 1
@@ -831,7 +833,7 @@ const CDSAlertsPage: React.FC = () => {
                             <div className="space-y-2">
                               {rule.conditions.map((condition, idx) => (
                                 <div key={condition.conditionId} className="flex items-center gap-2 text-sm min-h-[24px] py-1">
-                                  <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
+                                  <span className="bg-notice-subtle text-notice-subtle-fg px-2 py-1 rounded font-medium">
                                     {condition.field}
                                   </span>
                                   <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
@@ -905,7 +907,7 @@ const CDSAlertsPage: React.FC = () => {
                                 <User className="w-4 h-4" />
                                 {t('docCDS.createdByLabel')}
                               </div>
-                              <div className="font-medium text-content">{rule.createdBy}</div>
+                              <StaffName id={rule.createdBy} className="font-medium text-content" />
                               <div className="text-xs text-content-muted mt-1">{formatDate(rule.createdAt)}</div>
                             </div>
                             <div className="bg-surface-sunken rounded p-3">
@@ -1188,7 +1190,7 @@ const CDSAlertsPage: React.FC = () => {
                 {newRule.conditions.map((condition, idx) => (
                   <div key={condition.conditionId} className="flex items-center justify-between bg-surface-sunken border border-border rounded p-3">
                     <div className="flex items-center gap-2 text-sm min-h-[24px] py-1">
-                      <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
+                      <span className="bg-notice-subtle text-notice-subtle-fg px-2 py-1 rounded font-medium">
                         {condition.field}
                       </span>
                       <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
@@ -1391,15 +1393,12 @@ const CDSAlertsPage: React.FC = () => {
 
             <div className="flex flex-wrap items-end gap-2 mb-4">
               <div>
-                <label htmlFor="cds-audit-patient" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docCDS.auditPatientLabel')}
-                </label>
-                <input
+                {/* A remembered patient id is not something anyone has; search by name. */}
+                <PatientSelect
                   id="cds-audit-patient"
+                  label={t('docCDS.auditPatientLabel')}
                   value={auditPatient}
-                  onChange={(e) => setAuditPatient(e.target.value)}
-                  placeholder={t('docCDS.auditPatientPlaceholder')}
-                  className="px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
+                  onChange={(selectedPatientId) => setAuditPatient(selectedPatientId)}
                 />
               </div>
               <button

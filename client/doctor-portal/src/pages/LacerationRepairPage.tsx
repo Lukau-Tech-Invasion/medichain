@@ -15,8 +15,8 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
   createLaceration,
   getApiClient,
   getApiErrorMessage,
@@ -57,12 +57,6 @@ interface LacerationRepair {
   performedBy: string;
   followUpDate?: Date;
   notes?: string;
-}
-
-interface PatientOption {
-  id: string;
-  name: string;
-  mrn: string;
 }
 
 /**
@@ -162,7 +156,9 @@ const LacerationRepairPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [patients, setPatients] = useState<PatientOption[]>([]);
+  // The page-level roster existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types, so the
+  // whole roster is no longer fetched into this screen.
   const { user } = useAuthStore();
 
   const [newRepair, setNewRepair] = useState({
@@ -183,38 +179,8 @@ const LacerationRepairPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  // Fetch patients for dropdown
-  useEffect(() => {
-    const fetchPatients = async () => {
-      if (!user?.walletAddress) return;
-      
-      try {
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor'
-          }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          // Handle PaginatedResponse {data: [], pagination: {...}}
-          const patientData = result.data || result.patients || (Array.isArray(result) ? result : []);
-          const patientList = patientData.map((p: { patient_id?: string; id?: string; name?: string; full_name?: string; mrn?: string; medical_record_number?: string }) => ({
-            id: p.patient_id || p.id || '',
-            name: p.name || p.full_name || 'Unknown',
-            mrn: p.mrn || p.medical_record_number || ''
-          }));
-          setPatients(patientList);
-        }
-      } catch (err) {
-        console.error('Error fetching patients:', err);
-      }
-    };
-    
-    fetchPatients();
-  }, [user]);
+  // The roster fetch that filled the patient dropdown is gone with it:
+  // `PatientSelect` asks the server as the clinician types.
 
   useEffect(() => {
     const fetchRepairs = async () => {
@@ -540,20 +506,12 @@ const LacerationRepairPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="laceration-patient" className="block text-sm font-medium mb-1">{t('docLaceration.patientReq')}</label>
-                <select
+                <PatientSelect
                   id="laceration-patient"
+                  label={t('docLaceration.patientReq')}
                   value={newRepair.patientId}
-                  onChange={(e) => setNewRepair({ ...newRepair, patientId: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docLaceration.selectPatient')}</option>
-                  {patients.map((patient) => (
-                    <option key={patient.id} value={patient.id}>
-                      {patient.name} ({patient.mrn})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewRepair({ ...newRepair, patientId: selectedPatientId })}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">

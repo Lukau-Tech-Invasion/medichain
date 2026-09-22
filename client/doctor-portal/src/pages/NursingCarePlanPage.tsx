@@ -14,13 +14,14 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 import {
   apiUrl,
   getApiClient,
   useTranslation,
   clickable,
   Input,
-  Select,
   useValidatedForm,
   carePlanSchema,
 } from '@medichain/shared';
@@ -135,7 +136,8 @@ const NursingCarePlanPage: React.FC = () => {
   // The create tab had no state, no handler and a button with no onClick, so a
   // care plan could never be created. Its patient picker was also built from
   // existing plans, meaning a patient without one could never be chosen.
-  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  // The roster existed only to fill a patient dropdown; `PatientSelect`
+  // queries the server as the clinician types.
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -149,11 +151,8 @@ const NursingCarePlanPage: React.FC = () => {
       headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
     })
       .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(body => {
-        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
-        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
-      })
-      .catch(() => setPatients([]));
+      .then(() => undefined)
+      .catch(() => undefined);
   }, [user?.walletAddress]);
 
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
@@ -439,7 +438,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <div className="flex items-center gap-4 text-xs text-content-muted">
                     <span><Target className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.goalsCount', { count: plan.goals.length })}</span>
                     <span><Activity className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.interventionsCount', { count: plan.interventions.length })}</span>
-                    <span><User className="w-3 h-3 inline mr-1" />{plan.createdBy}</span>
+                    <span><User className="w-3 h-3 inline mr-1" /><StaffName id={plan.createdBy} /></span>
                   </div>
                 </div>
 
@@ -486,21 +485,17 @@ const NursingCarePlanPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
             <div className="space-y-4">
-              <Select
+              <PatientSelect
                 id="ncp-patient"
                 label={t('docNursingCarePlan.patientRequired')}
                 value={form.patientId}
-                onChange={(e) => {
+                onChange={(selectedPatientId) => {
                   clearField('patientId');
-                  setForm(f => ({ ...f, patientId: e.target.value }));
+                  setForm(f => ({ ...f, patientId: selectedPatientId }));
                 }}
                 onBlur={() => validateField('patientId', form)}
                 error={errors.patientId}
                 required
-                options={[
-                  { value: '', label: t('docNursingCarePlan.selectPatient') },
-                  ...patients.map(p => ({ value: p.id, label: `${p.name} - ${p.id}` })),
-                ]}
               />
               <Input
                 id="ncp-diagnosis"

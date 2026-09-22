@@ -14,6 +14,7 @@ import {
   calibrationSchema,
 } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -71,6 +72,8 @@ interface Calibration {
 
 const LabQCPage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showWarning } = useToastActions();
   const [qcTests, setQcTests] = useState<QCTest[]>([]);
@@ -523,7 +526,7 @@ const LabQCPage: React.FC = () => {
                       <td className="px-4 py-3">
                         <div className="text-sm text-content">{test.performedBy}</div>
                         {test.reviewedBy && (
-                          <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: test.reviewedBy })}</div>
+                          <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(test.reviewedBy) })}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -828,7 +831,7 @@ const LabQCPage: React.FC = () => {
                     <td className="px-4 py-3">
                       <div className="text-sm text-content">{cal.performedBy}</div>
                       {cal.reviewedBy && (
-                        <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: cal.reviewedBy })}</div>
+                        <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(cal.reviewedBy) })}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">

@@ -618,6 +618,26 @@ function Layout() {
                 <p className="text-xs text-content-muted">{user?.role}</p>
               </div>
             </div>
+            {/* Notifications, reachable at every width.
+                The bell lived only in the mobile header (`lg:hidden`), so on a
+                full-screen portal -- which is how every clinician runs this --
+                there was no control for notifications anywhere on the page.
+                The badge counted them and nothing could open them. */}
+            <button
+              onClick={() => navigate('/notifications')}
+              className="w-full flex items-center justify-between gap-2 px-4 py-2 mb-1 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
+              title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
+            >
+              <span className="flex items-center gap-2">
+                <Bell size={18} className={isSSEConnected ? 'text-notice-subtle-fg' : ''} />
+                <span>Notifications</span>
+              </span>
+              {totalUnread > 0 && (
+                <span className="min-w-[20px] h-5 px-1 bg-critical text-critical-fg text-xs font-semibold rounded-full flex items-center justify-center">
+                  {totalUnread > 9 ? '9+' : totalUnread}
+                </span>
+              )}
+            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
@@ -627,6 +647,22 @@ function Layout() {
             </button>
           </>
         ) : (
+          <>
+          <button
+            onClick={() => navigate('/notifications')}
+            className="w-full flex items-center justify-center p-3 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors group relative"
+            title="Notifications"
+          >
+            <Bell size={18} className={isSSEConnected ? 'text-notice-subtle-fg' : ''} />
+            {totalUnread > 0 && (
+              <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-critical text-critical-fg text-[10px] font-semibold rounded-full flex items-center justify-center">
+                {totalUnread > 9 ? '9+' : totalUnread}
+              </span>
+            )}
+            <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
+              Notifications
+            </div>
+          </button>
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center p-3 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors group relative"
@@ -637,6 +673,7 @@ function Layout() {
               Logout
             </div>
           </button>
+          </>
         )}
       </div>
     </>
@@ -684,7 +721,7 @@ function Layout() {
         >
           <Bell size={24} className={isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-secondary'} />
           {totalUnread > 0 && (
-            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute top-1 right-1 w-4 h-4 bg-critical text-critical-fg text-xs rounded-full flex items-center justify-center">
               {totalUnread > 9 ? '9+' : totalUnread}
             </span>
           )}

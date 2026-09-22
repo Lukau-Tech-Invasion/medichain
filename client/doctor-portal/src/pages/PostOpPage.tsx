@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { getPatients, createPostOp, getApiClient, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -223,18 +224,12 @@ const PostOpPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="postop-patient" className="text-sm text-content-muted">{t('docPostOp.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="postop-patient"
+                    label={t('docPostOp.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="postop-procedure" className="text-sm text-content-muted">{t('docPostOp.procedure')}</label>

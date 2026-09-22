@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getApiClient, getPatients, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -17,6 +16,7 @@ import {
   Square,
   History
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 interface EmergencyRecord {
   event_id: string;
@@ -45,7 +45,10 @@ export default function CodeBluePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // The roster this page used to hold existed only to fill a patient
+  // dropdown. `PatientSelect` queries the server as the clinician types, so
+  // the list is no longer fetched or kept here; `loadPatients` remains as
+  // the warm-up call the page already made on mount.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -80,8 +83,7 @@ export default function CodeBluePage() {
 
   const loadPatients = async () => {
     try {
-      const data = await getPatients();
-      setPatients(data);
+      await getPatients();
     } catch (error) {
       console.error('Failed to load patients', error);
     }
@@ -258,20 +260,11 @@ export default function CodeBluePage() {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-content-muted" />
               </div>
-              <select
+              <PatientSelect
                 id="code-blue-patient"
-                className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={selectedPatient}
-                onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                disabled={isActive}
-              >
-                <option value="">{t('docCodeBlue.selectPatientPlaceholder')}</option>
-                {patients.map(patient => (
-                  <option key={patient.patient_id} value={patient.patient_id}>
-                    {patient.full_name} ({patient.national_id})
-                  </option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => { setSelectedPatient(selectedPatientId); fetchEmergencyHistory(selectedPatientId); }}
+              />
             </div>
           </div>
 

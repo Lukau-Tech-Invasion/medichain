@@ -19,6 +19,10 @@ interface PatientSelectProps {
   className?: string;
   label?: string;
   id?: string;
+  /** A field error from the page's own validation, shown under the control. */
+  error?: string;
+  /** Called when focus leaves the control, so a page can validate on blur. */
+  onBlur?: () => void;
 }
 
 /**
@@ -39,13 +43,17 @@ export default function PatientSelect({
   className = '',
   label,
   id,
+  error,
+  onBlur,
 }: PatientSelectProps) {
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The component's own load failure, distinct from the `error` prop a page
+  // passes down from its field validation.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,12 +66,12 @@ export default function PatientSelect({
 
     const fetchPatients = async () => {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       try {
         const patientArray = await getPatients({ query: searchTerm, limit: 50 });
         if (active) setPatients(patientArray);
       } catch {
-        if (active) setError('Failed to load patients');
+        if (active) setLoadError('Failed to load patients');
       } finally {
         if (active) setLoading(false);
       }
@@ -83,11 +91,12 @@ export default function PatientSelect({
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        onBlur?.();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [onBlur]);
 
   // Get selected patient details for display
   const selectedPatient = patients.find(p => p.patient_id === value);
@@ -203,8 +212,8 @@ export default function PatientSelect({
                 <Loader2 size={20} className="animate-spin mr-2" />
                 Loading patients...
               </div>
-            ) : error ? (
-              <div className="py-4 px-3 text-center text-red-500">{error}</div>
+            ) : loadError ? (
+              <div className="py-4 px-3 text-center text-critical-subtle-fg">{loadError}</div>
             ) : patients.length === 0 ? (
               <div className="py-4 px-3 text-center text-content-muted dark:text-gray-400">
                 {searchTerm ? 'No patients found matching your search' : 'No patients available'}
@@ -240,6 +249,14 @@ export default function PatientSelect({
           </div>
         )}
       </div>
+
+      {/* The page's own field validation, so a form that requires a patient can
+          say so here rather than only on submit. */}
+      {error && (
+        <p id={id ? `${id}-error` : undefined} role="alert" className="mt-1 text-sm text-critical-subtle-fg">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

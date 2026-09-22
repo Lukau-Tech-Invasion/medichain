@@ -84,6 +84,7 @@ describe('TelehealthPage', () => {
     await waitFor(() =>
       expect(screen.getByText(/View Sessions for Patient ID/i)).toBeInTheDocument()
     );
-    expect(screen.getByPlaceholderText(/Enter patient ID/i)).toBeInTheDocument();
+    // The lookup is a searchable picker now; nobody types a patient id.
+    expect(screen.getByLabelText(/View Sessions for Patient/i)).toBeInTheDocument();
   });
 });

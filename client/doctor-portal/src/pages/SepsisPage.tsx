@@ -21,6 +21,7 @@ import {
   Wind,
   History
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 interface BundleItem {
   id: string;
@@ -179,10 +180,8 @@ export default function SepsisPage() {
     }
   };
 
-  const filteredPatients = patients.filter(p =>
-    p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // The hand-rolled name/id filter went with the dropdown it fed:
+  // `PatientSelect` searches the server rather than a page-held roster.
 
   const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
 
@@ -419,21 +418,13 @@ export default function SepsisPage() {
                     className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
                 </div>
-                <label htmlFor="sepsis-patient-select" className="sr-only">{t('docSepsis.selectPatient')}</label>
-                <select
+                <PatientSelect
                   id="sepsis-patient-select"
+                  label={t('docSepsis.selectPatient')}
                   value={selectedPatient}
-                  onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
+                  onChange={(selectedPatientId) => { setSelectedPatient(selectedPatientId); fetchEmergencyHistory(selectedPatientId); }}
                   required
-                >
-                  <option value="">{t('docSepsis.selectAPatient')}</option>
-                  {filteredPatients.map(p => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} - {p.patient_id}
-                    </option>
-                  ))}
-                </select>
+                />
                 {selectedPatient && (
                   <div className="mt-3">
                     <h4 className="text-xs font-medium text-content-muted mb-1 flex items-center gap-1">
@@ -724,7 +715,7 @@ export default function SepsisPage() {
                             {reading.value} mmol/L
                           </span>
                           {reading.value >= 4 && (
-                            <span className="ml-2 text-xs bg-red-200 text-critical-subtle-fg px-2 py-0.5 rounded">{t('docSepsis.critical')}</span>
+                            <span className="ml-2 text-xs bg-critical-subtle text-critical-subtle-fg px-2 py-0.5 rounded">{t('docSepsis.critical')}</span>
                           )}
                         </div>
                         <span className="text-xs text-content-muted">

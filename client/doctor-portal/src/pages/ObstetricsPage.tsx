@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { getPatients, createOb, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -205,18 +206,12 @@ const ObstetricsPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="ob-patient" className="text-sm text-content-muted">{t('docObstetrics.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="ob-patient"
+                    label={t('docObstetrics.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docObstetrics.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="ob-gravida" className="text-sm text-content-muted">{t('docObstetrics.gravida')}</label>

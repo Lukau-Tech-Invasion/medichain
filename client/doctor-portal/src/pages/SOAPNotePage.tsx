@@ -16,6 +16,7 @@ import {
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
   User, Activity, Stethoscope, Pill, Calendar
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface PhysicalExamFinding {
@@ -104,12 +105,6 @@ const ROUTE_KEYS: Record<string, string> = {
   'Transdermal': 'transdermal',
 };
 
-interface PatientOption {
-  patient_id: string;
-  full_name: string;
-  health_id?: string;
-}
-
 /**
  * SOAPNotePage - Create comprehensive SOAP (Subjective/Objective/Assessment/Plan) clinical notes
  */
@@ -131,8 +126,8 @@ function SOAPNotePage() {
   const translateSystem = (system: string) => t(`docSOAPNote.system_${system.toLowerCase()}`);
   
   // Patients fetched from API
-  const [patients, setPatients] = useState<PatientOption[]>([]);
-  const [loadingPatients, setLoadingPatients] = useState(false);
+  // The roster this page fetched existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types.
 
   // Existing SOAP notes
   const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}}>>([]);
@@ -197,7 +192,6 @@ function SOAPNotePage() {
     if (!user) return;
 
     const fetchPatients = async () => {
-      setLoadingPatients(true);
       try {
         const response = await fetch(apiUrl('/api/patients'), {
           headers: {
@@ -205,15 +199,12 @@ function SOAPNotePage() {
             'X-Provider-Role': user.role,
           },
         });
-        if (response.ok) {
-          const data = await response.json();
-          const patientArray = Array.isArray(data) ? data : (data.data || []);
-          setPatients(patientArray);
+        if (!response.ok) {
+          console.error('Failed to fetch patients:', response.status);
         }
       } catch (err) {
         console.error('Failed to fetch patients:', err);
       } finally {
-        setLoadingPatients(false);
       }
     };
 
@@ -591,24 +582,13 @@ function SOAPNotePage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="soap-patient-id" className="block text-sm font-medium text-content-secondary mb-2">
-                {t('docSOAPNote.patientIdRequired')} *
-              </label>
-              <select
+              <PatientSelect
                 id="soap-patient-id"
+                label={t('docSOAPNote.patientIdRequired')}
                 value={selectedPatientId}
-                onChange={(e) => setSelectedPatientId(e.target.value)}
-                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
+                onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
                 required
-                disabled={loadingPatients}
-              >
-                <option value="">{loadingPatients ? t('docSOAPNote.loadingPatients') : t('docSOAPNote.selectPatientPh')}</option>
-                {patients.map((patient) => (
-                  <option key={patient.patient_id} value={patient.patient_id}>
-                    {patient.full_name} ({patient.patient_id})
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>

@@ -31,6 +31,7 @@ import {
   XCircle,
   RefreshCw,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * CriticalValuePage
@@ -817,22 +818,12 @@ const CriticalValuePage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               {/* Patient Selection */}
               <div>
-                <label htmlFor="critval-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docCriticalValue.patientLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="critval-patient"
+                  label={t('docCriticalValue.patientLabel')}
                   value={newCritical.patientId}
-                  onChange={(e) => setNewCritical({ ...newCritical, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docCriticalValue.selectPatientPh')}</option>
-                  {patients.map((patient) => (
-                    <option key={patient.patient_id} value={patient.patient_id}>
-                      {patient.full_name} ({patient.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewCritical({ ...newCritical, patientId: selectedPatientId })}
+                />
               </div>
 
               {/* Analyte Selection */}

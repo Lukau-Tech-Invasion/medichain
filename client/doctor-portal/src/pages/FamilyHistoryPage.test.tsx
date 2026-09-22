@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import FamilyHistoryPage from './FamilyHistoryPage';
+import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -81,8 +82,7 @@ describe('FamilyHistoryPage', () => {
     // Choose the patient: the family-history fetch is keyed on the selection.
     // Query the filter by id — several controls on this page are labelled with
     // the word 'Patient'.
-    const filter = await screen.findByLabelText(/Patient Filter/i);
-    fireEvent.change(filter, { target: { value: 'PAT-001' } });
+    await selectPatient(/Patient Filter/i, 'Test Patient');
 
     await waitFor(() => {
       expect(screen.getAllByText(/Family History/i).length).toBeGreaterThan(0);

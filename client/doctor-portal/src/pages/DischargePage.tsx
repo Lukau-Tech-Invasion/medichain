@@ -18,6 +18,7 @@ import {
   Clipboard,
   Download,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation, getApiErrorMessage } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
@@ -768,18 +769,12 @@ function DischargePage() {
                 <label htmlFor="dc-patient" className="text-sm font-medium text-content-secondary mb-1 flex items-center gap-1 min-h-[24px] py-1">
                   <User size={16} /> {t('docDischarge.patientLabel')}
                 </label>
-                <select
+                <PatientSelect
                   id="dc-patient"
                   value={selectedPatient}
-                  onChange={(e) => setSelectedPatient(e.target.value)}
-                  className="w-full p-3 border border-border-interactive rounded-lg"
+                  onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
                   required
-                >
-                  <option value="">{t('docDischarge.selectPatientPh')}</option>
-                  {patients.map(p => (
-                    <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Diagnoses */}

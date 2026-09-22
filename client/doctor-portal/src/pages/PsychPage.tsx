@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { getPatients, createPsych, getPsychForPatient, useTranslation } from '@medichain/shared';
@@ -472,17 +473,11 @@ const PsychPage: React.FC = () => {
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docPsych.patient')}
               </label>
-              <select
+              <PatientSelect
                 id="psych-patient"
                 value={selectedPatient}
-                onChange={e => setSelectedPatient(e.target.value)}
-                className="w-full border rounded p-2"
-              >
-                <option value="">{t('docPsych.selectPatient')}</option>
-                {patients.map(p => (
-                  <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+              />
             </div>
 
             {/* Chief Complaint & HPI */}

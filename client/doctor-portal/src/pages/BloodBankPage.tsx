@@ -14,6 +14,7 @@ import {
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -638,23 +639,13 @@ const BloodBankPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
-                <label htmlFor="bloodbank-patient" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.patientLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="bloodbank-patient"
+                  label={t('docBloodBank.patientLabel')}
                   value={selectedPatientId}
-                  onChange={(e) => setSelectedPatientId(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
                   required
-                >
-                  <option value="">{t('docBloodBank.selectPatientPh')}</option>
-                  {patients.map((patient) => (
-                    <option key={patient.patient_id} value={patient.patient_id}>
-                      {patient.full_name} ({patient.patient_id})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Product */}

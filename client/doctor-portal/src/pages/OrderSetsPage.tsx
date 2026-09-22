@@ -27,6 +27,7 @@ import {
   Brain,
   Shield,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 
 type OrderSetType = 'admission' | 'discharge' | 'procedure' | 'protocol' | 'emergency' | 'specialty';
 type OrderType = 'medication' | 'lab' | 'imaging' | 'consult' | 'nursing' | 'diet' | 'activity';
@@ -500,7 +501,7 @@ const OrderSetsPage: React.FC = () => {
                           </span>
                           <span className="flex items-center gap-1">
                             <User className="w-4 h-4" />
-                            {set.createdBy}
+                            <StaffName id={set.createdBy} />
                           </span>
                           <span className="flex items-center gap-1">
                             <Activity className="w-4 h-4" />
@@ -640,12 +641,15 @@ const OrderSetsPage: React.FC = () => {
                     {(formatDate(set.createdAt) || formatDate(set.lastModified)) && (
                       <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
                         {formatDate(set.createdAt) && (
-                          <div className="bg-notice-subtle rounded p-2">
+                          // Paired foreground. These inherited text-content-muted
+                          // from the grid, which is 4.08:1 on bg-notice-subtle and
+                          // 3.59:1 on bg-ok-subtle in dark mode -- both below AA.
+                          <div className="bg-notice-subtle text-notice-subtle-fg rounded p-2">
                             <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
                           </div>
                         )}
                         {formatDate(set.lastModified) && (
-                          <div className="bg-ok-subtle rounded p-2">
+                          <div className="bg-ok-subtle text-ok-subtle-fg rounded p-2">
                             <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
                           </div>
                         )}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -399,18 +400,12 @@ const ImagingPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="imaging-patient" className="text-sm text-content-muted">{t('docImaging.patientRequired')}</label>
-                  <select
+                  <PatientSelect
                     id="imaging-patient"
+                    label={t('docImaging.patientRequired')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docImaging.selectPlaceholder')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="imaging-modality" className="text-sm text-content-muted">{t('docImaging.modality')}</label>

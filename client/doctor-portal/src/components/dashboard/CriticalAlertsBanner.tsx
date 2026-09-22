@@ -31,7 +31,10 @@ export default function CriticalAlertsBanner({
   alerts,
   onAcknowledge,
   onViewAll,
-  viewAllLink = '/alerts',
+  // `/alerts` is not a route. An unknown path falls through to the router's
+  // catch-all, which redirects to the dashboard -- so pressing "View Alerts"
+  // on the dashboard put you back on the dashboard, and read as a dead button.
+  viewAllLink = '/critical-value',
   maxDisplay = 3,
 }: CriticalAlertsBannerProps) {
   // A callback and a route cannot both be the destination. The caller's

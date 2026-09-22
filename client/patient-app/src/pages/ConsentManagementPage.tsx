@@ -232,7 +232,7 @@ export function ConsentManagementPage() {
       case 'limited':
         return 'bg-info-light text-info';
       case 'emergency':
-        return 'bg-emergency-100 text-critical-subtle-fg';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       default:
         return 'bg-surface-sunken text-content-muted';
     }

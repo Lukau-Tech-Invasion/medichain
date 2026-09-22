@@ -24,6 +24,7 @@ import type {
   RetentionJobRun,
 } from '@medichain/shared';
 import { Archive, Loader2 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -281,15 +282,12 @@ function RetentionPage() {
 
         <form onSubmit={submitHold} className="grid gap-4 md:grid-cols-2 mb-6">
           <div>
-            <label htmlFor="hold-patient" className="block text-sm font-medium text-content-secondary mb-1">
-              {t('docRetention.holdPatient')}
-            </label>
-            <input
+            {/* A remembered patient id is not something anyone has; search by name. */}
+            <PatientSelect
               id="hold-patient"
+              label={t('docRetention.holdPatient')}
               value={holdPatientId}
-              onChange={(e) => setHoldPatientId(e.target.value)}
-              placeholder={t('docRetention.holdPatientPlaceholder')}
-              className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
+              onChange={(selectedPatientId) => setHoldPatientId(selectedPatientId)}
             />
           </div>
           <div>

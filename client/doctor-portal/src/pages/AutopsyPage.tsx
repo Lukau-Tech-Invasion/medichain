@@ -22,6 +22,7 @@ import {
   Brain,
   RefreshCw,
 } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 
 type AutopsyType = 'medico-legal' | 'hospital' | 'forensic' | 'clinical';
 type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'undetermined' | 'pending';
@@ -104,6 +105,8 @@ const AutopsyPage: React.FC = () => {
   // exists "to replace browser alert() calls"; these three pages were missed.
   const { showSuccess } = useToastActions();
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [autopsies, setAutopsies] = useState<AutopsyReport[]>([]);
@@ -575,7 +578,7 @@ const AutopsyPage: React.FC = () => {
                 {autopsy.reviewedBy && (
                   <div className="mt-4 bg-surface-sunken border border-purple-200 rounded-lg p-3">
                     <p className="text-sm font-semibold text-content-secondary">
-                      {t('docAutopsy.reviewedByLine', { name: autopsy.reviewedBy, date: formatDate(autopsy.reviewDate!) })}
+                      {t('docAutopsy.reviewedByLine', { name: staffName(autopsy.reviewedBy), date: formatDate(autopsy.reviewDate!) })}
                     </p>
                   </div>
                 )}

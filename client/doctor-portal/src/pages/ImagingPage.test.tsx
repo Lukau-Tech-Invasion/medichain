@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { createRadiologyOrder, getPatients, listRadiologyOrders } from '@medichain/shared';
 import ImagingPage from './ImagingPage';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
@@ -87,7 +88,7 @@ describe('ImagingPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /New Order/i }));
     await waitFor(() => expect(listRadiologyOrders).toHaveBeenCalled());
     const readsBeforeSubmit = vi.mocked(listRadiologyOrders).mock.calls.length;
-    fireEvent.change(screen.getByLabelText(/Patient \*/i), { target: { value: 'PAT-001' } });
+    await selectPatient(/Patient/i, 'Test Patient');
     fireEvent.change(screen.getByLabelText(/Clinical Indication/i), { target: { value: 'Persistent abdominal pain' } });
     fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
 
