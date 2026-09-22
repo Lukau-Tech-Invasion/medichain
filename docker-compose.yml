@@ -162,7 +162,12 @@ services:
       TELEHEALTH_ENABLED: ${TELEHEALTH_ENABLED:-}
       TELEHEALTH_PROVIDER: ${TELEHEALTH_PROVIDER:-}
       TELEHEALTH_SECRET: ${TELEHEALTH_SECRET:-}
+      # The XMPP domain the JWT is scoped to. NOT the browser's URL: a
+      # self-hosted Jitsi on any port but 443 makes those differ, and
+      # `auth.localhost:8443` is not a valid XMPP domain.
       JITSI_DOMAIN: ${JITSI_DOMAIN:-}
+      # Where the browser actually connects. Defaults to https://<domain>.
+      JITSI_PUBLIC_URL: ${JITSI_PUBLIC_URL:-}
       JITSI_APP_ID: ${JITSI_APP_ID:-}
       JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
       JITSI_ROOM_PREFIX: ${JITSI_ROOM_PREFIX:-}

@@ -406,19 +406,52 @@ impl TelehealthProvider for InternalProvider {
 /// out of the box. Point `JITSI_DOMAIN` at a self-hosted Jitsi deployment for
 /// production (recommended for PHI), and optionally set `JITSI_ROOM_PREFIX`.
 pub struct JitsiProvider {
+    /// The XMPP domain. This is what the JWT is scoped to, and it must match
+    /// the deployment's `XMPP_DOMAIN` exactly.
     domain: String,
+    /// The origin a browser opens, which is NOT always the XMPP domain.
+    ///
+    /// A self-hosted Jitsi on any port but 443 makes the two differ:
+    /// `https://localhost:8443` is where the client connects, while the XMPP
+    /// domain is `localhost` and `auth.localhost:8443` is not a valid domain
+    /// at all. Deriving one from the other produced a token whose `sub` the
+    /// server rejected, or a URL pointing at the wrong port — one of the two,
+    /// depending which value was configured.
+    public_origin: String,
     room_prefix: String,
 }
 
 impl JitsiProvider {
     pub fn new() -> Self {
         let domain = std::env::var("JITSI_DOMAIN").unwrap_or_else(|_| "meet.jit.si".to_string());
+        // Defaults to the domain, so a deployment on 443 configures one value
+        // and a deployment on another port configures two.
+        let public_origin = std::env::var("JITSI_PUBLIC_URL")
+            .ok()
+            .map(|url| url.trim().trim_end_matches('/').to_string())
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| format!("https://{domain}"));
         let room_prefix =
             std::env::var("JITSI_ROOM_PREFIX").unwrap_or_else(|_| "MediChain".to_string());
         JitsiProvider {
             domain,
+            public_origin,
             room_prefix,
         }
+    }
+
+    /// The host:port a browser connects to, with no scheme.
+    ///
+    /// `JitsiMeetExternalAPI` takes the host this way. It is derived from the
+    /// public origin rather than the XMPP domain, because the two differ on
+    /// any deployment not served from 443.
+    fn browser_host(&self) -> String {
+        self.public_origin
+            .split_once("://")
+            .map(|(_, host)| host)
+            .unwrap_or(&self.public_origin)
+            .trim_end_matches('/')
+            .to_string()
     }
 
     /// Build a Jitsi-safe room name (alphanumeric + hyphens only) from a session id.
@@ -440,8 +473,8 @@ impl JitsiProvider {
             _ => "Participant",
         };
         format!(
-            "https://{}/{}#userInfo.displayName=%22{}%22",
-            self.domain, room, display
+            "{}/{}#userInfo.displayName=%22{}%22",
+            self.public_origin, room, display
         )
     }
 }
@@ -500,9 +533,15 @@ impl TelehealthProvider for JitsiProvider {
         moderator: bool,
     ) -> Option<JitsiCredentials> {
         let room = self.room_name(session_id);
+        // Signed against the XMPP domain: `sub` has to match what Prosody is
+        // configured with, or the token is refused at the door.
         let jwt = sign_jitsi_jwt(&self.domain, &room, user_id, display_name, moderator);
         Some(JitsiCredentials {
-            domain: self.domain.clone(),
+            // The host the BROWSER connects to, which carries the port when
+            // the deployment is not on 443. `JitsiMeetExternalAPI` takes this
+            // without a scheme, so the origin is stripped back to host:port —
+            // it is not the same value as the one the token is scoped to.
+            domain: self.browser_host(),
             room,
             jwt,
             moderator,

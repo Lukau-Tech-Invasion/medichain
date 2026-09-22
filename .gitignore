@@ -137,3 +137,6 @@ fix-results.tsv
 
 # Playwright saved sign-in state (contains a live session token)
 client/**/.auth/
+
+# Jitsi generates its own configuration and certificates into this tree.
+.jitsi-config/
