@@ -82,7 +82,7 @@ describe('PsychPage', () => {
       ],
     });
 
-    const { container } = render(<PsychPage />);
+    render(<PsychPage />);
 
     // Two chained fetches (roster, then history) with the suite running files
     // in parallel, so the 1s waitFor default is not reliably enough on a loaded

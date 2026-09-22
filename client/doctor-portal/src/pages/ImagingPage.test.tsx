@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { createRadiologyOrder, getPatients, listRadiologyOrders } from '@medichain/shared';
 import ImagingPage from './ImagingPage';
-import { patientFixture, selectPatient } from '../test/selectPatient';
+import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
