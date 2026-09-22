@@ -354,8 +354,17 @@ const OrderSetsPage: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
-  const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+  /**
+   * A time, or nothing.
+   *
+   * `new Date(undefined).toLocaleString()` is the string "Invalid Date", and
+   * the built-in bundles carry no creation time to print — so every one of
+   * them rendered "Created: Invalid Date". An absent timestamp is absent.
+   */
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   };
 
   return (
@@ -628,14 +637,20 @@ const OrderSetsPage: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
-                      <div className="bg-notice-subtle rounded p-2">
-                        <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
+                    {(formatDate(set.createdAt) || formatDate(set.lastModified)) && (
+                      <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
+                        {formatDate(set.createdAt) && (
+                          <div className="bg-notice-subtle rounded p-2">
+                            <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
+                          </div>
+                        )}
+                        {formatDate(set.lastModified) && (
+                          <div className="bg-ok-subtle rounded p-2">
+                            <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
+                          </div>
+                        )}
                       </div>
-                      <div className="bg-ok-subtle rounded p-2">
-                        <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>

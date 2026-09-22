@@ -4361,3 +4361,33 @@ save no reader can see" defect this campaign has been closing.
 
 The count to watch is the middle table. Every row in it is a control offered to
 a clinician that cannot do the thing its label promises.
+
+---
+
+## "Invalid Date", written out to a clinician — 2026-09-22
+
+`new Date(undefined).toLocaleString()` returns the literal string
+`Invalid Date`, and a screen that prints it has told a clinician something
+false about when a record was made. Two pages already carry a comment about
+exactly this (`AdminDashboardPage`, `DashboardPage`), which is the signature of
+a class rather than an incident: it has been found, fixed locally, and left to
+recur elsewhere.
+
+Found live on the order-sets screen on 2026-09-22 — the deployment's built-in
+bundles carry no creation time, so every one of them rendered
+"Created: Invalid Date". Fixed there by returning an empty string for an absent
+or unparseable value and omitting the row entirely, which is what an absent
+timestamp means.
+
+Unguarded `new Date(x).toLocaleString()` remains in at least:
+`AccessLogsPage`, `CDSAlertsPage` (two sites), `ConsultPage`,
+`DrugInteractionsPage`, `EmergencyProtocolsPage`, `FallRiskPage`. Each needs
+checking against what its source actually sends; several read fields that are
+optional in the API.
+
+**The fix is one shared helper, not nine local ones.** `client/shared` has
+`formatDate`/`formatTime` in `i18n/index.ts` already; a
+`formatTimestamp(value): string` that answers `''` for null, undefined and
+unparseable input belongs beside them, and the pages should call it. Doing that
+is a mechanical change across ~9 files and was deliberately not attempted in
+the middle of a verification run.
