@@ -13,8 +13,10 @@ mod drug_checking;
 mod drug_database;
 mod insurance;
 mod medication_reminders;
+mod pharmacy_decisions;
 
 pub use drug_checking::*;
 pub use drug_database::*;
 pub use insurance::*;
 pub use medication_reminders::*;
+pub use pharmacy_decisions::*;

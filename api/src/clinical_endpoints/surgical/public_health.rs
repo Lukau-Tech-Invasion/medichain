@@ -845,6 +845,353 @@ pub async fn create_death_certificate(
     }
 }
 
+// ============================================================================
+// Death certificate drafts
+// ============================================================================
+
+/// A certificate in progress.
+///
+/// `CreateDeathCertificateRequest` requires deceased name, date, place, cause
+/// and certifier, because a filed certificate missing any of them is void and
+/// storing a void one is worse than refusing it. That is right for filing and
+/// wrong for drafting: a doctor completing a certificate over a shift has a
+/// partial document long before it is a legal instrument, and the Settings
+/// screen offered a "Save as draft" button that could not be wired to anything
+/// because the only endpoint refused everything incomplete.
+///
+/// So a draft is a different thing with different rules, not a certificate with
+/// the checks switched off. It requires only the patient it concerns, it is
+/// stored with `status: "draft"`, and it is `POST /.../draft` — never reachable
+/// by accident from the filing path.
+#[derive(Debug, serde::Deserialize, serde::Serialize, Default)]
+pub struct DraftDeathCertificateRequest {
+    pub patient_id: String,
+    #[serde(default)]
+    pub deceased_name: Option<String>,
+    #[serde(default)]
+    pub date_of_birth: Option<String>,
+    #[serde(default)]
+    pub date_of_death: Option<String>,
+    #[serde(default)]
+    pub time_of_death: Option<String>,
+    #[serde(default)]
+    pub place_of_death: Option<String>,
+    #[serde(default)]
+    pub manner_of_death: Option<String>,
+    #[serde(default)]
+    pub cause_of_death: Option<String>,
+    #[serde(default)]
+    pub other_conditions: Vec<String>,
+    #[serde(default)]
+    pub certifier_name: Option<String>,
+    #[serde(default)]
+    pub certifier_license: Option<String>,
+    #[serde(default)]
+    pub certifier_type: Option<String>,
+}
+
+/// The states a certificate record can be in. A draft is editable and is not a
+/// certificate; a filed one is a legal instrument and is not editable.
+const DC_STATUS_DRAFT: &str = "draft";
+const DC_STATUS_FILED: &str = "filed";
+
+fn dc_error(status: actix_web::http::StatusCode, message: &str, code: &str) -> HttpResponse {
+    HttpResponse::build(status).json(ErrorResponse {
+        success: false,
+        error: message.to_string(),
+        code: code.to_string(),
+    })
+}
+
+/// Build the stored blob for a draft, carrying the fields it cannot assert
+/// about itself.
+fn draft_blob(
+    draft: &DraftDeathCertificateRequest,
+    id: &str,
+    author: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> serde_json::Value {
+    let mut blob = serde_json::to_value(draft).unwrap_or_default();
+    if let Some(object) = blob.as_object_mut() {
+        object.insert("certificate_id".into(), serde_json::json!(id));
+        object.insert("status".into(), serde_json::json!(DC_STATUS_DRAFT));
+        object.insert("drafted_by".into(), serde_json::json!(author));
+        object.insert("updated_at".into(), serde_json::json!(now.to_rfc3339()));
+    }
+    blob
+}
+
+/// Start a death certificate without filing it.
+#[post("/api/surgical/death-certificate/draft")]
+pub async fn draft_death_certificate(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<DraftDeathCertificateRequest>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let draft = req.into_inner();
+
+    // Even a draft names the person it concerns. Without this a draft is a
+    // note about nobody, and it cannot later be filed.
+    if data
+        .repositories
+        .patients
+        .get_by_id(&draft.patient_id)
+        .await
+        .is_err()
+    {
+        return dc_error(
+            actix_web::http::StatusCode::NOT_FOUND,
+            &format!("Patient '{}' not found", draft.patient_id),
+            "PATIENT_NOT_FOUND",
+        );
+    }
+
+    let id = format!("DC-{}", uuid::Uuid::new_v4().simple());
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: draft.patient_id.clone(),
+        data: draft_blob(&draft, &id, &current_user_id, now),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .death_certificate_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created()
+            .json(serde_json::json!({ "id": id, "status": DC_STATUS_DRAFT, "success": true })),
+        Err(e) => {
+            log::error!("death certificate draft could not be stored: {e}");
+            dc_error(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Draft could not be stored",
+                "DATABASE_ERROR",
+            )
+        }
+    }
+}
+
+/// Revise a draft.
+///
+/// Conditional on the record still being a draft. A filed certificate is a
+/// legal instrument and is not editable: the correction path for one of those
+/// is an amended certificate, which is a different document with its own
+/// number, not a silent overwrite of the original.
+#[actix_web::put("/api/surgical/death-certificate/{id}")]
+pub async fn update_death_certificate_draft(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<DraftDeathCertificateRequest>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let id = path.into_inner();
+    let draft = req.into_inner();
+
+    let existing = match data
+        .repositories
+        .death_certificate_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => rec,
+        Ok(None) => {
+            return dc_error(
+                actix_web::http::StatusCode::NOT_FOUND,
+                "No such death certificate",
+                "NOT_FOUND",
+            )
+        }
+        Err(e) => {
+            log::error!("death certificate read failed: {e}");
+            return dc_error(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Death certificate could not be read",
+                "DATABASE_ERROR",
+            );
+        }
+    };
+
+    // The patient a certificate concerns is not an editable field: changing it
+    // would turn one person's certificate into another's while keeping its
+    // number and its audit trail.
+    if existing.owner_id != draft.patient_id {
+        return dc_error(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "A death certificate cannot be moved to a different patient",
+            "PATIENT_IMMUTABLE",
+        );
+    }
+
+    let now = chrono::Utc::now();
+    let updated = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: existing.owner_id.clone(),
+        data: draft_blob(&draft, &id, &current_user_id, now),
+        created_at: existing.created_at,
+        updated_at: now,
+    };
+
+    // Conditional write: if the record was filed between the read above and
+    // this line, the update does not land.
+    match data
+        .repositories
+        .death_certificate_records
+        .replace_if_field_eq(&id, "status", DC_STATUS_DRAFT, updated)
+        .await
+    {
+        Ok(Some(_)) => HttpResponse::Ok()
+            .json(serde_json::json!({ "id": id, "status": DC_STATUS_DRAFT, "success": true })),
+        Ok(None) => dc_error(
+            actix_web::http::StatusCode::CONFLICT,
+            "This certificate has been filed and can no longer be edited",
+            "ALREADY_FILED",
+        ),
+        Err(e) => {
+            log::error!("death certificate draft update failed: {e}");
+            dc_error(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Draft could not be saved",
+                "DATABASE_ERROR",
+            )
+        }
+    }
+}
+
+/// File a draft as a certificate.
+///
+/// This is where the legal-instrument checks live, and they are the same ones
+/// `create_death_certificate` applies: filing an incomplete certificate is the
+/// thing the draft state exists to avoid, not a shortcut it provides.
+#[post("/api/surgical/death-certificate/{id}/file")]
+pub async fn file_death_certificate(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let id = path.into_inner();
+
+    let existing = match data
+        .repositories
+        .death_certificate_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => rec,
+        Ok(None) => {
+            return dc_error(
+                actix_web::http::StatusCode::NOT_FOUND,
+                "No such death certificate",
+                "NOT_FOUND",
+            )
+        }
+        Err(e) => {
+            log::error!("death certificate read failed: {e}");
+            return dc_error(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Death certificate could not be read",
+                "DATABASE_ERROR",
+            );
+        }
+    };
+
+    let text = |field: &str| -> String {
+        existing
+            .data
+            .get(field)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    for field in [
+        "deceased_name",
+        "date_of_death",
+        "place_of_death",
+        "cause_of_death",
+        "certifier_name",
+    ] {
+        if text(field).is_empty() {
+            return dc_error(
+                actix_web::http::StatusCode::BAD_REQUEST,
+                &format!("{field} is required before a certificate can be filed"),
+                "VALIDATION_ERROR",
+            );
+        }
+    }
+
+    let now = chrono::Utc::now();
+    if let Err(response) = crate::support::require_durable_audit(
+        &data,
+        crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: existing.owner_id.clone(),
+            accessor_id: current_user_id.clone(),
+            accessor_role: "doctor".to_string(),
+            access_type: "create_death_certificate".to_string(),
+            location: None,
+            timestamp: now,
+            emergency: false,
+        }
+        .into(),
+    )
+    .await
+    {
+        return response;
+    }
+
+    let mut blob = existing.data.clone();
+    if let Some(object) = blob.as_object_mut() {
+        object.insert("status".into(), serde_json::json!(DC_STATUS_FILED));
+        object.insert("filed_by".into(), serde_json::json!(current_user_id));
+        object.insert("filed_at".into(), serde_json::json!(now.to_rfc3339()));
+    }
+    let filed = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: existing.owner_id.clone(),
+        data: blob,
+        created_at: existing.created_at,
+        updated_at: now,
+    };
+
+    match data
+        .repositories
+        .death_certificate_records
+        .replace_if_field_eq(&id, "status", DC_STATUS_DRAFT, filed)
+        .await
+    {
+        Ok(Some(_)) => HttpResponse::Ok()
+            .json(serde_json::json!({ "id": id, "status": DC_STATUS_FILED, "success": true })),
+        Ok(None) => dc_error(
+            actix_web::http::StatusCode::CONFLICT,
+            "This certificate has already been filed",
+            "ALREADY_FILED",
+        ),
+        Err(e) => {
+            log::error!("death certificate filing failed: {e}");
+            dc_error(
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Certificate could not be filed",
+                "DATABASE_ERROR",
+            )
+        }
+    }
+}
+
 /// Get death certificate
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.

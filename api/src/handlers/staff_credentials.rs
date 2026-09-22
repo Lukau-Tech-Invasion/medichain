@@ -31,7 +31,7 @@
 //! a server able to forge signatures. Recovery is re-enrolment by an
 //! administrator against a freshly provisioned keypair.
 
-use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -419,6 +419,378 @@ pub async fn enrol_credentials(
             HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Credentials could not be saved".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+// ============================================================================
+// Rotation
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateCredentialsRequest {
+    /// The employee identifier being rotated.
+    pub login_id: String,
+    /// Proof derived from the CURRENT password, checked against the stored
+    /// verifier before anything is replaced.
+    pub current_auth_proof: String,
+    /// Proof derived from the NEW password. Argon2id is applied server-side.
+    pub new_auth_proof: String,
+    /// The caller's keypair, re-encrypted under the new password's keystore
+    /// secret. The client produced this locally; the server cannot.
+    pub new_encrypted_keystore: String,
+}
+
+/// Change the password behind an employee identifier.
+///
+/// # Why this is a rotation and not a reset
+///
+/// The module header is the constraint: a server able to reset a password
+/// would be a server able to forge signatures, because the password's other
+/// derivation path is what opens the keystore holding the signing key. So
+/// there is no reset, and this is not one.
+///
+/// The client does the part the server cannot. It derives both values from the
+/// old password, opens its own keystore, re-encrypts the keypair under a
+/// secret derived from the new password, and sends three things: proof it knew
+/// the old password, a verifier for the new one, and the new encrypted blob.
+/// The server checks the first and stores the other two. It sees neither
+/// password and never holds the key.
+///
+/// A clinician who has forgotten their password still cannot use this, and
+/// still needs re-enrolment by an administrator against a fresh keypair. What
+/// this closes is the ordinary case -- a password that is known and should be
+/// changed -- which had no route at all and a Settings button that did nothing.
+#[post("/api/auth/staff/rotate-credentials")]
+pub async fn rotate_credentials(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<RotateCredentialsRequest>,
+) -> impl Responder {
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+
+    let identifier = body.login_id.trim().to_lowercase();
+    if identifier.is_empty() {
+        return invalid_credentials();
+    }
+    if is_locked_out(&identifier) {
+        return HttpResponse::TooManyRequests().json(ErrorResponse {
+            success: false,
+            error: "Too many failed attempts. Try again later.".to_string(),
+            code: "ACCOUNT_LOCKED".to_string(),
+        });
+    }
+    if body.new_auth_proof.len() < 32 || body.new_auth_proof.len() > 512 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Malformed authentication proof".to_string(),
+            code: "INVALID_AUTH_PROOF".to_string(),
+        });
+    }
+    // A rotation that keeps the same proof is not a rotation, and would leave
+    // the clinician believing their password had changed.
+    if body.new_auth_proof == body.current_auth_proof {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "The new password must differ from the current one".to_string(),
+            code: "PASSWORD_UNCHANGED".to_string(),
+        });
+    }
+    if body.new_encrypted_keystore.len() < 64
+        || body.new_encrypted_keystore.len() > 16_384
+        || !body.new_encrypted_keystore.trim_start().starts_with('{')
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Malformed keystore".to_string(),
+            code: "INVALID_KEYSTORE".to_string(),
+        });
+    }
+
+    let Some(pool) = &data.db_pool else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Credential rotation requires the database-backed deployment".to_string(),
+            code: "CREDENTIAL_LOGIN_UNAVAILABLE".to_string(),
+        });
+    };
+
+    let stored: Option<(String, Option<String>, String)> = sqlx::query_as(
+        r#"
+        SELECT wallet_address, credential_verifier, status
+        FROM users
+        WHERE LOWER(login_id) = $1
+        "#,
+    )
+    .bind(&identifier)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    // Spend the same Argon2id cost whether or not the identifier exists.
+    let verifier = stored
+        .as_ref()
+        .and_then(|(_, v, _)| v.as_deref())
+        .unwrap_or_else(|| timing_equaliser());
+    let proof_ok = medichain_crypto::password::verify_secret(&body.current_auth_proof, verifier);
+
+    let Some((wallet_address, _, status)) = stored.clone() else {
+        record_failure(&identifier);
+        log::warn!(
+            "CREDENTIAL_ROTATE_UNKNOWN identifier_hash={}",
+            hash_id(&identifier)
+        );
+        return invalid_credentials();
+    };
+
+    // The credentials being rotated must be the caller's own. Without this an
+    // authenticated clinician who learned a colleague's password could rotate
+    // it and lock them out of their own signing key.
+    if wallet_address != caller.wallet_address {
+        record_failure(&identifier);
+        log::warn!(
+            "CREDENTIAL_ROTATE_WRONG_OWNER caller={} identifier_hash={}",
+            caller.wallet_address,
+            hash_id(&identifier)
+        );
+        return invalid_credentials();
+    }
+
+    if !proof_ok {
+        record_failure(&identifier);
+        log::warn!(
+            "CREDENTIAL_ROTATE_FAILED identifier_hash={}",
+            hash_id(&identifier)
+        );
+        return invalid_credentials();
+    }
+
+    if status != "active" {
+        record_failure(&identifier);
+        log::warn!("CREDENTIAL_ROTATE_INACTIVE status={status}");
+        return invalid_credentials();
+    }
+
+    let new_verifier = match medichain_crypto::password::hash_secret(&body.new_auth_proof) {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "Malformed authentication proof".to_string(),
+                code: "INVALID_AUTH_PROOF".to_string(),
+            })
+        }
+    };
+
+    // Verifier and keystore move together. A write that replaced one without
+    // the other would leave the clinician able to authenticate and unable to
+    // sign, or the reverse.
+    let result = sqlx::query(
+        r#"
+        UPDATE users
+        SET credential_verifier = $1,
+            encrypted_keystore = $2,
+            credential_updated_at = NOW(),
+            updated_at = NOW()
+        WHERE wallet_address = $3
+        "#,
+    )
+    .bind(&new_verifier)
+    .bind(&body.new_encrypted_keystore)
+    .bind(&caller.wallet_address)
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 1 => {
+            clear_failures(&identifier);
+            log::info!(
+                "CREDENTIALS_ROTATED wallet={} identifier_hash={}",
+                caller.wallet_address,
+                hash_id(&identifier)
+            );
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": "Your password has been changed"
+            }))
+        }
+        Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "No such account".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        }),
+        Err(e) => {
+            log::error!("credential rotation failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Your password could not be changed".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+// ============================================================================
+// Staff profile picture
+// ============================================================================
+
+/// The largest avatar accepted, in bytes of the encoded `data:` URI.
+///
+/// A ceiling rather than a preference: every response that embeds a profile
+/// picture pays for it, and a clinician who uploads a 4 MB photograph would
+/// slow down every list their name appears in. 256 KB is a generous square
+/// portrait.
+const AVATAR_MAX_BYTES: usize = 256 * 1024;
+
+/// The media types a browser will actually render inline, and that carry no
+/// script. SVG is excluded on purpose: it is a document that can carry script,
+/// and an avatar is displayed in other people's sessions.
+const AVATAR_MEDIA_TYPES: [&str; 4] = [
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+    "data:image/webp;base64,",
+    "data:image/gif;base64,",
+];
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAvatarRequest {
+    /// The image as a `data:` URI. Absent or empty removes the picture.
+    #[serde(default)]
+    pub avatar: Option<String>,
+}
+
+/// Set or clear the signed-in clinician's profile picture.
+///
+/// Caller-scoped: a clinician changes their own picture, and an administrator
+/// changing somebody else's face is not a workflow this system has.
+#[post("/api/users/me/avatar")]
+pub async fn set_my_avatar(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<SetAvatarRequest>,
+) -> impl Responder {
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    let now = chrono::Utc::now();
+    let wallet = caller.wallet_address.clone();
+
+    let submitted = req
+        .into_inner()
+        .avatar
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    let Some(avatar) = submitted else {
+        // Clearing is a write of an empty record, not a delete: the row is the
+        // clinician's avatar setting, and "I removed my picture" is a state.
+        let entity = crate::repositories::traits::JsonRecordEntity {
+            id: format!("AVA-{wallet}"),
+            owner_id: wallet.clone(),
+            data: serde_json::json!({ "avatar": serde_json::Value::Null, "updatedAt": now.to_rfc3339() }),
+            created_at: now,
+            updated_at: now,
+        };
+        return match data.repositories.user_avatars.create(entity).await {
+            Ok(_) => HttpResponse::Ok()
+                .json(serde_json::json!({ "success": true, "avatar": serde_json::Value::Null })),
+            Err(e) => {
+                log::error!("avatar clear failed: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Your profile picture could not be updated".to_string(),
+                    code: "DATABASE_ERROR".to_string(),
+                })
+            }
+        };
+    };
+
+    if !AVATAR_MEDIA_TYPES
+        .iter()
+        .any(|prefix| avatar.starts_with(prefix))
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "A profile picture must be a PNG, JPEG, WebP or GIF data URI".to_string(),
+            code: "UNSUPPORTED_MEDIA_TYPE".to_string(),
+        });
+    }
+    if avatar.len() > AVATAR_MAX_BYTES {
+        return HttpResponse::PayloadTooLarge().json(ErrorResponse {
+            success: false,
+            error: "That image is too large; please use one under 256 KB".to_string(),
+            code: "AVATAR_TOO_LARGE".to_string(),
+        });
+    }
+
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        // Deterministic id: one avatar per clinician, and a retry replaces
+        // rather than accumulating a row per upload.
+        id: format!("AVA-{wallet}"),
+        owner_id: wallet.clone(),
+        data: serde_json::json!({
+            "avatar": avatar,
+            "updatedAt": now.to_rfc3339(),
+        }),
+        created_at: now,
+        updated_at: now,
+    };
+
+    match data.repositories.user_avatars.create(entity).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "updatedAt": now.to_rfc3339(),
+        })),
+        Err(e) => {
+            log::error!("avatar upload failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Your profile picture could not be saved".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// One clinician's profile picture.
+///
+/// Readable by any signed-in caller, because this is the picture shown beside
+/// their name on records they authored — an avatar nobody else can load is a
+/// picture of nothing.
+#[get("/api/users/{wallet_address}/avatar")]
+pub async fn get_user_avatar(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
+    }
+    let wallet = path.into_inner();
+
+    match data.repositories.user_avatars.get_by_owner(&wallet).await {
+        Ok(rows) => {
+            let avatar = rows
+                .into_iter()
+                .next()
+                .and_then(|r| r.data.get("avatar").cloned())
+                .unwrap_or(serde_json::Value::Null);
+            HttpResponse::Ok().json(serde_json::json!({ "success": true, "avatar": avatar }))
+        }
+        Err(e) => {
+            log::error!("avatar read failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The profile picture could not be read".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
         }

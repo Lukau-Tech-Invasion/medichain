@@ -958,30 +958,48 @@ pub async fn scan_barcode(
         "scanned_at": scanned_at.timestamp(),
         "scanned_at_iso": scanned_at.to_rfc3339(),
     });
-    if let Err(e) = data
+    // The "Save history" toggle governs this write, which is the only one of
+    // the five scanner settings with teeth. While it was a literal in the JSX
+    // the panel was claiming a guarantee the system was not making: a
+    // clinician who turned it off was still having every scan recorded.
+    let save_history = data
         .repositories
-        .barcode_scans
-        .create(crate::repositories::traits::JsonRecordEntity {
-            id: scan
-                .get("scan_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            owner_id: current_user.wallet_address.clone(),
-            data: scan.clone(),
-            created_at: scanned_at,
-            updated_at: scanned_at,
-        })
+        .scanner_settings
+        .get_by_owner(&current_user.wallet_address)
         .await
-    {
-        // The scan is the custody evidence — if it cannot be recorded, say so
-        // rather than reporting a successful scan that left no trace.
-        log::error!("barcode scan persist failed: {}", e);
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: "Could not record the scan".to_string(),
-            code: "SCAN_WRITE_FAILED".to_string(),
-        });
+        .ok()
+        .and_then(|rows| rows.into_iter().next())
+        .and_then(|row| row.data.get("saveHistory").and_then(|v| v.as_bool()))
+        // Absent settings mean the clinician has never opened the panel, and
+        // the panel's own default is on.
+        .unwrap_or(true);
+
+    if save_history {
+        if let Err(e) = data
+            .repositories
+            .barcode_scans
+            .create(crate::repositories::traits::JsonRecordEntity {
+                id: scan
+                    .get("scan_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                owner_id: current_user.wallet_address.clone(),
+                data: scan.clone(),
+                created_at: scanned_at,
+                updated_at: scanned_at,
+            })
+            .await
+        {
+            // The scan is the custody evidence — if it cannot be recorded, say
+            // so rather than reporting a successful scan that left no trace.
+            log::error!("barcode scan persist failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not record the scan".to_string(),
+                code: "SCAN_WRITE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -989,7 +1007,8 @@ pub async fn scan_barcode(
         "barcode_value": barcode_value,
         "entity_info": entity_info,
         "location": location,
-        "scanned_at": scanned_at.timestamp()
+        "scanned_at": scanned_at.timestamp(),
+        "history_saved": save_history
     }))
 }
 
@@ -1076,10 +1095,255 @@ pub async fn get_barcode_scan_history(
             });
         }
     };
-    let mut scan_history: Vec<serde_json::Value> = records.into_iter().map(|r| r.data).collect();
+    // "Clear history" moves a marker rather than deleting scans (ADR-0005), so
+    // the read is what enacts it: entries recorded before the clinician last
+    // cleared are not in their list, and are still in the database for anyone
+    // asking who handled a specimen.
+    let cleared_at: Option<chrono::DateTime<chrono::Utc>> = data
+        .repositories
+        .scanner_settings
+        .get_by_owner(&current_user_id)
+        .await
+        .ok()
+        .and_then(|rows| rows.into_iter().next())
+        .and_then(|row| {
+            row.data
+                .get("historyClearedAt")
+                .and_then(|v| v.as_str())
+                .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+                .map(|d| d.with_timezone(&chrono::Utc))
+        });
+
+    let mut scan_history: Vec<serde_json::Value> = records
+        .into_iter()
+        .filter(|r| match cleared_at {
+            Some(cutoff) => r.created_at > cutoff,
+            None => true,
+        })
+        .map(|r| r.data)
+        .collect();
     scan_history.sort_by_key(|s| std::cmp::Reverse(s.get("scanned_at").and_then(|v| v.as_i64())));
 
     HttpResponse::Ok().json(scan_history)
+}
+
+// ============================================================================
+// Scanner preferences
+// ============================================================================
+
+/// One clinician's barcode scanner preferences.
+///
+/// The settings panel rendered five toggles whose `enabled` values were
+/// literals in the JSX: nothing read them, nothing stored them, and the scan
+/// path honoured none of them. `save_history` is the one with teeth — it
+/// governs whether `scan_barcode` writes a durable record at all — so a toggle
+/// that did nothing was claiming a guarantee the system was not making.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScannerSettings {
+    /// Scan as soon as a code is in frame, rather than on a press.
+    pub auto_scan: bool,
+    pub vibrate: bool,
+    pub sound: bool,
+    /// Keep scanning after a hit, for a run of specimens.
+    pub continuous: bool,
+    /// Write a durable scan record. Off means the scan still happens and is
+    /// still audited where a clinical workflow requires it; what stops is this
+    /// clinician's personal history list.
+    pub save_history: bool,
+}
+
+impl Default for ScannerSettings {
+    /// The defaults the panel used to draw as literals, so a clinician who has
+    /// never opened settings sees exactly what they saw before.
+    fn default() -> Self {
+        Self {
+            auto_scan: true,
+            vibrate: true,
+            sound: true,
+            continuous: false,
+            save_history: true,
+        }
+    }
+}
+
+/// Read this clinician's scanner settings.
+///
+/// Caller-scoped: there is no patient in a scanner preference and the screen
+/// has no id to send, which rule 10 names as the right shape for exactly this.
+#[get("/api/barcode/settings")]
+pub async fn get_scanner_settings(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+
+    match data
+        .repositories
+        .scanner_settings
+        .get_by_owner(&current_user_id)
+        .await
+    {
+        Ok(rows) => {
+            let stored = rows.into_iter().next();
+            let settings = stored
+                .as_ref()
+                .and_then(|r| serde_json::from_value::<ScannerSettings>(r.data.clone()).ok())
+                .unwrap_or_default();
+            let history_cleared_at = stored
+                .as_ref()
+                .and_then(|r| r.data.get("historyClearedAt").cloned())
+                .unwrap_or(serde_json::Value::Null);
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "settings": settings,
+                "historyClearedAt": history_cleared_at,
+            }))
+        }
+        Err(e) => {
+            log::error!("scanner settings read failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Scanner settings could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Save this clinician's scanner settings.
+#[actix_web::put("/api/barcode/settings")]
+pub async fn update_scanner_settings(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<ScannerSettings>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let settings = req.into_inner();
+    let now = chrono::Utc::now();
+
+    // The clear marker is part of the same row and must survive a settings
+    // save, or changing the sound toggle would silently restore a history the
+    // clinician had cleared.
+    let existing = data
+        .repositories
+        .scanner_settings
+        .get_by_owner(&current_user_id)
+        .await
+        .ok()
+        .and_then(|rows| rows.into_iter().next());
+    let cleared_at = existing
+        .as_ref()
+        .and_then(|r| r.data.get("historyClearedAt").cloned())
+        .unwrap_or(serde_json::Value::Null);
+
+    let id = existing
+        .as_ref()
+        .map(|r| r.id.clone())
+        .unwrap_or_else(|| format!("SCN-{}", uuid::Uuid::new_v4().simple()));
+    let mut blob = serde_json::to_value(&settings).unwrap_or_default();
+    if let Some(object) = blob.as_object_mut() {
+        object.insert("historyClearedAt".into(), cleared_at);
+    }
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: current_user_id.clone(),
+        data: blob,
+        created_at: existing.as_ref().map(|r| r.created_at).unwrap_or(now),
+        updated_at: now,
+    };
+
+    // `create` is insert-or-replace by id (see JsonRecordRepository), which is
+    // the singleton-per-clinician shape this row has.
+    match data.repositories.scanner_settings.create(entity).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "settings": settings,
+        })),
+        Err(e) => {
+            log::error!("scanner settings save failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Scanner settings could not be saved".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Clear this clinician's scan history view.
+///
+/// # Why this does not delete anything
+///
+/// A barcode scan is the record of a clinician handling a specimen or a
+/// medication. It is evidence, and ADR-0005 defers irreversible deletion
+/// across this system for that reason. So "Clear history" moves a marker: the
+/// scans stay, and this clinician's list starts again from now. Somebody
+/// asking "who scanned this specimen" still gets an answer.
+#[post("/api/barcode/history/clear")]
+pub async fn clear_scan_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let now = chrono::Utc::now();
+
+    let existing = data
+        .repositories
+        .scanner_settings
+        .get_by_owner(&current_user_id)
+        .await
+        .ok()
+        .and_then(|rows| rows.into_iter().next());
+
+    let id = existing
+        .as_ref()
+        .map(|r| r.id.clone())
+        .unwrap_or_else(|| format!("SCN-{}", uuid::Uuid::new_v4().simple()));
+    let mut blob = existing
+        .as_ref()
+        .map(|r| r.data.clone())
+        .unwrap_or_else(|| serde_json::to_value(ScannerSettings::default()).unwrap_or_default());
+    if let Some(object) = blob.as_object_mut() {
+        object.insert(
+            "historyClearedAt".into(),
+            serde_json::json!(now.to_rfc3339()),
+        );
+    }
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: current_user_id.clone(),
+        data: blob,
+        created_at: existing.as_ref().map(|r| r.created_at).unwrap_or(now),
+        updated_at: now,
+    };
+
+    // `create` is insert-or-replace by id (see JsonRecordRepository), which is
+    // the singleton-per-clinician shape this row has.
+    match data.repositories.scanner_settings.create(entity).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "historyClearedAt": now.to_rfc3339(),
+            "message": "Your scan list starts from now. The scans themselves are kept.",
+        })),
+        Err(e) => {
+            log::error!("scan history clear failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Scan history could not be cleared".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
 }
 
 // ============================================================================

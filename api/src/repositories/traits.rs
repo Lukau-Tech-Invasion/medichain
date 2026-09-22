@@ -3637,6 +3637,22 @@ pub struct AmaDischargeEntity {
     pub witness_present: bool,
     pub witness_name: Option<String>,
     pub witness_signature: Option<String>,
+    /// The patient's own mark, and when it was taken.
+    ///
+    /// `ama_form_signed` is a boolean and evidences nothing on its own: an AMA
+    /// discharge exists to show that the risks were explained and that the
+    /// patient, having capacity, accepted them, and it is the first document a
+    /// coroner asks for. A refusal to sign is recorded through
+    /// `ama_form_refused_reason`, so "not signed yet" and "refused to sign"
+    /// stay distinguishable (migration 20260922000005).
+    #[serde(default)]
+    pub patient_signature: Option<String>,
+    #[serde(default)]
+    pub patient_signature_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub witness_signature_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub signatures_collected_by: Option<String>,
     pub patient_given_prescriptions: bool,
     pub prescriptions_given: Option<serde_json::Value>,
     pub follow_up_offered: bool,

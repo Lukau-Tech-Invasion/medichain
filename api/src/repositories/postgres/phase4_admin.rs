@@ -907,7 +907,9 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 patient_verbalized_understanding, decision_making_capacity,
                 capacity_assessment, alternatives_offered, patient_refused_alternatives,
                 ama_form_signed, ama_form_refused_reason, witness_present, witness_name,
-                witness_signature, patient_given_prescriptions, prescriptions_given,
+                witness_signature, patient_signature, patient_signature_at,
+                witness_signature_at, signatures_collected_by,
+                patient_given_prescriptions, prescriptions_given,
                 follow_up_offered, follow_up_instructions, patient_contact_info_verified,
                 emergency_contact_notified, belongings_returned, security_escort,
                 police_notified, social_work_notified, documentation_complete,
@@ -935,6 +937,10 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 .push_bind(d.witness_present)
                 .push_bind(&d.witness_name)
                 .push_bind(&d.witness_signature)
+                .push_bind(&d.patient_signature)
+                .push_bind(d.patient_signature_at)
+                .push_bind(d.witness_signature_at)
+                .push_bind(&d.signatures_collected_by)
                 .push_bind(d.patient_given_prescriptions)
                 .push_bind(&d.prescriptions_given)
                 .push_bind(d.follow_up_offered)
@@ -1026,6 +1032,18 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
             .push_bind(discharge.ama_form_signed);
         qb.push(", witness_signature = ")
             .push_bind(&discharge.witness_signature);
+        // The signature columns move with the boolean beside them. An update
+        // that set `ama_form_signed` without them would report a signed
+        // discharge holding no signature, which is the state these columns
+        // exist to make impossible.
+        qb.push(", patient_signature = ")
+            .push_bind(&discharge.patient_signature);
+        qb.push(", patient_signature_at = ")
+            .push_bind(discharge.patient_signature_at);
+        qb.push(", witness_signature_at = ")
+            .push_bind(discharge.witness_signature_at);
+        qb.push(", signatures_collected_by = ")
+            .push_bind(&discharge.signatures_collected_by);
         qb.push(", documentation_complete = ")
             .push_bind(discharge.documentation_complete);
         qb.push(", physician_narrative = ")

@@ -1,0 +1,58 @@
+# Self-hosted stand-ins for the third-party services MediChain integrates with.
+#
+# The point is that a feature needing an external provider should still be
+# runnable and testable end to end in the local stack, rather than being
+# "configured" and never exercised. The service here speaks the real protocol,
+# so the API code path under test is the production one and only the provider
+# is local.
+#
+# Run:  docker compose -f docker-compose.yml -f docker-compose.services.yml up -d
+#
+# Grafana and Prometheus are NOT here: they already exist in
+# docker-compose.prod.yml behind the `monitoring` profile, which is how
+# Prometheus is running today. Duplicating them would give the same container
+# name two definitions.
+#
+# What is deliberately absent: Africa's Talking (SMS), Fayda and Ghana Card
+# (national identity) and Google Translate have no self-hostable equivalent.
+# Their variables are wired through in docker-compose.yml and those features
+# stay fail-closed until a real key is supplied. A fake SMS gateway would make
+# "the message was sent" true in the stack and false in the world, which is the
+# class of defect this project keeps finding.
+
+services:
+  # ===========================================================================
+  # MailHog — a real SMTP server with a web inbox.
+  #
+  # `SMTP_HOST` unset means a regulator breach notification is never sent and
+  # never faked. That is the right failure, and it also means nobody has ever
+  # watched one arrive. MailHog speaks SMTP on 1025 and shows what was
+  # delivered at http://127.0.0.1:8025, so the notification path runs without a
+  # message leaving the machine.
+  # ===========================================================================
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: medichain_mailhog
+    restart: unless-stopped
+    ports:
+      # Web inbox only, bound to loopback. SMTP stays on the internal network:
+      # nothing outside the compose network should be able to inject mail.
+      - "127.0.0.1:8025:8025"
+    expose:
+      - "1025"
+    healthcheck:
+      # The image carries busybox only, so the web API answering is the
+      # readiness signal.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v2/messages"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - medichain_network
+
+  # The API only learns about MailHog through SMTP_HOST/SMTP_PORT, but it must
+  # not start sending before the sink is listening.
+  api:
+    depends_on:
+      mailhog:
+        condition: service_started

@@ -8,6 +8,176 @@
 
 use super::*;
 
+/// Signatures taken on an against-medical-advice discharge.
+///
+/// The screen offered "Collect signatures" and there was nothing behind it,
+/// because the record had no field for the patient's own mark — only a boolean
+/// saying it had been signed. A boolean evidences nothing. An AMA discharge is
+/// the document produced when somebody leaves against advice, and its whole
+/// purpose is to show the risks were explained and that the patient, having
+/// capacity, accepted them.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectAmaSignaturesRequest {
+    /// The patient's signature, as the capture pad produced it. Absent when
+    /// the patient declined — which is recorded, not treated as an absence.
+    #[serde(default)]
+    pub patient_signature: Option<String>,
+    /// Why the patient would not sign. Required when there is no signature:
+    /// a counselled patient who declines is a different record from a form
+    /// nobody has got to yet.
+    #[serde(default)]
+    pub refused_reason: Option<String>,
+    #[serde(default)]
+    pub witness_name: Option<String>,
+    #[serde(default)]
+    pub witness_signature: Option<String>,
+}
+
+/// Record the signatures on an AMA discharge.
+#[post("/api/clinical/ama/{id}/signatures")]
+pub async fn collect_ama_signatures(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<CollectAmaSignaturesRequest>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let id = path.into_inner();
+    let body = req.into_inner();
+
+    let signature = body
+        .patient_signature
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let refused = body
+        .refused_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    // One of the two, never neither: a request carrying no signature and no
+    // reason asserts nothing, and storing it would mark the form handled while
+    // leaving the record exactly as unevidenced as before.
+    if signature.is_none() && refused.is_none() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Record the patient's signature, or why they would not sign".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
+    let mut discharge = match data.repositories.ama_discharges.get_by_id(&id).await {
+        Ok(record) => record,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "No such AMA discharge".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // A signature is taken once. Re-collecting would overwrite the mark a
+    // patient actually made, and the corrected-record path for a signed legal
+    // document is an addendum, not a silent replacement.
+    if discharge.patient_signature_at.is_some() {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "Signatures have already been recorded on this discharge".to_string(),
+            code: "ALREADY_SIGNED".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now();
+    if let Err(response) = crate::support::require_durable_audit(
+        &data,
+        crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: discharge.patient_id.clone(),
+            accessor_id: current_user.wallet_address.clone(),
+            accessor_role: current_user.role.to_string(),
+            access_type: "ama_signatures_collected".to_string(),
+            location: None,
+            timestamp: now,
+            emergency: false,
+        }
+        .into(),
+    )
+    .await
+    {
+        return response;
+    }
+
+    discharge.ama_form_signed = signature.is_some();
+    discharge.ama_form_refused_reason = refused.clone();
+    discharge.patient_signature = signature.clone();
+    discharge.patient_signature_at = Some(now);
+    discharge.signatures_collected_by = Some(current_user.wallet_address.clone());
+    if let Some(name) = body.witness_name.as_deref().map(str::trim) {
+        if !name.is_empty() {
+            discharge.witness_name = Some(name.to_string());
+            discharge.witness_present = true;
+        }
+    }
+    if let Some(mark) = body.witness_signature.as_deref().map(str::trim) {
+        if !mark.is_empty() {
+            discharge.witness_signature = Some(mark.to_string());
+            discharge.witness_signature_at = Some(now);
+        }
+    }
+    // The blob is what the read handlers actually serve, so it has to carry the
+    // same answer as the columns.
+    if let Some(object) = discharge.data.as_object_mut() {
+        object.insert(
+            "ama_form_signed".into(),
+            serde_json::json!(signature.is_some()),
+        );
+        object.insert(
+            "patient_signature_at".into(),
+            serde_json::json!(now.to_rfc3339()),
+        );
+        object.insert("ama_form_refused_reason".into(), serde_json::json!(refused));
+    }
+
+    match data.repositories.ama_discharges.update(discharge).await {
+        Ok(saved) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "id": saved.id,
+            "signed": saved.ama_form_signed,
+            "signatures_collected_at": now.to_rfc3339(),
+        })),
+        Err(e) => {
+            log::error!("AMA signatures could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Signatures could not be recorded".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 /// Create AMA discharge
 #[post("/api/clinical/ama")]
 pub async fn create_ama(
@@ -169,6 +339,14 @@ pub async fn create_ama(
             .get("witness_signature")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        // Creating the discharge does not take the signatures. They are
+        // collected at the bedside afterwards, through
+        // `POST /api/clinical/ama/{id}/signatures`, and until then the record
+        // is honestly unsigned rather than asserting a mark nobody made.
+        patient_signature: None,
+        patient_signature_at: None,
+        witness_signature_at: None,
+        signatures_collected_by: None,
         patient_given_prescriptions: body
             .get("patient_given_prescriptions")
             .and_then(|v| v.as_bool())

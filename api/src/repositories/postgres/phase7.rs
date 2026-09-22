@@ -185,6 +185,17 @@ pg_json_repo!(PgNoteTemplateRepository, "note_templates");
 pg_json_repo!(PgOrderSetRepository, "order_sets");
 pg_json_repo!(PgCdsRuleRepository, "cds_rules");
 pg_json_repo!(PgNotificationReadRepository, "notification_reads");
+// A pharmacist's decision about dispensing against a known allergy, and the
+// queries they raise with a prescriber (migration 20260922000003). Both were
+// buttons on the pharmacist dashboard with nothing behind them.
+pg_json_repo!(PgPharmacyDecisionRepository, "pharmacy_decisions");
+// A clinician's barcode scanner preferences and their history-cleared marker
+// (migration 20260922000006). The five toggles were literals in the JSX.
+pg_json_repo!(PgScannerSettingsRepository, "scanner_settings");
+// Staff profile pictures (migration 20260922000007). Kept out of `users`: an
+// avatar is not an identity attribute, and a column there would be serialised
+// into every user list that returns a User.
+pg_json_repo!(PgUserAvatarRepository, "user_avatars");
 
 // Final durability sweep (migration 20260811000002): the last process-memory
 // clinical maps. The first three are shape-mismatch domains whose typed tables

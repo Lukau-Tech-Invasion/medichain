@@ -117,6 +117,107 @@ services:
       # same path, and the version string in it is what ends up recorded against
       # every secondary-verification decision.
       DISPENSING_POLICY_PATH: ${DISPENSING_POLICY_PATH:-/app/policy/dispensing_policy.json}
+
+      # =======================================================================
+      # Feature configuration.
+      #
+      # Everything below was read by the API and had no way into the container,
+      # so the feature it governs was off in the running stack however the
+      # deployment was configured. `docker exec medichain_api env` listed
+      # fourteen variables while `api/src` read seventy-six.
+      #
+      # Each is a pass-through with no default, so an unset variable keeps the
+      # API's own fail-closed behaviour rather than inventing a posture here.
+      # =======================================================================
+
+      # Facility. Unset, the API treats appointment times as UTC and says so at
+      # startup -- telehealth join windows and reminders are then wrong by the
+      # facility's real offset.
+      CLINIC_TIMEZONE: ${CLINIC_TIMEZONE:-}
+      CLINIC_UTC_OFFSET_MINUTES: ${CLINIC_UTC_OFFSET_MINUTES:-}
+
+      # Posture. `APP_ENV=production` turns on the startup validations that
+      # refuse a contradictory configuration.
+      APP_ENV: ${APP_ENV:-}
+      REQUIRE_SIGNATURES: ${REQUIRE_SIGNATURES:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOW_HTTP_SENSITIVE: ${ALLOW_HTTP_SENSITIVE:-}
+      MEDICHAIN_DOMAIN: ${MEDICHAIN_DOMAIN:-}
+      MEDICHAIN_APP_URL: ${MEDICHAIN_APP_URL:-}
+      MEDICHAIN_BOOTSTRAP_KEY: ${MEDICHAIN_BOOTSTRAP_KEY:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
+      RUST_LOG: ${RUST_LOG:-}
+
+      # Blockchain anchoring. With no SUBSTRATE_WS_URL the API logs
+      # "blockchain features disabled" and every anchored write is a typed
+      # error rather than a fabricated hash.
+      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-}
+      SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:-}
+      SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:-}
+      SUBSTRATE_ALLOW_DEV_SIGNER: ${SUBSTRATE_ALLOW_DEV_SIGNER:-}
+
+      # Telehealth. Without JITSI_DOMAIN the service points at the public
+      # meet.jit.si with unauthenticated rooms, which is not somewhere PHI
+      # should go; docker-compose.jitsi.yml self-hosts it.
+      TELEHEALTH_ENABLED: ${TELEHEALTH_ENABLED:-}
+      TELEHEALTH_PROVIDER: ${TELEHEALTH_PROVIDER:-}
+      TELEHEALTH_SECRET: ${TELEHEALTH_SECRET:-}
+      JITSI_DOMAIN: ${JITSI_DOMAIN:-}
+      JITSI_APP_ID: ${JITSI_APP_ID:-}
+      JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
+      JITSI_ROOM_PREFIX: ${JITSI_ROOM_PREFIX:-}
+      DAILY_API_KEY: ${DAILY_API_KEY:-}
+
+      # Email. Unset SMTP_HOST means a regulator breach notice is never sent
+      # and never faked; docker-compose.services.yml runs a local catcher.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_ALLOW_PLAINTEXT: ${SMTP_ALLOW_PLAINTEXT:-}
+      SMTP_IMPLICIT_TLS: ${SMTP_IMPLICIT_TLS:-}
+      REGULATOR_NOTIFICATION_EMAIL: ${REGULATOR_NOTIFICATION_EMAIL:-}
+      SECURITY_OFFICER_PHONE: ${SECURITY_OFFICER_PHONE:-}
+
+      # SMS and push. Both default to OFF inside the API, so these must be set
+      # to `true` as well as credentialed before anything is sent.
+      SMS_ENABLED: ${SMS_ENABLED:-}
+      SMS_GLOBAL_DISABLE: ${SMS_GLOBAL_DISABLE:-}
+      SMS_INBOUND_WEBHOOK_SECRET: ${SMS_INBOUND_WEBHOOK_SECRET:-}
+      AT_API_KEY: ${AT_API_KEY:-}
+      AT_USERNAME: ${AT_USERNAME:-}
+      AT_SMS_URL: ${AT_SMS_URL:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      FCM_ENABLED: ${FCM_ENABLED:-}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+      FCM_ACCESS_TOKEN: ${FCM_ACCESS_TOKEN:-}
+
+      # Identity verification. `NATIONAL_ID_VERIFICATION_MODE` is validated at
+      # startup against APP_ENV, so production cannot silently run on stubs.
+      NATIONAL_ID_VERIFICATION_MODE: ${NATIONAL_ID_VERIFICATION_MODE:-}
+      NATIONAL_ID_HASH_KEY: ${NATIONAL_ID_HASH_KEY:-}
+      FAYDA_API_KEY: ${FAYDA_API_KEY:-}
+      GHANA_CARD_API_KEY: ${GHANA_CARD_API_KEY:-}
+
+      # Language and dictation.
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-}
+      GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY:-}
+      GOOGLE_TRANSLATE_ENDPOINT: ${GOOGLE_TRANSLATE_ENDPOINT:-}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-}
+      GOOGLE_STT_API_KEY: ${GOOGLE_STT_API_KEY:-}
+      GOOGLE_STT_ENDPOINT: ${GOOGLE_STT_ENDPOINT:-}
+
+      # Emergency audit availability. `deny` is the safe default; the
+      # governance-approved `durable_defer` additionally requires a durable
+      # path and an approved maximum age.
+      EMERGENCY_AUDIT_AVAILABILITY_MODE: ${EMERGENCY_AUDIT_AVAILABILITY_MODE:-}
+      EMERGENCY_DEFERRED_AUDIT_DIR: ${EMERGENCY_DEFERRED_AUDIT_DIR:-}
+      EMERGENCY_DEFERRED_AUDIT_MAX_AGE_SECS: ${EMERGENCY_DEFERRED_AUDIT_MAX_AGE_SECS:-}
+
+      # Optional clinical data overlays.
+      DRUG_INTERACTIONS_DATA_PATH: ${DRUG_INTERACTIONS_DATA_PATH:-}
     volumes:
       # Read-only, and a single file rather than a directory, so the container
       # cannot rewrite the policy it is being governed by.

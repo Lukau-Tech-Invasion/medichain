@@ -62,6 +62,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_users)
         .service(get_user_details)
         .service(update_user_profile)
+        // Settings offered "Change avatar" with no upload behind it. Kept out
+        // of the User row so it is not serialised into every user list.
+        .service(set_my_avatar)
+        .service(get_user_avatar)
         .service(get_my_records)
         // Wallet authentication endpoints
         .service(get_auth_challenge) // SEC-005: Auth challenge for signing
@@ -74,6 +78,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // keystore, never a session (see handlers/staff_credentials.rs).
         .service(staff_login) // POST /api/auth/staff/login
         .service(enrol_credentials) // POST /api/auth/credentials
+        // A rotation, not a reset: the client re-encrypts its own keystore and
+        // the server only swaps the verifier beside it.
+        .service(rotate_credentials) // POST /api/auth/staff/rotate-credentials
         // Session token endpoints
         // JWT auth (Phase 9.4)
         .service(issue_jwt) // POST /api/auth/jwt
@@ -352,6 +359,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_discharge_instructions)
         .service(clinical_endpoints::get_discharge_instructions)
         .service(clinical_endpoints::create_ama)
+        // The signature is the evidence an AMA discharge exists to carry; the
+        // record had only a boolean saying one had been taken.
+        .service(clinical_endpoints::collect_ama_signatures)
         .service(clinical_endpoints::get_ama)
         .service(clinical_endpoints::create_hp)
         .service(clinical_endpoints::update_hp_draft)
@@ -406,6 +416,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_transfusion)
         // Phase 18: Death Certificate & Autopsy endpoints
         .service(clinical_endpoints::create_death_certificate)
+        // The draft lifecycle. IMPORTANT: `/draft` is registered before the
+        // `{id}` routes below it, or actix matches "draft" as a certificate id
+        // and a new draft becomes a lookup of a record that does not exist —
+        // the same ordering trap documented on the triage queue above.
+        .service(clinical_endpoints::draft_death_certificate)
+        .service(clinical_endpoints::file_death_certificate)
+        .service(clinical_endpoints::update_death_certificate_draft)
         .service(clinical_endpoints::get_death_certificate)
         .service(clinical_endpoints::create_autopsy_request)
         .service(clinical_endpoints::get_autopsy_request)
@@ -470,6 +487,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::scan_barcode)
         .service(clinical_endpoints::track_barcode)
         .service(clinical_endpoints::get_barcode_scan_history)
+        // The scanner panel's five toggles were literals in the JSX, and
+        // "Clear history" had nowhere to go. Clearing moves a marker rather
+        // than deleting a custody record (ADR-0005).
+        .service(clinical_endpoints::get_scanner_settings)
+        .service(clinical_endpoints::update_scanner_settings)
+        .service(clinical_endpoints::clear_scan_history)
         // Quick Note Templates endpoints
         .service(clinical_endpoints::get_note_templates)
         .service(clinical_endpoints::use_note_template)
@@ -492,6 +515,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_drug_database)
         .service(clinical_endpoints::get_interaction_database)
         .service(clinical_endpoints::check_drug_interactions)
+        // What a pharmacist does about a safety alert. The dashboard offered
+        // Reject, Contact MD and DEA report with no endpoint behind any of
+        // them, so a refusal to dispense reached nobody.
+        .service(clinical_endpoints::record_pharmacy_decision)
+        .service(clinical_endpoints::list_pharmacy_decisions_for_patient)
+        .service(clinical_endpoints::controlled_substance_report)
         .service(clinical_endpoints::get_interaction_history)
         // Phase 22: Family Account Linking endpoints
         .service(clinical_endpoints::create_family_group)

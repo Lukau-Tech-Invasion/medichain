@@ -301,6 +301,12 @@ pub struct RepositoryContainer {
     pub note_templates: Arc<dyn JsonRecordRepository>,
     pub order_sets: Arc<dyn JsonRecordRepository>,
     pub cds_rules: Arc<dyn JsonRecordRepository>,
+    /// Pharmacist allergy-dispensing decisions and prescriber queries.
+    pub pharmacy_decisions: Arc<dyn JsonRecordRepository>,
+    /// One clinician's barcode scanner preferences.
+    pub scanner_settings: Arc<dyn JsonRecordRepository>,
+    /// Staff profile pictures, keyed by wallet.
+    pub user_avatars: Arc<dyn JsonRecordRepository>,
     /// When each user last read their notifications. One row per user.
     pub notification_reads: Arc<dyn JsonRecordRepository>,
 
@@ -641,6 +647,9 @@ impl RepositoryContainer {
             note_templates: Arc::new(memory::MemoryJsonRecordRepository::new()),
             order_sets: Arc::new(memory::MemoryJsonRecordRepository::new()),
             cds_rules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            pharmacy_decisions: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            scanner_settings: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            user_avatars: Arc::new(memory::MemoryJsonRecordRepository::new()),
             notification_reads: Arc::new(memory::MemoryJsonRecordRepository::new()),
             blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -1243,6 +1252,9 @@ impl RepositoryContainer {
             note_templates: Arc::new(postgres::PgNoteTemplateRepository::new(pool.clone())),
             order_sets: Arc::new(postgres::PgOrderSetRepository::new(pool.clone())),
             cds_rules: Arc::new(postgres::PgCdsRuleRepository::new(pool.clone())),
+            pharmacy_decisions: Arc::new(postgres::PgPharmacyDecisionRepository::new(pool.clone())),
+            scanner_settings: Arc::new(postgres::PgScannerSettingsRepository::new(pool.clone())),
+            user_avatars: Arc::new(postgres::PgUserAvatarRepository::new(pool.clone())),
             notification_reads: Arc::new(postgres::PgNotificationReadRepository::new(pool.clone())),
             blood_type_screen_records: Arc::new(postgres::PgBloodTypeScreenRecordRepository::new(
                 pool.clone(),
