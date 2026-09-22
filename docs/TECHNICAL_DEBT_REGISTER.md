@@ -4391,3 +4391,26 @@ optional in the API.
 unparseable input belongs beside them, and the pages should call it. Doing that
 is a mechanical change across ~9 files and was deliberately not attempted in
 the middle of a verification run.
+
+---
+
+## An author shown as a wallet address — 2026-09-22
+
+Seen live on the order-sets screen: a set drafted by Dr Browser Test is
+attributed to `5GnPcTux4PX1F8RchBGn9QBgS3fPu3AnVQyQc9snQ74LoCDG`. The record is
+correct — the wallet *is* the identity the API stores — but a clinician reading
+"created by 5GnPcTux…" learns nothing, and cannot tell two colleagues apart.
+
+The same applies to the CDS rules screen (`rule.createdBy`) and, wherever an
+author, reviewer or retiring user is rendered, to note templates, order-set
+reviewers (`reviewedBy`) and custody hand-overs (`recordedBy`).
+
+There is already a `StaffSelect` component that resolves staff for a picker, so
+the directory read exists. What is missing is a small shared
+`useStaffNames(ids)` that resolves a set of wallets to display names once per
+screen and falls back to the address when a wallet is not in the directory —
+which is the honest fallback, because an unresolvable wallet must not be shown
+as somebody else's name.
+
+Not urgent, and not a correctness defect: the stored attribution is right. It
+is a legibility defect on every screen that names who did something.
