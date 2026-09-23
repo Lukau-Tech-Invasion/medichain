@@ -10,6 +10,7 @@ import {
   Input,
   useValidatedForm,
   patientRegistrationSchema,
+  generateWalletIdentity,
 } from '@medichain/shared';
 import { 
   UserPlus, 
@@ -63,6 +64,14 @@ function RegisterPatientPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [formData, setFormData] = useState<FormData>(initialFormData);
+  // The recovery phrase for an identity generated here, shown ONCE.
+  //
+  // A patient being registered does not have a wallet yet -- that is what
+  // registration is for -- so requiring the clerk to type a 48-character SS58
+  // address made the form impossible to complete honestly. The only addresses
+  // a clerk could produce are someone else's.
+  const [newIdentity, setNewIdentity] = useState<{ mnemonic: string; address: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   // --- Checking the ID against its issuing register ---------------------------
   //
@@ -130,6 +139,27 @@ function RegisterPatientPage() {
   // so a date of birth in the future or a malformed wallet address was caught
   // only by a 400 with no indication of which field was wrong.
   const form = useValidatedForm(patientRegistrationSchema);
+
+  /**
+   * Mint the patient an identity.
+   *
+   * The keypair is generated in this browser and the server only ever sees
+   * the public address. The recovery phrase is shown once, here, because it
+   * is the patient's — storing it would make the clinic able to act as them,
+   * which is the whole property the wallet model exists to prevent.
+   */
+  const handleGenerateIdentity = async () => {
+    setGenerating(true);
+    try {
+      const identity = await generateWalletIdentity();
+      setFormData((current) => ({ ...current, walletAddress: identity.address }));
+      setNewIdentity({ mnemonic: identity.mnemonic, address: identity.address });
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('docRegisterPatient.identityFailed')));
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -358,16 +388,50 @@ function RegisterPatientPage() {
 
             <div className="md:col-span-2">
               <label htmlFor="register-wallet-address" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.walletAddress')}</label>
-              <input
-                type="text"
-                id="register-wallet-address"
-                name="walletAddress"
-                value={formData.walletAddress}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  id="register-wallet-address"
+                  name="walletAddress"
+                  value={formData.walletAddress}
+                  onChange={handleChange}
+                  required
+                  className="flex-1 px-4 py-2 border border-border-interactive rounded-lg bg-surface text-content focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                  placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
+                />
+                {/* A patient being registered has no wallet yet — that is what
+                    registration is for — so without this the only addresses a
+                    clerk could enter are somebody else's. */}
+                <button
+                  type="button"
+                  onClick={handleGenerateIdentity}
+                  disabled={generating}
+                  className="px-4 py-2 bg-brand text-brand-fg rounded-lg whitespace-nowrap disabled:bg-disabled disabled:text-disabled-fg"
+                >
+                  {generating ? t('docRegisterPatient.generating') : t('docRegisterPatient.generateIdentity')}
+                </button>
+              </div>
+
+              {newIdentity && (
+                <div className="mt-3 rounded-lg border border-caution-subtle-fg/30 bg-caution-subtle p-4">
+                  <p className="font-semibold text-caution-subtle-fg">
+                    {t('docRegisterPatient.recoveryTitle')}
+                  </p>
+                  <p className="mt-1 text-sm text-caution-subtle-fg">
+                    {t('docRegisterPatient.recoveryBody')}
+                  </p>
+                  <p className="mt-2 select-all rounded bg-surface p-3 font-mono text-sm text-content break-words">
+                    {newIdentity.mnemonic}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setNewIdentity(null)}
+                    className="mt-2 text-sm text-caution-subtle-fg underline"
+                  >
+                    {t('docRegisterPatient.recoveryAcknowledge')}
+                  </button>
+                </div>
+              )}
             </div>
             
             <div>

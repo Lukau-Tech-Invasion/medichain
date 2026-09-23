@@ -44,6 +44,7 @@ export function LoginPage() {
   const { t } = useTranslation();
   const {
     login,
+    loginWithRecoveryPhrase,
     loginWithDemoWallet,
     isAuthenticated,
     isLoading,
@@ -52,6 +53,11 @@ export function LoginPage() {
   } = usePatientAuthStore();
   
   const [walletAddress, setWalletAddress] = useState('');
+  // The twelve words issued at registration. A patient who has just been
+  // registered at a clinic has these and nothing else -- no browser
+  // extension, no imported key.
+  const [recoveryPhrase, setRecoveryPhrase] = useState('');
+  const [showPhraseForm, setShowPhraseForm] = useState(false);
   const [demoName, setDemoName] = useState('');
   const [showDemoForm, setShowDemoForm] = useState(false);
   const [localError, setLocalError] = useState('');
@@ -196,11 +202,70 @@ export function LoginPage() {
               </div>
             </div>
 
+            {/* Sign in with the recovery phrase issued at registration.
+                The wallet form above needs a browser extension holding the
+                key; a patient handed twelve words at a reception desk has
+                neither, and had no way in at all. The phrase is turned into a
+                key in this tab and never sent anywhere. */}
+            {!showPhraseForm ? (
+              <button
+                type="button"
+                onClick={() => { setShowPhraseForm(true); setLocalError(''); }}
+                className="w-full rounded-xl border border-border-interactive px-4 py-3 text-sm font-medium text-content hover:bg-surface-sunken"
+              >
+                {t('auth.useRecoveryPhrase')}
+              </button>
+            ) : (
+              <form
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  setLocalError('');
+                  if (recoveryPhrase.trim().split(/\s+/).length !== 12) {
+                    setLocalError(t('auth.phraseNeedsTwelveWords'));
+                    return;
+                  }
+                  await loginWithRecoveryPhrase(recoveryPhrase);
+                }}
+                className="space-y-3"
+              >
+                <label htmlFor="recovery-phrase" className="block text-sm font-medium text-content-secondary">
+                  {t('auth.recoveryPhraseLabel')}
+                </label>
+                <textarea
+                  id="recovery-phrase"
+                  rows={3}
+                  value={recoveryPhrase}
+                  onChange={(e) => setRecoveryPhrase(e.target.value)}
+                  placeholder={t('auth.recoveryPhrasePlaceholder')}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full rounded-xl border border-border-interactive bg-surface px-4 py-3 font-mono text-sm text-content"
+                />
+                <p className="text-xs text-content-muted">{t('auth.recoveryPhraseHint')}</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowPhraseForm(false); setRecoveryPhrase(''); }}
+                    className="flex-1 rounded-xl border border-border px-4 py-3 text-sm text-content"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="flex-1 rounded-xl bg-brand px-4 py-3 text-sm font-medium text-brand-fg disabled:bg-disabled disabled:text-disabled-fg"
+                  >
+                    {isLoading ? t('auth.connecting') : t('auth.signIn')}
+                  </button>
+                </div>
+              </form>
+            )}
+
             {/* NFC card verification is self-scoped and requires an authenticated
                 patient. QR verification is a provider emergency-access action.
                 Neither endpoint can authenticate a patient, so do not expose them
                 as dead alternative sign-in controls. */}
-            <p className="rounded-xl border border-border bg-surface-sunken px-4 py-3 text-center text-sm text-content-muted">
+            <p className="mt-4 rounded-xl border border-border bg-surface-sunken px-4 py-3 text-center text-sm text-content-muted">
               {t('auth.cardVerificationAfterLogin')}
             </p>
           </div>
