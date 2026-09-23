@@ -505,6 +505,7 @@ export async function patientJourney(
   await runImagingVisibilitySteps(j, patient, clinician, id, other);
   await runPathologyVisibilitySteps(j, patient, clinician, id, other);
   await runConsultVisibilitySteps(j, patient, clinician, id, other);
+  await runVisitNoteAndPrescriptionVisibilitySteps(j, patient, clinician, id, other);
   await runWardRecordVisibilitySteps(j, patient, clinician, nurse, id, other);
   await runConsentWithdrawalSteps(j, patient, id);
 
@@ -999,6 +1000,148 @@ export async function runPathologyVisibilitySteps(
     [401, 403],
     theirs.json
   );
+}
+
+/**
+ * The visit note and the prescription, read by the patient they are about.
+ *
+ * These are the two things a patient leaves a consultation expecting to find
+ * in the app -- what the doctor concluded, and what they were given -- and the
+ * two screens a demonstration shows. No journey read either from the patient's
+ * side: the doctor journey checks a colleague can read the note, and the
+ * pharmacist journey checks the dispensing arithmetic, so "the patient can see
+ * it" rested on the patient pages' unit tests and their mocks.
+ *
+ * Producers: SOAPNotePage -> `POST /api/clinical/soap`, and EPrescribePage's
+ * create -> sign -> transmit. Readers: MyRecordsPage's
+ * `/clinical/patient/{id}/soap` and MedicationsPage's
+ * `/e-prescriptions/patient/{id}`.
+ */
+export async function runVisitNoteAndPrescriptionVisibilitySteps(
+  j: Journal,
+  patient: Session,
+  clinician: Session,
+  id: string,
+  otherId: string
+): Promise<void> {
+  const stamp = Date.now();
+  const complaint = `Dry cough for two weeks (journey ${stamp})`;
+  const plan = `Rest and fluids; review if fever develops (journey ${stamp})`;
+
+  const note = await http('POST', '/clinical/soap', {
+    token: clinician.token,
+    // SOAPNotePage sends every key, blank or not; so does this.
+    body: {
+      patient_id: id,
+      encounter_type: 'office_visit',
+      subjective: {
+        chief_complaint: complaint,
+        history_of_present_illness: '',
+        symptoms: ['cough'],
+        symptom_duration: '2 weeks',
+        review_of_systems: '',
+        modifying_factors: '',
+        previous_treatments: '',
+      },
+      objective: {
+        vital_signs: null,
+        general_appearance: '',
+        physical_exam: [],
+        lab_results: [],
+        imaging_results: [],
+        diagnostic_tests: [],
+      },
+      assessment: {
+        primary_diagnosis: { description: 'Acute bronchitis', icd10_code: 'J20.9', status: 'active' },
+        secondary_diagnoses: [],
+        clinical_summary: 'Afebrile, chest clear on auscultation.',
+        severity: 'mild',
+      },
+      plan: {
+        treatment_plan: plan,
+        medications: [],
+        procedures: [],
+        lab_orders: [],
+        imaging_orders: [],
+        referrals: [],
+        patient_education: [],
+        follow_up: 'If fever develops',
+        return_precautions: [],
+        activity_restrictions: '',
+      },
+    },
+  });
+  const written = j.status('a doctor writes a visit note about the patient', note.status, [200, 201], note.json);
+
+  if (written) {
+    const mine = await http('GET', `/clinical/patient/${id}/soap`, { token: patient.token });
+    const opened = j.status('the patient can open their own visit notes', mine.status, 200, mine.json);
+    const body = JSON.stringify(mine.json ?? null);
+    j.record(
+      'the note carries what they came in with and what was decided',
+      opened && body.includes(complaint) && body.includes(plan),
+      `a visit the patient cannot read back is advice they have to remember. Returned: ${body.slice(0, 300)}`
+    );
+    const theirs = await http('GET', `/clinical/patient/${otherId}/soap`, { token: patient.token });
+    j.status("another patient's visit notes are refused", theirs.status, [401, 403], theirs.json);
+  } else {
+    for (const n of [
+      'the patient can open their own visit notes',
+      'the note carries what they came in with and what was decided',
+      "another patient's visit notes are refused",
+    ]) {
+      j.skip(n, 'no visit note was written');
+    }
+  }
+
+  const directions = `One capsule three times daily for 7 days (journey ${stamp})`;
+  const rx = await http('POST', '/e-prescriptions', {
+    token: clinician.token,
+    body: {
+      patient_id: id,
+      medication_name: 'Amoxicillin',
+      strength: '500mg',
+      form: 'capsule',
+      quantity: 21,
+      days_supply: 7,
+      directions,
+      refills_allowed: 0,
+      is_controlled: false,
+      pharmacy_ncpdp: '1234567',
+      pharmacy_name: 'Main Street Pharmacy',
+      diagnosis_codes: ['J20.9'],
+      patient_instructions: 'Complete the course',
+    },
+  });
+  const rxId = String(rx.json.prescription_id ?? '');
+  const prescribed = j.status('a doctor prescribes for the patient', rx.status, [200, 201], rx.json) && rxId !== '';
+
+  if (prescribed) {
+    // "Send Prescription" is create -> sign -> transmit in one action.
+    await http('POST', `/e-prescriptions/${rxId}/sign`, {
+      token: clinician.token,
+      body: { signature_method: 'wallet', attestation: 'Issued for a legitimate medical purpose.' },
+    });
+    await http('POST', `/e-prescriptions/${rxId}/transmit`, { token: clinician.token });
+
+    const mine = await http('GET', `/e-prescriptions/patient/${id}`, { token: patient.token });
+    const opened = j.status('the patient can open their own prescriptions', mine.status, 200, mine.json);
+    j.record(
+      'the prescription reaches them with its directions',
+      opened && JSON.stringify(mine.json ?? null).includes(directions),
+      `a patient who cannot read the dose is taking it from memory`
+    );
+    const theirs = await http('GET', `/e-prescriptions/patient/${otherId}`, { token: patient.token });
+    j.status("another patient's prescriptions are refused", theirs.status, [401, 403], theirs.json);
+  } else {
+    for (const n of [
+      'the patient can open their own prescriptions',
+      'the prescription reaches them with its directions',
+      "another patient's prescriptions are refused",
+    ]) {
+      j.skip(n, 'no prescription was written');
+    }
+  }
 }
 
 /**

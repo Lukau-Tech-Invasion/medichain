@@ -4531,3 +4531,60 @@ to diagnose.
 * **The dispensing policy is still the example file.** Its version string is
   recorded against every secondary-verification decision, so a real deployment
   must mount its own approved policy at the same path.
+
+## What a rehearsed demo found — 2026-09-23
+
+A doctor wrote a SOAP note and a prescription for a newly registered patient
+through the screens, and a pharmacist took the prescription through the queue,
+all against the Docker stack. Four defects surfaced that no suite had seen.
+
+### Fixed in this pass
+
+* **The Dispense button did nothing at all.** It asked for a quantity with
+  `window.prompt`. The embedded browser used for the rehearsal suppresses
+  native dialogs and answers `null`, which the handler read as "cancelled": no
+  dialog, no error, no request. Seventeen controls across both applications
+  were built on `window.prompt`/`window.confirm`. All now use
+  `confirmDialog`/`promptDialog` from `@medichain/shared` -- themed,
+  focus-managed, and with the same return values -- and
+  `scripts/check-native-dialogs.py` refuses a new native call. The tests that
+  stubbed `window.prompt` now answer the real dialog through
+  `client/shared/src/testing/dialogs.ts`; a stub proved only that the page
+  called the thing that was broken.
+* **A prescription could be written for nobody.** `POST /api/e-prescriptions`
+  did not check its patient. Five stored prescriptions carry
+  `patient_id: ""` -- one marked Dispensed -- and sat in the pharmacist's
+  queue under a blank name. The handler now uses `require_known_patient`
+  (400 `MISSING_PATIENT_ID`, 404 `PATIENT_NOT_FOUND`), and the queue labels
+  such a row "No patient recorded" rather than leaving the cell empty.
+* **`GET /api/patients/{id}` omitted `wallet_address`.** The wallet is a
+  column on the patient row, not part of the encrypted profile the handler
+  serialised, so a correctly bound wallet read back as absent.
+* **A generated recovery phrase could be lost before anyone saw it.**
+  Registration now waits on an explicit "the patient has this phrase"
+  confirmation, offers Copy and a print slip holding only the phrase, and
+  keeps it on the success screen, which is when the patient first signs in.
+* **Eight API tests failed by scheduling order.** The PostgreSQL test helper
+  called `dotenvy::dotenv()`, exporting the deployment `.env` -- including
+  `IS_DEMO=true` and `JITSI_PUBLIC_URL` -- into the process every test
+  shares. Step-up tests then saw demo mode, which exempts the gate they
+  measure. It now reads `DATABASE_URL` alone and exports nothing. Removing
+  the leak exposed the reverse: the staff-restart round-trip test had passed
+  only because the leaked `ENCRYPTION_KEYS` gave its two `AppState`s one key.
+  It now carries the keyring across explicitly, as a real restart does.
+* **No journey read the patient's own visit notes or prescriptions** -- the
+  two screens a demonstration shows. `runVisitNoteAndPrescriptionVisibilitySteps`
+  in `scripts/journeys/patient.ts` adds eight steps: a doctor writes both, the
+  patient finds each with its content, and another patient is refused.
+
+### Left as found
+
+* **The five orphaned prescriptions are still in the store.** Deleting
+  clinical records is ADR-0005's decision, not a clean-up; they are now
+  labelled rather than hidden.
+* **A page reload signs a clinician out.** Deliberate and documented at
+  `authStore.restoreSession`: no session material is persisted, so a reload
+  has nothing to rebuild a verified session from. Surviving a reload needs a
+  persisted refresh token or a cookie-borne session, each a security trade-off
+  for the owner to choose. For a demo: navigate inside the application, do not
+  reload or type a URL.
