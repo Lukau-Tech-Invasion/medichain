@@ -194,11 +194,33 @@ pub(crate) async fn get_test_pool() -> PgPool {
     create_test_pool().await
 }
 
+/// The database the suite runs against: the process environment, then `.env`,
+/// then the documented local default.
+///
+/// `.env` is read here, never loaded. This used `dotenvy::dotenv()`, which
+/// exports every variable in the file into the one process all tests share --
+/// so once any PostgreSQL test had run, unrelated unit tests saw the
+/// deployment's `IS_DEMO=true` and `JITSI_PUBLIC_URL`. Seven step-up tests
+/// (demo mode exempts the gate they measure) and a telehealth URL test then
+/// failed or passed depending on which test the scheduler ran first.
+fn test_database_url() -> String {
+    if let Ok(url) = env::var("DATABASE_URL") {
+        return url;
+    }
+    dotenvy::dotenv_iter()
+        .ok()
+        .and_then(|vars| {
+            vars.filter_map(Result::ok)
+                .find(|(key, _)| key == "DATABASE_URL")
+                .map(|(_, value)| value)
+        })
+        .unwrap_or_else(|| {
+            "postgres://medichain:medichain_dev_2024@localhost:5432/medichain".to_string()
+        })
+}
+
 async fn create_test_pool() -> PgPool {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://medichain:medichain_dev_2024@localhost:5432/medichain".to_string()
-    });
+    let database_url = test_database_url();
     let schema = format!(
         "medichain_test_{}_{}_{}",
         std::process::id(),
@@ -865,7 +887,16 @@ async fn test_logical_user_round_trips_across_restart() {
         .expect("persist_user failed");
 
     // --- simulate a restart: a new AppState whose in-memory state is empty ---
-    let after = crate::AppState::new_with_pool(Some(pool.clone()));
+    //
+    // A real restart keeps its configured `ENCRYPTION_KEYS`; two `AppState`s
+    // built here each generate an ephemeral key instead, so the second could
+    // never open a contact number the first sealed. This passed for months
+    // only because the pool helper exported `.env` -- `ENCRYPTION_KEYS`
+    // included -- into the test process. The key is now carried across
+    // explicitly, which is what a restart does.
+    let mut after = crate::AppState::new_with_pool(Some(pool.clone()));
+    after.encryption_keyring = before.encryption_keyring.clone();
+    after.encryption_key = before.encryption_key.clone();
     assert!(
         after.users.read().unwrap().is_empty(),
         "precondition: reloaded state must start empty, or this test proves nothing"

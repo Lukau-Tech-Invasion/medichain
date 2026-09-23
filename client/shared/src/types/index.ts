@@ -354,6 +354,11 @@ export interface EmergencyInfo {
 
 export interface PatientProfile {
   patient_id: string;
+  /**
+   * The wallet bound to this patient, from the row rather than the encrypted
+   * profile. `null` when none was bound at registration.
+   */
+  wallet_address?: string | null;
   full_name: string;
   date_of_birth: string;
   /** Returned by the API for neonatal records, where the date alone is not enough. */

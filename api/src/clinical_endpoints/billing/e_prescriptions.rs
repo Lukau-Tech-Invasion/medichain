@@ -68,6 +68,14 @@ pub async fn create_esignature_prescription(
         });
     }
 
+    // A prescription for nobody. The live store held five with `patient_id: ""`
+    // -- one marked Dispensed -- that sat in the pharmacist's queue under a
+    // blank name, and were listed for no patient, so nobody could ever see
+    // what had been dispensed against them.
+    if let Err(resp) = require_known_patient(&data, &req.patient_id).await {
+        return resp;
+    }
+
     let prescription_id = format!("RX-{}", uuid::Uuid::new_v4());
     let now = chrono::Utc::now().timestamp();
     let expires_at = now + (365 * 24 * 60 * 60); // 1 year
@@ -2159,5 +2167,74 @@ mod lifecycle_tests {
             )
         );
         assert_ne!(left.is_ok(), right.is_ok());
+    }
+}
+
+/// A prescription must name a patient who exists. Five were stored for
+/// `patient_id: ""`, reached the pharmacist's queue under a blank name, and
+/// were listed for no patient.
+#[cfg(test)]
+mod patient_required_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    fn prescription_for(patient_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": patient_id,
+            "medication_name": "Amoxicillin",
+            "generic_name": null,
+            "strength": "500mg",
+            "form": "capsule",
+            "quantity": 21,
+            "days_supply": 7,
+            "directions": "One three times daily",
+            "refills_allowed": 0,
+            "is_controlled": false,
+            "dea_schedule": null,
+            "pharmacy_ncpdp": "SYN-001",
+            "pharmacy_name": "Synthetic Pharmacy",
+            "diagnosis_codes": [],
+            "patient_instructions": "With food",
+            "pharmacy_notes": null
+        })
+    }
+
+    #[actix_rt::test]
+    async fn a_prescription_names_a_registered_patient_or_is_refused() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        seed_patient(&state, "PAT-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_esignature_prescription),
+        )
+        .await;
+
+        let mut outcomes = Vec::new();
+        for (patient_id, expected_code) in [
+            ("", Some("MISSING_PATIENT_ID")),
+            ("PAT-nobody", Some("PATIENT_NOT_FOUND")),
+            ("PAT-1", None),
+        ] {
+            let req = test::TestRequest::post()
+                .uri("/api/e-prescriptions")
+                .insert_header(("X-User-Id", "5Doctor"))
+                .set_json(prescription_for(patient_id))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            let status = resp.status().as_u16();
+            let body: serde_json::Value = test::read_body_json(resp).await;
+            let code = body["error"]["code"].as_str();
+            outcomes.push((status, code.map(str::to_string)));
+            assert_eq!(code, expected_code, "patient_id {patient_id:?}: {body}");
+        }
+        assert_eq!(outcomes[0].0, 400);
+        assert_eq!(outcomes[1].0, 404);
+        assert!(
+            outcomes[2].0 < 300,
+            "a real patient's prescription is created: {outcomes:?}"
+        );
     }
 }

@@ -53,6 +53,32 @@ impl Cursorable for RosterRow {
     }
 }
 
+/// A readable patient as served: the decrypted profile plus the columns the
+/// row stores beside it in clear.
+///
+/// `wallet_address` is a column on the patient row, not part of the encrypted
+/// profile, so serialising `PatientProfile` alone left it out: a patient whose
+/// wallet was bound at registration read back as having none. The row is the
+/// one source of truth for it, so it is added here rather than copied into
+/// the blob, where the two could drift.
+fn readable_patient_json(
+    profile: &PatientProfile,
+    entity: &crate::repositories::traits::PatientEntity,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(profile).unwrap_or(serde_json::Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "wallet_address".to_string(),
+            serde_json::json!(entity.wallet_address),
+        );
+        object.insert(
+            "content_available".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    }
+    value
+}
+
 /// Everything about a patient that is stored unencrypted, for a row whose
 /// profile blob could not be read.
 fn unreadable_roster_row(
@@ -64,6 +90,7 @@ fn unreadable_roster_row(
         id: entity.id.clone(),
         value: serde_json::json!({
             "patient_id": entity.id,
+            "wallet_address": entity.wallet_address,
             "health_id": entity.health_id,
             "gender": entity.gender,
             "national_id_type": entity.national_id_type,
@@ -175,17 +202,10 @@ pub async fn list_patients(
     for entity in &entities {
         match patient_entity_to_profile(entity, &data.encryption_keyring) {
             Some(profile) => {
-                let mut value = serde_json::to_value(&profile).unwrap_or(serde_json::Value::Null);
-                if let Some(object) = value.as_object_mut() {
-                    object.insert(
-                        "content_available".to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
                 rows.push(RosterRow {
                     ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
-                    value,
+                    value: readable_patient_json(&profile, entity),
                 });
             }
             None => {
@@ -265,7 +285,7 @@ pub async fn get_patient_by_id(
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            Some(profile) => HttpResponse::Ok().json(profile),
+            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile, &entity)),
             // The row exists; its PHI just cannot be decrypted with the keys
             // this process holds. Reporting that as `PATIENT_NOT_FOUND` told
             // the caller the patient was never registered, which is false and
