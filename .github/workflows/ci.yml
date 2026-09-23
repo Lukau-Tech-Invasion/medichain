@@ -116,6 +116,22 @@ jobs:
             - name: No screen renders a raw i18n key
               run: python scripts/check-missing-i18n-keys.py
 
+            # A foreground from a theme-flipping token over a fixed Tailwind
+            # background: the patient's critical-allergy panel measured 1.03:1
+            # in dark mode that way.
+            - name: No component pairs a flipping token with a fixed shade
+              run: python scripts/check-token-pairing.py
+
+            # An input's value is not a text node, so no text-contrast probe
+            # sees it; 88 controls were white-on-white in dark mode.
+            - name: No form control sets only one half of its colours
+              run: python scripts/check-form-control-contrast.py
+
+            # A suppressed native prompt returns null, read as "cancelled":
+            # the pharmacist's Dispense button did nothing at all.
+            - name: No client calls a native browser dialog
+              run: python scripts/check-native-dialogs.py
+
             # The idempotency middleware requires a header on every
             # authenticated mutation and was landed without migrating one
             # caller. The breakage surfaced four separate times, days apart,

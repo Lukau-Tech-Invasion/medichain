@@ -16,6 +16,7 @@ import {
   Input,
   useValidatedForm,
   newUserSchema,
+  confirmDialog,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -244,7 +245,7 @@ const UserManagementPage: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm(t('docUserManagement.confirmDeleteUser'))) {
+    if (await confirmDialog({ message: t('docUserManagement.confirmDeleteUser'), destructive: true })) {
       try {
         await stepUp.run(() => revokeRole({ wallet_address: userId }));
         await fetchUsers();

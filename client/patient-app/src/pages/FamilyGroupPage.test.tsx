@@ -6,6 +6,7 @@ import type { Mock } from 'vitest';
 import { FamilyGroupPage } from './FamilyGroupPage';
 import { usePatientAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { answerConfirm } from '../../../shared/src/testing/dialogs';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
@@ -144,12 +145,11 @@ describe('FamilyGroupPage (Patient)', () => {
 
   it('removes a non-primary member through the persisted API action', async () => {
     vi.mocked(shared.removeFamilyMember).mockResolvedValue({ success: true, message: 'removed' });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-
     render(<MemoryRouter><FamilyGroupPage /></MemoryRouter>);
     await screen.findByText(/The Smiths/i);
     fireEvent.click(screen.getByRole('button', { name: /The Smiths/i }));
     fireEvent.click(await screen.findByRole('button', { name: /Remove Member/i }));
+    await answerConfirm(true);
 
     await waitFor(() => {
       expect(shared.removeFamilyMember).toHaveBeenCalledWith('group1', 'HEALTH456');

@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -429,7 +429,7 @@ const InsurancePage: React.FC = () => {
   };
 
   const handleDeleteCard = async (cardId: string) => {
-    if (!confirm(t('insurance.confirmDeleteCard'))) return;
+    if (!(await confirmDialog({ message: t('insurance.confirmDeleteCard'), destructive: true }))) return;
     setCardError(null);
     try {
       await deleteInsuranceCard(cardId);

@@ -10,6 +10,7 @@ import {
   useTranslation,
   Alert,
   LoadingSpinner,
+  confirmDialog,
 } from '@medichain/shared';
 import type { CreateOrderSetPayload } from '@medichain/shared';
 import {
@@ -253,7 +254,7 @@ const OrderSetsPage: React.FC = () => {
    * everyone else had never stopped seeing it.
    */
   const handleDeleteSet = async (setId: string) => {
-    if (!confirm(t('docOrderSets.confirmDelete'))) {
+    if (!(await confirmDialog({ message: t('docOrderSets.confirmDelete'), destructive: true }))) {
       return;
     }
     try {

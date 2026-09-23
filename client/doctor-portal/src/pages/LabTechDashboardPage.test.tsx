@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import LabTechDashboardPage from './LabTechDashboardPage';
 import { useAuthStore } from '../store';
+import { answerPrompt } from '../../../shared/src/testing/dialogs';
 
 // Mock the auth store
 vi.mock('../store', () => ({
@@ -129,7 +130,6 @@ describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
    * the technician never asked for reads exactly like a dead button.
    */
   it('does not call the API when the reason prompt is dismissed', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
     render(
       <MemoryRouter>
         <LabTechDashboardPage />
@@ -140,9 +140,9 @@ describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
     const callsBefore = mockFetch.mock.calls.length;
     fireEvent.click(recollect);
 
-    await waitFor(() => expect(promptSpy).toHaveBeenCalled());
+    await answerPrompt(null);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(mockFetch.mock.calls.length).toBe(callsBefore);
-    promptSpy.mockRestore();
   });
 
   it('completes an open recollection and reloads while preserving the rejection', async () => {
@@ -167,10 +167,10 @@ describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
         ok: true, headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve(completed),
       }));
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('SPEC-NEW');
     render(<MemoryRouter><LabTechDashboardPage /></MemoryRouter>);
 
     fireEvent.click(await screen.findByRole('button', { name: /complete recollection/i }));
+    await answerPrompt('SPEC-NEW');
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
     const completionCall = mockFetch.mock.calls[1];
     expect(String(completionCall[0])).toContain('/api/clinical/specimen-recollection/RECOLLECT-1/complete');
@@ -179,6 +179,5 @@ describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
       expect(screen.queryByRole('button', { name: /complete recollection/i })).toBeNull();
     });
     expect(screen.getByText(/ACC-1 - Haemolysed/i)).toBeTruthy();
-    promptSpy.mockRestore();
   });
 });

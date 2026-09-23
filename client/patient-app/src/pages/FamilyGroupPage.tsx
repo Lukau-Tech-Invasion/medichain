@@ -7,6 +7,7 @@ import {
   listMyMedicalIdentities,
   removeFamilyMember,
   useTranslation,
+  confirmDialog,
 } from '@medichain/shared';
 import type { GuardianRelationship, MedicalIdentitySummary } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -183,7 +184,7 @@ export function FamilyGroupPage() {
   };
 
   const handleRemoveMember = async (groupId: string, memberId: string) => {
-    if (!window.confirm(t('family.removeMemberConfirm'))) return;
+    if (!(await confirmDialog({ message: t('family.removeMemberConfirm'), destructive: true }))) return;
 
     setRemovingMemberId(memberId);
     try {

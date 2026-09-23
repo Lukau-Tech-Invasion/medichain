@@ -14,6 +14,8 @@ import {
   useValidatedForm,
   criticalValueAckSchema,
   criticalValueReportSchema,
+  confirmDialog,
+  promptDialog,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -310,10 +312,11 @@ const CriticalValuePage: React.FC = () => {
     );
 
     if (!readBackMatch) {
-      const confirm = window.confirm(
-        t('docCriticalValue.readBackMismatchConfirm', { expected: expectedReadBack })
-      );
-      if (!confirm) return;
+      const proceed = await confirmDialog({
+        message: t('docCriticalValue.readBackMismatchConfirm', { expected: expectedReadBack }),
+        destructive: true,
+      });
+      if (!proceed) return;
     }
 
     try {
@@ -633,8 +636,11 @@ const CriticalValuePage: React.FC = () => {
                       {t('docCriticalValue.acknowledgeBtn')}
                     </button>
                     <button
-                      onClick={() => {
-                        const reason = prompt(t('docCriticalValue.cancelReasonPrompt'));
+                      onClick={async () => {
+                        const reason = await promptDialog({
+                          message: t('docCriticalValue.cancelReasonPrompt'),
+                          required: true,
+                        });
                         if (reason) {
                           void handleCancelNotification(notification.notificationId, reason);
                         }

@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
-import { Layout, I18nProvider } from '@medichain/shared';
+import { Layout, I18nProvider, DialogHost } from '@medichain/shared';
 import { ToastProvider } from './components/Toast';
 
 // Critical-path pages stay eager so the first paint needs no extra round-trip.
@@ -150,6 +150,7 @@ function App() {
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
     </ToastProvider>
+    <DialogHost />
     </I18nProvider>
   );
 }

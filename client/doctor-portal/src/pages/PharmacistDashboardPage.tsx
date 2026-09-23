@@ -32,6 +32,7 @@ import {
   getApiErrorMessage,
   recordPharmacyDecision,
   controlledSubstanceReport,
+  promptDialog,
 } from '@medichain/shared';
 
 interface SecondaryVerification {
@@ -280,7 +281,11 @@ export default function PharmacistDashboardPage() {
     let quantity = 0;
     let rejectionReason: string | undefined;
     if (action === 'dispense') {
-      const entered = window.prompt(t('docPharmDashboard.dispenseQuantityPrompt'));
+      const entered = await promptDialog({
+        message: t('docPharmDashboard.dispenseQuantityPrompt'),
+        inputType: 'number',
+        required: true,
+      });
       if (entered === null) return;
       quantity = Number.parseInt(entered, 10);
       // Refused here rather than sent: the API would reject it, and a refusal
@@ -291,7 +296,7 @@ export default function PharmacistDashboardPage() {
       }
     }
     if (action === 'reject') {
-      const entered = window.prompt(t('docPharmDashboard.rejectionReasonPrompt'));
+      const entered = await promptDialog({ message: t('docPharmDashboard.rejectionReasonPrompt'), required: true });
       if (entered === null) return;
       rejectionReason = entered.trim();
       if (!rejectionReason) {
@@ -375,7 +380,7 @@ export default function PharmacistDashboardPage() {
 
   /** Reverse one event while retaining both the original and its correction. */
   const handleReverse = async (prescriptionId: string, eventId: string) => {
-    const entered = window.prompt(t('docPharmDashboard.reversalReasonPrompt'));
+    const entered = await promptDialog({ message: t('docPharmDashboard.reversalReasonPrompt'), required: true });
     if (entered === null) return;
     const reason = entered.trim();
     if (!reason) {
@@ -482,7 +487,7 @@ export default function PharmacistDashboardPage() {
                   {prescriptionQueue.map((rx) => (
                     <tr key={rx.prescription_id} className="hover:bg-surface-sunken">
                       <td className="px-3 py-2 text-content">{rx.priority || t('docPharmDashboard.routine')}</td>
-                      <td className="px-3 py-2 text-content-muted">{rx.patient_name || rx.patient_id}</td>
+                      <td className="px-3 py-2 text-content-muted">{rx.patient_name || rx.patient_id || t('docPharmDashboard.noPatientRecorded')}</td>
                       <td className="px-3 py-2 font-medium text-content">{rx.medication_name}</td>
                       <td className="px-3 py-2 text-content-muted">{rx.dosage}</td>
                       <td className="px-3 py-2 text-content-muted">
@@ -784,7 +789,7 @@ export default function PharmacistDashboardPage() {
                     {rx.created_at ? new Date(rx.created_at).toLocaleTimeString() : '--:--'}
                   </td>
                   <td className="px-4 py-2 font-medium text-content">{rx.medication_name}</td>
-                  <td className="px-4 py-2 text-content-muted">{rx.patient_name || rx.patient_id}</td>
+                  <td className="px-4 py-2 text-content-muted">{rx.patient_name || rx.patient_id || t('docPharmDashboard.noPatientRecorded')}</td>
                   <td className="px-4 py-2 text-content-muted">{rx.dosage}</td>
                   <td className="px-4 py-2 text-content-muted">{rx.prescribed_by || t('docPharmDashboard.unknown')}</td>
                   <td className="px-4 py-2">

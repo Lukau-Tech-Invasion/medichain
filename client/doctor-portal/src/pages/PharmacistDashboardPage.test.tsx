@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PharmacistDashboardPage from './PharmacistDashboardPage';
 import { useAuthStore } from '../store';
+import { answerPrompt } from '../../../shared/src/testing/dialogs';
 
 // Mock the auth store
 vi.mock('../store', () => ({
@@ -145,7 +146,6 @@ describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
    * pharmacist never asked for is indistinguishable from a broken button.
    */
   it('does not dispense when the quantity prompt is dismissed', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
     render(
       <MemoryRouter>
         <PharmacistDashboardPage />
@@ -156,14 +156,13 @@ describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
     const before = mockFetch.mock.calls.length;
     fireEvent.click(dispense);
 
-    await waitFor(() => expect(promptSpy).toHaveBeenCalled());
+    await answerPrompt(null);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(mockFetch.mock.calls.length).toBe(before);
-    promptSpy.mockRestore();
   });
 
   /** A non-numeric or zero quantity is refused locally, for the same reason. */
   it('refuses a zero quantity without calling the API', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('0');
     render(
       <MemoryRouter>
         <PharmacistDashboardPage />
@@ -173,10 +172,10 @@ describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
     const dispense = await screen.findByRole('button', { name: /^dispense$/i });
     const before = mockFetch.mock.calls.length;
     fireEvent.click(dispense);
+    await answerPrompt('0');
 
     await screen.findByText(/whole number of units/i);
     expect(mockFetch.mock.calls.length).toBe(before);
-    promptSpy.mockRestore();
   });
 });
 
@@ -303,7 +302,6 @@ describe('PharmacistDashboardPage dispense correction history', () => {
   });
 
   it('posts a reason and reloads retained original plus correction history', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Wrong patient selected');
     let historyReads = 0;
     mockFetch.mockImplementation((request: RequestInfo | URL, init?: RequestInit) => {
       const url = String(request);
@@ -325,6 +323,7 @@ describe('PharmacistDashboardPage dispense correction history', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /^history$/i }));
     fireEvent.click(await screen.findByRole('button', { name: /^reverse$/i }));
+    await answerPrompt('Wrong patient selected');
 
     await screen.findByText(/correction for 10 units: wrong patient selected/i);
     expect(screen.getByText(/dispensed 10 units.*reversed/i)).toBeTruthy();
@@ -335,6 +334,5 @@ describe('PharmacistDashboardPage dispense correction history', () => {
     expect(JSON.parse(String(reverseCall?.[1]?.body))).toEqual({
       dispense_event_id: 'DISP-1', reason: 'Wrong patient selected',
     });
-    promptSpy.mockRestore();
   });
 });

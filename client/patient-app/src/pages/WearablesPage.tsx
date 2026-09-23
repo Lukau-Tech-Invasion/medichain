@@ -30,6 +30,7 @@ import {
   listWearableAlertRules,
   registerWearableDevice,
   useTranslation,
+  confirmDialog,
 } from '@medichain/shared';
 import type {
   SupportedWearable,
@@ -1077,8 +1078,10 @@ const WearablesPage: React.FC = () => {
               <button
                 type="button"
                 disabled={disconnecting || devices.length === 0}
-                onClick={() => {
-                  if (window.confirm(t('wearables.disconnectAllConfirm'))) void disconnectAll();
+                onClick={async () => {
+                  if (await confirmDialog({ message: t('wearables.disconnectAllConfirm'), destructive: true })) {
+                    void disconnectAll();
+                  }
                 }}
                 className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium disabled:opacity-60 min-h-[44px]"
               >

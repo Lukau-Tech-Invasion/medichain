@@ -4,6 +4,7 @@ import type { Mock } from 'vitest';
 import WearablesPage from './WearablesPage';
 import { usePatientAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { answerConfirm } from '../../../shared/src/testing/dialogs';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
@@ -319,10 +320,10 @@ describe('WearablesPage (Patient)', () => {
     vi.mocked(shared.disconnectWearableDevice)
       .mockResolvedValueOnce({ success: true, device_id: 'DEV-1', is_active: false } as never)
       .mockRejectedValueOnce(new Error('boom'));
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openSettings();
 
     fireEvent.click(await screen.findByRole('button', { name: /disconnect all/i }));
+    await answerConfirm(true);
 
     // "Some devices were disconnected" would leave a patient believing a device
     // stopped streaming when it did not.

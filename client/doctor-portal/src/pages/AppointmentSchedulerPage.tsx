@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createAppointment, getApiClient, setAppointmentStatus, useTranslation } from '@medichain/shared';
+import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -257,7 +257,7 @@ export default function AppointmentSchedulerPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = window.prompt(t('docAppointments.cancelReasonPrompt')) ?? '';
+        reason = (await promptDialog({ message: t('docAppointments.cancelReasonPrompt'), required: true })) ?? '';
         if (!reason.trim()) {
           return; // Dismissed the prompt; leave the appointment alone.
         }

@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import NoteTemplatesPage, { mapNoteTemplate } from './NoteTemplatesPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { answerConfirm } from '../../../shared/src/testing/dialogs';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -202,11 +203,11 @@ describe('NoteTemplatesPage', () => {
 
     it('deactivates through the server after confirmation', async () => {
       vi.mocked(shared.deactivateNoteTemplate).mockResolvedValue({ success: true, template_id: 'TPL-USR-mine' });
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
       render(<NoteTemplatesPage />);
       await screen.findByText('Asthma review');
 
       fireEvent.click(screen.getByRole('button', { name: /Deactivate/i }));
+      await answerConfirm(true);
 
       await waitFor(() => expect(shared.deactivateNoteTemplate).toHaveBeenCalledWith('TPL-USR-mine'));
       await waitFor(() => expect(shared.getNoteTemplates).toHaveBeenCalledTimes(2));

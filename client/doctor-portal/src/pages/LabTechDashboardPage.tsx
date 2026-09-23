@@ -22,6 +22,7 @@ import {
   useTranslation,
   getApiErrorCode,
   type LabDashboardResponse,
+  promptDialog,
 } from '@medichain/shared';
 import {
   StatCard,
@@ -109,7 +110,7 @@ export default function LabTechDashboardPage() {
    * technician is never told a recollection was raised when it was not.
    */
   const handleRecollect = async (rejectionId: string) => {
-    const reason = window.prompt(t('docLabDashboard.recollectionReasonPrompt'));
+    const reason = await promptDialog({ message: t('docLabDashboard.recollectionReasonPrompt'), required: true });
     // Cancelled prompt, or an empty reason: do nothing. The API requires a
     // reason and would refuse, and a silent refusal reads like a dead button.
     if (reason === null || reason.trim() === '') return;
@@ -155,7 +156,7 @@ export default function LabTechDashboardPage() {
 
   /** Link a newly collected specimen as the immutable successor. */
   const handleCompleteRecollection = async (recollectionId: string) => {
-    const replacementId = window.prompt(t('docLabDashboard.replacementSpecimenPrompt'));
+    const replacementId = await promptDialog({ message: t('docLabDashboard.replacementSpecimenPrompt'), required: true });
     if (replacementId === null || replacementId.trim() === '') return;
     setCompletingId(recollectionId);
     setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));

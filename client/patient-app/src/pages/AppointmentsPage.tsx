@@ -8,6 +8,7 @@ import {
   getProviders,
   getAvailableSlots,
   getPatientAppointmentSummaries,
+  promptDialog,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -208,7 +209,7 @@ export function AppointmentsPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = window.prompt(t('appointments.cancelReasonPrompt')) ?? '';
+        reason = (await promptDialog({ message: t('appointments.cancelReasonPrompt'), required: true })) ?? '';
         if (!reason.trim()) return;
       }
       await setAppointmentStatus(id, to, reason);

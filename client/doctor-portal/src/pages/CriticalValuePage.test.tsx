@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CriticalValuePage from './CriticalValuePage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { answerPrompt } from '../../../shared/src/testing/dialogs';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -145,11 +146,11 @@ describe('CriticalValuePage', () => {
 
     it('withdraws a notification through the server with its reason', async () => {
       vi.mocked(shared.cancelCriticalValue).mockResolvedValue({});
-      vi.spyOn(window, 'prompt').mockReturnValue('Haemolysed sample');
       render(<CriticalValuePage />);
       await screen.findByRole('button', { name: /Acknowledge & Document/i });
 
       fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/i })[0]);
+      await answerPrompt('Haemolysed sample');
 
       await waitFor(() => expect(shared.cancelCriticalValue).toHaveBeenCalledWith('CRV-1', 'Haemolysed sample'));
       await waitFor(() => expect(shared.listCriticalValues).toHaveBeenCalledTimes(2));

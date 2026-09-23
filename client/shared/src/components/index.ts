@@ -19,3 +19,5 @@ export { WalletAddress, copyTextToClipboard } from './WalletAddress';
 export type { WalletAddressProps } from './WalletAddress';
 export * from './Toast';
 export { StepUpDialog } from './StepUpDialog';
+export { DialogHost, confirmDialog, promptDialog } from './Dialog';
+export type { ConfirmDialogOptions, PromptDialogOptions } from './Dialog';

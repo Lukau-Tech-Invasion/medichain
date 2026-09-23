@@ -16,6 +16,7 @@ import {
   Textarea,
   cdsActionSchema,
   formatTimestamp,
+  confirmDialog,
 } from '@medichain/shared';
 import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -476,7 +477,7 @@ const CDSAlertsPage: React.FC = () => {
    * every one of those entries unresolvable.
    */
   const handleDeleteRule = async (ruleId: string) => {
-    if (!confirm(t('docCDS.confirmDeleteRule'))) {
+    if (!(await confirmDialog({ message: t('docCDS.confirmDeleteRule'), destructive: true }))) {
       return;
     }
     try {

@@ -10,6 +10,7 @@ import {
   useTranslation,
   Alert,
   LoadingSpinner,
+  confirmDialog,
 } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -240,7 +241,7 @@ const NoteTemplatesPage: React.FC = () => {
     !template.builtIn && (template.createdBy === user?.walletAddress || user?.role === 'Admin');
 
   const handleDeactivateTemplate = async (templateId: string) => {
-    if (!confirm(t('docNoteTemplates.confirmDelete'))) return;
+    if (!(await confirmDialog({ message: t('docNoteTemplates.confirmDelete'), destructive: true }))) return;
     try {
       await deactivateNoteTemplate(templateId);
       await fetchTemplates();
