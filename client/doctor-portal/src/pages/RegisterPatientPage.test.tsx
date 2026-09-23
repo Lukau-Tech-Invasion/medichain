@@ -3,10 +3,32 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import RegisterPatientPage from './RegisterPatientPage';
 import { useAuthStore } from '../store';
+import { generateWalletIdentity } from '@medichain/shared';
 
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
 }));
+
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@medichain/shared')>()),
+  generateWalletIdentity: vi.fn(),
+}));
+
+const GENERATED = {
+  address: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+  mnemonic: 'cave cotton kangaroo echo merge resist pear mixed execute index rotate involve',
+};
+
+/** Everything the form requires except the wallet, which each test decides. */
+function fillRequiredFields() {
+  fireEvent.change(screen.getByLabelText(/Full Name \*/i), { target: { value: 'John Doe' } });
+  fireEvent.change(screen.getByLabelText(/Date of Birth \*/i), { target: { value: '1990-01-01' } });
+  fireEvent.change(screen.getByLabelText(/National ID \*/i), { target: { value: 'NIN-123' } });
+  fireEvent.change(screen.getByLabelText(/Blood Type \*/i), { target: { value: 'O+' } });
+  fireEvent.change(screen.getByLabelText(/Contact Name \*/i), { target: { value: 'Jane Doe' } });
+  fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
+  fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
+}
 
 describe('RegisterPatientPage', () => {
   beforeEach(() => {
@@ -100,5 +122,48 @@ describe('RegisterPatientPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Database error/i)).toBeInTheDocument();
     });
+  });
+
+  // A record bound to a wallet whose phrase nobody kept is one its patient
+  // can never open, and nothing at the clinic can recover the phrase.
+  it('will not register against a generated wallet until the phrase is confirmed handed over', async () => {
+    vi.mocked(generateWalletIdentity).mockResolvedValue(GENERATED as never);
+    render(
+      <MemoryRouter>
+        <RegisterPatientPage />
+      </MemoryRouter>
+    );
+
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: /^Generate$/ }));
+    await waitFor(() => expect(screen.getByTestId('recovery-phrase')).toHaveTextContent(GENERATED.mnemonic));
+    expect(screen.getByLabelText(/Wallet Address/i)).toHaveValue(GENERATED.address);
+
+    const form = screen.getByRole('button', { name: /Register Patient/i }).closest('form')!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByText(/Confirm the patient has their recovery phrase/i)).toBeInTheDocument());
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText(/The patient has this phrase/i));
+    fireEvent.submit(form);
+    await waitFor(() => expect(screen.getByText('PAT-123')).toBeInTheDocument());
+    // Still shown after registering: this is when the patient first signs in.
+    expect(screen.getByTestId('recovery-phrase')).toHaveTextContent(GENERATED.mnemonic);
+  });
+
+  it('stops offering a generated phrase once another address is typed over it', async () => {
+    vi.mocked(generateWalletIdentity).mockResolvedValue(GENERATED as never);
+    render(
+      <MemoryRouter>
+        <RegisterPatientPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^Generate$/ }));
+    await waitFor(() => expect(screen.getByTestId('recovery-phrase')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Wallet Address/i), {
+      target: { value: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
+    });
+    expect(screen.queryByTestId('recovery-phrase')).not.toBeInTheDocument();
   });
 });

@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-react';
+import { RecoveryPhrasePanel } from '../components/RecoveryPhrasePanel';
 
 interface FormData {
   fullName: string;
@@ -72,6 +73,10 @@ function RegisterPatientPage() {
   // a clerk could produce are someone else's.
   const [newIdentity, setNewIdentity] = useState<{ mnemonic: string; address: string } | null>(null);
   const [generating, setGenerating] = useState(false);
+  // Registration waits on this while a generated phrase is showing: a record
+  // bound to a wallet whose phrase nobody kept is one its patient can never
+  // open.
+  const [phraseAcknowledged, setPhraseAcknowledged] = useState(false);
 
   // --- Checking the ID against its issuing register ---------------------------
   //
@@ -154,6 +159,7 @@ function RegisterPatientPage() {
       const identity = await generateWalletIdentity();
       setFormData((current) => ({ ...current, walletAddress: identity.address }));
       setNewIdentity({ mnemonic: identity.mnemonic, address: identity.address });
+      setPhraseAcknowledged(false);
     } catch (err) {
       setError(getApiErrorMessage(err, t('docRegisterPatient.identityFailed')));
     } finally {
@@ -163,6 +169,11 @@ function RegisterPatientPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
+    // An address typed over a generated one is not the generated one, and its
+    // phrase must stop being offered as the key to this record.
+    if (name === 'walletAddress' && newIdentity && value !== newIdentity.address) {
+      setNewIdentity(null);
+    }
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
@@ -182,6 +193,12 @@ function RegisterPatientPage() {
       // wondering what happened.
       const firstInvalid = document.querySelector<HTMLElement>('[aria-invalid="true"]');
       firstInvalid?.focus();
+      return;
+    }
+
+    if (newIdentity && !phraseAcknowledged) {
+      setError(t('docRegisterPatient.recoveryNotAcknowledged'));
+      document.getElementById('recovery-phrase-acknowledged')?.focus();
       return;
     }
 
@@ -271,11 +288,23 @@ function RegisterPatientPage() {
             </div>
           </div>
 
+          {/* Still on screen after registering, because this is the moment
+              the patient signs in for the first time. It is never fetched
+              again: leaving this page is the end of it. */}
+          {newIdentity && (
+            <div className="mb-6 text-left">
+              <RecoveryPhrasePanel mnemonic={newIdentity.mnemonic} />
+              <p className="mt-2 text-sm text-content-muted">{t('docRegisterPatient.recoverySignInHint')}</p>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
               onClick={() => {
                 setSuccess(null);
                 setFormData(initialFormData);
+                setNewIdentity(null);
+                setPhraseAcknowledged(false);
               }}
               className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors"
             >
@@ -413,24 +442,11 @@ function RegisterPatientPage() {
               </div>
 
               {newIdentity && (
-                <div className="mt-3 rounded-lg border border-caution-subtle-fg/30 bg-caution-subtle p-4">
-                  <p className="font-semibold text-caution-subtle-fg">
-                    {t('docRegisterPatient.recoveryTitle')}
-                  </p>
-                  <p className="mt-1 text-sm text-caution-subtle-fg">
-                    {t('docRegisterPatient.recoveryBody')}
-                  </p>
-                  <p className="mt-2 select-all rounded bg-surface p-3 font-mono text-sm text-content break-words">
-                    {newIdentity.mnemonic}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setNewIdentity(null)}
-                    className="mt-2 text-sm text-caution-subtle-fg underline"
-                  >
-                    {t('docRegisterPatient.recoveryAcknowledge')}
-                  </button>
-                </div>
+                <RecoveryPhrasePanel
+                  mnemonic={newIdentity.mnemonic}
+                  acknowledged={phraseAcknowledged}
+                  onAcknowledgedChange={setPhraseAcknowledged}
+                />
               )}
             </div>
             
