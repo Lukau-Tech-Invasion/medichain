@@ -17,11 +17,156 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-09-10.
+Last updated: 2026-09-24.
 
 ---
 
-## 2026-09-11 — OPEN, but the defects in it are fixed: 39 files bypass the typed client
+## 2026-09-24 — The front-end round, and the register walked end to end
+
+Asked for: every screen legible in both themes in both portals, then every open
+entry here closed. What follows is what was measured, what changed, and what is
+still open with the reason it cannot close in code.
+
+### Colour and theme
+
+A browser sweep (`e2e/colour-sweep.spec.ts` in each portal, every sidebar route
+for every role, light and dark) measured **698 failing text readings** at the
+start. The shared auditor (`client/shared/src/testing/contrastAudit.ts`)
+composites translucent backgrounds, takes the worst stop of a gradient, reads
+form-control values and placeholders, and freezes transitions before measuring,
+because each of those had hidden a failure from the earlier probes.
+
+The causes were few and wide: ~650 literal palette classes that did not flip
+with the theme (moved onto the semantic tokens by codemod, 107 + 84 files),
+role gradients on the 700 shade that failed white text, the bare `border`
+default (`gray-200` in both themes, now the border token in both tailwind
+configs), Chrome's 0.7 opacity on a disabled `<select>`, and classes naming
+colours the config does not define — which compile to nothing.
+`scripts/check-undefined-colour-classes.py` now refuses the last of those.
+
+### The typed client — entry of 2026-09-11 CLOSED
+
+Every raw `fetch` in both applications is gone except three that are not API
+calls in the usual sense: the SSE stream (`useSSE`, a streamed body), the
+pre-authentication health probe (`config.ts`), and `fetchWithRetry`, which has
+no consumer (see *Awaiting a removal decision*). The client gained what the
+remaining pages needed: `keepEnvelope` (the patient imaging read returns
+`orders` and `reports` side by side, and default unwrapping would have dropped
+every report), `getBlob`/`postBlob` for downloads and the PDF export, and
+`getApiErrorMessage` now reads a thrown `ApiClientError` — it parsed the error
+as a response body, found nothing, and every converted page would have shown
+"Request failed" instead of the server's reason.
+
+Doing the migration page by page found defects no gate had seen:
+
+| Where | What it was |
+| --- | --- |
+| Emergency Protocols | Declared its own record shapes; none matched what the lists return. Every ID was blank and every yes/no finding read **No** — "Antibiotics given: No" in red on every sepsis record. Rewritten against typed list rows; an unrecorded finding is now absent. |
+| Code Blue, Trauma, Stroke, Cardiac, Sepsis history panels | Read `event_id`, `outcome`, `assessed_at` off rows that carry `id`, `documented_at` and no outcome: blank IDs and "N/A" everywhere. |
+| My Records (patient) | One failed read rejected the whole `Promise.all`, and the patient was shown an empty record. Each section now fails alone and the page says the list is incomplete. |
+| Drug Interactions | Showed "Evidence: B", "Onset: Variable" on every finding — values no dataset supplied. Now the dataset's own evidence level, and nothing where it has none. |
+| Wound Care | Refetched in an infinite loop. |
+| Triage | Printed "Health ID: undefined". |
+| Patient detail | "Registered by" read a field `HealthcareProvider` does not have, so it was always Unknown. |
+
+### Clinical decisions that were being made in the browser
+
+* **Lab QC.** The Westgard evaluation ran in `LabQCPage` (rule 8), and the list
+  then read a `result` field the server never stored — **every run, failed
+  controls included, displayed as PASS.** The rules moved to
+  `clinical_scoring::westgard_single_run`; the server stores and returns the
+  verdict, the z-score and rule codes (`1_3s`, not a sentence already translated
+  into the clerk's language), and refuses a non-positive SD.
+* **Autopsy.** An unmeasured body length and weight were saved as `0` (rule 12).
+* **Post-op recovery.** Every Aldrete component started at 2 and the vitals at
+  120/80, 80, 16, 98 %, 36.8 °C, pain at 3 — so an untouched form was filed as a
+  normal patient scoring 10, "ready for discharge". Nothing is pre-scored now;
+  the total is `clinical_scoring::aldrete_score` (none unless all five are
+  scored) and the threshold comes from the catalog. The author is the caller.
+* **Operative note.** Started at "general anaesthetic, clean wound, EBL 0 mL";
+  now absent until entered. The blood-loss flag's 500 mL literal moved to the
+  scoring catalog.
+
+### Attribution the client could choose
+
+Seven create handlers stored whoever the request named as the author:
+immunization (`administered_by`), trauma and stroke (`assessed_by`), code blue
+(`code_called_by`), family history (`updated_by` and `last_updated`), and
+consult — whose comment said "the requester is the authenticated caller, not a
+name the client asserts" above code that preferred the client's value. All now
+record the authenticated caller. The pages' fallbacks when they had no user —
+`'USER-001'`, `'unknown'` — are gone.
+
+### Ids the client invented
+
+The JSON record store's `create` is an upsert on `id`, owner included. The
+autopsy report and the autopsy request took their id from the page — the report
+numbered `AUT-001` from the length of the page's own list, so every session's
+first report collided — and could therefore overwrite another patient's
+record. Both are server-assigned now.
+
+Five pages kept a locally numbered copy (`CONS-001`, `COC-001`, `VAC-001`,
+`BB-001`, `QC-001`) after the server had stored its own id. Responding to a
+consult straight after filing it addressed an id that did not exist. Each now
+shows the server's id and reads the list back.
+
+Seven more took `PREFIX-${Date.now()}` from the page as the primary key of a
+typed record — code blue, trauma, stroke, radiology order, anaesthesia,
+operative note, post-op note. PostgreSQL refused a collision; the in-memory
+backend replaced the other record. All seven assign their own id now, and the
+pages stopped sending one. Every other create handler already did, or keys by
+a documented natural key (MAR by patient and date, IV site by patient and
+site, handoff by batch and patient).
+
+### Also closed
+
+* **"Invalid Date" (2026-09-22 entry).** 83 sites moved onto
+  `formatTimestamp`/`formatDateOnly`; `scripts/check-invalid-date.py` refuses a
+  new one.
+* **Author shown as a wallet (2026-09-22 entry).** Every actor in the doctor
+  portal renders through `StaffName`; the patient's records page and emergency
+  card access log resolve through `useProviderDirectory`.
+* **Controls that answer a click with silence (2026-09-22 entry).** Every row
+  in the "blocked" table was built in the previous pass. The death certificate's
+  redundant View icon is removed (owner-approved); Radiology's View Images,
+  which has no image store behind it, is disabled with a label saying so.
+* **23 superseded typed repositories, `sessions`, `telehealth_retention`,
+  duplicate `/api/platform/vitals`** — removed with the owner's approval.
+  Migration `20260923000001` drops the tables, and first the five live foreign
+  keys into them, each of which could only refuse a correct row.
+* **Patientless drug check** was filed under a patient named `UNKNOWN`.
+* **Transfusion and blood-screen downloads** 404'd for the patient.
+* Four `too_many_arguments` allows replaced by parameter structs; none remain.
+
+### Still open, and why it cannot close in code
+
+* **Two Subxt advisories** (2026-08-25 entry): upstream, time-bound.
+* **The Substrate node image**: a disk question on this host, not a code one.
+* **SMS, push, translation, dictation, national ID**: need real credentials.
+* **The dispensing policy** is still the example file.
+* **A reload signs a clinician out.** The owner chose to keep it fail-closed
+  (2026-09-23).
+* **The five patientless prescriptions** go with the test-data reset the owner
+  asked for once the demo data is rebuilt.
+
+### Awaiting a removal decision (rule 7)
+
+Found in this pass, verified unreferenced, not removed:
+
+| Item | Evidence |
+| --- | --- |
+| `AppState` maps `telehealth_sessions`, `wearable_alerts`, `wearable_devices`, `lab_trends`, `blood_type_screens` | zero references outside `state.rs` |
+| `repositories.e_prescription_records` | no caller outside the repository wiring |
+| `repositories.blood_type_screens` (typed) | read by the register, written by nothing |
+| `.gradient-text` in `doctor-portal/src/index.css` | no class user |
+| `loginWithDemoWallet` in the doctor portal's `authStore` | no caller but its own test |
+| Patient app "Create Demo Wallet" (dev server only) | builds a patient locally with blood type `O+` and an invented emergency contact; no account, no session |
+| `useProviderDirectory` beside `StaffName`'s directory | two implementations of one lookup |
+| `client/shared/src/utils/fetchWithRetry.ts` | exported, no consumer |
+
+---
+
+## 2026-09-11 — CLOSED 2026-09-24: 39 files bypass the typed client
 
 They call `fetch(apiUrl(...))` directly — 78 call sites across 40 files, 63
 distinct endpoints, 23 of them mutations. The typed client in
@@ -147,7 +292,7 @@ edit to the script, which is the point.
 
 ---
 
-## 2026-09-11 — OPEN: 23 typed repositories superseded by JSON-blob ones
+## 2026-09-11 — CLOSED 2026-09-24 (removed, owner-approved): 23 typed repositories superseded by JSON-blob ones
 
 Found by `scripts/check-unread-repositories.py`. These have **no caller at
 all** — not a read, not a write:
@@ -1188,8 +1333,8 @@ authentication moved to stateless JWT and nothing reads or writes this table.
 It holds PII-shaped columns, so keeping it is a data-minimisation problem, not
 just clutter.
 
-**Deliberately not dropped** — a schema change needs the owner's sign-off
-separately from a code-deletion pass. Still open.
+**Dropped 2026-09-24** with the owner's sign-off, by migration
+`20260923000001_drop_superseded_tables.sql`.
 
 ### Migration count vs. reality
 
@@ -4321,7 +4466,7 @@ lookup; the unsafe direction is a directory that silently omits a revoked key.
 
 ---
 
-## Controls that answer a click with silence — 2026-09-22
+## Controls that answer a click with silence — 2026-09-22 (CLOSED 2026-09-24; see that entry)
 
 Measured by walking every `<button>` in both portals and reporting those with
 no `onClick`, no `type="submit"` inside a form and no `disabled` state. Fifteen
@@ -4364,7 +4509,7 @@ a clinician that cannot do the thing its label promises.
 
 ---
 
-## "Invalid Date", written out to a clinician — 2026-09-22
+## "Invalid Date", written out to a clinician — 2026-09-22 (CLOSED 2026-09-24)
 
 `new Date(undefined).toLocaleString()` returns the literal string
 `Invalid Date`, and a screen that prints it has told a clinician something
@@ -4394,7 +4539,7 @@ the middle of a verification run.
 
 ---
 
-## An author shown as a wallet address — 2026-09-22
+## An author shown as a wallet address — 2026-09-22 (CLOSED 2026-09-24)
 
 Seen live on the order-sets screen: a set drafted by Dr Browser Test is
 attributed to `5GnPcTux4PX1F8RchBGn9QBgS3fPu3AnVQyQc9snQ74LoCDG`. The record is
@@ -4417,7 +4562,7 @@ is a legibility defect on every screen that names who did something.
 
 ---
 
-## `telehealth_retention`: constructed twice, read never — re-confirmed 2026-09-22
+## `telehealth_retention`: constructed twice, read never — re-confirmed 2026-09-22 (REMOVED 2026-09-24)
 
 `TelehealthRetentionStore::new()` is called in both `AppState` constructors and
 the module is declared in `main.rs`, so it compiles and carries no dead-code
