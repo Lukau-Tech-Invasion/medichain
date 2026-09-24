@@ -147,8 +147,6 @@ pub struct RepositoryContainer {
     /// Recollection requests raised against rejected specimens (SCR-009b).
     pub specimen_recollections: Arc<dyn SpecimenRecollectionRepository>,
     pub lab_submissions: Arc<dyn LabSubmissionRepository>,
-    pub lab_panels: Arc<dyn LabPanelRepository>,
-    pub lab_trends: Arc<dyn LabTrendRepository>,
     pub lab_qc_records: Arc<dyn LabQcRecordRepository>,
     pub critical_values: Arc<dyn CriticalValueRepository>,
 
@@ -168,11 +166,8 @@ pub struct RepositoryContainer {
 
     // Phase 3: Blood Bank repositories
     pub blood_type_screens: Arc<dyn BloodTypeScreenRepository>,
-    pub crossmatch_records: Arc<dyn CrossmatchRecordRepository>,
-    pub transfusion_records: Arc<dyn TransfusionRecordRepository>,
 
     // Phase 3: Pharmacy repositories
-    pub e_prescriptions: Arc<dyn EPrescriptionRepository>,
     pub drug_interactions: Arc<dyn DrugInteractionRepository>,
     pub medication_reminders: Arc<dyn MedicationReminderRepository>,
     pub adherence_logs: Arc<dyn AdherenceLogRepository>,
@@ -200,45 +195,19 @@ pub struct RepositoryContainer {
     pub mci_records: Arc<dyn MciRecordRepository>,
     pub chain_of_custody: Arc<dyn ChainOfCustodyRepository>,
 
-    // Phase 7: Wearables & IoT repositories
-    pub wearable_devices: Arc<dyn WearableDeviceRepository>,
-    pub wearable_data: Arc<dyn WearableDataRepository>,
-    pub wearable_alerts: Arc<dyn WearableAlertRepository>,
-    pub wearable_integration_logs: Arc<dyn WearableIntegrationLogRepository>,
-
-    // Phase 8: Telehealth repositories
-    pub telehealth_sessions: Arc<dyn TelehealthSessionRepository>,
-    pub telehealth_notes: Arc<dyn TelehealthNoteRepository>,
-    pub remote_patient_monitoring: Arc<dyn RemotePatientMonitoringRepository>,
-    pub rpm_readings: Arc<dyn RpmReadingRepository>,
-
     // Phase 9: Clinical Decision Support repositories
     pub cds_alerts: Arc<dyn CdsAlertRepository>,
 
     // Phase 10: Insurance & Billing repositories
     pub insurance_records: Arc<dyn InsuranceRecordRepository>,
-    pub billing_codes: Arc<dyn BillingCodeRepository>,
-
-    // Phase 11: Family & Genetics repositories
-    pub family_medical_histories: Arc<dyn FamilyMedicalHistoryRepository>,
-    pub genetic_test_results: Arc<dyn GeneticTestResultRepository>,
 
     // Phase 12: Immunization repositories
     pub immunization_records: Arc<dyn ImmunizationRecordRepository>,
-    pub immunization_schedules: Arc<dyn ImmunizationScheduleRepository>,
-    pub vaccine_inventory: Arc<dyn VaccineInventoryRepository>,
-
-    // Phase 13: Death Records repositories
-    pub death_records: Arc<dyn DeathRecordRepository>,
-    pub organ_donation_records: Arc<dyn OrganDonationRecordRepository>,
 
     // Phase 14: Sync & Integration repositories
-    pub sync_operations: Arc<dyn SyncOperationRepository>,
     pub sync_conflicts: Arc<dyn SyncConflictRepository>,
-    pub external_id_mappings: Arc<dyn ExternalIdMappingRepository>,
 
     // Phase 15: Audit & Compliance repositories
-    pub compliance_reports: Arc<dyn ComplianceReportRepository>,
     pub data_retention_policies: Arc<dyn DataRetentionPolicyRepository>,
     pub retention_job_runs: Arc<dyn RetentionJobRunRepository>,
     pub consent_records: Arc<dyn ConsentRecordRepository>,
@@ -503,8 +472,6 @@ impl RepositoryContainer {
             specimen_rejections: Arc::new(memory::MemorySpecimenRejectionRepository::new()),
             specimen_recollections: Arc::new(memory::MemorySpecimenRecollectionRepository::new()),
             lab_submissions: Arc::new(memory::MemoryLabSubmissionRepository::new()),
-            lab_panels: Arc::new(memory::MemoryLabPanelRepository::new()),
-            lab_trends: Arc::new(memory::MemoryLabTrendRepository::new()),
             lab_qc_records: Arc::new(memory::MemoryLabQcRecordRepository::new()),
             critical_values: Arc::new(memory::MemoryCriticalValueRepository::new()),
 
@@ -524,11 +491,8 @@ impl RepositoryContainer {
 
             // Phase 3: Blood Bank repositories (memory)
             blood_type_screens: Arc::new(memory::MemoryBloodTypeScreenRepository::new()),
-            crossmatch_records: Arc::new(memory::MemoryCrossmatchRecordRepository::new()),
-            transfusion_records: Arc::new(memory::MemoryTransfusionRecordRepository::new()),
 
             // Phase 3: Pharmacy repositories (memory)
-            e_prescriptions: Arc::new(memory::MemoryEPrescriptionRepository::new()),
             drug_interactions: Arc::new(memory::MemoryDrugInteractionRepository::new()),
             medication_reminders: Arc::new(memory::MemoryMedicationReminderRepository::new()),
             adherence_logs: Arc::new(memory::MemoryAdherenceLogRepository::new()),
@@ -556,49 +520,19 @@ impl RepositoryContainer {
             mci_records: Arc::new(memory::MemoryMciRecordRepository::new()),
             chain_of_custody: Arc::new(memory::MemoryChainOfCustodyRepository::new()),
 
-            // Phase 7: Wearables & IoT repositories (memory)
-            wearable_devices: Arc::new(memory::MemoryWearableDeviceRepository::new()),
-            wearable_data: Arc::new(memory::MemoryWearableDataRepository::new()),
-            wearable_alerts: Arc::new(memory::MemoryWearableAlertRepository::new()),
-            wearable_integration_logs: Arc::new(
-                memory::MemoryWearableIntegrationLogRepository::new(),
-            ),
-
-            // Phase 8: Telehealth repositories (memory)
-            telehealth_sessions: Arc::new(memory::MemoryTelehealthSessionRepository::new()),
-            telehealth_notes: Arc::new(memory::MemoryTelehealthNoteRepository::new()),
-            remote_patient_monitoring: Arc::new(
-                memory::MemoryRemotePatientMonitoringRepository::new(),
-            ),
-            rpm_readings: Arc::new(memory::MemoryRpmReadingRepository::new()),
-
             // Phase 9: Clinical Decision Support repositories (memory)
             cds_alerts: Arc::new(memory::MemoryCdsAlertRepository::new()),
 
             // Phase 10: Insurance & Billing repositories (memory)
             insurance_records: Arc::new(memory::MemoryInsuranceRecordRepository::new()),
-            billing_codes: Arc::new(memory::MemoryBillingCodeRepository::new()),
-
-            // Phase 11: Family & Genetics repositories (memory)
-            family_medical_histories: Arc::new(memory::MemoryFamilyMedicalHistoryRepository::new()),
-            genetic_test_results: Arc::new(memory::MemoryGeneticTestResultRepository::new()),
 
             // Phase 12: Immunization repositories (memory)
             immunization_records: Arc::new(memory::MemoryImmunizationRecordRepository::new()),
-            immunization_schedules: Arc::new(memory::MemoryImmunizationScheduleRepository::new()),
-            vaccine_inventory: Arc::new(memory::MemoryVaccineInventoryRepository::new()),
-
-            // Phase 13: Death Records repositories (memory)
-            death_records: Arc::new(memory::MemoryDeathRecordRepository::new()),
-            organ_donation_records: Arc::new(memory::MemoryOrganDonationRecordRepository::new()),
 
             // Phase 14: Sync & Integration repositories (memory)
-            sync_operations: Arc::new(memory::MemorySyncOperationRepository::new()),
             sync_conflicts: Arc::new(memory::MemorySyncConflictRepository::new()),
-            external_id_mappings: Arc::new(memory::MemoryExternalIdMappingRepository::new()),
 
             // Phase 15: Audit & Compliance repositories (memory)
-            compliance_reports: Arc::new(memory::MemoryComplianceReportRepository::new()),
             data_retention_policies: Arc::new(memory::MemoryDataRetentionPolicyRepository::new()),
             retention_job_runs: Arc::new(memory::MemoryRetentionJobRunRepository::new()),
             consent_records: Arc::new(memory::MemoryConsentRecordRepository::new()),
@@ -1055,8 +989,6 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             lab_submissions: Arc::new(postgres::PgLabSubmissionRepository::new(pool.clone())),
-            lab_panels: Arc::new(postgres::PgLabPanelRepository::new(pool.clone())),
-            lab_trends: Arc::new(postgres::PgLabTrendRepository::new(pool.clone())),
             lab_qc_records: Arc::new(postgres::PgLabQcRecordRepository::new(pool.clone())),
             critical_values: Arc::new(postgres::PgCriticalValueRepository::new(pool.clone())),
 
@@ -1078,13 +1010,8 @@ impl RepositoryContainer {
 
             // Phase 3: Blood Bank repositories (PostgreSQL)
             blood_type_screens: Arc::new(postgres::PgBloodTypeScreenRepository::new(pool.clone())),
-            crossmatch_records: Arc::new(postgres::PgCrossmatchRecordRepository::new(pool.clone())),
-            transfusion_records: Arc::new(postgres::PgTransfusionRecordRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 3: Pharmacy repositories (PostgreSQL)
-            e_prescriptions: Arc::new(postgres::PgEPrescriptionRepository::new(pool.clone())),
             drug_interactions: Arc::new(postgres::PgDrugInteractionRepository::new(pool.clone())),
             medication_reminders: Arc::new(postgres::PgMedicationReminderRepository::new(
                 pool.clone(),
@@ -1126,63 +1053,21 @@ impl RepositoryContainer {
             mci_records: Arc::new(postgres::PgMciRecordRepository::new(pool.clone())),
             chain_of_custody: Arc::new(postgres::PgChainOfCustodyRepository::new(pool.clone())),
 
-            // Phase 7: Wearables & IoT repositories (PostgreSQL)
-            wearable_devices: Arc::new(postgres::PgWearableDeviceRepository::new(pool.clone())),
-            wearable_data: Arc::new(postgres::PgWearableDataRepository::new(pool.clone())),
-            wearable_alerts: Arc::new(postgres::PgWearableAlertRepository::new(pool.clone())),
-            wearable_integration_logs: Arc::new(postgres::PgWearableIntegrationLogRepository::new(
-                pool.clone(),
-            )),
-
-            // Phase 8: Telehealth repositories (PostgreSQL)
-            telehealth_sessions: Arc::new(postgres::PgTelehealthSessionRepository::new(
-                pool.clone(),
-            )),
-            telehealth_notes: Arc::new(postgres::PgTelehealthNoteRepository::new(pool.clone())),
-            remote_patient_monitoring: Arc::new(
-                postgres::PgRemotePatientMonitoringRepository::new(pool.clone()),
-            ),
-            rpm_readings: Arc::new(postgres::PgRpmReadingRepository::new(pool.clone())),
-
             // Phase 9: Clinical Decision Support repositories (PostgreSQL)
             cds_alerts: Arc::new(postgres::PgCdsAlertRepository::new(pool.clone())),
 
             // Phase 10: Insurance & Billing repositories (PostgreSQL)
             insurance_records: Arc::new(postgres::PgInsuranceRecordRepository::new(pool.clone())),
-            billing_codes: Arc::new(postgres::PgBillingCodeRepository::new(pool.clone())),
-
-            // Phase 11: Family & Genetics repositories (PostgreSQL)
-            family_medical_histories: Arc::new(postgres::PgFamilyMedicalHistoryRepository::new(
-                pool.clone(),
-            )),
-            genetic_test_results: Arc::new(postgres::PgGeneticTestResultRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 12: Immunization repositories (PostgreSQL)
             immunization_records: Arc::new(postgres::PgImmunizationRecordRepository::new(
                 pool.clone(),
             )),
-            immunization_schedules: Arc::new(postgres::PgImmunizationScheduleRepository::new(
-                pool.clone(),
-            )),
-            vaccine_inventory: Arc::new(postgres::PgVaccineInventoryRepository::new(pool.clone())),
-
-            // Phase 13: Death Records repositories (PostgreSQL)
-            death_records: Arc::new(postgres::PgDeathRecordRepository::new(pool.clone())),
-            organ_donation_records: Arc::new(postgres::PgOrganDonationRecordRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 14: Sync & Integration repositories (PostgreSQL)
-            sync_operations: Arc::new(postgres::PgSyncOperationRepository::new(pool.clone())),
             sync_conflicts: Arc::new(postgres::PgSyncConflictRepository::new(pool.clone())),
-            external_id_mappings: Arc::new(postgres::PgExternalIdMappingRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 15: Audit & Compliance repositories (PostgreSQL)
-            compliance_reports: Arc::new(postgres::PgComplianceReportRepository::new(pool.clone())),
             data_retention_policies: Arc::new(postgres::PgDataRetentionPolicyRepository::new(
                 pool.clone(),
             )),

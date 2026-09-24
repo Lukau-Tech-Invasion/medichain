@@ -473,74 +473,6 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
     }
 }
 
-/// Record vital signs
-#[post("/api/platform/vitals")]
-pub async fn record_vital_signs(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let patient_id = body
-        .get("patient_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("UNKNOWN")
-        .to_string();
-    let now = chrono::Utc::now();
-    let vitals = VitalSignsEntity {
-        id: uuid::Uuid::new_v4().to_string(),
-        patient_id,
-        heart_rate: body
-            .get("heart_rate")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        respiratory_rate: body
-            .get("respiratory_rate")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        blood_pressure_systolic: body
-            .get("systolic")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        blood_pressure_diastolic: body
-            .get("diastolic")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        mean_arterial_pressure: None,
-        temperature: body.get("temperature").and_then(|v| v.as_f64()),
-        temperature_site: None,
-        oxygen_saturation: body.get("spo2").and_then(|v| v.as_i64()).map(|v| v as i32),
-        oxygen_delivery: None,
-        fio2: None,
-        pain_scale: body.get("pain").and_then(|v| v.as_i64()).map(|v| v as i32),
-        gcs_score: None,
-        gcs_eye: None,
-        gcs_verbal: None,
-        gcs_motor: None,
-        blood_glucose: None,
-        weight_kg: body.get("weight").and_then(|v| v.as_f64()),
-        height_cm: body.get("height").and_then(|v| v.as_f64()),
-        bmi: None,
-        position: None,
-        activity_level: None,
-        is_critical: false,
-        critical_values: None,
-        recorded_at: now,
-        recorded_by: current_user_id,
-        facility_id: None,
-        created_at: chrono::Utc::now(),
-    };
-
-    match data.repositories.vital_signs.create(vitals).await {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({"success": true})),
-        Err(e) => registry_read_error(&http_req, e),
-    }
-}
-
 /// List all progress notes
 #[get("/api/platform/list/progress-notes")]
 pub async fn list_progress_notes(
@@ -777,6 +709,32 @@ mod patient_immunization_card_tests {
         assert!(
             body.contains("Measles-Rubella"),
             "the patient's own vaccination was missing from their card: {body}"
+        );
+    }
+
+    /// The dose is attributed to whoever recorded it, not to the name the
+    /// request carried: `dose()` sends `"administered_by": "Test Nurse"`.
+    #[actix_rt::test]
+    async fn a_vaccination_is_attributed_to_the_clinician_who_recorded_it() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("\"administered_by\":\"5Nurse\""),
+            "the dose was not attributed to the recording clinician: {body}"
+        );
+        assert!(
+            !body.contains("Test Nurse"),
+            "a caller-supplied attribution was stored: {body}"
         );
     }
 

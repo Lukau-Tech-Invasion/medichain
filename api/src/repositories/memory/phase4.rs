@@ -1354,23 +1354,25 @@ impl ShiftHandoffRepository for MemoryShiftHandoffRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
-    async fn get_by_provider(
+    async fn get_by_provider_since(
         &self,
         provider_id: &str,
-        date: NaiveDate,
+        since: NaiveDate,
     ) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
         let data = self
             .data
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(data
+        let mut handoffs: Vec<ShiftHandoffEntity> = data
             .values()
             .filter(|h| {
                 (h.outgoing_provider_id == provider_id || h.incoming_provider_id == provider_id)
-                    && h.handoff_datetime.date_naive() == date
+                    && h.handoff_datetime.date_naive() >= since
             })
             .cloned()
-            .collect())
+            .collect();
+        handoffs.sort_by_key(|h| std::cmp::Reverse(h.handoff_datetime));
+        Ok(handoffs)
     }
 
     async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>> {

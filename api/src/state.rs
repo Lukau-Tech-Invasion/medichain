@@ -67,8 +67,6 @@ pub struct AppState {
     pub mobile_records: crate::mobile_records::MobileRecordStore,
     /// One-time emergency-token JTIs retained until their expiry.
     pub used_emergency_tokens: RwLock<HashMap<String, i64>>,
-    /// Phase 7 policy metadata for sensitive telehealth artifact retention.
-    pub telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore,
     /// Phase 8 local audit events for retryable chain anchoring and governance.
     pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
@@ -259,7 +257,6 @@ impl AppState {
             patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             used_emergency_tokens: RwLock::new(HashMap::new()),
-            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
@@ -452,7 +449,6 @@ impl AppState {
             patient_access,
             mobile_records,
             used_emergency_tokens: RwLock::new(HashMap::new()),
-            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)

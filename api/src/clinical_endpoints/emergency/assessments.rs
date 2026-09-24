@@ -15,6 +15,8 @@ use super::*;
 /// rejected with `missing field `mechanism``.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateTraumaRequest {
+    /// Assigned by the server on create; a value sent is ignored.
+    #[serde(default)]
     pub assessment_id: String,
     pub patient_id: String,
     #[serde(default)]
@@ -50,7 +52,15 @@ pub async fn create_trauma(
         Err(resp) => return resp,
     };
 
-    let assessment = req.into_inner();
+    let mut assessment = req.into_inner();
+    // The assessor is the authenticated caller. The page sent its own idea
+    // of who that was -- `'unknown'` when it had none -- and it was stored as
+    // sent, so an assessment could be attributed to anybody.
+    assessment.assessed_by = current_user_id.clone();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    assessment.assessment_id = format!("ASMT-{}", uuid::Uuid::new_v4().simple());
     let id = assessment.assessment_id.clone();
 
     if let Err(response) = crate::support::require_durable_audit(
@@ -147,6 +157,8 @@ pub async fn list_patient_trauma(
 /// derived from the other.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateStrokeRequest {
+    /// Assigned by the server on create; a value sent is ignored.
+    #[serde(default)]
     pub assessment_id: String,
     pub patient_id: String,
     /// The page computes these from `<input type="datetime-local">` via
@@ -188,7 +200,15 @@ pub async fn create_stroke(
         Err(resp) => return resp,
     };
 
-    let assessment = req.into_inner();
+    let mut assessment = req.into_inner();
+    // The assessor is the authenticated caller. The page sent its own idea
+    // of who that was -- `'unknown'` when it had none -- and it was stored as
+    // sent, so an assessment could be attributed to anybody.
+    assessment.assessed_by = current_user_id.clone();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    assessment.assessment_id = format!("ASMT-{}", uuid::Uuid::new_v4().simple());
     let id = assessment.assessment_id.clone();
 
     if let Err(response) = crate::support::require_durable_audit(
@@ -626,4 +646,70 @@ pub async fn get_patient_emergency_records(
         "stroke_assessments": stroke,
         "sepsis_assessments": sepsis
     }))
+}
+
+#[cfg(test)]
+mod attribution_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn state_with_nurse() -> web::Data<AppState> {
+        let state = AppState::new();
+        state.users.write().unwrap().insert(
+            "5Nurse".to_string(),
+            crate::User {
+                wallet_address: "5Nurse".to_string(),
+                username: None,
+                name: "Test Nurse".to_string(),
+                role: crate::Role::Nurse,
+                created_at: chrono::Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+        web::Data::new(state)
+    }
+
+    /// The assessor is the caller. `TraumaPage` sent its own value --
+    /// `'unknown'` when it had no user -- and it was stored as sent.
+    #[actix_rt::test]
+    async fn a_trauma_assessment_is_attributed_to_the_caller() {
+        let data = state_with_nurse();
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(create_trauma)).await;
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/emergency/trauma")
+                .insert_header(("X-User-Id", "5Nurse"))
+                .set_json(serde_json::json!({
+                    "assessment_id": "TR-CLIENT-CHOSEN",
+                    "patient_id": "PAT-TR-1",
+                    "mechanism_of_injury": "fall",
+                    "assessed_by": "unknown",
+                    "assessed_at": 1_758_000_000,
+                }))
+                .to_request(),
+        )
+        .await;
+        let id = created["id"]
+            .as_str()
+            .expect("the server returns the id it assigned");
+        assert_ne!(id, "TR-CLIENT-CHOSEN", "the client chose the primary key");
+
+        let stored = data
+            .repositories
+            .trauma_assessments_repo
+            .get_by_id(id)
+            .await
+            .expect("stored assessment");
+        assert_eq!(stored.assessed_by, "5Nurse");
+    }
 }

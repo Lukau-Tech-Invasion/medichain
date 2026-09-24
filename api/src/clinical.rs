@@ -613,19 +613,35 @@ pub struct GlasgowComaScale {
     pub assessed_at: i64,
 }
 
+/// What the assessor observed: the three GCS components and what went with them.
+///
+/// Grouped so the constructor cannot be called with its three responses in the
+/// wrong order -- `EyeResponse`, `VerbalResponse` and `MotorResponse` are
+/// distinct types, but the two `Option`s beside them were not.
+#[derive(Debug, Clone)]
+pub struct GcsObservation {
+    pub eye: EyeResponse,
+    pub verbal: VerbalResponse,
+    pub motor: MotorResponse,
+    pub pupil_assessment: Option<PupilAssessment>,
+    pub notes: Option<String>,
+}
+
 impl GlasgowComaScale {
     /// Create new GCS assessment with automatic score calculation
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         assessment_id: String,
         patient_id: String,
-        eye: EyeResponse,
-        verbal: VerbalResponse,
-        motor: MotorResponse,
-        pupil_assessment: Option<PupilAssessment>,
-        notes: Option<String>,
+        observation: GcsObservation,
         assessed_by: String,
     ) -> Self {
+        let GcsObservation {
+            eye,
+            verbal,
+            motor,
+            pupil_assessment,
+            notes,
+        } = observation;
         let total = eye.score() + verbal.score() + motor.score();
         let interpretation = Self::interpret_score_static(total);
 
@@ -1345,11 +1361,13 @@ mod tests {
         let gcs = GlasgowComaScale::new(
             "test-1".to_string(),
             "patient-1".to_string(),
-            EyeResponse::Spontaneous,     // 4
-            VerbalResponse::Oriented,     // 5
-            MotorResponse::ObeysCommands, // 6
-            None,
-            None,
+            GcsObservation {
+                eye: EyeResponse::Spontaneous,       // 4
+                verbal: VerbalResponse::Oriented,    // 5
+                motor: MotorResponse::ObeysCommands, // 6
+                pupil_assessment: None,
+                notes: None,
+            },
             "nurse-1".to_string(),
         );
         assert_eq!(gcs.total_score, 15);
@@ -1361,11 +1379,13 @@ mod tests {
         let gcs = GlasgowComaScale::new(
             "test-2".to_string(),
             "patient-2".to_string(),
-            EyeResponse::None,              // 1
-            VerbalResponse::None,           // 1
-            MotorResponse::AbnormalFlexion, // 3
-            None,
-            None,
+            GcsObservation {
+                eye: EyeResponse::None,                // 1
+                verbal: VerbalResponse::None,          // 1
+                motor: MotorResponse::AbnormalFlexion, // 3
+                pupil_assessment: None,
+                notes: None,
+            },
             "nurse-1".to_string(),
         );
         assert_eq!(gcs.total_score, 5);
@@ -4916,7 +4936,8 @@ pub struct PACUHandoff {
 /// Radiology order
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadiologyOrder {
-    /// Order ID
+    /// Order ID. Assigned by the server on create; a value sent is ignored.
+    #[serde(default)]
     pub order_id: String,
     /// Patient ID
     pub patient_id: String,
@@ -5752,7 +5773,8 @@ pub struct CauseOfDeath {
 /// Autopsy request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutopsyRequest {
-    /// Request ID
+    /// Request ID. Assigned by the server on create; a client value is ignored.
+    #[serde(default)]
     pub request_id: String,
     /// Patient ID
     pub patient_id: String,

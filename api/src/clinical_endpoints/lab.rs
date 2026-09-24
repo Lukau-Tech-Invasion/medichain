@@ -699,11 +699,8 @@ pub struct CreateLabQcRequest {
     pub expected_sd: f64,
     #[serde(default)]
     pub unit: String,
-    /// `pass` / `fail` / `warning` from the page.
-    #[serde(default)]
-    pub result: Option<String>,
-    #[serde(rename = "violatedRules", default)]
-    pub violated_rules: Vec<String>,
+    // No `result` or `violatedRules`: the run is judged server-side by
+    // `clinical_scoring::westgard_single_run`, never taken from the page.
     #[serde(rename = "performedBy", alias = "performed_by", default)]
     pub performed_by: Option<String>,
     #[serde(rename = "correctiveAction", alias = "corrective_action", default)]
@@ -979,6 +976,20 @@ pub async fn create_lab_qc(
         });
     }
 
+    // The run is judged here, by the rules in `clinical_scoring`, not taken
+    // from the page. A zero or negative SD makes a z-score meaningless.
+    let Some(run) = crate::clinical_scoring::westgard_single_run(
+        body.observed_value,
+        body.expected_mean,
+        body.expected_sd,
+    ) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "expectedSD must be a positive number".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    };
+
     let qc_id = format!("QC-{}", uuid::Uuid::new_v4().simple());
     let dec = |v: f64| rust_decimal::Decimal::from_f64_retain(v).unwrap_or_default();
 
@@ -989,11 +1000,9 @@ pub async fn create_lab_qc(
     let low = body.expected_mean - 2.0 * body.expected_sd;
     let high = body.expected_mean + 2.0 * body.expected_sd;
 
-    // `passed` is the server's conclusion, not the page's claim. A run the
-    // browser labelled `pass` while sitting outside the window would release
-    // results the control says are unreliable.
-    let within_window = body.observed_value >= low && body.observed_value <= high;
-    let passed = within_window && body.violated_rules.is_empty();
+    // `passed` is the server's conclusion, not the page's claim: a run outside
+    // the 2 SD window (a 1_2s warning or a 1_3s rejection) has not passed.
+    let passed = run.result == crate::clinical_scoring::QcRunResult::Pass;
 
     let deviation = if body.expected_mean.abs() > f64::EPSILON {
         Some(dec((body.observed_value - body.expected_mean)
@@ -1057,9 +1066,12 @@ pub async fn create_lab_qc(
             "acceptable_range_high": high,
             "unit": body.unit,
             "passed": passed,
-            // The rules the run broke, kept verbatim: "1_3s" and "2_2s" mean
-            // different things about the analyser and lead to different actions.
-            "violated_rules": body.violated_rules,
+            "result": run.result,
+            "z_score": run.z_score,
+            // Rule codes, not prose: "1_3s" and "1_2s" mean different things
+            // about the analyser and lead to different actions. The page used
+            // to send its own, already translated into the clerk's language.
+            "violated_rules": run.violated_rules,
             "corrective_action": body.corrective_action,
             "comments": body.comments,
             "performed_by": current_user.wallet_address,
@@ -1072,6 +1084,9 @@ pub async fn create_lab_qc(
             "success": true,
             "qc_id": qc_id,
             "passed": passed,
+            "result": run.result,
+            "z_score": run.z_score,
+            "violated_rules": run.violated_rules,
             "acceptable_range_low": low,
             "acceptable_range_high": high
         })),
@@ -3312,5 +3327,80 @@ mod custody_transfer_tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+#[cfg(test)]
+mod lab_qc_verdict_tests {
+    use super::*;
+    use crate::test_fixtures::register;
+    use actix_web::{http::StatusCode, test, App};
+
+    fn run(observed: f64, sd: f64) -> serde_json::Value {
+        // What `LabQCPage` sends: no verdict of its own.
+        serde_json::json!({
+            "instrument": "Cobas c311",
+            "analyte": "Potassium",
+            "level": "Level 2",
+            "observedValue": observed,
+            "expectedMean": 5.0,
+            "expectedSD": sd,
+            "unit": "mmol/L",
+            "correctiveAction": "Recalibrated, control repeated",
+        })
+    }
+
+    /// The verdict is the server's, and the list serves it. The list used to
+    /// be read for a `result` nobody stored, so a failed run showed as a pass.
+    #[actix_web::test]
+    async fn a_run_seven_sd_out_is_stored_and_answered_as_a_1_3s_failure() {
+        let state = AppState::new();
+        register(&state, "lab_tech", crate::Role::LabTechnician);
+        let state = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(create_lab_qc)).await;
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/lab-qc")
+                .insert_header(("x-user-id", "lab_tech"))
+                .set_json(run(6.4, 0.2))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created["result"], "fail");
+        assert_eq!(created["passed"], false);
+        assert_eq!(created["violated_rules"], serde_json::json!(["1_3s"]));
+
+        let stored = state.repositories.lab_qc_records.list_all().await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].data["result"], "fail");
+        assert_eq!(
+            stored[0].data["violated_rules"],
+            serde_json::json!(["1_3s"])
+        );
+    }
+
+    #[actix_web::test]
+    async fn a_zero_sd_is_refused_rather_than_judged() {
+        let state = AppState::new();
+        register(&state, "lab_tech", crate::Role::LabTechnician);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(create_lab_qc),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/lab-qc")
+                .insert_header(("x-user-id", "lab_tech"))
+                .set_json(run(5.0, 0.0))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }

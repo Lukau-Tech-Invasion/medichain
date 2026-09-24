@@ -1120,6 +1120,20 @@ pub fn catalog() -> serde_json::Value {
                 { "level": "high", "min": MORSE_HIGH_THRESHOLD, "max": serde_json::Value::Null },
             ],
         },
+        // The operative note flags an estimated blood loss above this for
+        // attention. Display only: nothing is decided from it.
+        "operative": {
+            "ebl_significant_ml": EBL_SIGNIFICANT_ML,
+        },
+        // The recovery form's live preview. The stored total and whether it
+        // meets the threshold are computed when the note is filed.
+        "aldrete": {
+            "components": ALDRETE_COMPONENTS,
+            "bands": [
+                { "level": "monitoring", "min": 0, "max": ALDRETE_DISCHARGE_THRESHOLD - 1 },
+                { "level": "ready", "min": ALDRETE_DISCHARGE_THRESHOLD, "max": serde_json::Value::Null },
+            ],
+        },
         // The critical-value call list, for the report form's preview. The
         // stored level is computed on the server when the report is filed.
         "critical_values": {
@@ -2257,5 +2271,192 @@ mod lab_flag_tests {
     fn labels_are_stable_on_the_wire() {
         assert_eq!(lab_flag_label(S::CriticalHigh), "critical_high");
         assert_eq!(lab_flag_label(S::Normal), "normal");
+    }
+}
+
+// ============================================================================
+// Post-anaesthetic recovery: the modified Aldrete score
+// ============================================================================
+
+/// Estimated blood loss (mL) above which the operative note flags the value.
+/// It was a literal `500` in `OperativeNotePage.tsx`.
+pub const EBL_SIGNIFICANT_ML: i32 = 500;
+
+/// The five components, each scored 0-2, as the recovery form names them.
+pub const ALDRETE_COMPONENTS: [&str; 5] = [
+    "activity",
+    "respiration",
+    "circulation",
+    "consciousness",
+    "oxygenSaturation",
+];
+
+/// The total at or above which the patient meets the score criterion for
+/// leaving recovery. It is one criterion among several, not a discharge order.
+pub const ALDRETE_DISCHARGE_THRESHOLD: i32 = 9;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct AldreteScore {
+    pub total: i32,
+    pub meets_discharge_threshold: bool,
+}
+
+/// Score a recovery assessment. `None` unless all five components were scored
+/// 0-2: a total over four components is not an Aldrete score, and the page used
+/// to start every component at 2, so an untouched form read "10 -- ready for
+/// discharge" about a patient nobody had assessed (CLAUDE.md rule 12).
+pub fn aldrete_score(components: &serde_json::Value) -> Option<AldreteScore> {
+    let mut total = 0;
+    for name in ALDRETE_COMPONENTS {
+        let value = components.get(name)?.as_i64()?;
+        if !(0..=2).contains(&value) {
+            return None;
+        }
+        total += value as i32;
+    }
+    Some(AldreteScore {
+        total,
+        meets_discharge_threshold: total >= ALDRETE_DISCHARGE_THRESHOLD,
+    })
+}
+
+#[cfg(test)]
+mod aldrete_tests {
+    use super::*;
+
+    fn all(value: i64) -> serde_json::Value {
+        serde_json::json!({
+            "activity": value, "respiration": value, "circulation": value,
+            "consciousness": value, "oxygenSaturation": value,
+        })
+    }
+
+    #[test]
+    fn nine_meets_the_threshold_and_eight_does_not() {
+        let mut nine = all(2);
+        nine["activity"] = serde_json::json!(1);
+        assert_eq!(
+            aldrete_score(&nine),
+            Some(AldreteScore {
+                total: 9,
+                meets_discharge_threshold: true
+            })
+        );
+        let mut eight = nine.clone();
+        eight["respiration"] = serde_json::json!(1);
+        assert!(!aldrete_score(&eight).unwrap().meets_discharge_threshold);
+    }
+
+    #[test]
+    fn an_incomplete_or_out_of_range_assessment_is_not_scored() {
+        let mut missing = all(2);
+        missing.as_object_mut().unwrap().remove("consciousness");
+        assert_eq!(aldrete_score(&missing), None);
+        assert_eq!(aldrete_score(&all(3)), None);
+        assert_eq!(
+            aldrete_score(&serde_json::json!({ "activity": null })),
+            None
+        );
+        assert_eq!(aldrete_score(&serde_json::Value::Null), None);
+    }
+}
+
+// ============================================================================
+// Laboratory quality control: single-run Westgard rules
+// ============================================================================
+
+/// What one control run says about the analyser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QcRunResult {
+    /// Within 2 SD of the target.
+    Pass,
+    /// Beyond 2 SD (rule 1_2s): inspect before releasing results.
+    Warning,
+    /// Beyond 3 SD (rule 1_3s): the run is rejected.
+    Fail,
+}
+
+/// A control run evaluated against its target mean and SD.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct WestgardRun {
+    /// Signed distance from the mean in SDs.
+    pub z_score: f64,
+    pub result: QcRunResult,
+    /// Rule codes, not prose: "1_3s" and "1_2s" lead to different actions.
+    pub violated_rules: Vec<&'static str>,
+}
+
+/// Evaluate one control run with the single-run Westgard rules.
+///
+/// Only the rules one observation can decide: 1_3s (reject) and 1_2s (warn).
+/// The multi-run rules (2_2s, R_4s, 4_1s, 10_x) need the analyser's recent
+/// history, which this does not see. `None` when the SD is not a positive
+/// number, because a z-score against it means nothing.
+///
+/// This was computed in `LabQCPage.tsx`, and the list then read a `result`
+/// field the server never stored -- so every run, failed ones included,
+/// displayed as a pass.
+pub fn westgard_single_run(observed: f64, mean: f64, sd: f64) -> Option<WestgardRun> {
+    if !(sd.is_finite() && sd > 0.0 && observed.is_finite() && mean.is_finite()) {
+        return None;
+    }
+    let z_score = (observed - mean) / sd;
+    let distance = z_score.abs();
+    let (result, violated_rules) = if distance > 3.0 {
+        (QcRunResult::Fail, vec!["1_3s"])
+    } else if distance > 2.0 {
+        (QcRunResult::Warning, vec!["1_2s"])
+    } else {
+        (QcRunResult::Pass, Vec::new())
+    };
+    Some(WestgardRun {
+        z_score,
+        result,
+        violated_rules,
+    })
+}
+
+#[cfg(test)]
+mod westgard_tests {
+    use super::*;
+
+    #[test]
+    fn within_two_sd_passes() {
+        let run = westgard_single_run(102.0, 100.0, 2.0).unwrap();
+        assert_eq!(run.result, QcRunResult::Pass);
+        assert!(run.violated_rules.is_empty());
+        assert!((run.z_score - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn beyond_two_sd_warns_and_beyond_three_rejects() {
+        let warn = westgard_single_run(95.0, 100.0, 2.0).unwrap();
+        assert_eq!(warn.result, QcRunResult::Warning);
+        assert_eq!(warn.violated_rules, vec!["1_2s"]);
+        assert!(warn.z_score < 0.0, "the sign says which side of the target");
+
+        let fail = westgard_single_run(107.0, 100.0, 2.0).unwrap();
+        assert_eq!(fail.result, QcRunResult::Fail);
+        assert_eq!(fail.violated_rules, vec!["1_3s"]);
+    }
+
+    #[test]
+    fn exactly_on_a_limit_is_inside_it() {
+        assert_eq!(
+            westgard_single_run(104.0, 100.0, 2.0).unwrap().result,
+            QcRunResult::Pass
+        );
+        assert_eq!(
+            westgard_single_run(106.0, 100.0, 2.0).unwrap().result,
+            QcRunResult::Warning
+        );
+    }
+
+    #[test]
+    fn a_non_positive_sd_is_not_evaluated() {
+        assert!(westgard_single_run(100.0, 100.0, 0.0).is_none());
+        assert!(westgard_single_run(100.0, 100.0, -1.0).is_none());
+        assert!(westgard_single_run(f64::NAN, 100.0, 2.0).is_none());
     }
 }

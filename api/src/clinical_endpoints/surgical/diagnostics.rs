@@ -24,8 +24,7 @@ use super::*;
 /// approach as `CreatePathologyRequest`.
 #[derive(Debug, serde::Deserialize)]
 pub struct CreateAnesthesiaRequest {
-    #[serde(alias = "record_id", alias = "recordId")]
-    pub id: Option<String>,
+    // No `id`: the server assigns the record id.
     #[serde(alias = "patientId")]
     pub patient_id: String,
     #[serde(default, alias = "anesthesiaType")]
@@ -111,11 +110,10 @@ pub async fn create_anesthesia(
     let now = chrono::Utc::now();
     // Server-assigned when the screen does not supply one: the id is the
     // primary key, and a blank one collides on the second record.
-    let record_id = record
-        .id
-        .clone()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| format!("ANES-{}", uuid::Uuid::new_v4().simple()));
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    let record_id = format!("ANES-{}", uuid::Uuid::new_v4().simple());
 
     // The whole submission, so the screen reads back the fields the typed
     // columns have no home for.
@@ -279,6 +277,10 @@ pub async fn create_radiology_order(
     let current_user_id = caller.wallet_address.clone();
 
     let mut order = req.into_inner();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    order.order_id = format!("RAD-{}", uuid::Uuid::new_v4().simple());
     // Stamp it from the session so the stored record cannot disagree with the
     // authenticated identity even if the check above is ever relaxed.
     order.ordering_provider = caller.wallet_address.clone();

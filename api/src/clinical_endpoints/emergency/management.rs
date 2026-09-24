@@ -1540,26 +1540,38 @@ pub async fn get_shift_handoff(
     }
 }
 
-/// List shift handoffs involving a provider for today.
+/// How far back the handoff history may look, in days.
+const MAX_HANDOFF_HISTORY_DAYS: u32 = 30;
+
+#[derive(Debug, Deserialize)]
+pub struct HandoffHistoryQuery {
+    /// Days of history including today; 1 (the default) is today only.
+    pub days: Option<u32>,
+}
+
+/// List shift handoffs involving a provider, newest first.
 ///
 /// Connects the doctor-portal ShiftHandoffPage, which fetches by the logged-in
 /// provider's id (the bare `/api/emergency/handoff/{id}` route is by *handoff*
-/// id). Today-scoped via the repository's `get_by_provider`; multi-day history
-/// is tracked in the technical-debt register.
+/// id). `?days=N` widens the window from today to the last N days, capped at
+/// 30; without it the answer is today's, as it always was.
 #[get("/api/clinical/shift-handoff/{provider_id}")]
 pub async fn list_provider_handoffs(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<HandoffHistoryQuery>,
 ) -> impl Responder {
     let provider_id = path.into_inner();
     if let Err(resp) = require_emergency_list_access(&data, &http_req, &provider_id) {
         return resp;
     }
+    let days = query.days.unwrap_or(1).clamp(1, MAX_HANDOFF_HISTORY_DAYS);
+    let since = Utc::now().date_naive() - chrono::Duration::days(i64::from(days - 1));
     match data
         .repositories
         .shift_handoffs
-        .get_by_provider(&provider_id, Utc::now().date_naive())
+        .get_by_provider_since(&provider_id, since)
         .await
     {
         Ok(handoffs) => HttpResponse::Ok().json(handoffs),

@@ -144,11 +144,13 @@ pub async fn create_gcs_assessment(
     let gcs = GlasgowComaScale::new(
         assessment_id.clone(),
         req.patient_id.clone(),
-        eye,
-        verbal,
-        motor,
-        req.pupil_assessment.clone(),
-        req.notes.clone(),
+        crate::clinical::GcsObservation {
+            eye,
+            verbal,
+            motor,
+            pupil_assessment: req.pupil_assessment.clone(),
+            notes: req.notes.clone(),
+        },
         current_user_id.clone(),
     );
 

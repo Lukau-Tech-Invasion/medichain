@@ -1152,6 +1152,8 @@ pub struct CreateConsultRequest {
     /// The specialty being asked, which is what `consultation_type` means.
     #[serde(rename = "specialty", alias = "consultation_type", default)]
     pub specialty: String,
+    /// Accepted so existing callers still deserialize, and ignored: the
+    /// requester is the authenticated caller.
     #[serde(rename = "requestedBy", alias = "requesting_provider", default)]
     pub requested_by: String,
     #[serde(rename = "consultingProvider", alias = "consulting_provider", default)]
@@ -1253,11 +1255,9 @@ pub async fn create_consult(
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let consult_id = format!("CON-{}", uuid::Uuid::new_v4().simple());
     // The requester is the authenticated caller, not a name the client asserts.
-    let requesting_provider = if body.requested_by.trim().is_empty() {
-        current_user.wallet_address.clone()
-    } else {
-        body.requested_by.clone()
-    };
+    // This used to say so and then prefer the client's value whenever one was
+    // sent -- and the page always sent one, falling back to `USER-001`.
+    let requesting_provider = current_user.wallet_address.clone();
     let requested_at = body
         .requested_at
         .as_deref()
@@ -1750,6 +1750,50 @@ mod consult_response_tests {
         );
         assert_eq!(stored["consulting_provider"], "doctor_wallet");
         assert!(stored["completed_at"].is_string());
+    }
+
+    /// The requester is whoever filed the consult. The body's `requestedBy`
+    /// used to win whenever it was present, so a consult could be filed in a
+    /// colleague's name.
+    #[actix_web::test]
+    async fn a_consult_is_requested_by_the_caller_whatever_the_body_says() {
+        let state = crate::AppState::new();
+        register(&state, "doctor_wallet", crate::Role::Doctor);
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(app_state.clone())
+                .service(create_consult)
+                .service(get_consult),
+        )
+        .await;
+        seed_patient(&app_state, "PAT-CONSULT-ATTR").await;
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/consult")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(serde_json::json!({
+                    "patient_id": "PAT-CONSULT-ATTR",
+                    "consultation_type": "cardiology",
+                    "requestedBy": "a_colleague_wallet",
+                    "reason_for_consultation": "Chest pain on exertion",
+                }))
+                .to_request(),
+        )
+        .await;
+        let consult_id = created["consult_id"].as_str().expect("consult id");
+
+        let stored: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/clinical/consult/{consult_id}"))
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(stored["requesting_provider"], "doctor_wallet");
     }
 
     /// An answered consult must not be silently overwritten: the requester may

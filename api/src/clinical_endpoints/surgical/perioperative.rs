@@ -381,7 +381,8 @@ pub async fn list_patient_pre_op(
 // silently drops what the form sent.
 #[serde(rename_all = "camelCase")]
 pub struct CreateOperativeNoteRequest {
-    #[serde(alias = "note_id", alias = "noteId", alias = "id")]
+    /// Assigned by the server on create; a value sent is ignored.
+    #[serde(alias = "note_id", alias = "noteId", alias = "id", default)]
     pub id: String,
     #[serde(alias = "patient_id")]
     pub patient_id: String,
@@ -490,7 +491,11 @@ pub async fn create_operative_note(
         Err(resp) => return resp,
     };
 
-    let note = req.into_inner();
+    let mut note = req.into_inner();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    note.id = format!("NOTE-{}", uuid::Uuid::new_v4().simple());
     let owner_id = note.patient_id.clone();
 
     // Log access via repository
@@ -641,7 +646,8 @@ pub async fn list_patient_operative_notes(
 // silently drops what the form sent.
 #[serde(rename_all = "camelCase")]
 pub struct CreatePostOpNoteRequest {
-    #[serde(alias = "note_id", alias = "noteId", alias = "id")]
+    /// Assigned by the server on create; a value sent is ignored.
+    #[serde(alias = "note_id", alias = "noteId", alias = "id", default)]
     pub id: String,
     #[serde(alias = "patient_id")]
     pub patient_id: String,
@@ -669,6 +675,10 @@ pub struct CreatePostOpNoteRequest {
         alias = "alderet_score"
     )]
     pub alderet_score: Option<i32>,
+    /// Whether the total meets the recovery threshold. The server's
+    /// conclusion, never read from a request.
+    #[serde(default, skip_deserializing)]
+    pub ready_for_discharge: Option<bool>,
     #[serde(default)]
     pub vitals: serde_json::Value,
     #[serde(default, alias = "pain_score")]
@@ -730,8 +740,9 @@ impl CreatePostOpNoteRequest {
             lab_results_reviewed: None,
             complications: self.complications,
             plan: self.notes,
-            // Only true when the page says every criterion was met; an
-            // incomplete checklist is not a discharge decision.
+            // True when any criterion was ticked -- the server does not hold
+            // the checklist, so it cannot say "every". Nothing reads this
+            // column; the ticked criteria themselves are in `data`.
             discharge_criteria_met: self
                 .discharge_criteria
                 .as_array()
@@ -770,7 +781,17 @@ pub async fn create_post_op(
         Err(resp) => return resp,
     };
 
-    let note = req.into_inner();
+    let mut note = req.into_inner();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    note.id = format!("NOTE-{}", uuid::Uuid::new_v4().simple());
+    // The score and what it means are computed here (rule 8), and the author
+    // is the caller: all three were taken from the page.
+    let aldrete = crate::clinical_scoring::aldrete_score(&note.aldrete);
+    note.alderet_score = aldrete.map(|a| a.total);
+    note.ready_for_discharge = aldrete.map(|a| a.meets_discharge_threshold);
+    note.documented_by = Some(current_user_id.clone());
     let owner_id = note.patient_id.clone();
 
     // Log access

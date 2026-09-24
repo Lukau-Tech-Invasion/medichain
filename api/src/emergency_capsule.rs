@@ -370,17 +370,33 @@ pub async fn load_current_verified(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn build_access_entry(
-    patient_id: &str,
-    capsule_version: Option<i32>,
-    accessed_by: &str,
-    grant_id: Option<String>,
-    reason_code: &str,
-    reason_text: Option<String>,
-    fields_revealed: Vec<String>,
-    commitment_verified: bool,
-) -> EmergencyCapsuleAccessEntity {
+/// What was disclosed in one emergency access, and on what authority.
+///
+/// Grouped because it is one fact -- "this reason, under this grant, revealed
+/// these fields of this capsule version" -- that was passed as eight positional
+/// arguments, two of them `Option<String>` side by side.
+pub struct CapsuleDisclosure<'a> {
+    pub patient_id: &'a str,
+    pub accessed_by: &'a str,
+    pub capsule_version: Option<i32>,
+    pub grant_id: Option<String>,
+    pub reason_code: &'a str,
+    pub reason_text: Option<String>,
+    pub fields_revealed: Vec<String>,
+    pub commitment_verified: bool,
+}
+
+pub fn build_access_entry(disclosure: CapsuleDisclosure<'_>) -> EmergencyCapsuleAccessEntity {
+    let CapsuleDisclosure {
+        patient_id,
+        accessed_by,
+        capsule_version,
+        grant_id,
+        reason_code,
+        reason_text,
+        fields_revealed,
+        commitment_verified,
+    } = disclosure;
     EmergencyCapsuleAccessEntity {
         id: format!("ECA-{}", uuid::Uuid::new_v4()),
         patient_id: patient_id.to_string(),

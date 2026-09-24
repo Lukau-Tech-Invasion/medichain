@@ -646,7 +646,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_consults)
         .service(clinical_endpoints::list_cds_alerts)
         // Additional frontend-compatible endpoints
-        .service(clinical_endpoints::record_vital_signs)
         .service(clinical_endpoints::list_progress_notes)
         .service(clinical_endpoints::list_incident_reports)
         .service(clinical_endpoints::list_intake_output)

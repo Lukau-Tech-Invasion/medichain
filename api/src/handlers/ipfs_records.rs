@@ -1251,23 +1251,44 @@ async fn download_discharge_instructions(
     json_document(id, "Discharge instructions", &record)
 }
 
+/// A record kept in one of the JSON stores, rendered for its patient.
+///
+/// The blood-type-screen and transfusion downloads read the typed
+/// `blood_type_screens` and `transfusion_records` repositories, which nothing
+/// has written to since their handlers moved to the JSON stores below. The
+/// patient's own list reads the JSON stores, so a patient could see a
+/// transfusion listed and be told "not found" on opening it -- for every
+/// transfusion ever recorded.
+async fn download_json_record(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+    store: &dyn crate::repositories::traits::JsonRecordRepository,
+    kind: &str,
+) -> HttpResponse {
+    let record = match store.get_by_id(id).await {
+        Ok(Some(record)) => record,
+        Ok(None) => return not_found(kind),
+        Err(error) => {
+            log::error!("{kind} lookup failed: {error}");
+            return not_found(kind);
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.owner_id).await {
+        return response;
+    }
+    json_document(id, kind, &record.data)
+}
+
 async fn download_blood_type_screen(
     data: &web::Data<AppState>,
     caller: &crate::types::User,
     caller_id: &str,
     id: &str,
 ) -> HttpResponse {
-    let record = match data.repositories.blood_type_screens.get_by_id(id).await {
-        Ok(record) => record,
-        Err(error) => {
-            log::error!("blood type screen lookup failed: {error}");
-            return not_found("Blood type screen");
-        }
-    };
-    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
-        return response;
-    }
-    json_document(id, "Blood type screen", &record)
+    let store = data.repositories.blood_type_screen_records.as_ref();
+    download_json_record(data, caller, caller_id, id, store, "Blood type screen").await
 }
 
 async fn download_transfusion_record(
@@ -1276,17 +1297,8 @@ async fn download_transfusion_record(
     caller_id: &str,
     id: &str,
 ) -> HttpResponse {
-    let record = match data.repositories.transfusion_records.get_by_id(id).await {
-        Ok(record) => record,
-        Err(error) => {
-            log::error!("transfusion record lookup failed: {error}");
-            return not_found("Transfusion record");
-        }
-    };
-    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
-        return response;
-    }
-    json_document(id, "Transfusion record", &record)
+    let store = data.repositories.transfusion_event_records.as_ref();
+    download_json_record(data, caller, caller_id, id, store, "Transfusion record").await
 }
 
 async fn download_ama_discharge(
@@ -1719,6 +1731,60 @@ mod structured_document_download_tests {
             test::call_service(&app, request).await.status(),
             actix_web::http::StatusCode::FORBIDDEN
         );
+    }
+
+    /// Both used to read typed repositories nothing writes, so every recorded
+    /// transfusion and screen answered "not found" to the patient it is about.
+    #[actix_rt::test]
+    async fn a_patient_can_open_their_own_transfusion_and_blood_screen() {
+        let data = state_with_linked_patient("5Patient", "PAT-1");
+        let now = Utc::now();
+        for (store, id, payload) in [
+            (
+                data.repositories.transfusion_event_records.clone(),
+                "TX-1",
+                serde_json::json!({ "transfusion_id": "TX-1", "product_type": "packed_red_cells" }),
+            ),
+            (
+                data.repositories.blood_type_screen_records.clone(),
+                "BTS-1",
+                serde_json::json!({ "screen_id": "BTS-1", "abo_group": "O" }),
+            ),
+        ] {
+            store
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: id.to_string(),
+                    owner_id: "PAT-1".to_string(),
+                    data: payload,
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("record should be storable");
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::download_medical_record_by_hash),
+        )
+        .await;
+
+        for (hash, expected) in [
+            ("transfusion-TX-1", "packed_red_cells"),
+            ("blood-screen-BTS-1", "\"abo_group\": \"O\""),
+        ] {
+            let request = test::TestRequest::get()
+                .uri(&format!("/api/records/{hash}/download"))
+                .insert_header(("X-User-Id", "5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::OK, "{hash}");
+            let body = to_bytes(response.into_body()).await.unwrap();
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(expected),
+                "{hash}"
+            );
+        }
     }
 }
 

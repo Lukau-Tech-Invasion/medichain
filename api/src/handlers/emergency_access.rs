@@ -234,16 +234,17 @@ pub async fn grant_bound_emergency_access(
         None => (None, false),
     };
     let fields_revealed = crate::emergency_capsule::emergency_summary_revealed_fields();
-    let disclosure = crate::emergency_capsule::build_access_entry(
-        &grant.patient_id,
-        capsule_version,
-        &grant.requesting_person_id,
-        Some(grant.id.clone()),
-        &body.reason_code,
-        body.reason_text.clone(),
-        fields_revealed,
-        commitment_verified,
-    );
+    let disclosure =
+        crate::emergency_capsule::build_access_entry(crate::emergency_capsule::CapsuleDisclosure {
+            patient_id: &grant.patient_id,
+            accessed_by: &grant.requesting_person_id,
+            capsule_version,
+            grant_id: Some(grant.id.clone()),
+            reason_code: &body.reason_code,
+            reason_text: body.reason_text.clone(),
+            fields_revealed,
+            commitment_verified,
+        });
     let deferred = crate::deferred_emergency_audit::DeferredEmergencyAudit {
         event_id: disclosure.id.clone(),
         disclosure,

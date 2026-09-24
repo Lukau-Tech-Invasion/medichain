@@ -186,13 +186,15 @@ pub async fn step_up_verify(
     // that evidences a deliberate human act rather than mere key possession.
     match txn::authorize_transaction(
         pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &body.nonce,
+            signature_hex: &body.signature,
+            authenticator,
+        },
         &intent,
-        &body.nonce,
-        &body.signature,
-        authenticator,
         true,
     )
     .await

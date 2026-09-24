@@ -4349,13 +4349,15 @@ async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
 
     txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await
@@ -4364,13 +4366,15 @@ async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
     // The identical proof, presented again.
     let replay = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4454,13 +4458,15 @@ async fn test_pg_transaction_authorization_refuses_a_changed_request() {
 
         let outcome = txn::authorize_transaction(
             &pool,
-            challenge_id,
-            &wallet,
-            sid,
+            txn::TransactionProof {
+                challenge_id,
+                subject: &wallet,
+                login_session_id: sid,
+                nonce: &challenge.nonce,
+                signature_hex: &signature,
+                authenticator: txn::AuthenticatorType::PolkadotExtension,
+            },
             &tampered,
-            &challenge.nonce,
-            &signature,
-            txn::AuthenticatorType::PolkadotExtension,
             true,
         )
         .await;
@@ -4493,13 +4499,15 @@ async fn test_pg_transaction_authorization_is_bound_to_its_session() {
 
     let wrong_session = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        other_sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: other_sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4515,13 +4523,15 @@ async fn test_pg_transaction_authorization_is_bound_to_its_session() {
         .expect("revoke");
     let after_logout = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4554,13 +4564,15 @@ async fn test_pg_transaction_authorization_refuses_bad_proofs() {
 
     let wrong_nonce = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: "not-the-nonce",
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        "not-the-nonce",
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4575,13 +4587,15 @@ async fn test_pg_transaction_authorization_refuses_bad_proofs() {
     let forged = txn_sign(&attacker, &challenge.message);
     let wrong_key = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &forged,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &forged,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4594,13 +4608,15 @@ async fn test_pg_transaction_authorization_refuses_bad_proofs() {
     // None of those failures may have spent the challenge.
     let still_valid = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::PolkadotExtension,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::PolkadotExtension,
         true,
     )
     .await;
@@ -4630,13 +4646,15 @@ async fn test_pg_interactive_intent_is_required_where_declared() {
 
     let silent = txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::EncryptedKeystore,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::EncryptedKeystore,
         true,
     )
     .await;
@@ -4649,13 +4667,15 @@ async fn test_pg_interactive_intent_is_required_where_declared() {
     // The same authenticator is acceptable where the action does not demand it.
     txn::authorize_transaction(
         &pool,
-        challenge_id,
-        &wallet,
-        sid,
+        txn::TransactionProof {
+            challenge_id,
+            subject: &wallet,
+            login_session_id: sid,
+            nonce: &challenge.nonce,
+            signature_hex: &signature,
+            authenticator: txn::AuthenticatorType::EncryptedKeystore,
+        },
         &intent,
-        &challenge.nonce,
-        &signature,
-        txn::AuthenticatorType::EncryptedKeystore,
         false,
     )
     .await

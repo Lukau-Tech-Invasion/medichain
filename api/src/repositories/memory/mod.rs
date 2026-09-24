@@ -67,10 +67,8 @@ pub use emergency::MemoryTraumaAssessmentRepository;
 
 // Phase 3 exports - Lab & Diagnostics
 pub use phase3::MemoryCriticalValueRepository;
-pub use phase3::MemoryLabPanelRepository;
 pub use phase3::MemoryLabQcRecordRepository;
 pub use phase3::MemoryLabSubmissionRepository;
-pub use phase3::MemoryLabTrendRepository;
 pub use phase3::MemorySpecimenCollectionRepository;
 pub use phase3::MemorySpecimenRecollectionRepository;
 pub use phase3::MemorySpecimenRejectionRepository;
@@ -91,13 +89,10 @@ pub use phase3::MemoryRadiologyReportRepository;
 
 // Phase 3 exports - Blood Bank
 pub use phase3::MemoryBloodTypeScreenRepository;
-pub use phase3::MemoryCrossmatchRecordRepository;
-pub use phase3::MemoryTransfusionRecordRepository;
 
 // Phase 3 exports - Pharmacy & Medications
 pub use phase3::MemoryAdherenceLogRepository;
 pub use phase3::MemoryDrugInteractionRepository;
-pub use phase3::MemoryEPrescriptionRepository;
 pub use phase3::MemoryMedicationReminderRepository;
 
 // Phase 4-6 repositories
@@ -140,22 +135,13 @@ pub use patient_access::MemoryPatientAccessRepository;
 mod phase5;
 
 // Phase 7 exports - Wearables & IoT
-pub use phase5::MemoryWearableAlertRepository;
-pub use phase5::MemoryWearableDataRepository;
-pub use phase5::MemoryWearableDeviceRepository;
-pub use phase5::MemoryWearableIntegrationLogRepository;
 
 // Phase 8 exports - Telehealth
-pub use phase5::MemoryRemotePatientMonitoringRepository;
-pub use phase5::MemoryRpmReadingRepository;
-pub use phase5::MemoryTelehealthNoteRepository;
-pub use phase5::MemoryTelehealthSessionRepository;
 
 // Phase 9 exports - Clinical Decision Support
 pub use phase5::MemoryCdsAlertRepository;
 
 // Phase 10 exports - Insurance & Billing
-pub use phase5::MemoryBillingCodeRepository;
 pub use phase5::MemoryDeviceTokenRepository;
 pub use phase5::MemoryInsuranceRecordRepository;
 pub use phase5::MemorySmsOptOutRepository;
@@ -164,25 +150,16 @@ pub use phase5::MemorySmsOptOutRepository;
 mod phase6;
 
 // Phase 11 exports - Family History & Genetics
-pub use phase6::MemoryFamilyMedicalHistoryRepository;
-pub use phase6::MemoryGeneticTestResultRepository;
 
 // Phase 12 exports - Immunization Records
 pub use phase6::MemoryImmunizationRecordRepository;
-pub use phase6::MemoryImmunizationScheduleRepository;
-pub use phase6::MemoryVaccineInventoryRepository;
 
 // Phase 13 exports - Death Records & Certification
-pub use phase6::MemoryDeathRecordRepository;
-pub use phase6::MemoryOrganDonationRecordRepository;
 
 // Phase 14 exports - Data Synchronization & Conflict Resolution
-pub use phase6::MemoryExternalIdMappingRepository;
 pub use phase6::MemorySyncConflictRepository;
-pub use phase6::MemorySyncOperationRepository;
 
 // Phase 15 exports - Enhanced Audit & Compliance
-pub use phase6::MemoryComplianceReportRepository;
 pub use phase6::MemoryConsentRecordRepository;
 pub use phase6::MemoryDataRetentionPolicyRepository;
 pub use phase6::MemoryRetentionJobRunRepository;

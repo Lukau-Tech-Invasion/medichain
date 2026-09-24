@@ -396,18 +396,35 @@ pub async fn record_security_event(
 /// `require_interactive` is set by the action, not the caller: operations whose
 /// purpose is explicit human confirmation refuse an authenticator that can sign
 /// silently.
-#[allow(clippy::too_many_arguments)]
+/// The signed answer to one challenge: which challenge, whose session, and the
+/// signature over it.
+///
+/// Grouped because these six travel together from the request to the check,
+/// and three of them are strings -- a nonce and a signature swapped at a call
+/// site would have compiled and failed only at verification.
+pub struct TransactionProof<'a> {
+    pub challenge_id: Uuid,
+    pub subject: &'a str,
+    pub login_session_id: Uuid,
+    pub nonce: &'a str,
+    pub signature_hex: &'a str,
+    pub authenticator: AuthenticatorType,
+}
+
 pub async fn authorize_transaction(
     pool: &PgPool,
-    challenge_id: Uuid,
-    subject: &str,
-    login_session_id: Uuid,
+    proof: TransactionProof<'_>,
     intent: &TransactionIntent,
-    nonce: &str,
-    signature_hex: &str,
-    authenticator: AuthenticatorType,
     require_interactive: bool,
 ) -> Result<(), AuthorizationFailure> {
+    let TransactionProof {
+        challenge_id,
+        subject,
+        login_session_id,
+        nonce,
+        signature_hex,
+        authenticator,
+    } = proof;
     let mut transaction = pool
         .begin()
         .await

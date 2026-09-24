@@ -141,17 +141,34 @@ pub(crate) struct ProvisionedSession {
 /// Returns the session on success. Errors are surfaced to the caller rather
 /// than swallowed: an appointment that believes it has a meeting when none was
 /// created is the exact failure this work exists to remove.
-#[allow(clippy::too_many_arguments)]
+/// What a telehealth session is being provisioned for.
+///
+/// A struct rather than seven positional arguments: `scheduled_start` and
+/// `duration_minutes` are both bare integers, and two call sites passing them
+/// in the other order would have compiled.
+pub(crate) struct SessionRequest<'a> {
+    pub patient_id: &'a str,
+    pub provider_id: &'a str,
+    pub appointment_id: Option<String>,
+    pub scheduled_start: i64,
+    pub session_type: crate::clinical::TelehealthType,
+    pub recording_enabled: bool,
+    pub duration_minutes: u32,
+}
+
 pub(crate) async fn provision_session(
     data: &crate::AppState,
-    patient_id: &str,
-    provider_id: &str,
-    appointment_id: Option<String>,
-    scheduled_start: i64,
-    session_type: crate::clinical::TelehealthType,
-    recording_enabled: bool,
-    duration_minutes: u32,
+    request: SessionRequest<'_>,
 ) -> Result<ProvisionedSession, String> {
+    let SessionRequest {
+        patient_id,
+        provider_id,
+        appointment_id,
+        scheduled_start,
+        session_type,
+        recording_enabled,
+        duration_minutes,
+    } = request;
     let session_id = format!("TH-{}", uuid::Uuid::new_v4());
     let scheduled_at =
         chrono::DateTime::from_timestamp(scheduled_start, 0).unwrap_or_else(chrono::Utc::now);
@@ -288,13 +305,15 @@ pub async fn create_telehealth_session(
     // same object with the same guarantees.
     let provisioned = match provision_session(
         &data,
-        &req.patient_id,
-        &current_user_id,
-        req.appointment_id.clone(),
-        req.scheduled_start,
-        session_type,
-        req.recording_enabled.unwrap_or(false),
-        duration_minutes,
+        SessionRequest {
+            patient_id: &req.patient_id,
+            provider_id: &current_user_id,
+            appointment_id: req.appointment_id.clone(),
+            scheduled_start: req.scheduled_start,
+            session_type,
+            recording_enabled: req.recording_enabled.unwrap_or(false),
+            duration_minutes,
+        },
     )
     .await
     {

@@ -231,17 +231,19 @@ pub async fn book_appointment(
         });
         match crate::clinical_endpoints::provision_session(
             &data,
-            &appointment.patient_id,
-            attribution.provider_id(),
-            Some(appointment.appointment_id.clone()),
-            scheduled_start,
-            crate::clinical::TelehealthType::VideoVisit,
-            false,
-            // The room is booked for as long as the appointment is. It used to
-            // be a fixed 60 regardless, so a 15-minute follow-up minted a link
-            // valid for 90 minutes and a 2-hour appointment's link expired
-            // halfway through the consultation.
-            u32::from(duration_minutes),
+            crate::clinical_endpoints::SessionRequest {
+                patient_id: &appointment.patient_id,
+                provider_id: attribution.provider_id(),
+                appointment_id: Some(appointment.appointment_id.clone()),
+                scheduled_start,
+                session_type: crate::clinical::TelehealthType::VideoVisit,
+                recording_enabled: false,
+                // The room is booked for as long as the appointment is. It used
+                // to be a fixed 60 regardless, so a 15-minute follow-up minted a
+                // link valid for 90 minutes and a 2-hour appointment's link
+                // expired halfway through the consultation.
+                duration_minutes: u32::from(duration_minutes),
+            },
         )
         .await
         {

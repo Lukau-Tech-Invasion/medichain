@@ -11,7 +11,12 @@ use super::*;
 /// Check drug interactions request
 #[derive(Debug, Deserialize)]
 pub struct CheckDrugInteractionsRequest {
-    pub patient_id: String,
+    /// The patient the medicines are for, when there is one. A check with no
+    /// patient is a reference lookup: drug-drug only, and filed to no chart.
+    /// The page used to send `"UNKNOWN"` here, and every such check was
+    /// stored as a history record belonging to a patient of that name.
+    #[serde(default)]
+    pub patient_id: Option<String>,
     pub medications: Vec<String>,
     pub include_allergies: Option<bool>,
     /// Asked for by the caller and **not currently honoured**.
@@ -202,14 +207,21 @@ async fn check_interactions_response(
     interactions: Vec<crate::clinical::DrugInteraction>,
 ) -> HttpResponse {
     let medications_lower: Vec<String> = req.medications.iter().map(|m| m.to_lowercase()).collect();
+    let patient_id = req
+        .patient_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    // Allergies belong to a patient; with none named there is nothing to screen.
+    let screen_allergies = req.include_allergies.unwrap_or(true) && patient_id.is_some();
 
     // Check allergies if requested (via repository)
     let mut allergy_alerts: Vec<serde_json::Value> = Vec::new();
-    if req.include_allergies.unwrap_or(true) {
+    if let (true, Some(patient)) = (screen_allergies, patient_id) {
         let patient_allergies = match data
             .repositories
             .allergies
-            .get_active_by_patient(&req.patient_id)
+            .get_active_by_patient(patient)
             .await
         {
             Ok(allergies) => allergies,
@@ -252,9 +264,12 @@ async fn check_interactions_response(
             | crate::clinical::InteractionSeverity::Major
     );
 
+    let Some(patient) = patient_id else {
+        return interaction_response(req, None, None, &interactions, allergy_alerts, false);
+    };
     let result = crate::clinical::DrugInteractionResult {
         result_id: format!("CHK-{}", uuid::Uuid::new_v4()),
-        patient_id: req.patient_id.clone(),
+        patient_id: patient.to_string(),
         checked_at: chrono::Utc::now().timestamp(),
         new_medication: req.medications.first().cloned().unwrap_or_default(),
         interactions: interactions.clone(),
@@ -300,10 +315,33 @@ async fn check_interactions_response(
         }
     }
 
+    interaction_response(
+        req,
+        Some(&check_id),
+        Some(patient),
+        &interactions,
+        allergy_alerts,
+        screen_allergies,
+    )
+}
+
+/// The response to one check, filed or not.
+///
+/// `screened` says what was actually looked at, so a caller cannot read silence
+/// as safety: no allergies were screened when no patient was named, and no
+/// drug-condition screen exists at all.
+fn interaction_response(
+    req: &CheckDrugInteractionsRequest,
+    check_id: Option<&str>,
+    patient_id: Option<&str>,
+    interactions: &[crate::clinical::DrugInteraction],
+    allergy_alerts: Vec<serde_json::Value>,
+    allergies_screened: bool,
+) -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "check_id": check_id,
-        "patient_id": req.patient_id,
+        "patient_id": patient_id,
         "medications_checked": req.medications.len(),
         "interactions_found": interactions.len(),
         "has_critical": interactions.iter().any(|i|
@@ -316,7 +354,7 @@ async fn check_interactions_response(
         // exists; the page asks for it and this is the honest answer.
         "screened": {
             "drug_drug": true,
-            "allergies": req.include_allergies.unwrap_or(true),
+            "allergies": allergies_screened,
             "conditions": false,
         },
         "recommendation": if interactions.is_empty() && allergy_alerts.is_empty() {
@@ -452,5 +490,56 @@ mod interaction_table_tests {
         let meds = vec!["Acetaminophen".to_string(), "Vitamin D3".to_string()];
         let found = evaluate_drug_interactions(&meds);
         assert!(found.is_empty(), "expected no interactions, got {found:?}");
+    }
+}
+
+/// A check with no patient is a lookup. The page used to send `"UNKNOWN"`, and
+/// each such check was filed as history belonging to a patient of that name.
+#[cfg(test)]
+mod patientless_check_tests {
+    use crate::test_fixtures::register;
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    #[actix_rt::test]
+    async fn a_check_without_a_patient_files_nothing_and_says_allergies_were_not_screened() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(super::check_drug_interactions),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/interactions/check")
+            .insert_header(("X-User-Id", "5Doctor"))
+            .set_json(serde_json::json!({
+                "medications": ["warfarin", "aspirin"],
+                "include_allergies": true
+            }))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+        assert_eq!(body["success"], true, "{body}");
+        assert!(body["check_id"].is_null(), "no chart, no record: {body}");
+        assert!(body["patient_id"].is_null(), "{body}");
+        assert_eq!(body["screened"]["allergies"], false, "{body}");
+        assert!(
+            body["interactions_found"].as_u64().unwrap_or(0) > 0,
+            "warfarin + aspirin: {body}"
+        );
+        let stored = data
+            .repositories
+            .drug_interaction_checks
+            .list_all()
+            .await
+            .expect("list checks");
+        assert!(
+            stored.is_empty(),
+            "a patient-less check was filed: {stored:?}"
+        );
     }
 }

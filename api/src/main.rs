@@ -64,7 +64,6 @@ mod privacy_logging;
 mod retention;
 mod security;
 mod telehealth;
-mod telehealth_retention;
 mod transaction_authorization;
 mod websocket;
 

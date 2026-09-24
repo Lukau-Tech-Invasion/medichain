@@ -1210,10 +1210,10 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
-    async fn get_by_provider(
+    async fn get_by_provider_since(
         &self,
         provider_id: &str,
-        date: NaiveDate,
+        since: NaiveDate,
     ) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT * FROM shift_handoffs 
@@ -1222,8 +1222,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
         qb.push_bind(provider_id);
         qb.push(" OR incoming_provider_id = ");
         qb.push_bind(provider_id);
-        qb.push(") AND DATE(handoff_datetime) = ");
-        qb.push_bind(date);
+        qb.push(") AND DATE(handoff_datetime) >= ");
+        qb.push_bind(since);
         qb.push(" ORDER BY handoff_datetime DESC");
 
         let items = qb

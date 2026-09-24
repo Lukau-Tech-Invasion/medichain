@@ -11,11 +11,17 @@ pub async fn create_immunization(
     http_req: HttpRequest,
     req: web::Json<ImmunizationRecord>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
     let mut record = req.into_inner();
+    // Who gave the dose is the authenticated caller, not a field the caller
+    // fills in. It was stored as sent, so any clinician could attribute a
+    // vaccination to a colleague -- and the page's own fallback, when it had
+    // no user, was the invented `USER-001`.
+    record.administered_by = caller.wallet_address.clone();
     // The id is the primary key, so it is the server's to assign. A blank or
     // absent one used to be stored verbatim, so the second such record
     // collided and failed with an opaque 500.
@@ -78,16 +84,22 @@ pub async fn create_family_history(
     http_req: HttpRequest,
     req: web::Json<FamilyMedicalHistory>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
-    let history = req.into_inner();
+    let mut history = req.into_inner();
     let id = history.patient_id.clone();
     // Persisted through the repository, so it survives a restart. Keyed by
     // patient: a family history is one evolving record per patient rather than
     // a series, so a re-post replaces it.
     let now = chrono::Utc::now();
+    // Who changed it, and when, are the server's to state. Both were stored as
+    // the page sent them -- the author falling back to the invented `USER-001`
+    // -- so the history could name anybody as having recorded it.
+    history.updated_by = caller.wallet_address.clone();
+    history.last_updated = now.timestamp_millis();
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
         owner_id: id.clone(),
@@ -1247,8 +1259,12 @@ pub async fn create_autopsy_request(
         Err(resp) => return resp,
     };
 
-    let request = req.into_inner();
-    let id = request.request_id.clone();
+    let mut request = req.into_inner();
+    // Server-generated. The store's create is an upsert on `id`, owner
+    // included, so a client-chosen id let one request replace another --
+    // another patient's among them.
+    let id = format!("AUTREQ-{}", uuid::Uuid::new_v4().simple());
+    request.request_id = id.clone();
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -1324,7 +1340,8 @@ pub async fn get_autopsy_request(
 /// and projecting it through a fixed struct could only lose some of it.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateAutopsyReportRequest {
-    #[serde(alias = "autopsyId", alias = "autopsy_id", alias = "reportId")]
+    /// Ignored on create: the server assigns the id.
+    #[serde(alias = "autopsyId", alias = "autopsy_id", alias = "reportId", default)]
     pub report_id: String,
     #[serde(alias = "patientId")]
     pub patient_id: String,
@@ -1344,8 +1361,12 @@ pub async fn create_autopsy_report(
         Err(resp) => return resp,
     };
 
-    let report = req.into_inner();
-    let id = report.report_id.clone();
+    let mut report = req.into_inner();
+    // Server-generated. The page numbered reports from the length of its own
+    // list, so every session's first report was `AUT-001` and the second
+    // clinician to file one wrote over, or collided with, the first.
+    let id = format!("AUT-{}", uuid::Uuid::new_v4().simple());
+    report.report_id = id.clone();
 
     if let Err(response) = crate::support::require_durable_audit(
         &data,

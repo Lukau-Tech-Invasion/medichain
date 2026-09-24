@@ -14,6 +14,8 @@ use super::*;
 /// `invalid type: string "...", expected struct CodeTeamMember`.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateCodeBlueRequest {
+    /// Assigned by the server on create; a value sent is ignored.
+    #[serde(default)]
     pub event_id: String,
     pub patient_id: String,
     #[serde(default)]
@@ -62,7 +64,15 @@ pub async fn create_code_blue(
         Err(resp) => return resp,
     };
 
-    let record = req.into_inner();
+    let mut record = req.into_inner();
+    // Who called the code, and so who documents it, is the authenticated
+    // caller -- not a field the page fills in (it sent `'unknown'` when it
+    // had no user, and that was stored as the documenting clinician).
+    record.code_called_by = current_user_id.clone();
+    // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
+    // collision was refused, in the in-memory backend it silently replaced the
+    // other record. The id is the server's to assign either way.
+    record.event_id = format!("CB-{}", uuid::Uuid::new_v4().simple());
     let id = record.event_id.clone();
     let owner_id = record.patient_id.clone();
 
