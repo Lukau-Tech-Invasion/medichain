@@ -62,16 +62,6 @@ export function CardTitle({ children, as: Component = 'h3', className, ...props 
   );
 }
 
-export interface CardDescriptionProps extends HTMLAttributes<HTMLParagraphElement> {}
-
-export function CardDescription({ children, className, ...props }: CardDescriptionProps) {
-  return (
-    <p className={clsx('text-sm text-content-muted mt-1', className)} {...props}>
-      {children}
-    </p>
-  );
-}
-
 export interface CardContentProps extends HTMLAttributes<HTMLDivElement> {}
 
 export function CardContent({ children, className, ...props }: CardContentProps) {
@@ -82,12 +72,3 @@ export function CardContent({ children, className, ...props }: CardContentProps)
   );
 }
 
-export interface CardFooterProps extends HTMLAttributes<HTMLDivElement> {}
-
-export function CardFooter({ children, className, ...props }: CardFooterProps) {
-  return (
-    <div className={clsx('mt-4 pt-4 border-t border-border', className)} {...props}>
-      {children}
-    </div>
-  );
-}

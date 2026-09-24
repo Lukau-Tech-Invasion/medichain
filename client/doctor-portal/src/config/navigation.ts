@@ -721,22 +721,6 @@ export function getQuickActionsForRole(role: Role): QuickAction[] {
 }
 
 /**
- * Get all navigation items flattened (for search/command palette)
- */
-export function getAllNavItems(role: Role): NavItem[] {
-  const sections = getNavForRole(role);
-  return sections.flatMap(section => section.items);
-}
-
-/**
- * Find nav item by path
- */
-export function findNavItemByPath(role: Role, path: string): NavItem | undefined {
-  const items = getAllNavItems(role);
-  return items.find(item => item.to === path);
-}
-
-/**
  * Get default expanded sections for a role
  */
 export function getDefaultExpandedSections(role: Role): Set<string> {

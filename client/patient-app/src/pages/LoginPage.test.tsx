@@ -22,14 +22,12 @@ vi.mock('react-router-dom', async () => {
 
 describe('LoginPage (Patient)', () => {
   const mockLogin = vi.fn();
-  const mockLoginWithDemoWallet = vi.fn();
   const mockClearError = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (usePatientAuthStore as unknown as Mock).mockReturnValue({
       login: mockLogin,
-      loginWithDemoWallet: mockLoginWithDemoWallet,
       isAuthenticated: false,
       isLoading: false,
       error: null,

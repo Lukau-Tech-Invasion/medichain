@@ -38,6 +38,13 @@ describe('VitalSignsPage', () => {
     ],
   };
 
+  const mockCatalog = {
+    vital_signs: [
+      { key: 'heart_rate', normal_low: 60, normal_high: 100, critical_low: 40, critical_high: 150 },
+      { key: 'bp_systolic', normal_low: 90, normal_high: 140, critical_low: 90, critical_high: 180 },
+    ],
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
@@ -50,6 +57,14 @@ describe('VitalSignsPage', () => {
           ok: true,
           headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({ data: [{ patient_id: 'PAT-001', full_name: 'John Doe' }] }),
+        });
+      }
+      // The bands the page flags against come from the server's catalog.
+      if (url.includes('/api/clinical/scoring/catalog')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve(mockCatalog),
         });
       }
       // The flowsheet endpoint is /api/clinical/vitals/flowsheet/{id};
@@ -110,5 +125,52 @@ describe('VitalSignsPage', () => {
 
     expect(screen.getByText(/Record New Vital Signs/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Heart Rate/i)).toBeInTheDocument();
+  });
+
+  it('flags a systolic pressure the server alerts on as critical', async () => {
+    // 85 mmHg: the page's old copy called it merely abnormal (its critical
+    // limit was 70); the server's band, which the page now reads, says 90.
+    const low = { ...mockFlowsheet.readings[0], reading_id: '2', blood_pressure_systolic: 85, blood_pressure_diastolic: 50 };
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string) =>
+      url.includes('/api/clinical/vitals/flowsheet/PAT-001')
+        ? Promise.resolve({
+            ok: true,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: () => Promise.resolve({ ...mockFlowsheet, readings: [low] }),
+          })
+        : base(url),
+    );
+    render(
+      <MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}>
+        <VitalSignsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      const cell = screen.getAllByText('85/50').find((el) => el.tagName === 'TD');
+      expect(cell?.className).toContain('bg-critical-subtle');
+    });
+  });
+
+  it('refuses a transposed blood pressure before sending it', async () => {
+    render(
+      <MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}>
+        <VitalSignsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/Record Vitals/i));
+    });
+    fireEvent.change(screen.getByLabelText(/Systolic/i), { target: { value: '80' } });
+    fireEvent.change(screen.getByLabelText(/Diastolic/i), { target: { value: '120' } });
+    fireEvent.submit(screen.getByLabelText(/Systolic/i).closest('form')!);
+
+    expect(await screen.findByText(/check the two are not swapped/i)).toBeInTheDocument();
+    const posted = mockFetch.mock.calls.some(
+      ([url, init]) => String(url).endsWith('/api/clinical/vitals') && init?.method === 'POST',
+    );
+    expect(posted).toBe(false);
   });
 });

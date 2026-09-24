@@ -953,16 +953,6 @@ export class ApiClientError extends Error {
 let defaultClient: ApiClient | null = null;
 
 /**
- * Initialize the default API client
- * Should be called once at app startup
- */
-export function initApiClient(config: ApiClientConfig): ApiClient {
-  defaultClient = new ApiClient(config);
-  debugLog('ApiClient', `Initialized with baseUrl: ${config.baseUrl || '(relative)'}`);
-  return defaultClient;
-}
-
-/**
  * Get the default API client instance
  * Auto-initializes with stored userId if available
  */
@@ -990,9 +980,3 @@ export function syncApiClientUserId(): void {
   debugLog('ApiClient', `Synced userId: ${storedWallet ? storedWallet.substring(0, 12) + '...' : '(none)'}`);
 }
 
-/**
- * Check if API client is initialized
- */
-export function isApiClientInitialized(): boolean {
-  return defaultClient !== null;
-}

@@ -62,7 +62,6 @@ export { OfflineQueuedError } from '../api/client';
 import {
   getPendingSyncItems,
   updateSyncStatus,
-  enqueueSyncItem,
   type SyncQueueItem,
 } from './indexedDB';
 
@@ -80,37 +79,6 @@ export interface ReplayOutcome {
   rejected: number;
   /** Items still queued because the device could not reach the server. */
   deferred: number;
-}
-
-/**
- * Queue a mutation the device could not send.
- *
- * Returns the queue item id, which becomes the `Idempotency-Key` on replay.
- */
-export async function queueMutation(params: {
-  endpoint: string;
-  method: 'POST' | 'PUT' | 'DELETE';
-  body?: unknown;
-  category: SyncQueueItem['category'];
-  description: string;
-  priority?: SyncQueueItem['priority'];
-  patientId?: string;
-}): Promise<string> {
-  return enqueueSyncItem({
-    action: params.method === 'DELETE' ? 'delete' : 'update',
-    endpoint: params.endpoint,
-    method: params.method,
-    body: params.body,
-    category: params.category,
-    description: params.description,
-    priority: params.priority ?? 'medium',
-    patientId: params.patientId,
-  });
-}
-
-/** How many writes are waiting to be sent. */
-export async function pendingMutationCount(): Promise<number> {
-  return (await getPendingSyncItems()).filter(isMutation).length;
 }
 
 function isMutation(

@@ -1,16 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { 
-  apiUrl, 
-  setProviderAuth, 
+import {
+  setProviderAuth,
   clearProviderAuth as clearStoredAuth,
   getProviderAuth,
   debugLog,
-  IS_DEVELOPMENT,
   checkApiHealth,
   syncApiClientUserId,
   getApiClient,
-  getApiErrorMessage,
   issueJwt,
   requestWalletChallenge,
   enterWorkContext,
@@ -20,7 +17,7 @@ import {
   deriveCredential,
   openKeystore,
   signerFromSecret,
-  wipe
+  wipe,
 } from '@medichain/shared';
 import type { UserPermissions } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared';
@@ -90,25 +87,11 @@ interface AuthState {
   login: (walletAddress: string) => Promise<boolean>;
   loginWithCredentials: (identifier: string, password: string) => Promise<boolean>;
   loginWithExtension: () => Promise<boolean>;
-  loginWithDemoWallet: (role: Role, name?: string) => Promise<boolean>;
   logout: () => void;
   setUser: (user: User) => void;
   clearError: () => void;
   restoreSession: () => Promise<boolean>;
   checkConnection: () => Promise<boolean>;
-}
-
-/**
- * Generate a demo wallet address for testing
- * Format: 5 + 47 random alphanumeric chars
- */
-function generateDemoAddress(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-  let address = '5';
-  for (let i = 0; i < 47; i++) {
-    address += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return address;
 }
 
 /**
@@ -517,86 +500,6 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      loginWithDemoWallet: async (role: Role, name?: string) => {
-        if (!IS_DEVELOPMENT) {
-          set({ error: 'Demo wallets are only available in development mode' });
-          return false;
-        }
-        
-        set({ isLoading: true, error: null });
-
-        try {
-          const walletAddress = generateDemoAddress();
-          const displayName = name || `Demo ${role}`;
-          
-          // Register demo user with backend API
-          const response = await fetch(apiUrl('/api/auth/demo-login'), {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-              wallet_address: walletAddress,
-              role: role,
-              name: displayName,
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(getApiErrorMessage(errorData, 'Failed to create demo user'));
-          }
-          
-          const demoUser = await response.json();
-          
-          const user: User = {
-            walletAddress: demoUser.wallet_address || walletAddress,
-            userId: demoUser.wallet_address || walletAddress,
-            username: demoUser.name || displayName,
-            role: demoUser.role as Role || role,
-            createdAt: new Date().toISOString(),
-          };
-          
-          // Store auth data for subsequent API calls
-          setProviderAuth({
-            address: user.walletAddress,
-            role: user.role,
-            name: user.username,
-          });
-          
-          // Sync API client with new userId
-          syncApiClientUserId();
-
-          set({
-            user,
-            isAuthenticated: true,
-            isLoading: false,
-            error: null,
-            identityHydrated: false,
-          });
-
-          // Demo wallets cannot sign; rely on demo-mode (unsigned) JWT issuance.
-          await acquireJwtTokens(user.walletAddress);
-          void hydrateIdentity(set, get);
-          initPush();
-
-          debugLog('authStore', 'Created and registered demo wallet:', { walletAddress: user.walletAddress, role: user.role });
-          return true;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to create demo wallet';
-          debugLog('authStore', 'Demo login failed:', message);
-          
-          set({
-            user: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: 'Failed to create demo wallet',
-          });
-          return false;
-        }
-      },
-
       logout: () => {
         clearStoredAuth();
         // Revoke the session server-side as well. Local state is cleared
@@ -722,24 +625,3 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-
-/**
- * Helper to check if user has healthcare provider role
- */
-export function isHealthcareProvider(role: Role): boolean {
-  return ['Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist'].includes(role);
-}
-
-/**
- * Helper to check if user can edit medical records
- */
-export function canEditMedicalRecords(role: Role): boolean {
-  return ['Admin', 'Doctor', 'Nurse'].includes(role);
-}
-
-/**
- * Helper to check if user is admin
- */
-export function isAdmin(role: Role): boolean {
-  return role === 'Admin';
-}

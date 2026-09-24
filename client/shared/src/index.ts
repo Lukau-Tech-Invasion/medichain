@@ -63,13 +63,10 @@ export * from './hooks';
 // Utilities
 export * from './utils/cache';
 export { lookupOr, componentOr } from './utils/enumLookup';
-export { fetchWithRetry } from './utils/fetchWithRetry';
 export * from './utils/indexedDB';
 export * from './utils/syncQueue';
 export * from './utils/offlineQueue';
-export { SubstrateConnection, testSubstrateConnection } from './utils/SubstrateConnection';
 export * from './utils/validation';
-export { SubstrateWebSocket, testSubstrateWs } from './utils/websocket';
 
 // Components
 export * from './components';
@@ -78,11 +75,7 @@ export * from './components/Card';
 export * from './components/Input';
 export * from './components/Alert';
 export * from './components/Badge';
-export * from './components/Modal';
 export * from './components/Loading';
-export * from './components/PatientCard';
-export * from './components/QRCodeDisplay';
-export * from './components/EmergencyBanner';
 export * from './components/ErrorBoundary';
 export * from './components/RestrictedSection';
 export * from './components/JitsiMeetComponent';

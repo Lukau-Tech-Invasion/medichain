@@ -37,11 +37,6 @@ export type Hash256 = string;
 // Role is defined in ../types/index.ts - re-export from there
 // Do not redefine here to avoid duplicate export issues
 
-/**
- * Access type for medical records
- */
-export type AccessType = 'Emergency' | 'Regular' | 'Full';
-
 // ============================================================================
 // NATIONAL ID TYPES (mirrors pallet-patient-identity)
 // ============================================================================
@@ -80,19 +75,6 @@ export interface WalletAccount {
 }
 
 /**
- * Healthcare provider account (Doctor, Nurse, etc.)
- */
-export interface ProviderAccount extends WalletAccount {
-  role: Exclude<Role, 'Patient'>;
-  /** License number or professional ID */
-  licenseNumber?: string;
-  /** Affiliated healthcare facility */
-  facility?: string;
-  /** Specialty (for doctors) */
-  specialty?: string;
-}
-
-/**
  * Patient account
  */
 export interface PatientAccount extends WalletAccount {
@@ -109,87 +91,19 @@ export interface PatientAccount extends WalletAccount {
 // WALLET CONNECTION STATE
 // ============================================================================
 
-/**
- * Wallet connection status
- */
-export type WalletStatus = 
-  | 'disconnected' 
-  | 'connecting' 
-  | 'connected' 
-  | 'error';
-
-/**
- * Wallet connection state
- */
-export interface WalletState {
-  /** Current connection status */
-  status: WalletStatus;
-  /** Connected account (if any) */
-  account: WalletAccount | null;
-  /** Error message (if status is 'error') */
-  error?: string;
-  /** Chain we're connected to */
-  chain?: string;
-}
-
 // ============================================================================
 // TRANSACTION TYPES
 // ============================================================================
-
-/**
- * Transaction status
- */
-export type TxStatus = 
-  | 'pending' 
-  | 'in_block' 
-  | 'finalized' 
-  | 'failed';
-
-/**
- * Transaction result
- */
-export interface TxResult {
-  /** Transaction hash */
-  hash: string;
-  /** Current status */
-  status: TxStatus;
-  /** Block hash (when in_block or finalized) */
-  blockHash?: string;
-  /** Block number */
-  blockNumber?: number;
-  /** Error message (if failed) */
-  error?: string;
-  /** Events emitted by the transaction */
-  events?: Array<{
-    section: string;
-    method: string;
-    data: unknown;
-  }>;
-}
 
 // ============================================================================
 // HELPER TYPE GUARDS
 // ============================================================================
 
 /**
- * Check if an account is a healthcare provider
- */
-export function isProvider(account: WalletAccount): account is ProviderAccount {
-  return account.role !== 'Patient';
-}
-
-/**
  * Check if an account is a patient
  */
 export function isPatient(account: WalletAccount): account is PatientAccount {
   return account.role === 'Patient';
-}
-
-/**
- * Check if a role can register patients
- */
-export function canRegisterPatients(role: Role): boolean {
-  return role === 'Admin' || role === 'Doctor' || role === 'Nurse';
 }
 
 /**
@@ -210,9 +124,3 @@ export function canEditMedicalRecords(role: Role): boolean {
   return role === 'Doctor' || role === 'Nurse';
 }
 
-/**
- * Check if a role can view all patients
- */
-export function canViewAllPatients(role: Role): boolean {
-  return role !== 'Patient';
-}

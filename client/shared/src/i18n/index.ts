@@ -71,8 +71,6 @@ export const LOCALE_CONFIGS: Record<SupportedLocale, LocaleConfig> = {
   'ha-NG': { code: 'ha-NG', name: 'Hausa', nativeName: 'Hausa', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'NGN', currencySymbol: '₦' },
 };
 
-// Translation key-value store for each locale
-export type TranslationKey = string;
 export type TranslationValue = string | { [key: string]: TranslationValue };
 export type TranslationRecord = { [key: string]: TranslationValue };
 

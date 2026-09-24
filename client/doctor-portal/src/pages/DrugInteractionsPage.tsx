@@ -129,9 +129,9 @@ const DrugInteractionsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   // What the server actually screened.
   //
-  // This page sends `include_conditions` whenever the patient has recorded
-  // conditions, so a clinician reasonably believes conditions were considered.
-  // No drug-condition screening exists -- there is no curated dataset for it,
+  // A clinician with the patient's conditions on screen reasonably believes
+  // they were considered. No drug-condition screening exists -- there is no
+  // curated dataset for it,
   // and inventing one would be fabricating clinical content. The server now
   // says so in `screened`, and a green "no interactions" panel that does not
   // repeat the limit is the same false assurance in a nicer colour.
@@ -234,7 +234,6 @@ const DrugInteractionsPage: React.FC = () => {
         patient_id: patientContext.patientId || undefined,
         medications: selectedDrugs.map((d) => d.name),
         include_allergies: patientContext.allergies.length > 0,
-        include_conditions: patientContext.conditions.length > 0,
       });
       
       // Map API response to local Interaction type
@@ -267,7 +266,9 @@ const DrugInteractionsPage: React.FC = () => {
             drug1: alert.medication,
             allergen: alert.allergen,
             title: `${alert.medication}: Allergy Alert - ${alert.allergen}`,
-            description: `Patient has documented allergy to ${alert.allergen}`,
+            description: alert.drug_class
+              ? `Patient has documented allergy to ${alert.allergen}; ${alert.medication} is a ${alert.drug_class}`
+              : `Patient has documented allergy to ${alert.allergen}`,
             mechanism: 'Allergic cross-reactivity',
             clinicalEffects: [alert.reaction || 'Allergic reaction'],
             management: ['Do not administer', 'Use alternative medication'],

@@ -49,55 +49,6 @@ export interface CodeBlueRecord {
   documented_at: number;
 }
 
-export interface TraumaAssessment {
-  assessment_id: string;
-  patient_id: string;
-  mechanism: string;
-  mechanism_details: string;
-  injury_time: number | null;
-  primary_survey: Record<string, unknown>;
-  secondary_survey: Record<string, unknown> | null;
-  trauma_score: Record<string, unknown> | null;
-  gcs: number;
-  injuries: Record<string, unknown>[];
-  photos_documented: boolean;
-  photo_references: string[];
-  blood_products: Record<string, unknown>[];
-  mtp_activated: boolean;
-  trauma_team_activated: boolean;
-  trauma_activation_time: number | null;
-  trauma_level: number | null;
-  disposition: string;
-  assessed_by: string;
-  assessed_at: number;
-}
-
-export interface StrokeAssessment {
-  assessment_id: string;
-  patient_id: string;
-  last_known_well: number;
-  symptom_onset: number | null;
-  door_time: number;
-  ct_time: number | null;
-  door_to_ct_minutes: number | null;
-  nihss: Record<string, unknown>;
-  nihss_total: number;
-  ct_findings: string;
-  hemorrhage: boolean;
-  lvo_suspected: boolean;
-  tpa_eligible: boolean;
-  tpa_contraindications: string[];
-  tpa_given: boolean;
-  tpa_time: number | null;
-  door_to_needle_minutes: number | null;
-  thrombectomy_candidate: boolean;
-  neuro_ir_activated: boolean;
-  bp_management: string;
-  stroke_type: string;
-  assessed_by: string;
-  assessed_at: number;
-}
-
 export interface CardiacEvent {
   event_id: string;
   patient_id: string;
@@ -123,30 +74,6 @@ export interface CardiacEvent {
   disposition: string;
   documented_by: string;
   documented_at: number;
-}
-
-export interface SepsisAssessment {
-  assessment_id: string;
-  patient_id: string;
-  suspected_source: string;
-  sepsis_identified_at: number;
-  sirs_criteria: Record<string, unknown>;
-  qsofa: Record<string, unknown>;
-  sofa_score: number | null;
-  severity: string;
-  lactate_levels: Record<string, unknown>[];
-  hour_1_bundle: Record<string, unknown>;
-  hour_3_bundle: Record<string, unknown> | null;
-  cultures_before_abx: boolean;
-  antibiotics: Record<string, unknown>[];
-  time_to_antibiotics_minutes: number | null;
-  fluid_resuscitation: Record<string, unknown>;
-  vasopressors_required: boolean;
-  vasopressors: string[];
-  icu_admission: boolean;
-  outcome: string | null;
-  assessed_by: string;
-  assessed_at: number;
 }
 
 /**
@@ -223,49 +150,9 @@ export interface SepsisListRow extends EmergencyListRow {
   assessed_at: number;
 }
 
-export interface EMSHandoff {
-  report_id: string;
-  patient_id: string | null;
-  unit_number: string;
-  crew: string[];
-  dispatch_time: number;
-  on_scene_time: number;
-  depart_scene_time: number;
-  arrival_time: number;
-  transport_minutes: number;
-  scene_location: string;
-  dispatch_reason: string;
-  demographics: Record<string, unknown>;
-  chief_complaint: string;
-  mechanism: string | null;
-  sample_history: Record<string, unknown> | null;
-  vital_signs: Record<string, unknown>[];
-  gcs: number | null;
-  interventions: Record<string, unknown>[];
-  medications: Record<string, unknown>[];
-  iv_access: string[];
-  ecg_rhythm: string | null;
-  twelve_lead_transmitted: boolean;
-  stroke_alert: boolean;
-  stemi_alert: boolean;
-  trauma_alert: boolean;
-  trauma_level: number | null;
-  receiving_physician: string | null;
-  handoff_time: number;
-  notes: string | null;
-}
-
 // ============================================================================
 // Nursing Documentation
 // ============================================================================
-
-export interface MedicationAdministrationRecord {
-  patient_id: string;
-  date: string;
-  scheduled_medications: Record<string, unknown>[];
-  prn_medications: Record<string, unknown>[];
-  infusions: Record<string, unknown>[];
-}
 
 export interface IntakeOutputRecord {
   patient_id: string;
@@ -316,28 +203,6 @@ export interface WoundAssessment {
   assessed_by: string;
   assessed_at: number;
   next_assessment_due: string | null;
-}
-
-export interface IVSiteAssessment {
-  assessment_id: string;
-  patient_id: string;
-  line_id: string;
-  line_type: string;
-  insertion_site: string;
-  insertion_time: number;
-  inserted_by: string;
-  catheter_size: string;
-  catheter_length_cm: number | null;
-  lumens: number | null;
-  site_assessment: Record<string, unknown>;
-  dressing_type: string;
-  dressing_date: string;
-  tubing_change_date: string | null;
-  flush_solution: string | null;
-  current_infusions: string[];
-  complications: string[];
-  assessed_at: number;
-  assessed_by: string;
 }
 
 export interface ShiftHandoff {
@@ -403,87 +268,6 @@ export interface FallRiskAssessment {
 // Specialty Emergency Documentation
 // ============================================================================
 
-export interface BurnAssessment {
-  assessment_id: string;
-  patient_id: string;
-  burn_cause: string;
-  burn_time: number | null;
-  tbsa_regions: Record<string, unknown>;
-  total_tbsa_percent: number;
-  burn_depths: Record<string, unknown>[];
-  inhalation_injury: boolean;
-  inhalation_signs: string[];
-  circumferential: boolean;
-  circumferential_locations: string[];
-  escharotomy: Record<string, unknown> | null;
-  fluid_resuscitation: Record<string, unknown>;
-  pain_management: string;
-  tetanus_updated: boolean;
-  burn_center_criteria: boolean;
-  photos_documented: boolean;
-  photo_references: string[];
-  assessed_by: string;
-  assessed_at: number;
-}
-
-export interface PsychiatricAssessment {
-  assessment_id: string;
-  patient_id: string;
-  chief_complaint: string;
-  mental_status_exam: Record<string, unknown>;
-  suicide_risk: Record<string, unknown>;
-  homicidal_risk: Record<string, unknown>;
-  substance_use: Record<string, unknown>;
-  psych_history: Record<string, unknown>;
-  psych_medications: string[];
-  medication_compliant: boolean | null;
-  social_history: Record<string, unknown>;
-  legal_status: string;
-  safety_precautions: string[];
-  disposition: string;
-  safety_plan: Record<string, unknown> | null;
-  assessed_by: string;
-  assessed_at: number;
-}
-
-export interface ToxicologyAssessment {
-  assessment_id: string;
-  patient_id: string;
-  exposure_type: string;
-  substances: Record<string, unknown>[];
-  exposure_time: number | null;
-  exposure_route: string;
-  intent: string;
-  symptoms: string[];
-  toxidrome: string | null;
-  poison_control_contacted: boolean;
-  poison_control_case: string | null;
-  poison_control_recs: string | null;
-  decontamination: string[];
-  antidotes: Record<string, unknown>[];
-  lab_studies: Record<string, unknown>;
-  supportive_care: string[];
-  observation_hours: number | null;
-  disposition: string;
-  assessed_by: string;
-  assessed_at: number;
-}
-
-export interface MassCasualtyIncident {
-  incident_id: string;
-  incident_name: string;
-  location: string;
-  incident_time: number;
-  mci_level: string;
-  estimated_casualties: number;
-  patients: Record<string, unknown>[];
-  triage_officer: string;
-  incident_commander: string;
-  resources: string[];
-  status_updates: Record<string, unknown>[];
-  deactivation_time: number | null;
-}
-
 export interface IntubationRecord {
   record_id: string;
   patient_id: string;
@@ -537,95 +321,9 @@ export interface LacerationRepair {
   procedure_time: number;
 }
 
-export interface SplintCastRecord {
-  record_id: string;
-  patient_id: string;
-  indication: string;
-  location: string;
-  immobilization_type: string;
-  specific_type: string;
-  material: string;
-  position: string;
-  padding_adequate: boolean;
-  nv_check_before: Record<string, unknown>;
-  nv_check_after: Record<string, unknown>;
-  instructions_given: boolean;
-  instructions: string[];
-  weight_bearing: string;
-  follow_up: string;
-  ortho_referral: boolean;
-  applied_by: string;
-  application_time: number;
-}
-
-export interface PediatricAssessment {
-  assessment_id: string;
-  patient_id: string;
-  age: Record<string, unknown>;
-  weight_kg: number;
-  weight_method: string;
-  vital_signs: Record<string, unknown>;
-  pat: Record<string, unknown>;
-  pain: Record<string, unknown>;
-  development: string | null;
-  history: Record<string, unknown>;
-  immunizations: string;
-  abuse_screening: Record<string, unknown>;
-  guardian_present: boolean;
-  guardian_name: string | null;
-  guardian_relationship: string | null;
-  assessed_by: string;
-  assessed_at: number;
-}
-
-export interface ObstetricEmergency {
-  assessment_id: string;
-  patient_id: string;
-  gestational_age: Record<string, unknown>;
-  gravida: number;
-  para: number;
-  living: number;
-  prenatal_care: boolean;
-  pregnancy_complications: string[];
-  chief_complaint: string;
-  emergency_type: string;
-  contractions: Record<string, unknown> | null;
-  fetal_assessment: Record<string, unknown>;
-  vaginal_bleeding: Record<string, unknown> | null;
-  cervical_exam: Record<string, unknown> | null;
-  interventions: string[];
-  ob_consulted: boolean;
-  disposition: string;
-  assessed_by: string;
-  assessed_at: number;
-}
-
 // ============================================================================
 // Laboratory
 // ============================================================================
-
-export interface SpecimenCollection {
-  collection_id: string;
-  patient_id: string;
-  accession_number: string;
-  test_ordered: string;
-  specimen_type: string;
-  collection_site: string;
-  collection_time: number;
-  collected_by: string;
-  collection_method: string;
-  container_type: string;
-  container_count: number;
-  volume_ml: number | null;
-  fasting: boolean | null;
-  special_handling: string[];
-  chain_of_custody: boolean;
-  patient_id_verified: boolean;
-  verification_method: string;
-  labeling_complete: boolean;
-  transport_time: number | null;
-  condition_on_receipt: string | null;
-}
 
 export interface ChainOfCustody {
   form_id: string;
@@ -636,23 +334,6 @@ export interface ChainOfCustody {
   seal_intact: boolean;
   storage_conditions_met: boolean;
   final_disposition: string;
-}
-
-export interface LabQCRecord {
-  qc_id: string;
-  date: string;
-  instrument: string;
-  test: string;
-  qc_level: number;
-  lot_number: string;
-  expected_range: string;
-  observed_value: number;
-  unit: string;
-  within_range: boolean;
-  action_taken: string | null;
-  reviewed_by: string;
-  review_time: number;
-  comments: string | null;
 }
 
 export interface CriticalValueNotification {
@@ -671,22 +352,6 @@ export interface CriticalValueNotification {
   provider_acknowledgment: string | null;
   lab_technician: string;
   comments: string | null;
-}
-
-export interface SpecimenRejection {
-  rejection_id: string;
-  accession_number: string;
-  patient_id: string;
-  test_ordered: string;
-  rejection_reason: string;
-  rejection_details: string;
-  recollection_required: boolean;
-  provider_notified: boolean;
-  notification_time: number | null;
-  disposed: boolean;
-  disposal_time: number | null;
-  rejected_by: string;
-  rejection_time: number;
 }
 
 // ============================================================================
@@ -743,29 +408,6 @@ export interface DischargeSummary {
   signature_time: number | null;
 }
 
-export interface DischargeInstructions {
-  instructions_id: string;
-  patient_id: string;
-  diagnosis: string;
-  activity_restrictions: string[];
-  diet: string;
-  wound_care: string | null;
-  medication_instructions: string;
-  warning_signs: string[];
-  call_doctor_if: string[];
-  go_to_er_if: string[];
-  follow_up_care: string[];
-  resources: string[];
-  language: string;
-  interpreter_used: boolean;
-  patient_verbalized_understanding: boolean;
-  teach_back_used: boolean;
-  given_to: string;
-  recipient_relationship: string | null;
-  provided_by: string;
-  provided_time: number;
-}
-
 export interface AMADischarge {
   ama_id: string;
   patient_id: string;
@@ -804,27 +446,6 @@ export interface HistoryAndPhysical {
   plan: string[];
   performed_by: string;
   cosigned_by: string | null;
-}
-
-export interface ConsultationNote {
-  consult_id: string;
-  patient_id: string;
-  requesting_provider: string;
-  consulting_provider: string;
-  specialty: string;
-  urgency: string;
-  reason: string;
-  clinical_question: string;
-  request_time: number;
-  response_time: number | null;
-  history: string;
-  exam_findings: string;
-  studies_reviewed: string[];
-  assessment: string;
-  recommendations: string[];
-  follow_up: string;
-  consultant_signature: string | null;
-  signature_time: number | null;
 }
 
 /**
@@ -869,38 +490,6 @@ export interface ProgressNoteProblem {
 // Surgical / Perioperative
 // ============================================================================
 
-export interface PreOperativeAssessment {
-  assessment_id: string;
-  patient_id: string;
-  scheduled_procedure: string;
-  procedure_datetime: string;
-  surgeon: string;
-  anesthesiologist: string | null;
-  npo_status: string;
-  site_verified: boolean;
-  site_marked: boolean;
-  consent_signed: boolean;
-  blood_type_confirmed: boolean;
-  blood_available: boolean;
-  allergies_reviewed: boolean;
-  medications_reviewed: boolean;
-  medications_held: string[];
-  labs_reviewed: boolean;
-  imaging_reviewed: boolean;
-  asa_class: string;
-  airway_assessment: string;
-  cardiac_risk: string | null;
-  dvt_prophylaxis: boolean;
-  antibiotic_prophylaxis: string | null;
-  special_equipment: string[];
-  pre_op_vitals: string;
-  iv_access: boolean;
-  checklist_complete: boolean;
-  notes: string | null;
-  assessed_by: string;
-  assessed_at: number;
-}
-
 export interface OperativeNote {
   note_id: string;
   patient_id: string;
@@ -933,32 +522,6 @@ export interface OperativeNote {
   dictation_time: number;
 }
 
-export interface PostOperativeNote {
-  note_id: string;
-  patient_id: string;
-  surgery_date: string;
-  procedure: string;
-  post_op_day: number;
-  condition: string;
-  pain_score: number;
-  pain_management: string;
-  vitals_stable: boolean;
-  diet: string;
-  activity: string;
-  wound: string;
-  drain_output: string | null;
-  io_balance: string | null;
-  foley: string | null;
-  dvt_prophylaxis: string;
-  complications: string | null;
-  labs: string | null;
-  imaging: string | null;
-  plan: string[];
-  estimated_discharge: string | null;
-  written_by: string;
-  note_time: number;
-}
-
 export interface AnesthesiaRecord {
   record_id: string;
   patient_id: string;
@@ -986,72 +549,6 @@ export interface AnesthesiaRecord {
 // ============================================================================
 // Diagnostics
 // ============================================================================
-
-export interface RadiologyOrder {
-  order_id: string;
-  patient_id: string;
-  study_type: string;
-  body_part: string;
-  laterality: string | null;
-  indication: string;
-  priority: string;
-  ordering_provider: string;
-  order_time: number;
-  contrast: boolean;
-  allergies_reviewed: boolean;
-  creatinine_checked: boolean | null;
-  pregnancy_checked: boolean | null;
-  special_instructions: string | null;
-  status: string;
-}
-
-export interface RadiologyReport {
-  report_id: string;
-  patient_id: string;
-  order_id: string;
-  accession_number: string;
-  study_type: string;
-  body_part: string;
-  study_datetime: number;
-  technique: string;
-  contrast: string | null;
-  comparison: string | null;
-  clinical_history: string;
-  findings: string;
-  impression: string[];
-  recommendations: string | null;
-  critical_finding: boolean;
-  critical_communicated: Record<string, unknown> | null;
-  radiologist: string;
-  status: string;
-  preliminary_time: number | null;
-  final_time: number | null;
-  dicom_study_uid: string | null;
-  image_ipfs_hash: string | null;
-}
-
-export interface PathologyReport {
-  report_id: string;
-  patient_id: string;
-  accession_number: string;
-  specimen_type: string;
-  collection_date: string;
-  received_date: string;
-  clinical_history: string;
-  specimen_source: string;
-  gross_description: string;
-  microscopic_description: string;
-  special_stains: Record<string, unknown>[];
-  ihc: Record<string, unknown>[];
-  molecular: Record<string, unknown>[];
-  diagnosis: string[];
-  synoptic: Record<string, unknown> | null;
-  comment: string | null;
-  pathologist: string;
-  report_date: string;
-  status: string;
-  addenda: Record<string, unknown>[];
-}
 
 // ============================================================================
 // Immunization / History / Blood Bank
@@ -1107,38 +604,6 @@ export interface GeneticCondition {
   affected_members: string[];
   genetic_testing_done: boolean;
   test_results: string | null;
-}
-
-export interface BloodTypeScreen {
-  test_id: string;
-  patient_id: string;
-  abo_type: string;
-  rh_type: string;
-  antibody_screen: Record<string, unknown>;
-  collection_time: number;
-  expiration: number;
-  performed_by: string;
-  verified_by: string;
-}
-
-export interface TransfusionRecord {
-  transfusion_id: string;
-  patient_id: string;
-  unit_number: string;
-  product_type: string;
-  abo_rh: string;
-  indication: string;
-  consent_obtained: boolean;
-  pre_vitals: Record<string, unknown>;
-  patient_verified: Record<string, unknown>;
-  start_time: number;
-  end_time: number | null;
-  volume_ml: number;
-  rate: number;
-  monitoring_vitals: Record<string, unknown>[];
-  reaction: Record<string, unknown> | null;
-  post_vitals: Record<string, unknown> | null;
-  administered_by: string;
 }
 
 // ============================================================================
@@ -1229,22 +694,6 @@ export interface DeathCertificate {
   me_case_number: string | null;
 }
 
-export interface AutopsyRequest {
-  request_id: string;
-  patient_id: string;
-  requesting_physician: string;
-  reason: string;
-  clinical_summary: string;
-  questions: string[];
-  family_consent: boolean;
-  consent_signed_by: string | null;
-  consenter_relationship: string | null;
-  request_date: string;
-  status: string;
-  pathologist_assigned: string | null;
-  scheduled_date: string | null;
-}
-
 export interface AutopsyReport {
   report_id: string;
   patient_id: string;
@@ -1258,23 +707,6 @@ export interface AutopsyReport {
   cause_of_death: Record<string, unknown>;
   opinion: string;
   report_date: string;
-}
-
-export interface PatientSatisfactionSurvey {
-  survey_id: string;
-  patient_id: string;
-  visit_id: string;
-  visit_date: string;
-  department: string;
-  survey_type: string;
-  responses: Record<string, unknown>[];
-  overall_rating: number;
-  nps_score: number;
-  comments: string | null;
-  submitted_at: number;
-  anonymous: boolean;
-  follow_up_requested: boolean;
-  contact_method: string | null;
 }
 
 export interface SatisfactionSurveyResponseInput {
@@ -1315,23 +747,6 @@ export interface GcsAssessmentRecord {
   notes: string | null;
   assessed_by: string;
   assessed_at: number;
-}
-
-export interface SampleHistoryRecord {
-  id: string;
-  patient_id: string;
-  signs_symptoms: unknown;
-  past_medical_history: unknown;
-  events_leading: string;
-  last_intake: Record<string, unknown> | null;
-  medications: unknown;
-  allergies_snapshot: unknown;
-  collected_by: string;
-  collected_at: string;
-  created_at: string;
-  updated_at: string;
-  facility_id: string | null;
-  is_active: boolean;
 }
 
 // ============================================================================
@@ -1391,11 +806,6 @@ export interface NotificationCreateResult {
   notification_id: string;
 }
 
-export interface RejectionCreateResult {
-  success: boolean;
-  rejection_id: string;
-}
-
 export interface OrderCreateResult {
   success: boolean;
   order_id: string;
@@ -1438,19 +848,6 @@ export interface EPrescriptionCreateResult {
   message: string;
 }
 
-export interface InsuranceClaimCreateResult {
-  success: boolean;
-  claim_id: string;
-  total_charge: number;
-  [key: string]: unknown;
-}
-
-export interface CdsAlertCreateResult {
-  success: boolean;
-  alert_id: string;
-  message: string;
-}
-
 export interface TelehealthSessionCreateResult {
   success: boolean;
   session_id: string;
@@ -1484,13 +881,6 @@ export interface WearableDeviceCreateResult {
   message: string;
 }
 
-export interface WearableReadingCreateResult {
-  success: boolean;
-  reading_id: string;
-  is_abnormal: boolean;
-  message: string;
-}
-
 export interface AlertRuleCreateResult {
   success: boolean;
   rule_id: string;
@@ -1506,12 +896,6 @@ export interface MedicationReminderCreateResult {
 export interface AdherenceLogCreateResult {
   success: boolean;
   log_id: string;
-  message: string;
-}
-
-export interface SyncDeviceCreateResult {
-  success: boolean;
-  device_id: string;
   message: string;
 }
 
@@ -1580,17 +964,6 @@ export interface FamilyGroup {
   last_modified: number;
 }
 
-export interface DrugReference {
-  drug_id: string;
-  name: string;
-  generic_name: string;
-  brand_names: string[];
-  drug_class: string;
-  route: string;
-  form: string;
-  common_doses: string[];
-}
-
 export interface WearableDevice {
   device_id: string;
   patient_id: string;
@@ -1649,67 +1022,6 @@ export interface WearableAlert {
 // backend genuinely doesn't compute them yet (not a typing gap, a feature gap).
 // ============================================================================
 
-export interface DemoInfo {
-  project: string;
-  hackathon: string;
-  track: string;
-  description: string;
-  auth_mode: string;
-  dev_mode: boolean;
-  demo_login_endpoint: string;
-  demo_instructions: { step_1: string; step_2: string; step_3: string; step_4: string };
-  wallet_auth: { format: string; example: string; header: string; note: string };
-  features: string[];
-  endpoints: {
-    auth: { register: string; login: string; me: string };
-    patients: { register: string; update: string; list: string; get: string; my_records: string };
-    emergency: { access: string; simulate_nfc: string; access_logs: string };
-    rbac: { assign_role: string; revoke_role: string; list_users: string };
-    health: string;
-  };
-  auth_header: string;
-}
-
-export interface PatientEmergencyRecords {
-  patient_id: string;
-  code_blues: Record<string, unknown>[];
-  trauma_assessments: Record<string, unknown>[];
-  stroke_assessments: Record<string, unknown>[];
-  sepsis_assessments: Record<string, unknown>[];
-}
-
-/**
- * A nurse task. Medication tasks come from active medication reminders;
- * monitoring tasks come from outstanding `nursing` physician orders, classified
- * by what the order actually says. An order that is neither an observation nor
- * a dressing stays `nursing_care` rather than being forced into one of the two.
- */
-export type NurseTask =
-  | {
-      id: string;
-      type: 'medication_admin';
-      patient_id: string;
-      medication: string;
-      dosage: string;
-      scheduled_at: number;
-      priority: 'high' | 'medium';
-    }
-  | {
-      id: string;
-      type: 'vital_signs' | 'wound_care' | 'nursing_care';
-      patient_id: string;
-      frequency: string;
-      /** Last recorded execution, falling back to when the order was due. */
-      last_done: number;
-      priority: 'low' | 'medium' | 'high';
-      instructions: string | null;
-    };
-
-export interface NurseTasksResponse {
-  success: true;
-  tasks: NurseTask[];
-}
-
 export interface EndTelehealthSessionResponse {
   success: true;
   session_id: string;
@@ -1738,52 +1050,6 @@ export interface PolicyFinancials {
   out_of_pocket_remaining: number | null;
 }
 
-/**
- * `POST /api/insurance/eligibility`. This used to be shadowed by a second,
- * cruder handler registered on the same path (see IMPLEMENTATION_PLAN.md
- * Round 19) — that duplicate registration was removed, so this richer shape
- * (real policy-date/deductible/plan-type logic) is what actually runs now.
- */
-export type CheckEligibilityResponse =
-  | {
-      success: true;
-      check_id: string;
-      patient_id: string;
-      checked_at: number;
-      eligible: false;
-      coverage_active: false;
-      plan_name: null;
-      member_id: string;
-      payer_id: string;
-      message: string;
-      benefits: null;
-      service_coverage: null;
-    }
-  | {
-      success: true;
-      check_id: string;
-      patient_id: string;
-      checked_at: number;
-      eligible: boolean;
-      coverage_active: boolean;
-      plan_name: string;
-      plan_type: string | null;
-      member_id: string;
-      payer_id: string;
-      payer_name: string;
-      policy_number: string | null;
-      group_number: string | null;
-      effective_date: string;
-      termination_date: string | null;
-      benefits: PolicyFinancials;
-      service_coverage: {
-        service_type: string;
-        covered: boolean;
-        authorization_required: boolean;
-        prior_auth_phone: string | null;
-      };
-    };
-
 export interface DashboardMetricsResponse {
   success: true;
   metrics: {
@@ -1806,16 +1072,6 @@ export interface DashboardMetricsResponse {
     server_errors: number;
     blockchain_status: string;
   };
-}
-
-export interface PatientAnalyticsResponse {
-  /**
-   * Active patients per administrative gender, aggregated in the query.
-   * Patients who supplied none are counted under `not_recorded`, so the
-   * buckets always sum to `total_population`.
-   */
-  gender_distribution: Record<string, number>;
-  total_population: number;
 }
 
 export interface AppointmentAnalyticsResponse {
@@ -1845,32 +1101,6 @@ export interface QualityMetricsResponse {
    */
   compliance_score: null;
   compliance_score_basis: 'requires_reviewed_assessment';
-}
-
-export interface LockscreenMedicalId {
-  format: 'lockscreen';
-  design: { background: string; text: string; accent: string };
-  blood_type: { value: string; font_size: string; background: string; text_color: string };
-  allergies_line: { text: string; font_size: string; color: string };
-  dnr_line: {
-    text: string;
-    verified: boolean;
-    verified_by: string | null;
-    verified_at: string | null;
-    document_ref: string | null;
-    font_size: string;
-    color: string;
-    background: string;
-  } | null;
-  /** `value` is null when the encrypted profile could not be read. */
-  name: { value: string | null; font_size: string };
-  /**
-   * Verified guardian when one exists, otherwise the patient's own first
-   * recorded contact; null when neither is on file. `verified` distinguishes
-   * the two — never present an unverified number as system-confirmed.
-   */
-  emergency_contact: EmergencyContactRef | null;
-  qr_url: string;
 }
 
 /** A contact a responder can call. */
@@ -1924,31 +1154,6 @@ export interface MedicalIdCard {
   advanced_directives_count: 0;
   preferences: { show_when_locked: boolean; enable_location_sharing: boolean; auto_notify_family: boolean };
   last_updated: string;
-}
-
-export interface EmergencyMedicalId {
-  type: 'EMERGENCY_MEDICAL_ID';
-  warning: string;
-  patient: { name: string; dob: string };
-  blood_type: { value: string; compatible_donors: string[] };
-  critical_allergies: Array<{ allergen: string; severity: string; reaction: string | null }>;
-  dnr_status: {
-    status: 'ACTIVE' | 'UNVERIFIED' | 'NOT_ON_FILE';
-    verified: boolean;
-    verified_by: string | null;
-    verified_at: string | null;
-    document_ref: string | null;
-    warning: string | null;
-    verify_directive?: boolean;
-  };
-  organ_donor: boolean;
-  medications: string[];
-  conditions: string[];
-  emergency_contact: EmergencyContactRef | null;
-  /** The patient's recorded language preference; null when they set none. */
-  primary_language: string | null;
-  access_logged: true;
-  access_timestamp: string;
 }
 
 export interface VerifyInsuranceResponse {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { IS_DEVELOPMENT, useTranslation, LanguageSwitcher } from '@medichain/shared';
-import { Heart, Shield, Wallet, UserPlus, Zap } from 'lucide-react';
+import { useTranslation, LanguageSwitcher } from '@medichain/shared';
+import { Heart, Shield, Wallet } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -45,7 +45,6 @@ export function LoginPage() {
   const {
     login,
     loginWithRecoveryPhrase,
-    loginWithDemoWallet,
     isAuthenticated,
     isLoading,
     error,
@@ -58,8 +57,6 @@ export function LoginPage() {
   // extension, no imported key.
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
   const [showPhraseForm, setShowPhraseForm] = useState(false);
-  const [demoName, setDemoName] = useState('');
-  const [showDemoForm, setShowDemoForm] = useState(false);
   const [localError, setLocalError] = useState('');
 
   // Redirect if already authenticated
@@ -86,20 +83,6 @@ export function LoginPage() {
     }
 
     const success = await login(walletAddress);
-    if (success) {
-      navigate('/dashboard');
-    }
-  };
-
-  /**
-   * Quick login with a demo patient's wallet address
-   */
-  const handleDemoLogin = async () => {
-    clearError();
-    setLocalError('');
-    
-    const name = demoName.trim() || undefined;
-    const success = await loginWithDemoWallet(name);
     if (success) {
       navigate('/dashboard');
     }
@@ -271,51 +254,6 @@ export function LoginPage() {
               {t('auth.cardVerificationAfterLogin')}
             </p>
           </div>
-
-          {/* Demo Wallet Section (Development Only) */}
-          {IS_DEVELOPMENT && (
-            <div className="mt-6 bg-caution-subtle border border-caution-subtle-fg/30 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Zap className="w-5 h-5 text-caution" />
-                <span className="font-medium text-caution-subtle-fg">{t('auth.devMode')}</span>
-              </div>
-              
-              {!showDemoForm ? (
-                <button
-                  onClick={() => setShowDemoForm(true)}
-                  className="w-full bg-caution-subtle text-caution-subtle-fg py-2 px-4 rounded-lg font-medium hover:bg-caution-subtle/80 transition-colors flex items-center justify-center gap-2"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  {t('auth.createDemoWallet')}
-                </button>
-              ) : (
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    value={demoName}
-                    onChange={(e) => setDemoName(e.target.value)}
-                    placeholder={t('auth.demoNamePlaceholder')}
-                    className="block w-full px-4 py-2 border border-caution-subtle-fg/30 rounded-lg focus:ring-2 focus:ring-caution focus:border-caution transition-colors"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleDemoLogin}
-                      disabled={isLoading}
-                      className="flex-1 bg-caution text-caution-fg py-2 px-4 rounded-lg font-medium hover:bg-caution/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-                    >
-                      {isLoading ? t('auth.creating') : t('auth.createAndLogin')}
-                    </button>
-                    <button
-                      onClick={() => setShowDemoForm(false)}
-                      className="px-4 py-2 border border-caution-subtle-fg/30 text-caution-subtle-fg rounded-lg hover:bg-caution-subtle/80 transition-colors"
-                    >
-                      {t('common.cancel')}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Security notice */}
           <div className="mt-6 flex items-center justify-center gap-2 text-content-secondary text-sm">

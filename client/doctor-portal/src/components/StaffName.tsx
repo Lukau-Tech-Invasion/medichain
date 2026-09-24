@@ -49,12 +49,6 @@ async function loadDirectory(): Promise<Directory> {
   return inFlight;
 }
 
-/** Forget the directory, so the next render re-reads it (used on sign-out). */
-export function resetStaffDirectory() {
-  cache = null;
-  inFlight = null;
-}
-
 /** The display name for a wallet, or the wallet itself when unknown. */
 export function useStaffName(id?: string | null): string {
   const { user } = useAuthStore();

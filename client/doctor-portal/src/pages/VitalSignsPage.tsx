@@ -4,8 +4,10 @@ import PatientSelect from '../components/PatientSelect';
 import {
   createGCS,
   getApiErrorMessage,
+  bloodPressureSchema,
   useScoringCatalog,
   useTranslation,
+  vitalFlag,
   addVitalSigns,
   getVitalsFlowsheet,
   formatTimestamp,
@@ -91,40 +93,6 @@ function normalizeFlowsheet(data: RawFlowsheet): VitalFlowsheet {
   };
 }
 
-// Normal ranges for vitals
-const VITAL_RANGES = {
-  heart_rate: { min: 60, max: 100, unit: 'bpm', label: 'Heart Rate' },
-  respiratory_rate: { min: 12, max: 20, unit: '/min', label: 'Resp Rate' },
-  bp_systolic: { min: 90, max: 140, unit: 'mmHg', label: 'Systolic BP' },
-  bp_diastolic: { min: 60, max: 90, unit: 'mmHg', label: 'Diastolic BP' },
-  temperature: { min: 36.1, max: 37.8, unit: '°C', label: 'Temperature' },
-  oxygen_saturation: { min: 95, max: 100, unit: '%', label: 'SpO2' },
-  pain_scale: { min: 0, max: 3, unit: '/10', label: 'Pain' },
-  gcs: { min: 15, max: 15, unit: '', label: 'GCS' },
-  blood_glucose: { min: 70, max: 140, unit: 'mg/dL', label: 'Glucose' },
-};
-
-function isAbnormal(value: number | null, type: keyof typeof VITAL_RANGES): boolean {
-  if (value === null) return false;
-  const range = VITAL_RANGES[type];
-  return value < range.min || value > range.max;
-}
-
-function isCritical(value: number | null, type: keyof typeof VITAL_RANGES): boolean {
-  if (value === null) return false;
-  const criticalRanges: Record<string, { min: number; max: number }> = {
-    heart_rate: { min: 40, max: 150 },
-    respiratory_rate: { min: 8, max: 30 },
-    bp_systolic: { min: 70, max: 180 },
-    oxygen_saturation: { min: 88, max: 100 },
-    gcs: { min: 9, max: 15 },
-    blood_glucose: { min: 50, max: 400 },
-  };
-  const range = criticalRanges[type];
-  if (!range) return false;
-  return value < range.min || value > range.max;
-}
-
 function getTrend(current: number | null, previous: number | null): 'up' | 'down' | 'stable' | null {
   if (current === null || previous === null) return null;
   const diff = current - previous;
@@ -157,6 +125,16 @@ function VitalSignsPage() {
   // The catalog is fetched once and shared: `useScoringCatalog` already caches
   // it across pages, so this adds no request of its own.
   const { catalog: scoringCatalog } = useScoringCatalog();
+  // Flagged against the server's catalog bands (rule 8) -- the limits
+  // `POST /api/clinical/vitals` raises its critical alerts on. The page used to
+  // carry its own copy, whose critical systolic limit was 70 where the server
+  // alerted below 90. Until the catalog loads nothing is flagged.
+  const isCritical = (value: number | null, key: string) =>
+    vitalFlag(value, key, scoringCatalog) === 'critical';
+  const isAbnormal = (value: number | null, key: string) => {
+    const flag = vitalFlag(value, key, scoringCatalog);
+    return flag === 'critical' || flag === 'abnormal';
+  };
   const gcsScale: GcsScale | null = scoringCatalog?.glasgow_coma_scale ?? null;
   const [gcsEye, setGcsEye] = useState('');
   const [gcsVerbal, setGcsVerbal] = useState('');
@@ -270,10 +248,22 @@ function VitalSignsPage() {
     e.preventDefault();
     if (!selectedPatientId || !user) return;
 
-    setSubmitting(true);
     setError(null);
     setSuccess(null);
+    // A pair entered the wrong way round reads as profound hypotension; the
+    // server refuses it too, this says so before the round trip.
+    if (newVitals.bp_systolic && newVitals.bp_diastolic) {
+      const bp = bloodPressureSchema.safeParse({
+        systolic: Number(newVitals.bp_systolic),
+        diastolic: Number(newVitals.bp_diastolic),
+      });
+      if (!bp.success) {
+        setError(bp.error.issues[0]?.message ?? t('docVitalSigns.errorRecordVitalsGeneric'));
+        return;
+      }
+    }
 
+    setSubmitting(true);
     try {
       const payload = {
         patient_id: selectedPatientId,

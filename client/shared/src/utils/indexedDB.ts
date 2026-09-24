@@ -419,13 +419,3 @@ export async function getStorageInfo(): Promise<{
   };
 }
 
-/**
- * Close database connection
- */
-export function closeDatabase(): void {
-  if (dbInstance) {
-    dbInstance.close();
-    dbInstance = null;
-    console.log('[IndexedDB] Database closed');
-  }
-}

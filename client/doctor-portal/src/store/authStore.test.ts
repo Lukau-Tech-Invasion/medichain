@@ -118,25 +118,4 @@ describe('authStore', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
   });
-
-  it('should login with demo wallet in development', async () => {
-    const mockDemoUser = {
-      wallet_address: '5Demo...mock',
-      name: 'Demo Doctor',
-      role: 'Doctor',
-    };
-
-    vi.mocked(global.fetch).mockResolvedValue({
-      ok: true,
-      json: async () => mockDemoUser,
-    } as unknown as Response);
-
-    const success = await useAuthStore.getState().loginWithDemoWallet('Doctor');
-
-    expect(success).toBe(true);
-    const state = useAuthStore.getState();
-    expect(state.isAuthenticated).toBe(true);
-    expect(state.user?.role).toBe('Doctor');
-    expect(state.user?.username).toBe('Demo Doctor');
-  });
 });

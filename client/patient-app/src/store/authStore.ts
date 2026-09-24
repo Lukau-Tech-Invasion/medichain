@@ -14,8 +14,6 @@ import {
   clearPatientAuth as clearStoredAuth,
   getPatientAuth,
   debugLog,
-  IS_DEVELOPMENT,
-  generateHealthId,
   syncApiClientUserId,
   getApiClient,
   initPushNotifications,
@@ -82,25 +80,11 @@ interface AuthState {
    * on the sign-in screen mints a DIFFERENT, unregistered identity.
    */
   loginWithRecoveryPhrase: (mnemonic: string) => Promise<boolean>;
-  loginWithDemoWallet: (name?: string) => Promise<boolean>;
   logout: () => void;
   setPatient: (patient: Patient) => void;
   clearError: () => void;
   restoreSession: () => void;
   updateProfile: (updates: Partial<Patient>) => void;
-}
-
-/**
- * Generate a demo wallet address for testing
- * Format: 5 + 47 random alphanumeric chars
- */
-function generateDemoAddress(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-  let address = '5';
-  for (let i = 0; i < 47; i++) {
-    address += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return address;
 }
 
 /**
@@ -228,73 +212,6 @@ export const usePatientAuthStore = create<AuthState>()(
         }
       },
 
-
-      /**
-       * Login with a demo wallet for development/testing
-       * Creates a temporary wallet address with patient role
-       */
-      loginWithDemoWallet: async (name?: string) => {
-        if (!IS_DEVELOPMENT) {
-          set({ error: 'Demo wallets are only available in development mode' });
-          return false;
-        }
-        
-        set({ isLoading: true, error: null });
-
-        try {
-          const walletAddress = generateDemoAddress();
-          const displayName = name || 'Demo Patient';
-          const firstName = displayName.split(' ')[0];
-          
-          // Generate a health ID from the wallet address
-          const healthId = await generateHealthId(walletAddress, 'demo-national-id');
-          
-          const patient: Patient = {
-            walletAddress,
-            healthId,
-            fullName: displayName,
-            firstName,
-            bloodType: 'O+',
-            emergencyContact: {
-              name: 'Emergency Contact',
-              phone: '+27 123 456 7890',
-              relationship: 'Family',
-            },
-            createdAt: new Date().toISOString(),
-          };
-          
-          // Store auth data
-          setPatientAuth({
-            address: patient.walletAddress,
-            healthId: patient.healthId,
-            name: patient.fullName,
-          });
-          
-          // Sync API client with new userId
-          syncApiClientUserId();
-          
-          set({
-            patient,
-            isAuthenticated: true,
-            isLoading: false,
-            error: null,
-          });
-
-          initPush();
-
-          debugLog('patientAuthStore', 'Created demo wallet:', { walletAddress, healthId });
-          return true;
-        } catch (error) {
-          set({
-            patient: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: 'Failed to create demo wallet',
-          });
-          return false;
-        }
-      },
-
       logout: () => {
         clearStoredAuth();
         // Revoke the session server-side too; `endSession` clears the local
@@ -386,17 +303,3 @@ export const usePatientAuthStore = create<AuthState>()(
   )
 );
 
-/**
- * Helper to get current patient ID (health ID) for API calls
- */
-export function getPatientHealthId(): string | null {
-  const store = usePatientAuthStore.getState();
-  return store.patient?.healthId || null;
-}
-
-/**
- * Helper to check if patient is authenticated
- */
-export function isPatientAuthenticated(): boolean {
-  return usePatientAuthStore.getState().isAuthenticated;
-}

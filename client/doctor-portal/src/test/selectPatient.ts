@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 /**
  * Choose a patient through the searchable picker.
@@ -52,7 +52,3 @@ export function patientFixture(overrides: Partial<{
   };
 }
 
-/** Find a rendered option inside an open picker, when a test needs to scope. */
-export function withinPicker(container: HTMLElement) {
-  return within(container);
-}

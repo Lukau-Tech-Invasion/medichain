@@ -10,4 +10,4 @@
  * blanked the entire PWA — including the emergency medical ID. This shim keeps
  * the existing `./components/ErrorBoundary` import path (and its tests) working.
  */
-export { ErrorBoundary, withErrorBoundary, InlineErrorFallback } from '@medichain/shared';
+export { ErrorBoundary, withErrorBoundary } from '@medichain/shared';

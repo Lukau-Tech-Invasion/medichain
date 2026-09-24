@@ -19,7 +19,6 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   clearStore: vi.fn(),
   clearCompletedSyncItems: vi.fn(),
   clearExpiredCache: vi.fn(),
-  performSync: vi.fn(),
   downloadOfflineData: vi.fn(),
   STORES: { CACHE: 'cache', SYNC: 'sync' },
 }));

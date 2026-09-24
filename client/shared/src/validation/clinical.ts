@@ -177,12 +177,6 @@ export const phoneSchema = z
     return /^\+?[0-9]{7,15}$/.test(digits);
   }, 'Enter a phone number with 7 to 15 digits, for example +27821234567 or 0821234567');
 
-/** The stricter South African form, where a caller knows the number is local. */
-export const southAfricanPhoneSchema = z
-  .string()
-  .min(1, 'Enter a phone number')
-  .regex(/^(\+27|0)[1-8][0-9]{8}$/, 'Enter a number like 0821234567 or +27821234567');
-
 export const emailSchema = z
   .string()
   .min(1, 'Enter an email address')
@@ -237,8 +231,6 @@ export const patientRegistrationSchema = z.object({
   dnrStatus: z.boolean(),
 });
 
-export type PatientRegistration = z.infer<typeof patientRegistrationSchema>;
-
 /**
  * An electronic prescription.
  *
@@ -282,8 +274,6 @@ export const prescriptionSchema = z.object({
   directions: requiredText('the directions for the patient', 500),
   patient_instructions: clinicalNoteSchema(2_000).optional(),
 });
-
-export type PrescriptionInput = z.infer<typeof prescriptionSchema>;
 
 /**
  * A nursing care plan.
@@ -619,12 +609,6 @@ export const chainOfCustodySchema = z.object({
   sealNumber: requiredText('the seal number on the container', 64),
 });
 
-/** Handing that specimen to somebody else. */
-export const custodyTransferSchema = z.object({
-  transferredTo: requiredText('who is taking custody', 200),
-  location: requiredText('where the transfer happened', 200),
-});
-
 /**
  * Requesting a specialist consultation.
  *
@@ -755,12 +739,6 @@ export const labQcSchema = z.object({
   expectedSD: qcNumber('expected standard deviation').refine(v => Number(v) > 0, {
     message: 'Enter a standard deviation greater than 0',
   }),
-});
-
-/** Adding a relative to a family history. */
-export const familyMemberSchema = z.object({
-  patientId: requiredText('a patient', 64),
-  relationship: requiredText('the relationship to the patient', 64),
 });
 
 /**

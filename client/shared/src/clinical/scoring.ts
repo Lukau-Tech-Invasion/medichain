@@ -80,7 +80,21 @@ export interface CriticalValueThresholdEntry {
   panic_high: number | null;
 }
 
+/**
+ * One vital sign's adult reference range and critical limits, as the server
+ * alerts on them. `null` means no limit on that side.
+ */
+export interface VitalBand {
+  key: string;
+  normal_low: number | null;
+  normal_high: number | null;
+  critical_low: number | null;
+  critical_high: number | null;
+}
+
 export interface ScoringCatalog {
+  /** Adult vital-sign bands; absent on an older server. */
+  vital_signs?: VitalBand[];
   /** Absent on a server older than the GCS assessment screen. */
   glasgow_coma_scale?: GcsScale;
   /** The critical-value call list; absent on an older server. */
@@ -210,6 +224,36 @@ export function aldreteTotal(
     total += value;
   }
   return total;
+}
+
+/**
+ * Where a vital-sign value sits against the catalog's band for `key`:
+ * `'critical'` beyond a critical limit (the same strict comparison the server
+ * alerts on), `'abnormal'` outside the reference range, `'normal'` inside it.
+ * `null` when there is no value, no catalog yet, or no band for `key` -- an
+ * unflagged reading, never a guessed one.
+ */
+export function vitalFlag(
+  value: number | null | undefined,
+  key: string,
+  catalog: ScoringCatalog | null,
+): 'critical' | 'abnormal' | 'normal' | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  const band = catalog?.vital_signs?.find((b) => b.key === key);
+  if (!band) return null;
+  if (
+    (band.critical_low !== null && value < band.critical_low) ||
+    (band.critical_high !== null && value > band.critical_high)
+  ) {
+    return 'critical';
+  }
+  if (
+    (band.normal_low !== null && value < band.normal_low) ||
+    (band.normal_high !== null && value > band.normal_high)
+  ) {
+    return 'abnormal';
+  }
+  return 'normal';
 }
 
 /** Preview of the Parkland volumes, using the catalog's constants. */
@@ -373,15 +417,6 @@ export function vipScorePreview(
   const early =
     Number(has('tenderness')) + Number(has('redness')) + Number(has('swelling') || has('warmth'));
   return Math.min(early, 2);
-}
-
-/** What a VIP stage requires. `null` until the catalog loads. */
-export function vipActionPreview(
-  score: number | null,
-  catalog: ScoringCatalog | null,
-): string | null {
-  if (!catalog || score === null) return null;
-  return catalog.vip_phlebitis?.actions?.find((a) => a.score === score)?.action ?? null;
 }
 
 /**

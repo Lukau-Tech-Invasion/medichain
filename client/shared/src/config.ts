@@ -33,14 +33,6 @@ export const IS_DEVELOPMENT = import.meta.env?.DEV ?? false;
 export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
 
 /**
- * Demo mode. When enabled, pages may fall back to bundled sample/demo data for
- * features that don't have real backend wiring yet. Driven by the
- * `VITE_DEMO_MODE` env var and defaults to **false**, so production builds never
- * surface fabricated data to clinicians or patients.
- */
-export const IS_DEMO = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
-
-/**
  * Explicit build-time opt-in for the local presentation stack's seeded
  * credential buttons. The server independently refuses the credentials unless
  * it is both a demo deployment and in developer mode, so this flag cannot
@@ -251,15 +243,6 @@ export const setProviderAuth = (data: { address: string; role: string; name: str
   localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: data.address, role: data.role }));
 };
 
-/**
- * Clear all auth data (logout)
- */
-export const clearAuth = (): void => {
-  localStorage.removeItem(STORAGE_KEYS.WALLET);
-  localStorage.removeItem(STORAGE_KEYS.PATIENT_AUTH);
-  localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
-};
-
 /** Clear only the clinician session and preserve a patient portal session. */
 export const clearProviderAuth = (): void => {
   localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
@@ -292,11 +275,6 @@ export const isAuthenticated = (): boolean => {
 // ============================================================================
 // CONNECTION HEALTH UTILITIES
 // ============================================================================
-
-/**
- * Connection status types
- */
-export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';
 
 /**
  * Check if the API server is reachable

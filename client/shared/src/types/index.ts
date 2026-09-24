@@ -100,25 +100,6 @@ export interface CurrentUser extends WalletUserInfo {
 }
 
 /**
- * Request to bootstrap first admin
- */
-export interface BootstrapAdminRequest {
-  wallet_address: string;
-  name: string;
-  username?: string;
-  secret_key: string;
-}
-
-/**
- * Response from bootstrap admin
- */
-export interface BootstrapAdminResponse {
-  success: boolean;
-  admin: WalletUserInfo;
-  message: string;
-}
-
-/**
  * Request to register a new user with wallet
  */
 export interface WalletRegisterRequest {
@@ -141,22 +122,6 @@ export interface WalletRegisterResponse {
   success: boolean;
   wallet_address: string;
   role: string;
-  message: string;
-}
-
-/**
- * Request to login with wallet
- */
-export interface WalletLoginRequest {
-  wallet_address: string;
-}
-
-/**
- * Response from wallet login
- */
-export interface WalletLoginResponse {
-  success: boolean;
-  user?: WalletUserInfo;
   message: string;
 }
 
@@ -481,29 +446,6 @@ export interface DownloadMedicalRecordResponse {
 // NFC & Emergency Access Types
 // ============================================================================
 
-export interface NFCTagData {
-  tag_id: string;
-  patient_id: string;
-  hash: string;
-  created_at: string;
-}
-
-export interface EmergencyAccessRequest {
-  nfc_tag_id: string;
-  accessor_id: string;
-  accessor_role: string;
-  location?: string;
-}
-
-export interface EmergencyAccessResponse {
-  success: boolean;
-  access_id: string;
-  emergency_info?: EmergencyInfo;
-  chain_audit_status?: 'disabled' | 'pending' | 'finalized';
-  blockchain_tx_hash?: string;
-  message: string;
-}
-
 /** Strict emergency path: all authorisation bindings are enforced server-side. */
 export interface GrantBoundEmergencyAccessRequest {
   nfc_tag_id: string;
@@ -618,31 +560,6 @@ export interface ApiError {
   code: string;
 }
 
-/**
- * Canonical error envelope returned by the backend (Phase 9.5):
- * `{ "error": { "code", "message", "details"? } }`.
- */
-export interface ApiErrorEnvelope {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
-
-export interface HealthCheckResponse {
-  status: string;
-  version: string;
-  timestamp: string;
-  blockchain_connected: boolean;
-}
-
-export interface IpfsHealthResponse {
-  ipfs_connected: boolean;
-  api_url: string;
-  gateway_url: string;
-}
-
 // ============================================================================
 // Role Management Types
 // ============================================================================
@@ -728,11 +645,6 @@ export interface ReviewLabResultResponse {
   submission_id: string;
   status: LabResultStatus;
   message: string;
-}
-
-export interface PendingLabResultsResponse {
-  submissions: LabResultSubmission[];
-  total: number;
 }
 
 // ============================================================================
@@ -1053,24 +965,6 @@ export interface AdminDashboardResponse {
 }
 
 /**
- * Patient Dashboard Response
- * GET /api/dashboard/patient
- */
-export interface PatientDashboardResponse {
-  /** Wallet identity of the authenticated patient. */
-  user_id: string;
-  /** Clinical record id resolved from the caller's linked patient identity. */
-  patient_id: string;
-  role: 'Patient';
-  profile: PatientProfile;
-  recent_lab_results: unknown[];
-  medical_records: unknown[];
-  vital_signs: unknown | null;
-  soap_notes: unknown[];
-  triage_history: unknown[];
-}
-
-/**
  * Messages Response
  * GET /api/messages
  */
@@ -1121,14 +1015,9 @@ export interface PharmacistDashboardResponse {
 // Helper Types
 // ============================================================================
 
-export type ApiResponse<T> = T | ApiError;
-
 export * from './clinical';
 // Typed request/response shapes for the endpoints that score clinically. These
 // replace `data: unknown` on the create functions, which is how four pages came
 // to post payloads no handler read.
 export * from './clinicalScoring';
 
-export function isApiError(response: ApiResponse<unknown>): response is ApiError {
-  return typeof response === 'object' && response !== null && (response as ApiError).success === false && 'error' in (response as object);
-}
