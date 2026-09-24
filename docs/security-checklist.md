@@ -49,8 +49,9 @@ action required before go-live.
 
 - ✅ **Recording off by default; explicit consent required.** See
   `docs/e2ee-policy.md`.
-- ✅ **Transcription off by default** (`TRANSCRIPTION_PROVIDER=none`). ☐ Sign a
-  BAA/DPA with any STT vendor before enabling.
+- ✅ **No transcription.** Recordings never leave the browser, so no speech-to-
+  text runs server-side (the unusable STT seam was removed 2026-09-24). ☐ A
+  recording upload path and a BAA/DPA with any STT vendor come first.
 
 ## Pre-launch sign-off
 

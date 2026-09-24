@@ -214,9 +214,6 @@ services:
       TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-}
       GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY:-}
       GOOGLE_TRANSLATE_ENDPOINT: ${GOOGLE_TRANSLATE_ENDPOINT:-}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-}
-      GOOGLE_STT_API_KEY: ${GOOGLE_STT_API_KEY:-}
-      GOOGLE_STT_ENDPOINT: ${GOOGLE_STT_ENDPOINT:-}
 
       # Emergency audit availability. `deny` is the safe default; the
       # governance-approved `durable_defer` additionally requires a durable
