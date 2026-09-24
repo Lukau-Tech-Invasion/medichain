@@ -67,7 +67,6 @@ pub struct NoteTemplateSectionInput {
 
 fn invalid(error: &str) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "VALIDATION_ERROR".to_string(),
     })
@@ -187,7 +186,6 @@ pub async fn create_note_template(
     };
     if !user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only clinicians who document notes can create note templates".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -214,7 +212,6 @@ pub async fn create_note_template(
         Err(error) => {
             log::error!("note template persistence failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The template could not be saved".to_string(),
                 code: "TEMPLATE_PERSISTENCE_FAILED".to_string(),
             })
@@ -245,7 +242,6 @@ pub async fn deactivate_note_template(
     let template_id = path.into_inner();
     if super::compliance::is_builtin_note_template(&template_id) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Built-in templates cannot be deactivated".to_string(),
             code: "BUILT_IN_TEMPLATE".to_string(),
         });
@@ -259,7 +255,6 @@ pub async fn deactivate_note_template(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Unknown note template".to_string(),
                 code: "TEMPLATE_NOT_FOUND".to_string(),
             })
@@ -271,7 +266,6 @@ pub async fn deactivate_note_template(
     };
     if !may_deactivate(&user, &record) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the template's author or an administrator can deactivate it".to_string(),
             code: "NOT_TEMPLATE_AUTHOR".to_string(),
         });
@@ -295,7 +289,6 @@ pub async fn deactivate_note_template(
             "template_id": template_id,
         })),
         Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This template has already been deactivated".to_string(),
             code: "TEMPLATE_NOT_ACTIVE".to_string(),
         }),

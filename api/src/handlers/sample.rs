@@ -32,7 +32,6 @@ pub async fn create_sample_history(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -40,7 +39,6 @@ pub async fn create_sample_history(
     };
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Healthcare provider role required".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -144,14 +142,12 @@ pub async fn get_sample_history(
                 HttpResponse::Ok().json(serde_json::json!({ "success": true, "history": history }))
             } else {
                 HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: format!("No SAMPLE history found for patient {}", patient_id),
                     code: "NOT_FOUND".to_string(),
                 })
             }
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

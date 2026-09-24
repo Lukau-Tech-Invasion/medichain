@@ -11,7 +11,6 @@ pub async fn get_lab_panels(data: web::Data<AppState>, http_req: HttpRequest) ->
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -22,7 +21,6 @@ pub async fn get_lab_panels(data: web::Data<AppState>, http_req: HttpRequest) ->
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -32,7 +30,6 @@ pub async fn get_lab_panels(data: web::Data<AppState>, http_req: HttpRequest) ->
     // Healthcare providers can view lab panels
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view lab panels".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -61,7 +58,6 @@ pub async fn get_lab_panel(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -72,7 +68,6 @@ pub async fn get_lab_panel(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -81,7 +76,6 @@ pub async fn get_lab_panel(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view lab panels".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -94,7 +88,6 @@ pub async fn get_lab_panel(
     {
         Some(panel) => HttpResponse::Ok().json(panel),
         None => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Lab panel '{}' not found", panel_name),
             code: "PANEL_NOT_FOUND".to_string(),
         }),

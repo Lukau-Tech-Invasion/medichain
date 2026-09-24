@@ -8,7 +8,6 @@ macro_rules! required_worklist_read {
             Err(error) => {
                 log::error!("{} read failed: {error}", $area);
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Clinical worklist data is temporarily unavailable".to_string(),
                     code: "WORKLIST_DATA_UNAVAILABLE".to_string(),
                 });
@@ -28,7 +27,6 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -39,7 +37,6 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -136,7 +133,6 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
                     Ok(entries) => entries,
                     Err(()) => {
                         return HttpResponse::InternalServerError().json(ErrorResponse {
-                            success: false,
                             error: "Failed to load notifications".to_string(),
                             code: "NOTIFICATION_LOAD_FAILED".to_string(),
                         })
@@ -203,7 +199,6 @@ async fn notifications_read_at(
         Err(error) => {
             log::error!("notification read marker load failed: {error}");
             Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Notifications are temporarily unavailable".to_string(),
                 code: "NOTIFICATION_READ_STATE_UNAVAILABLE".to_string(),
             }))
@@ -226,7 +221,6 @@ pub async fn mark_notifications_read(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -234,7 +228,6 @@ pub async fn mark_notifications_read(
     };
     if get_user(&data, &current_user_id).is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
@@ -255,7 +248,6 @@ pub async fn mark_notifications_read(
         Err(error) => {
             log::error!("notification read marker write failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The notifications could not be marked read".to_string(),
                 code: "NOTIFICATION_READ_STATE_UNAVAILABLE".to_string(),
             })

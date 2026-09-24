@@ -30,7 +30,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Rate limit configuration
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct RateLimitConfig {
     /// Maximum requests per window for anonymous users
@@ -104,7 +103,6 @@ struct RateLimitEntry {
 }
 
 /// Rate limiting middleware factory
-#[allow(dead_code)]
 /// Shared across every worker thread.
 ///
 /// This map used to be allocated inside `new_transform`, which Actix calls once
@@ -130,7 +128,6 @@ pub struct RateLimitMiddleware {
 
 type SharedCounters = Arc<Mutex<HashMap<String, RateLimitEntry>>>;
 
-#[allow(dead_code)]
 impl RateLimitMiddleware {
     pub fn default_config() -> Self {
         Self {

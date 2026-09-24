@@ -216,7 +216,6 @@ pub async fn set_provider_schedule(
 
     if caller.wallet_address != provider_id && !caller.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A schedule can be set by the provider it belongs to, or by an administrator."
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -277,7 +276,6 @@ pub async fn set_provider_schedule(
     if let Err(error) = data.repositories.provider_schedules.create(entity).await {
         log::error!("provider schedule persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The schedule could not be saved; please retry.".to_string(),
             code: "SCHEDULE_PERSISTENCE_FAILED".to_string(),
         });
@@ -293,7 +291,6 @@ pub async fn set_provider_schedule(
 
 fn reject(message: String) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: message,
         code: "SCHEDULE_INVALID".to_string(),
     })

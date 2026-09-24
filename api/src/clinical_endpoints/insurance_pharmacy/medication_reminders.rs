@@ -85,7 +85,6 @@ pub async fn create_medication_reminder(
 
     if !is_own_reminder && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patients can create reminders for themselves or providers for patients"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -100,7 +99,6 @@ pub async fn create_medication_reminder(
         Some(frequency) => frequency,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "Unknown frequency '{}'. Expected one of: {}",
                     req.frequency,
@@ -137,7 +135,6 @@ pub async fn create_medication_reminder(
     let entity: crate::repositories::traits::MedicationReminderEntity = reminder.into();
     if let Err(e) = data.repositories.medication_reminders.create(entity).await {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to create reminder: {}", e),
             code: "DB_ERROR".to_string(),
         });
@@ -173,7 +170,6 @@ pub async fn get_patient_reminders(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -191,7 +187,6 @@ pub async fn get_patient_reminders(
             .collect(),
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("Failed to fetch reminders: {}", e),
                 code: "DB_ERROR".to_string(),
             })
@@ -246,7 +241,6 @@ pub async fn get_patient_adherence(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the patient or a healthcare provider can read an adherence history"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -268,7 +262,6 @@ pub async fn get_patient_adherence(
         Err(error) => {
             log::error!("adherence history for {patient_id} could not be read: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The adherence history could not be read".to_string(),
                 code: "ADHERENCE_UNAVAILABLE".to_string(),
             });
@@ -318,7 +311,6 @@ pub async fn log_medication_adherence(
         Ok(e) => e.into(),
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Reminder not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -334,7 +326,6 @@ pub async fn log_medication_adherence(
     // handler could not even deserialize.
     if !crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patient can log their own adherence".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -360,7 +351,6 @@ pub async fn log_medication_adherence(
         "taken_late" => "taken_late",
         other => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "Unknown action '{other}'. Expected one of: taken, taken_late, skipped, \
                      snoozed, missed"
@@ -409,7 +399,6 @@ pub async fn log_medication_adherence(
             "message": "Adherence logged successfully"
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -439,7 +428,6 @@ pub async fn delete_medication_reminder(
         Ok(e) => e.into(),
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Reminder not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             });
@@ -453,7 +441,6 @@ pub async fn delete_medication_reminder(
         crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id);
     if !owns_patient_record && reminder.created_by != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -466,7 +453,6 @@ pub async fn delete_medication_reminder(
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to deactivate: {}", e),
             code: "DB_ERROR".to_string(),
         });

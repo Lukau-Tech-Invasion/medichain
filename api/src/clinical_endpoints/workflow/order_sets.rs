@@ -106,7 +106,6 @@ fn may_review(role: &crate::Role) -> bool {
 
 fn order_set_error(status: actix_web::http::StatusCode, error: &str, code: &str) -> HttpResponse {
     HttpResponse::build(status).json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })

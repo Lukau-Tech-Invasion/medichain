@@ -48,7 +48,6 @@ pub async fn claim_medical_identity(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Wallet not registered".to_string(),
                 code: "WALLET_NOT_REGISTERED".to_string(),
             })
@@ -57,7 +56,6 @@ pub async fn claim_medical_identity(
 
     if current_user.linked_patient_id.is_some() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "This account is already linked to a medical identity".to_string(),
             code: "ALREADY_LINKED".to_string(),
         });
@@ -85,7 +83,6 @@ pub async fn claim_medical_identity(
         .unwrap_or(false);
     if already_claimed {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This medical identity has already been claimed".to_string(),
             code: "IDENTITY_ALREADY_CLAIMED".to_string(),
         });
@@ -95,7 +92,6 @@ pub async fn claim_medical_identity(
         Ok(patient) => patient,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Medical identity not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -114,7 +110,6 @@ pub async fn claim_medical_identity(
     // was wrong, so this endpoint can't be used to probe a patient_id's PII.
     if !national_id_matches || !date_of_birth_matches {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Identity verification failed".to_string(),
             code: "CLAIM_VERIFICATION_FAILED".to_string(),
         });
@@ -129,7 +124,6 @@ pub async fn claim_medical_identity(
         Some(user) => user,
         None => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "User record disappeared during claim".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -156,7 +150,6 @@ pub async fn claim_medical_identity(
             .is_err()
         {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Medical identity claim could not be completed".into(),
                 code: "IDENTITY_ALREADY_CLAIMED".into(),
             });

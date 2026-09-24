@@ -65,7 +65,6 @@ async fn issue_context(
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Wallet not registered".to_string(),
                 code: "WALLET_NOT_REGISTERED".to_string(),
             })
@@ -82,7 +81,6 @@ async fn issue_context(
         .await
         {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "No active guardian relationship grants access to this medical identity"
                     .to_string(),
                 code: "GUARDIAN_ACCESS_DENIED".to_string(),
@@ -105,7 +103,6 @@ async fn issue_context(
         Ok(context) => context,
         Err(message) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: message.to_string(),
                 code: "IDENTITY_CONTEXT_UNAVAILABLE".to_string(),
             })
@@ -126,7 +123,6 @@ async fn issue_context(
             context,
         }),
         Err(error) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to issue context token: {error}"),
             code: "CONTEXT_TOKEN_ISSUE_FAILED".to_string(),
         }),
@@ -161,7 +157,6 @@ pub async fn list_my_medical_identities(
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Wallet not registered".to_string(),
                 code: "WALLET_NOT_REGISTERED".to_string(),
             })

@@ -185,7 +185,6 @@ fn resolve_consent_authority(
             .unwrap_or(true)
     {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "emergency_justification is required when emergency_basis is not 'none'"
                 .to_string(),
             code: "EMERGENCY_JUSTIFICATION_REQUIRED".to_string(),
@@ -244,7 +243,6 @@ fn child_capacity_refusal(
     if capacity == ConsentGiverCapacity::ChildOver12Mature {
         if treatment_capacity != crate::support::TreatmentConsentCapacity::MatureChildEligible {
             return Some(HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "consent_giver_capacity 'child_over_12_mature' is not available for this \
                      patient: Children's Act s129 requires an age of at least {} years, and \
@@ -263,7 +261,6 @@ fn child_capacity_refusal(
         {
             return Some(
                 HttpResponse::BadRequest().json(ErrorResponse {
-                    success: false,
                     error: "child_maturity_assessment is required when consent_giver_capacity is \
                         'child_over_12_mature': age alone does not establish capacity under \
                         Children's Act s129"
@@ -278,7 +275,6 @@ fn child_capacity_refusal(
         && treatment_capacity == crate::support::TreatmentConsentCapacity::CompetentPersonRequired
     {
         return Some(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "a patient under {} may not consent for themselves; a parent, guardian, or \
                  other competent person must consent on their behalf",
@@ -310,7 +306,6 @@ pub async fn sign_consent(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -374,7 +369,6 @@ pub async fn sign_consent(
         Ok(patient) => patient.wallet_address,
         Err(_) if crate::blockchain::blockchain_enabled() => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Patient must have a wallet-bound record before consent can be anchored"
                     .to_string(),
                 code: "PATIENT_WALLET_REQUIRED".to_string(),
@@ -384,7 +378,6 @@ pub async fn sign_consent(
     };
     if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Patient must have a wallet-bound record before consent can be anchored"
                 .to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
@@ -396,7 +389,6 @@ pub async fn sign_consent(
     // unevidenced claim of authority.
     if capacity.requires_authority_evidence() && authority_evidence_id.is_none() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "consent_giver_capacity '{}' requires a verified guardian relationship \
                  authorising this caller for this patient",
@@ -585,7 +577,6 @@ pub async fn sign_consent(
                 e
             );
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save consent".to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             })
@@ -624,7 +615,6 @@ pub async fn revoke_consent(
         Ok(record) => record,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Consent record not found".to_string(),
                 code: "CONSENT_NOT_FOUND".to_string(),
             })
@@ -640,7 +630,6 @@ pub async fn revoke_consent(
     .await;
     if !access.is_permitted() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Not permitted to revoke this consent".to_string(),
             code: "CONSENT_REVOKE_FORBIDDEN".to_string(),
         });
@@ -660,7 +649,6 @@ pub async fn revoke_consent(
         })),
         Err(crate::repositories::traits::RepositoryError::Validation(_)) => {
             HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Consent is no longer active".to_string(),
                 code: "CONSENT_NOT_ACTIVE".to_string(),
             })
@@ -668,7 +656,6 @@ pub async fn revoke_consent(
         Err(error) => {
             log::error!("Consent revocation persistence failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Consent records are temporarily unavailable".to_string(),
                 code: "CONSENT_REPOSITORY_UNAVAILABLE".to_string(),
             })
@@ -713,7 +700,6 @@ pub async fn get_patient_consents(
                 error
             );
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Consent records are temporarily unavailable".to_string(),
                 code: "CONSENT_REPOSITORY_UNAVAILABLE".to_string(),
             });
@@ -777,7 +763,6 @@ pub async fn generate_barcode(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -786,7 +771,6 @@ pub async fn generate_barcode(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -857,7 +841,6 @@ pub async fn scan_barcode(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -866,7 +849,6 @@ pub async fn scan_barcode(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -883,7 +865,6 @@ pub async fn scan_barcode(
         Some(b) => b,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "barcode_value is required".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
@@ -995,7 +976,6 @@ pub async fn scan_barcode(
             // so rather than reporting a successful scan that left no trace.
             log::error!("barcode scan persist failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the scan".to_string(),
                 code: "SCAN_WRITE_FAILED".to_string(),
             });
@@ -1031,7 +1011,6 @@ pub async fn track_barcode(
     };
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1045,7 +1024,6 @@ pub async fn track_barcode(
         Err(e) => {
             log::error!("barcode history load failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not load barcode history".to_string(),
                 code: "SCAN_READ_FAILED".to_string(),
             });
@@ -1089,7 +1067,6 @@ pub async fn get_barcode_scan_history(
         Err(e) => {
             log::error!("scan history load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not load scan history".to_string(),
                 code: "SCAN_READ_FAILED".to_string(),
             });
@@ -1206,7 +1183,6 @@ pub async fn get_scanner_settings(
         Err(e) => {
             log::error!("scanner settings read failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Scanner settings could not be read".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -1269,7 +1245,6 @@ pub async fn update_scanner_settings(
         Err(e) => {
             log::error!("scanner settings save failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Scanner settings could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -1338,7 +1313,6 @@ pub async fn clear_scan_history(
         Err(e) => {
             log::error!("scan history clear failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Scan history could not be cleared".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -1360,7 +1334,6 @@ pub async fn get_note_templates(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1371,7 +1344,6 @@ pub async fn get_note_templates(
     // one. Other roles have no use for a note template.
     if !(current_user.role.can_edit_medical_records() || current_user.role.is_admin()) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1389,7 +1361,6 @@ pub async fn get_note_templates(
         Err(error) => {
             log::error!("note template registry read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Saved note templates could not be read".to_string(),
                 code: "TEMPLATES_UNAVAILABLE".to_string(),
             });
@@ -1427,7 +1398,6 @@ pub async fn use_note_template(
         Ok(Some(sections)) => sections,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Unknown note template".to_string(),
                 code: "TEMPLATE_NOT_FOUND".to_string(),
             })

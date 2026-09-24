@@ -502,7 +502,8 @@ mod tests {
                 .app_data(app_state.clone())
                 .service(register_patient)
                 .service(crate::clinical_endpoints::fhir_get_conditions)
-                .service(crate::clinical_endpoints::fhir_get_medications),
+                .service(crate::clinical_endpoints::fhir_get_medications)
+                .service(crate::clinical_endpoints::fhir_get_allergies),
         )
         .await;
 
@@ -552,6 +553,25 @@ mod tests {
         assert_eq!(
             body["total"], 2,
             "MedicationStatement bundle reported no medication for a patient on two"
+        );
+
+        // Read an allergies table nothing writes, so it was `total: 0` for
+        // every patient -- a positive "no known allergies" to the importer.
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/fhir/r4/AllergyIntolerance?patient={patient_id}"
+            ))
+            .insert_header(("x-user-id", "doctor_wallet"))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(
+            body["total"], 1,
+            "AllergyIntolerance bundle lost the allergy: {body}"
+        );
+        assert_eq!(body["entry"][0]["resource"]["code"]["text"], "Penicillin");
+        assert_eq!(
+            body["entry"][0]["resource"]["criticality"], "unable-to-assess",
+            "a registration allergy has no assessed severity"
         );
     }
 
@@ -609,5 +629,7 @@ mod tests {
         // Present and false: the card can distinguish "nothing recorded" from
         // "we could not decrypt the record".
         assert_eq!(body["profile_unavailable"], false);
+        assert_eq!(body["allergies"][0]["name"], "Penicillin", "{body}");
+        assert_eq!(body["allergies"][0]["severity"], "unknown", "{body}");
     }
 }

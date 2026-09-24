@@ -150,11 +150,10 @@ pub async fn revoke_all_for_wallet(
 /// the database, not in the token: an access token stays cryptographically valid
 /// until it expires, so anything gated on session state must ask here.
 ///
-/// Not yet called from a request path -- `SessionStateMiddleware` reads the row
-/// directly because it also needs the subject binding in the same query. This is
-/// the accessor the Class B step-up work will use, and the session tests already
-/// assert through it, so it stays rather than being deleted and rewritten.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Test-only: `SessionStateMiddleware` reads the row directly because it also
+/// needs the subject binding in the same query. The session tests assert
+/// through this accessor, so it is compiled for them and nothing else.
+#[cfg(test)]
 pub async fn is_session_active(pool: &PgPool, login_session_id: Uuid) -> Result<bool, sqlx::Error> {
     let active: Option<bool> =
         sqlx::query_scalar("SELECT revoked_at IS NULL FROM auth_login_sessions WHERE id = $1")

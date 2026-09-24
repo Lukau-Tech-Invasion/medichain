@@ -28,7 +28,6 @@ fn normalise_staff_phone(raw: Option<&str>) -> Result<Option<String>, HttpRespon
     let trimmed = raw.map(str::trim).filter(|value| !value.is_empty());
     if trimmed.is_some_and(|value| value.chars().count() > MAX_STAFF_PHONE_LEN) {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("Phone number must be at most {MAX_STAFF_PHONE_LEN} characters"),
             code: "INVALID_PHONE".to_string(),
         }));
@@ -74,7 +73,6 @@ pub async fn bootstrap_admin(
         Err(_) if is_demo => "medichain-dev-bootstrap-2024".to_string(),
         Err(_) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "MEDICHAIN_BOOTSTRAP_KEY environment variable required in production"
                     .to_string(),
                 code: "MISSING_BOOTSTRAP_KEY".to_string(),
@@ -84,7 +82,6 @@ pub async fn bootstrap_admin(
 
     if body.secret_key != bootstrap_key {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Invalid bootstrap key".to_string(),
             code: "INVALID_BOOTSTRAP_KEY".to_string(),
         });
@@ -94,7 +91,6 @@ pub async fn bootstrap_admin(
     match data.has_any_persisted_user().await {
         Ok(true) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Bootstrap not allowed - users already exist. Use /api/auth/register with admin credentials.".to_string(),
                 code: "BOOTSTRAP_NOT_ALLOWED".to_string(),
             });
@@ -103,7 +99,6 @@ pub async fn bootstrap_admin(
         Err(e) => {
             log::error!("Bootstrap user existence check failed: {}", e);
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "User storage is unavailable".to_string(),
                 code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
             });
@@ -113,7 +108,6 @@ pub async fn bootstrap_admin(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error:
                 "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
                     .to_string(),
@@ -142,7 +136,6 @@ pub async fn bootstrap_admin(
     if let Err(e) = data.persist_then_cache_user(admin.clone()).await {
         log::error!("Failed to persist bootstrap administrator: {}", e);
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Administrator account could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -180,7 +173,6 @@ pub async fn wallet_register(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -191,7 +183,6 @@ pub async fn wallet_register(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Admin user not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -201,7 +192,6 @@ pub async fn wallet_register(
     // Only admin can register new users
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can register new users".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -210,7 +200,6 @@ pub async fn wallet_register(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error:
                 "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
                     .to_string(),
@@ -223,7 +212,6 @@ pub async fn wallet_register(
         let users = data.users.read().unwrap();
         if users.contains_key(&body.wallet_address) {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Wallet address already registered".to_string(),
                 code: "WALLET_ALREADY_REGISTERED".to_string(),
             });
@@ -235,7 +223,6 @@ pub async fn wallet_register(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_ROLE".to_string(),
             });
@@ -245,7 +232,6 @@ pub async fn wallet_register(
     // Cannot register Admin role
     if role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot register Admin role via API".to_string(),
             code: "CANNOT_REGISTER_ADMIN".to_string(),
         });
@@ -286,7 +272,6 @@ pub async fn wallet_register(
     if let Err(e) = data.persist_then_cache_user(user).await {
         log::error!("Failed to persist new user: {e}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "User registration could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });

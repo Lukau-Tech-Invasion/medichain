@@ -256,7 +256,6 @@ pub async fn get_eligibility_checks(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the patient or a healthcare provider can read eligibility checks"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -301,7 +300,6 @@ pub async fn check_insurance_eligibility(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can check eligibility".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -319,7 +317,6 @@ pub async fn check_insurance_eligibility(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Patient not found".to_string(),
             code: "NOT_FOUND".to_string(),
         });
@@ -347,7 +344,6 @@ pub async fn check_insurance_eligibility(
     {
         log::error!("{error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The eligibility result could not be saved; please retry.".to_string(),
             code: "ELIGIBILITY_CHECK_PERSISTENCE_FAILED".to_string(),
         });

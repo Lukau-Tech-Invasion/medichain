@@ -98,7 +98,6 @@ pub async fn register_wearable_device(
         {
             log::error!("wearable_device_records persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The alert rule could not be saved; please retry.".to_string(),
                 code: "WEARABLE_DEVICE_RECORD_PERSISTENCE_FAILED".to_string(),
             });
@@ -191,7 +190,6 @@ pub async fn disconnect_wearable_device(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Wearable device not found".to_string(),
                 code: "WEARABLE_DEVICE_NOT_FOUND".to_string(),
             })
@@ -199,7 +197,6 @@ pub async fn disconnect_wearable_device(
         Err(error) => {
             log::error!("wearable device lookup failed for {device_id}: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The wearable device could not be read; please retry.".to_string(),
                 code: "WEARABLE_STORE_UNAVAILABLE".to_string(),
             });
@@ -210,7 +207,6 @@ pub async fn disconnect_wearable_device(
     // patient's wearable would be a denial of care, not a privacy control.
     if record.owner_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "That device belongs to another account".to_string(),
             code: "WEARABLE_DEVICE_OWNER_MISMATCH".to_string(),
         });
@@ -247,7 +243,6 @@ pub async fn disconnect_wearable_device(
             // believing a device stopped streaming when it did not.
             log::error!("wearable disconnect failed for {device_id}: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The device could not be disconnected; please retry.".to_string(),
                 code: "WEARABLE_DISCONNECT_FAILED".to_string(),
             })
@@ -264,7 +259,6 @@ pub async fn get_supported_wearables(
     // Only authenticated users can see supported wearables
     if http_req.headers().get("X-User-Id").is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Missing X-User-Id header".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
@@ -312,12 +306,8 @@ pub struct SubmitWearableReadingRequest {
     pub value: f64,
     pub unit: String,
     pub timestamp: Option<i64>,
-    /// Accepted and not stored: `clinical::WearableReading` has no metadata
-    /// field, so there is nowhere for it to go. Kept on the request so an
-    /// existing client's body still deserialises, and named here so the next
-    /// reader knows it is dropped rather than assuming it is persisted.
-    #[allow(dead_code)]
-    pub metadata: Option<serde_json::Value>,
+    // No `metadata`: `clinical::WearableReading` has nowhere to keep it. A
+    // client that sends one is not refused -- serde ignores unknown fields.
 }
 
 /// Submit a wearable reading
@@ -346,7 +336,6 @@ pub async fn submit_wearable_reading(
                 serde_json::from_value(rec.data).unwrap_or_default();
             if d.patient_id != current_user_id {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "You do not own this device".to_string(),
                     code: "FORBIDDEN".to_string(),
                 });
@@ -354,7 +343,6 @@ pub async fn submit_wearable_reading(
         }
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Device not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             });
@@ -412,7 +400,6 @@ pub async fn submit_wearable_reading(
         {
             log::error!("wearable_reading_records persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The alert rule could not be saved; please retry.".to_string(),
                 code: "WEARABLE_READING_RECORD_PERSISTENCE_FAILED".to_string(),
             });
@@ -483,7 +470,6 @@ pub async fn submit_wearable_reading(
         {
             log::error!("wearable_alert_records persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The alert rule could not be saved; please retry.".to_string(),
                 code: "WEARABLE_ALERT_RECORD_PERSISTENCE_FAILED".to_string(),
             });
@@ -741,15 +727,10 @@ pub async fn get_wearable_readings(
 /// Create alert rule request
 #[derive(Debug, Deserialize)]
 pub struct CreateAlertRuleRequest {
-    /// Which device the clinician picked -- and **the rule is not scoped to
-    /// it**. `WearableAlertRule` carries no device: a rule watches a patient's
-    /// readings of one data type, whichever device reports them. That is the
-    /// right scope for a clinical threshold (a dangerous heart rate is
-    /// dangerous whichever strap measured it), but a form that asks for a
-    /// device and a server that ignores the answer is not. The create response
-    /// states the rule's actual coverage.
-    #[allow(dead_code)]
-    pub device_id: String,
+    // No `device_id`: a rule watches a patient's readings of one data type,
+    // whichever device reports them -- the right scope for a clinical
+    // threshold. A device sent by the form is ignored, and the create response
+    // states the rule's actual coverage.
     pub data_type: String,
     pub threshold_low: Option<f64>,
     pub threshold_high: Option<f64>,
@@ -816,7 +797,6 @@ pub async fn create_wearable_alert_rule(
         Ok(value) => value,
         Err(message) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: message.to_string(),
                 code: "WEARABLE_ALERT_RULE_REJECTED".to_string(),
             })
@@ -867,7 +847,6 @@ pub async fn create_wearable_alert_rule(
         if let Err(error) = data.repositories.wearable_alert_rules.create(entity).await {
             log::error!("wearable_alert_rules persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The alert rule could not be saved; please retry.".to_string(),
                 code: "WEARABLE_ALERT_RULE_PERSISTENCE_FAILED".to_string(),
             });

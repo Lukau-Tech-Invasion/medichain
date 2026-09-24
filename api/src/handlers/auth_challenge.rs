@@ -26,7 +26,6 @@ pub async fn get_auth_challenge(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format".to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
@@ -34,7 +33,6 @@ pub async fn get_auth_challenge(
 
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Authentication is temporarily unavailable".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -43,7 +41,6 @@ pub async fn get_auth_challenge(
         Ok(challenge) => challenge,
         Err(crate::auth_challenges::IssueError::RateLimited) => {
             return HttpResponse::TooManyRequests().json(ErrorResponse {
-                success: false,
                 error: "Too many authentication challenges. Please try again shortly.".to_string(),
                 code: "AUTH_CHALLENGE_RATE_LIMITED".to_string(),
             });
@@ -51,7 +48,6 @@ pub async fn get_auth_challenge(
         Err(crate::auth_challenges::IssueError::Database(error)) => {
             log::error!("Could not create authentication challenge: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Authentication is temporarily unavailable".to_string(),
                 code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
             });
@@ -83,7 +79,6 @@ pub async fn get_all_staff(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -95,7 +90,6 @@ pub async fn get_all_staff(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -104,7 +98,6 @@ pub async fn get_all_staff(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can view all staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -143,7 +136,6 @@ pub async fn get_all_staff(
                     // database error.
                     log::error!("get_all_staff: staff directory unavailable: {e}");
                     return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                        success: false,
                         error: "The staff directory could not be read".to_string(),
                         code: "USER_DIRECTORY_UNAVAILABLE".to_string(),
                     });
@@ -199,7 +191,6 @@ pub async fn get_providers(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -211,7 +202,6 @@ pub async fn get_providers(
         Some(_) => {}
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -302,7 +292,6 @@ pub async fn get_user_with_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -313,7 +302,6 @@ pub async fn get_user_with_profile(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -323,7 +311,6 @@ pub async fn get_user_with_profile(
     // RBAC: Only admins or the user themselves can view full profile
     if current_user.role != Role::Admin && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied - can only view own profile".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -334,7 +321,6 @@ pub async fn get_user_with_profile(
         Some(u) => u,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -381,7 +367,6 @@ pub async fn list_users(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -393,7 +378,6 @@ pub async fn list_users(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -402,7 +386,6 @@ pub async fn list_users(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can list users".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -444,7 +427,6 @@ pub async fn list_users(
                 Err(e) => {
                     log::error!("list_users: user directory unavailable: {e}");
                     return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                        success: false,
                         error: "The user directory could not be read".to_string(),
                         code: "USER_DIRECTORY_UNAVAILABLE".to_string(),
                     });
@@ -534,7 +516,6 @@ pub async fn get_user_details(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -546,7 +527,6 @@ pub async fn get_user_details(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -556,7 +536,6 @@ pub async fn get_user_details(
     // Allow admin to view any user, or users to view themselves
     if !current_user.role.is_admin() && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can view other user details".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -567,7 +546,6 @@ pub async fn get_user_details(
         Some(u) => u,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -670,7 +648,6 @@ pub async fn update_user_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -682,7 +659,6 @@ pub async fn update_user_profile(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -692,7 +668,6 @@ pub async fn update_user_profile(
     // Allow admin to update any user, or users to update themselves
     if !current_user.role.is_admin() && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can update other user profiles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -700,7 +675,6 @@ pub async fn update_user_profile(
 
     if body.status.is_some() && !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can change account status".to_string(),
             code: "STATUS_CHANGE_FORBIDDEN".to_string(),
         });
@@ -750,7 +724,6 @@ pub async fn update_user_profile(
                 Some(user) => user,
                 None => {
                     return HttpResponse::NotFound().json(ErrorResponse {
-                        success: false,
                         error: "User not found".to_string(),
                         code: "USER_NOT_FOUND".to_string(),
                     });
@@ -763,7 +736,6 @@ pub async fn update_user_profile(
         Ok(user) => user,
         Err((code, message)) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: message.to_string(),
                 code: code.to_string(),
             })
@@ -777,7 +749,6 @@ pub async fn update_user_profile(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Profile update could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -804,7 +775,6 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -816,7 +786,6 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -837,13 +806,11 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
             Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
                 Some(profile) => HttpResponse::Ok().json(profile),
                 None => HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: "No medical records found for your account".to_string(),
                     code: "RECORD_NOT_FOUND".to_string(),
                 }),
             },
             Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "No medical records found for your account".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             }),
@@ -870,7 +837,6 @@ const MAX_SETTINGS_BYTES: usize = 64 * 1024;
 fn settings_storage_error(operation: &str) -> HttpResponse {
     log::error!("User settings storage failed during {operation}");
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Settings storage is temporarily unavailable".to_string(),
         code: "STORAGE_UNAVAILABLE".to_string(),
     })
@@ -983,7 +949,6 @@ pub async fn save_settings(
         || encoded_size.unwrap_or(0) > MAX_SETTINGS_BYTES
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Settings must be a JSON object no larger than 64 KiB".to_string(),
             code: "INVALID_SETTINGS".to_string(),
         });

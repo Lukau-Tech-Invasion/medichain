@@ -1134,6 +1134,9 @@ pub fn catalog() -> serde_json::Value {
                 { "level": "ready", "min": ALDRETE_DISCHARGE_THRESHOLD, "max": serde_json::Value::Null },
             ],
         },
+        // What the vitals screens colour as abnormal and critical. The same
+        // limits raise the critical alerts on `POST /api/clinical/vitals`.
+        "vital_signs": VITAL_BANDS,
         // The critical-value call list, for the report form's preview. The
         // stored level is computed on the server when the report is filed.
         "critical_values": {
@@ -2271,6 +2274,158 @@ mod lab_flag_tests {
     fn labels_are_stable_on_the_wire() {
         assert_eq!(lab_flag_label(S::CriticalHigh), "critical_high");
         assert_eq!(lab_flag_label(S::Normal), "normal");
+    }
+}
+
+// ============================================================================
+// Adult vital-sign bands
+// ============================================================================
+
+/// One vital sign's adult reference range and the limits beyond which
+/// `POST /api/clinical/vitals` raises a critical alert. `None` means the
+/// instrument has no limit on that side.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct VitalBand {
+    pub key: &'static str,
+    pub normal_low: Option<f64>,
+    pub normal_high: Option<f64>,
+    pub critical_low: Option<f64>,
+    pub critical_high: Option<f64>,
+}
+
+/// The single definition. `VitalSignsPage` used to carry its own copy, and its
+/// critical systolic limit was 70 where this server alerted below 90 -- a
+/// reading the server had flagged Hypotension rendered as merely abnormal.
+pub const VITAL_BANDS: [VitalBand; 9] = [
+    VitalBand {
+        key: "heart_rate",
+        normal_low: Some(60.0),
+        normal_high: Some(100.0),
+        critical_low: Some(40.0),
+        critical_high: Some(150.0),
+    },
+    VitalBand {
+        key: "respiratory_rate",
+        normal_low: Some(12.0),
+        normal_high: Some(20.0),
+        critical_low: Some(8.0),
+        critical_high: Some(30.0),
+    },
+    VitalBand {
+        key: "bp_systolic",
+        normal_low: Some(90.0),
+        normal_high: Some(140.0),
+        critical_low: Some(90.0),
+        critical_high: Some(180.0),
+    },
+    VitalBand {
+        key: "bp_diastolic",
+        normal_low: Some(60.0),
+        normal_high: Some(90.0),
+        critical_low: None,
+        critical_high: None,
+    },
+    VitalBand {
+        key: "temperature",
+        normal_low: Some(36.1),
+        normal_high: Some(37.8),
+        critical_low: Some(35.0),
+        critical_high: Some(39.5),
+    },
+    VitalBand {
+        key: "oxygen_saturation",
+        normal_low: Some(95.0),
+        normal_high: Some(100.0),
+        critical_low: Some(92.0),
+        critical_high: None,
+    },
+    VitalBand {
+        key: "pain_scale",
+        normal_low: Some(0.0),
+        normal_high: Some(3.0),
+        critical_low: None,
+        critical_high: None,
+    },
+    VitalBand {
+        key: "gcs",
+        normal_low: Some(15.0),
+        normal_high: Some(15.0),
+        critical_low: Some(9.0),
+        critical_high: None,
+    },
+    VitalBand {
+        key: "blood_glucose",
+        normal_low: Some(70.0),
+        normal_high: Some(140.0),
+        critical_low: Some(50.0),
+        critical_high: Some(400.0),
+    },
+];
+
+/// The band for one vital sign, by its catalog key.
+pub fn vital_band(key: &str) -> Option<&'static VitalBand> {
+    VITAL_BANDS.iter().find(|band| band.key == key)
+}
+
+/// `(below the critical low, above the critical high)`. A limit that is
+/// absent never fires; an unknown key is never critical.
+pub fn vital_beyond(key: &str, value: f64) -> (bool, bool) {
+    match vital_band(key) {
+        Some(band) => (
+            band.critical_low.is_some_and(|low| value < low),
+            band.critical_high.is_some_and(|high| value > high),
+        ),
+        None => (false, false),
+    }
+}
+
+/// A blood pressure whose systolic is not above its diastolic has almost
+/// certainly been entered the wrong way round, and filed as it stands it reads
+/// as profound hypotension.
+pub fn blood_pressure_is_transposed(systolic: u16, diastolic: u16) -> bool {
+    systolic <= diastolic
+}
+
+#[cfg(test)]
+mod vital_band_tests {
+    use super::*;
+
+    #[test]
+    fn every_band_is_ordered_and_named_once() {
+        for band in VITAL_BANDS {
+            assert_eq!(
+                VITAL_BANDS.iter().filter(|b| b.key == band.key).count(),
+                1,
+                "{}",
+                band.key
+            );
+            if let (Some(lo), Some(hi)) = (band.normal_low, band.normal_high) {
+                assert!(lo <= hi, "{}", band.key);
+            }
+            if let (Some(lo), Some(hi)) = (band.critical_low, band.critical_high) {
+                assert!(lo < hi, "{}", band.key);
+            }
+        }
+    }
+
+    #[test]
+    fn critical_limits_are_exclusive() {
+        assert_eq!(vital_beyond("bp_systolic", 90.0), (false, false));
+        assert_eq!(vital_beyond("bp_systolic", 89.0), (true, false));
+        assert_eq!(vital_beyond("heart_rate", 151.0), (false, true));
+        assert_eq!(
+            vital_beyond("bp_diastolic", 20.0),
+            (false, false),
+            "no limit, never fires"
+        );
+        assert_eq!(vital_beyond("unknown", 0.0), (false, false));
+    }
+
+    #[test]
+    fn a_transposed_pressure_is_caught() {
+        assert!(blood_pressure_is_transposed(80, 120));
+        assert!(blood_pressure_is_transposed(90, 90));
+        assert!(!blood_pressure_is_transposed(120, 80));
     }
 }
 

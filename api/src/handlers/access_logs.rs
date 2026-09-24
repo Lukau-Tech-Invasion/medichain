@@ -14,7 +14,6 @@ pub async fn get_all_access_logs(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required to view access logs".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -25,7 +24,6 @@ pub async fn get_all_access_logs(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -35,7 +33,6 @@ pub async fn get_all_access_logs(
     // Only healthcare providers can view all access logs
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view all access logs".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -62,7 +59,6 @@ pub async fn get_all_access_logs(
         Err(e) => {
             log::error!("Failed to read access logs: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Internal server error".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -100,7 +96,6 @@ pub async fn get_access_logs(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required to view access logs".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -111,7 +106,6 @@ pub async fn get_access_logs(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -125,7 +119,6 @@ pub async fn get_access_logs(
 
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Patients can only view their own access logs".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -157,7 +150,6 @@ pub async fn get_access_logs(
         Err(e) => {
             log::error!("Failed to read patient access logs: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Internal server error".to_string(),
                 code: "REPO_ERROR".to_string(),
             });

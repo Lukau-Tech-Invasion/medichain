@@ -46,7 +46,6 @@ pub async fn create_order(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -55,7 +54,6 @@ pub async fn create_order(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -64,7 +62,6 @@ pub async fn create_order(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() || record.order_text.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and order details are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -77,7 +74,6 @@ pub async fn create_order(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -148,14 +144,12 @@ pub async fn create_order(
             "order_id": order_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("physician order persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the order".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -175,7 +169,6 @@ pub async fn get_order(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -184,7 +177,6 @@ pub async fn get_order(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -204,12 +196,10 @@ pub async fn get_order(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Physician order not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -259,7 +249,6 @@ pub async fn update_order_status(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -267,7 +256,6 @@ pub async fn update_order_status(
     };
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -275,7 +263,6 @@ pub async fn update_order_status(
     let new_status = body.status.trim().to_string();
     if new_status.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "status is required".to_string(),
             code: "INVALID_STATUS".to_string(),
         });
@@ -289,14 +276,12 @@ pub async fn update_order_status(
         Ok(e) => e,
         Err(RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Physician order not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e.to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -318,7 +303,6 @@ pub async fn update_order_status(
         Some(status) => status.to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Unsupported order status".to_string(),
                 code: "INVALID_STATUS".to_string(),
             });
@@ -345,7 +329,6 @@ pub async fn update_order_status(
             "status": canonical_status
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -376,7 +359,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -385,7 +367,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -429,7 +410,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

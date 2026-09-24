@@ -165,7 +165,6 @@ pub async fn create_pre_op(
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -277,7 +276,6 @@ pub async fn create_pre_op(
         Err(e) => {
             log::error!("pre-op assessment {id} could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Pre-operative assessment could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -306,7 +304,6 @@ pub async fn get_pre_op(
                 // partial response.
                 log::error!("pre-op assessment stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored assessment could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -352,7 +349,6 @@ pub async fn list_patient_pre_op(
                     Err(e) => {
                         log::error!("pre-op assessment stored payload is unreadable: {e}");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
-                            success: false,
                             error: "One or more stored assessments could not be read".to_string(),
                             code: "RECORD_UNREADABLE".to_string(),
                         });
@@ -531,7 +527,6 @@ pub async fn create_operative_note(
         Err(e) => {
             log::error!("operative note could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Operative note could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -574,7 +569,6 @@ pub async fn get_operative_note(
                 // Half an operative note is more dangerous than none.
                 log::error!("operative-note {id} has no readable stored document");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored operative note could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -615,7 +609,6 @@ pub async fn list_patient_operative_notes(
                     None => {
                         log::error!("an operative note has no readable stored document");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
-                            success: false,
                             error: "One or more stored operative notes could not be read"
                                 .to_string(),
                             code: "RECORD_UNREADABLE".to_string(),
@@ -827,7 +820,6 @@ pub async fn create_post_op(
         Err(e) => {
             log::error!("post-op note could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Post-operative note could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -855,7 +847,6 @@ pub async fn get_post_op(
             None => {
                 log::error!("post-op note {id} has no readable stored document");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored post-operative note could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -894,7 +885,6 @@ pub async fn list_patient_post_op(
                     None => {
                         log::error!("a post-op note has no readable stored document");
                         return HttpResponse::InternalServerError().json(ErrorResponse {
-                            success: false,
                             error: "One or more stored post-operative notes could not be read"
                                 .to_string(),
                             code: "RECORD_UNREADABLE".to_string(),

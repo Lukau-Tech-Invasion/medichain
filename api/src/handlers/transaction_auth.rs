@@ -61,7 +61,6 @@ fn authenticated_session(req: &HttpRequest) -> Option<(String, Uuid)> {
 
 fn session_required() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: "A current signed-in session is required".to_string(),
         code: "SESSION_REQUIRED".to_string(),
     })
@@ -69,7 +68,6 @@ fn session_required() -> HttpResponse {
 
 fn storage_required() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Authorization is temporarily unavailable".to_string(),
         code: "AUTH_STORAGE_REQUIRED".to_string(),
     })
@@ -84,7 +82,6 @@ async fn challenge_error_response(
 ) -> HttpResponse {
     match error {
         ChallengeError::SessionNotActive => HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "This session has ended; sign in again".to_string(),
             code: "SESSION_REVOKED".to_string(),
         }),
@@ -101,7 +98,6 @@ async fn challenge_error_response(
             )
             .await;
             HttpResponse::TooManyRequests().json(ErrorResponse {
-                success: false,
                 error: "Too many authorization requests; wait a moment and try again".to_string(),
                 code: "CHALLENGE_RATE_LIMITED".to_string(),
             })
@@ -166,7 +162,6 @@ pub async fn step_up_verify(
         AuthenticatorType::parse(&body.authenticator),
     ) else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed authorization".to_string(),
             code: "INVALID_AUTHORIZATION".to_string(),
         });
@@ -207,7 +202,6 @@ pub async fn step_up_verify(
             })),
             // The session ended between authorization and elevation.
             Ok(false) => HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "This session has ended; sign in again".to_string(),
                 code: "SESSION_REVOKED".to_string(),
             }),
@@ -227,7 +221,6 @@ pub async fn step_up_verify(
             )
             .await;
             HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: failure.client_message().to_string(),
                 code: "AUTHORIZATION_REJECTED".to_string(),
             })
@@ -257,7 +250,6 @@ pub async fn transaction_challenge(
     // mutation, so the reserved action is refused here.
     if body.action == STEP_UP_ACTION {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed authorization".to_string(),
             code: "INVALID_AUTHORIZATION".to_string(),
         });

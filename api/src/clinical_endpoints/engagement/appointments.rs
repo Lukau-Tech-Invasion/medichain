@@ -132,7 +132,6 @@ pub async fn book_appointment(
 
             if !has_family_access {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "Unauthorized to book appointment for this patient".to_string(),
                     code: "FORBIDDEN".to_string(),
                 });
@@ -144,7 +143,6 @@ pub async fn book_appointment(
         Some(t) => t,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "'{}' is not a recognised appointment type",
                     req.appointment_type
@@ -255,7 +253,6 @@ pub async fn book_appointment(
             Err(e) => {
                 log::error!("telehealth session provisioning failed: {e}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "The video consultation could not be set up.                             Please try again, or book an in-person appointment."
                         .to_string(),
                     code: "TELEHEALTH_UNAVAILABLE".to_string(),
@@ -276,13 +273,11 @@ pub async fn book_appointment(
         return match e {
             crate::repositories::traits::RepositoryError::Duplicate(msg) => {
                 HttpResponse::Conflict().json(ErrorResponse {
-                    success: false,
                     error: msg,
                     code: "SLOT_UNAVAILABLE".to_string(),
                 })
             }
             other => HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("Failed to store appointment: {}", other),
                 code: "INTERNAL_ERROR".to_string(),
             }),
@@ -341,7 +336,6 @@ pub async fn get_patient_appointments(
         && !is_provider
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -385,7 +379,6 @@ pub async fn get_provider_appointments(
         crate::get_user(&data, &current_user_id).is_some_and(|user| user.role.is_admin());
     if current_user_id != provider_id && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -454,7 +447,6 @@ pub async fn cancel_appointment(
         Ok(a) => a,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -473,7 +465,6 @@ pub async fn cancel_appointment(
     );
     if !is_the_patient && current_user_id != appointment.provider_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -486,7 +477,6 @@ pub async fn cancel_appointment(
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to cancel appointment: {}", e),
             code: "INTERNAL_ERROR".to_string(),
         });
@@ -524,7 +514,6 @@ pub async fn get_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -543,7 +532,6 @@ pub async fn get_appointment(
     );
     if !is_the_patient && current_user_id != appointment.provider_id && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -575,7 +563,6 @@ pub async fn check_in_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -603,7 +590,6 @@ pub async fn check_in_appointment(
         crate::get_user(&data, &current_user_id).is_some_and(|u| u.role.is_healthcare_provider());
     if !is_patient && !is_clinical_staff {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the patient or clinic staff can check in an appointment".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -615,7 +601,6 @@ pub async fn check_in_appointment(
         &crate::clinical::AppointmentStatus::CheckedIn,
     ) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!(
                 "An appointment that is {} cannot be checked in",
                 crate::types::appt_status_storage_str(&appointment.status)
@@ -635,7 +620,6 @@ pub async fn check_in_appointment(
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to check in: {}", e),
             code: "INTERNAL_ERROR".to_string(),
         });
@@ -798,7 +782,6 @@ pub async fn transition_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -809,7 +792,6 @@ pub async fn transition_appointment(
     let target = crate::types::appt_parse_status_strict(&req.status);
     let Some(target) = target else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("'{}' is not a recognised appointment status", req.status),
             code: "UNKNOWN_APPOINTMENT_STATUS".to_string(),
         });
@@ -829,7 +811,6 @@ pub async fn transition_appointment(
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You are not a party to this appointment".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -840,7 +821,6 @@ pub async fn transition_appointment(
         && !matches!(target, S::Confirmed | S::Declined | S::Cancelled)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A patient may only confirm, decline or cancel their appointment".to_string(),
             code: "FORBIDDEN_TRANSITION".to_string(),
         });
@@ -858,7 +838,6 @@ pub async fn transition_appointment(
     }
     if !is_valid_transition(&appointment.status, &target) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!(
                 "An appointment that is {} cannot become {}",
                 crate::types::appt_status_storage_str(&appointment.status),
@@ -873,7 +852,6 @@ pub async fn transition_appointment(
         match confirming_party(&data, &appointment) {
             ConfirmingParty::Patient if !is_patient => {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "This appointment is awaiting the patient's confirmation; the party who booked it cannot confirm it themselves"
                         .to_string(),
                     code: "AWAITING_PATIENT_CONFIRMATION".to_string(),
@@ -881,7 +859,6 @@ pub async fn transition_appointment(
             }
             ConfirmingParty::Provider if !is_provider_of_record => {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "This appointment is awaiting the provider's confirmation; the party who booked it cannot confirm it themselves"
                         .to_string(),
                     code: "AWAITING_PROVIDER_CONFIRMATION".to_string(),
@@ -897,7 +874,6 @@ pub async fn transition_appointment(
         let reason = req.reason.clone().unwrap_or_default();
         if reason.trim().is_empty() {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "A reason is required to cancel an appointment".to_string(),
                 code: "REASON_REQUIRED".to_string(),
             });
@@ -917,7 +893,6 @@ pub async fn transition_appointment(
             Err(e) => {
                 log::error!("appointment cancellation failed: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "The appointment could not be cancelled".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -947,7 +922,6 @@ pub async fn transition_appointment(
         Err(e) => {
             log::error!("appointment transition failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The appointment could not be updated".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })

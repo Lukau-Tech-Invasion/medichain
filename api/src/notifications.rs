@@ -1,5 +1,4 @@
 //! Notification service for Push (FCM) and SMS (Africa's Talking).
-#![allow(dead_code)]
 
 use crate::repositories::RepositoryContainer;
 use log::{info, warn};
@@ -385,20 +384,11 @@ pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
 /// and compliance review tractable.
 #[derive(Debug, Clone)]
 pub enum SmsTemplate {
-    MedicationReminder {
-        medication: String,
-    },
-    /// Both of these omit the opt-out footer, which is the compliance rule
-    /// `render` exists to encode. Appointment reminders and lab results are
-    /// deliberately absent: they are delivered by push (`notify_patient`), and
-    /// a template for an SMS nothing sends is a claim about a channel that is
-    /// not wired.
-    CriticalAlert {
-        message: String,
-    },
-    VerificationCode {
-        code: String,
-    },
+    MedicationReminder { medication: String },
+    // Only templates something sends. Critical-alert and verification-code
+    // templates were removed on 2026-09-24: nothing sends either by SMS, and a
+    // template for an SMS nothing sends is a claim about a channel that is not
+    // wired. Appointment reminders and lab results go by push.
 }
 
 /// Footer appended to non-critical, non-OTP messages so recipients always have
@@ -406,18 +396,14 @@ pub enum SmsTemplate {
 const SMS_OPT_OUT_FOOTER: &str = " Reply STOP to opt out.";
 
 impl SmsTemplate {
-    /// Render the SMS body, including the opt-out footer where appropriate.
-    /// Verification codes and critical alerts intentionally omit the footer.
+    /// Render the SMS body, including the opt-out footer every
+    /// non-critical message must carry.
     pub fn render(&self) -> String {
         match self {
             SmsTemplate::MedicationReminder { medication } => format!(
                 "MediChain: It's time to take your {}.{}",
                 medication, SMS_OPT_OUT_FOOTER
             ),
-            SmsTemplate::CriticalAlert { message } => format!("MediChain ALERT: {}", message),
-            SmsTemplate::VerificationCode { code } => {
-                format!("MediChain verification code: {}. Do not share it.", code)
-            }
         }
     }
 }
@@ -766,23 +752,6 @@ mod tests {
         .render();
         assert!(body.contains("Metformin"));
         assert!(body.contains("Reply STOP to opt out"));
-    }
-
-    #[test]
-    fn test_otp_and_critical_templates_omit_footer() {
-        let otp = SmsTemplate::VerificationCode {
-            code: "123456".to_string(),
-        }
-        .render();
-        assert!(otp.contains("123456"));
-        assert!(!otp.contains("opt out"));
-
-        let alert = SmsTemplate::CriticalAlert {
-            message: "Code Blue, Ward 3".to_string(),
-        }
-        .render();
-        assert!(alert.starts_with("MediChain ALERT:"));
-        assert!(!alert.contains("opt out"));
     }
 
     #[test]

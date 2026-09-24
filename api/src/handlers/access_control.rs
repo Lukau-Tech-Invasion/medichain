@@ -29,7 +29,6 @@ pub struct ApproveAccessRequestBody {
 
 fn unauthorized(error: &str, code: &str) -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })
@@ -37,7 +36,6 @@ fn unauthorized(error: &str, code: &str) -> HttpResponse {
 
 fn forbidden(error: &str) -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "ACCESS_FORBIDDEN".to_string(),
     })
@@ -45,7 +43,6 @@ fn forbidden(error: &str) -> HttpResponse {
 
 fn not_found(error: &str) -> HttpResponse {
     HttpResponse::NotFound().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "NOT_FOUND".to_string(),
     })
@@ -53,7 +50,6 @@ fn not_found(error: &str) -> HttpResponse {
 
 fn bad_request(error: &str) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "ACCESS_REQUEST_REJECTED".to_string(),
     })
@@ -61,7 +57,6 @@ fn bad_request(error: &str) -> HttpResponse {
 
 fn unavailable() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: STORE_UNAVAILABLE.to_string(),
         code: "PATIENT_ACCESS_UNAVAILABLE".to_string(),
     })
@@ -74,7 +69,6 @@ fn transition_error(error: &'static str) -> HttpResponse {
         unavailable()
     } else if error == PENDING_REQUEST_EXISTS {
         HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: error.to_string(),
             code: "ACCESS_REQUEST_ALREADY_PENDING".to_string(),
         })

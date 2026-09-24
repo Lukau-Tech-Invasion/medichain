@@ -107,7 +107,6 @@ pub async fn revoke_managed_device(
         Some(device) => device,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Device not found".into(),
                 code: "DEVICE_NOT_FOUND".into(),
             })
@@ -146,7 +145,6 @@ pub async fn revoke_managed_device(
 
 fn device_rejected(error: &'static str, code: &'static str) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: error.into(),
         code: code.into(),
     })
@@ -186,7 +184,6 @@ async fn require_known_organization(
         }
     }
     Err(HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: format!(
             "Unknown organisation '{organization_id}'. Enrol the device against an \
              organisation this deployment holds."
@@ -197,7 +194,6 @@ async fn require_known_organization(
 
 fn device_persistence_failed() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Managed-device storage is unavailable".into(),
         code: "DEVICE_PERSISTENCE_REQUIRED".into(),
     })
@@ -306,7 +302,6 @@ pub async fn list_available_devices(data: web::Data<AppState>, req: HttpRequest)
     };
     if !user.role.is_healthcare_provider() && user.role != Role::Admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only clinical staff may list usable devices".into(),
             code: "INSUFFICIENT_ROLE".into(),
         });

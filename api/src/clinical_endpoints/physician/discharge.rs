@@ -19,7 +19,6 @@ pub async fn create_discharge_summary(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -28,7 +27,6 @@ pub async fn create_discharge_summary(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -187,12 +185,10 @@ pub async fn create_discharge_summary(
             "summary_id": summary_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -211,7 +207,6 @@ pub async fn get_discharge_summary(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -220,7 +215,6 @@ pub async fn get_discharge_summary(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -240,12 +234,10 @@ pub async fn get_discharge_summary(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge summary not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -259,7 +251,6 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -268,7 +259,6 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -304,7 +294,6 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -324,7 +313,6 @@ pub async fn approve_discharge(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -333,7 +321,6 @@ pub async fn approve_discharge(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -370,19 +357,16 @@ pub async fn approve_discharge(
                     "signed_by": current_user.wallet_address
                 })),
                 Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: e.to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 }),
             }
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge summary not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -400,7 +384,6 @@ pub async fn create_discharge_instructions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -409,7 +392,6 @@ pub async fn create_discharge_instructions(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -553,12 +535,10 @@ pub async fn create_discharge_instructions(
             "instructions_id": instructions_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -577,7 +557,6 @@ pub async fn get_discharge_instructions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -586,7 +565,6 @@ pub async fn get_discharge_instructions(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -606,12 +584,10 @@ pub async fn get_discharge_instructions(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge instructions not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

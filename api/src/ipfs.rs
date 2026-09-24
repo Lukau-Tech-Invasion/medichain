@@ -38,17 +38,13 @@ pub struct IpfsClient {
     client: reqwest::Client,
 }
 
-/// Response from IPFS add operation
+/// Response from IPFS add operation. Kubo also sends `Name` and `Size`;
+/// only the content identifier is used.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
 pub struct IpfsAddResponse {
     /// Content identifier (hash)
     pub hash: String,
-    /// Original filename
-    pub name: String,
-    /// File size in bytes
-    pub size: String,
 }
 
 /// Metadata stored alongside encrypted content

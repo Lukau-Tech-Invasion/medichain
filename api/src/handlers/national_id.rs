@@ -83,7 +83,6 @@ pub async fn verify_national_id(
 
     if country == crate::national_id::Country::Unknown {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("Unsupported country: {}", req.country),
             code: "UNSUPPORTED_COUNTRY".to_string(),
         });
@@ -105,7 +104,6 @@ pub async fn verify_national_id(
                     "result": result
                 })),
                 Err(()) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Identity review storage is unavailable".to_string(),
                     code: "MANUAL_REVIEW_STORAGE_REQUIRED".to_string(),
                 }),
@@ -116,7 +114,6 @@ pub async fn verify_national_id(
             "result": result
         })),
         Err(_) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Identity verification is temporarily unavailable".to_string(),
             code: "VERIFICATION_UNAVAILABLE".to_string(),
         }),
@@ -134,7 +131,6 @@ pub async fn list_national_id_manual_reviews(
     }
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Identity review storage is unavailable".to_string(),
             code: "MANUAL_REVIEW_STORAGE_REQUIRED".to_string(),
         });
@@ -152,7 +148,6 @@ pub async fn list_national_id_manual_reviews(
         Err(error) => {
             log::error!("national-ID manual review listing failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Identity review storage is unavailable".to_string(),
                 code: "MANUAL_REVIEW_STORAGE_REQUIRED".to_string(),
             })
@@ -175,21 +170,18 @@ pub async fn decide_national_id_manual_review(
     // again only to stamp the decision's accountable actor, never from body.
     let Some(admin_id) = get_current_user_id(&req) else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
     };
     if body.evidence_reference.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "An identity-evidence reference is required".to_string(),
             code: "EVIDENCE_REFERENCE_REQUIRED".to_string(),
         });
     }
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Identity review storage is unavailable".to_string(),
             code: "MANUAL_REVIEW_STORAGE_REQUIRED".to_string(),
         });
@@ -215,14 +207,12 @@ pub async fn decide_national_id_manual_review(
             "status": status,
         })),
         Ok(_) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Review was not found or has already been decided".to_string(),
             code: "REVIEW_NOT_PENDING".to_string(),
         }),
         Err(error) => {
             log::error!("national-ID manual review decision persistence failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Identity review storage is unavailable".to_string(),
                 code: "MANUAL_REVIEW_STORAGE_REQUIRED".to_string(),
             })
@@ -279,7 +269,6 @@ pub async fn simulate_nfc_tap(
         Err(e) => {
             log::error!("NFC lookup failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "NFC lookup failed".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -308,7 +297,6 @@ pub async fn simulate_nfc_tap(
             if let Err(e) = data.repositories.nfc_tags.create(tag.clone().into()).await {
                 log::error!("NFC tag create failed: {}", e);
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Failed to register NFC tag".to_string(),
                     code: "REPO_ERROR".to_string(),
                 });

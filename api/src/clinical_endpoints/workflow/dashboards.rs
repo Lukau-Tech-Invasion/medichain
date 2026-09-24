@@ -8,7 +8,6 @@ macro_rules! required_dashboard_read {
             Err(error) => {
                 log::error!("{} read failed: {error}", $area);
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Dashboard data is temporarily unavailable".to_string(),
                     code: "DASHBOARD_DATA_UNAVAILABLE".to_string(),
                 });
@@ -160,7 +159,6 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -171,7 +169,6 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -183,7 +180,6 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
     // for a record keyed by their wallet address.
     if current_user.role != crate::Role::Patient {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Patient dashboard is restricted to patient accounts".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -212,7 +208,6 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
             None => {
                 log::error!("patient dashboard profile is unreadable for {patient_id}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Dashboard data is temporarily unavailable".to_string(),
                     code: "DASHBOARD_DATA_UNAVAILABLE".to_string(),
                 });
@@ -893,7 +888,6 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         Err(error) => {
             log::error!("Laboratory dashboard recollection read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The recollection queue is temporarily unavailable".to_string(),
                 code: "LAB_DASHBOARD_UNAVAILABLE".to_string(),
             });
@@ -1129,6 +1123,44 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     }))
 }
 
+/// The interactions a stored drug-interaction check found, in the shape the
+/// pharmacy dashboard renders. `Contraindicated` is shown as `Major`: the page
+/// has three bands and a contraindication belongs in the most severe of them.
+fn check_interaction_rows(
+    check: &crate::repositories::traits::JsonRecordEntity,
+    patient_id: &str,
+    patient_name: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let Ok(result) =
+        serde_json::from_value::<crate::clinical::DrugInteractionResult>(check.data.clone())
+    else {
+        return Vec::new();
+    };
+    result
+        .interactions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, interaction)| {
+            use crate::clinical::InteractionSeverity as S;
+            let severity = match interaction.severity {
+                S::Contraindicated | S::Major => "Major",
+                S::Moderate => "Moderate",
+                S::Minor => "Minor",
+                S::None => return None,
+            };
+            Some(serde_json::json!({
+                "id": format!("{}-{index}", result.result_id),
+                "drug1": interaction.drug_a,
+                "drug2": interaction.drug_b,
+                "severity": severity,
+                "description": interaction.description,
+                "patient_id": patient_id,
+                "patient_name": patient_name,
+            }))
+        })
+        .collect()
+}
+
 /// Pharmacy Dashboard
 ///
 /// Returns the shape `PharmacistDashboardPage` reads: it read
@@ -1187,7 +1219,6 @@ pub async fn pharmacist_dashboard(
             Err(error) => {
                 log::error!("Pharmacy dashboard patient identity read failed: {error}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Dashboard data is temporarily unavailable".to_string(),
                     code: "DASHBOARD_DATA_UNAVAILABLE".to_string(),
                 });
@@ -1285,21 +1316,37 @@ pub async fn pharmacist_dashboard(
         "pharmacy dashboard safety roster"
     );
     for entity in safety_roster.items {
-        drug_interactions.extend(required_dashboard_read!(
+        let profile = patient_entity_to_profile(&entity, &data.encryption_keyring);
+        let patient_name = profile.as_ref().map(|p| p.full_name.clone());
+        // The interactions found by the latest check a prescriber ran for this
+        // patient. This read `drug_interactions`, a table nothing writes, so
+        // the panel and the critical banner above it were empty for every
+        // pharmacy -- and its rows carried `drug1_name`, where the page reads
+        // `drug1`. The checks prescribers run are filed in
+        // `drug_interaction_checks`, newest first.
+        let checks = required_dashboard_read!(
             data.repositories
-                .drug_interactions
-                .get_unacknowledged(&entity.id)
+                .drug_interaction_checks
+                .get_by_owner(&entity.id)
                 .await,
             "pharmacy dashboard drug interactions"
-        ));
+        );
+        if let Some(latest) = checks.into_iter().next() {
+            drug_interactions.extend(check_interaction_rows(
+                &latest,
+                &entity.id,
+                patient_name.as_deref(),
+            ));
+        }
         // An allergy the pharmacy should see before dispensing.
-        if let Some(profile) = patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            for allergy in &profile.emergency_info.allergies {
+        if let Some(profile) = profile {
+            for (index, allergy) in profile.emergency_info.allergies.iter().enumerate() {
                 allergy_alerts.push(serde_json::json!({
+                    "id": format!("ALG-{}-{index}", profile.patient_id),
                     "patient_id": profile.patient_id,
                     "patient_name": profile.full_name,
                     "allergen": allergy.name,
-                    "severity": format!("{:?}", allergy.severity),
+                    "severity": allergy.severity.to_string(),
                     "reaction": allergy.reaction,
                 }));
             }
@@ -1828,5 +1875,90 @@ mod pending_lab_tile_tests {
             ids.contains(&"LAB-P1") && ids.contains(&"LAB-P2"),
             "got {ids:?}"
         );
+    }
+}
+
+/// The interaction panel shows what prescribers' checks actually found.
+#[cfg(test)]
+mod pharmacy_interaction_panel_tests {
+    use crate::test_fixtures::{patient_profile, register};
+    use crate::Role;
+    use actix_web::{test, web, App};
+
+    #[actix_web::test]
+    async fn a_filed_interaction_check_reaches_the_pharmacy_panel() {
+        let state = crate::AppState::new();
+        register(&state, "5Pharm", Role::Pharmacist);
+        let mut profile = patient_profile("PAT-INT-1", "Naledi Dube");
+        profile.emergency_info.allergies = vec![crate::Allergy {
+            name: "Penicillin".to_string(),
+            severity: crate::AllergySeverity::Unknown,
+            reaction: None,
+            verified_at: None,
+        }];
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+
+        let now = chrono::Utc::now();
+        let result = crate::clinical::DrugInteractionResult {
+            result_id: "CHK-INT-1".to_string(),
+            patient_id: "PAT-INT-1".to_string(),
+            checked_at: now.timestamp(),
+            new_medication: "warfarin".to_string(),
+            interactions: vec![crate::clinical::DrugInteraction {
+                drug_a: "warfarin".to_string(),
+                drug_b: "aspirin".to_string(),
+                severity: crate::clinical::InteractionSeverity::Major,
+                description: "Additive bleeding risk".to_string(),
+                clinical_effects: String::new(),
+                management: String::new(),
+                evidence_level: crate::clinical::EvidenceLevel::Established,
+                source: String::new(),
+            }],
+            overall_severity: crate::clinical::InteractionSeverity::Major,
+            safe_to_prescribe: false,
+            checked_by: "5Doctor".to_string(),
+        };
+        state
+            .repositories
+            .drug_interaction_checks
+            .create(crate::repositories::traits::JsonRecordEntity {
+                id: "CHK-INT-1".to_string(),
+                owner_id: "PAT-INT-1".to_string(),
+                data: serde_json::to_value(&result).expect("serialize"),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .expect("file check");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::pharmacist_dashboard),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/dashboard/pharmacist")
+            .insert_header(("X-User-Id", "5Pharm"))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+        let panel = body["drug_interactions"].as_array().expect("panel");
+        assert_eq!(panel.len(), 1, "{body}");
+        assert_eq!(panel[0]["drug1"], "warfarin", "{body}");
+        assert_eq!(panel[0]["drug2"], "aspirin", "{body}");
+        assert_eq!(panel[0]["severity"], "Major", "{body}");
+        assert_eq!(panel[0]["patient_name"], "Naledi Dube", "{body}");
+        let allergy = &body["allergy_alerts"][0];
+        assert_eq!(allergy["allergen"], "Penicillin", "{body}");
+        assert!(allergy["id"].is_string(), "a row the page can key: {body}");
     }
 }

@@ -281,7 +281,6 @@ fn emergency_error(
     code: &str,
 ) -> HttpResponse {
     builder.json(ErrorResponse {
-        success: false,
         error: error.into(),
         code: code.into(),
     })

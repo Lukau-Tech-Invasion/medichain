@@ -7,19 +7,13 @@
 
 /// Common error codes.
 ///
-/// Every constant here is unused *as a constant*, and most of these codes are
-/// nonetheless live: handlers write the string literal instead --  `"FORBIDDEN"`
-/// 53 times, `"PATIENT_NOT_FOUND"` 41, `"INVALID_INPUT"` 5. That duplication is
-/// the debt; the module is the fix waiting to be adopted, so it stays. Adopting
-/// it is a mechanical edit across a hundred call sites and belongs in its own
-/// change.
-///
-/// `LOCK_ERROR` and `DUPLICATE_ENTRY` were removed: unlike the rest, neither
-/// appeared anywhere in the codebase in any form.
-#[allow(dead_code)]
+/// Handlers that adopted these use them as constants; much of the codebase
+/// still writes the same codes as string literals (`"FORBIDDEN"`,
+/// `"PATIENT_NOT_FOUND"`, ...). Only codes some handler reads from here are
+/// kept: `FORBIDDEN`, `INVALID_INPUT` and `PATIENT_NOT_FOUND` were removed on
+/// 2026-09-24 because every use of them was a literal.
 pub mod error_codes {
     pub const UNAUTHORIZED: &str = "UNAUTHORIZED";
-    pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const NOT_FOUND: &str = "NOT_FOUND";
     /// A conditional write whose guard no longer held: somebody else changed
     /// the record between the caller reading it and writing it back. The client
@@ -29,10 +23,8 @@ pub mod error_codes {
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
     pub const RATE_LIMIT_EXCEEDED: &str = "RATE_LIMIT_EXCEEDED";
-    pub const INVALID_INPUT: &str = "INVALID_INPUT";
     pub const INSUFFICIENT_ROLE: &str = "INSUFFICIENT_ROLE";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
-    pub const PATIENT_NOT_FOUND: &str = "PATIENT_NOT_FOUND";
     pub const ENCRYPTION_REQUIRED: &str = "ENCRYPTION_REQUIRED";
 }
 
@@ -56,7 +48,6 @@ pub fn error_envelope_json(
 }
 
 /// Secure token generation for access IDs and emergency tokens
-#[allow(dead_code)]
 pub mod secure_tokens {
     use sha3::{Digest, Sha3_256};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -78,10 +69,6 @@ pub mod secure_tokens {
         format!("ACC-{}", hex::encode(&hash[..12]))
     }
 
-    /// Generate a secure emergency token
-    /// Format: EMG-{timestamp_hex}{random_hex}{checksum} (40 chars total)
-    /// Generate a secure NFC tag ID
-    /// Format: NFC-{random_hex} (28 chars total)
     /// Generate random bytes using UUID as entropy source
     fn rand_bytes() -> [u8; 16] {
         let uuid1 = uuid::Uuid::new_v4();
@@ -98,7 +85,6 @@ pub mod secure_tokens {
 }
 
 /// Input validation helpers
-#[allow(dead_code)]
 pub mod validation {
     /// Maximum allowed string length for text fields
     pub const MAX_TEXT_LENGTH: usize = 10000;

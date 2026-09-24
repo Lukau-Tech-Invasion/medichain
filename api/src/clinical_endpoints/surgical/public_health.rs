@@ -42,7 +42,6 @@ pub async fn create_immunization(
         Err(e) => {
             log::error!("immunization record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Immunization record could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -117,7 +116,6 @@ pub async fn create_family_history(
         Err(e) => {
             log::error!("family-history record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Family history could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -162,7 +160,6 @@ pub async fn get_family_history(
     };
     if !guardian_or_admin && !provider_grant {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You are not authorised to view this family history".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -182,7 +179,6 @@ pub async fn get_family_history(
             Err(e) => {
                 log::error!("family-history stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored family history could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -230,7 +226,6 @@ pub async fn get_my_family_history(
             Err(error) => {
                 log::error!("caller-scoped family-history payload is unreadable: {error}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored family history could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -247,7 +242,6 @@ pub async fn get_my_family_history(
         Err(error) => {
             log::error!("caller-scoped family-history lookup failed: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Family history could not be loaded".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -307,7 +301,6 @@ pub async fn assess_family_history(
     let body = req.into_inner();
     if body.groups.len() > MAX_FAMILY_HISTORY_GROUPS {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("at most {MAX_FAMILY_HISTORY_GROUPS} categories per request"),
             code: "TOO_MANY_GROUPS".to_string(),
         });
@@ -391,14 +384,12 @@ pub async fn create_blood_type_screen(
         || screen.indication.trim().is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id, product and indication are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if screen.units == 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "an order for zero units is not an order".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -411,7 +402,6 @@ pub async fn create_blood_type_screen(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", screen.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -455,7 +445,6 @@ pub async fn create_blood_type_screen(
         Err(e) => {
             log::error!("blood-type screen could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Blood type screen could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -489,7 +478,6 @@ pub async fn get_blood_type_screen(
                 // A partial blood type screen is more dangerous than none.
                 log::error!("blood-type screen stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored blood type screen could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -585,7 +573,6 @@ pub async fn create_transfusion(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -597,7 +584,6 @@ pub async fn create_transfusion(
     let completed = record.status.as_deref() == Some("completed");
     if completed && info.and_then(|i| i.pre_vitals.as_ref()).is_none() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "pre-transfusion observations are required to complete a transfusion"
                 .to_string(),
             code: "MISSING_PRE_VITALS".to_string(),
@@ -654,7 +640,6 @@ pub async fn create_transfusion(
         Err(e) => {
             log::error!("transfusion record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Transfusion record could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -688,7 +673,6 @@ pub async fn get_transfusion(
                 // A partial transfusion record is more dangerous than none.
                 log::error!("transfusion record stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored transfusion record could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -775,7 +759,6 @@ pub async fn create_death_certificate(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", certificate.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -789,7 +772,6 @@ pub async fn create_death_certificate(
     ] {
         if value.is_empty() {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!("{field} is required on a death certificate"),
                 code: "VALIDATION_ERROR".to_string(),
             });
@@ -849,7 +831,6 @@ pub async fn create_death_certificate(
         Err(e) => {
             log::error!("death certificate could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Death certificate could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -909,7 +890,6 @@ const DC_STATUS_FILED: &str = "filed";
 
 fn dc_error(status: actix_web::http::StatusCode, message: &str, code: &str) -> HttpResponse {
     HttpResponse::build(status).json(ErrorResponse {
-        success: false,
         error: message.to_string(),
         code: code.to_string(),
     })
@@ -1229,7 +1209,6 @@ pub async fn get_death_certificate(
             Err(e) => {
                 log::error!("death-certificate stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored death certificate could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -1297,7 +1276,6 @@ pub async fn create_autopsy_request(
     match data.repositories.autopsy_requests.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "DATABASE_ERROR".to_string(),
         }),
@@ -1398,7 +1376,6 @@ pub async fn create_autopsy_report(
     match data.repositories.autopsy_reports.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "DATABASE_ERROR".to_string(),
         }),
@@ -1431,7 +1408,6 @@ pub async fn get_autopsy_report(
                 rec.data
             );
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Stored autopsy report could not be read".to_string(),
                 code: "RECORD_UNREADABLE".to_string(),
             })
@@ -1467,7 +1443,6 @@ pub struct SubmitSatisfactionSurveyRequest {
 fn satisfaction_storage_unavailable(operation: &str) -> HttpResponse {
     log::error!("Satisfaction survey repository failed during {operation}");
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Satisfaction survey storage is temporarily unavailable".to_string(),
         code: "STORAGE_UNAVAILABLE".to_string(),
     })
@@ -1476,7 +1451,6 @@ fn satisfaction_storage_unavailable(operation: &str) -> HttpResponse {
 fn satisfaction_patient_id(caller: User) -> Result<String, HttpResponse> {
     caller.linked_patient_id.ok_or_else(|| {
         HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A linked patient identity is required".to_string(),
             code: "PATIENT_CONTEXT_REQUIRED".to_string(),
         })
@@ -1489,7 +1463,6 @@ fn build_satisfaction_survey(
 ) -> Result<(String, JsonRecordEntity), HttpResponse> {
     if !(1..=5).contains(&input.overall_rating) || input.nps_score > 10 {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Overall rating must be 1-5 and NPS score must be 0-10".to_string(),
             code: "INVALID_SURVEY_RATING".to_string(),
         }));

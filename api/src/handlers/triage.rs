@@ -40,7 +40,6 @@ pub async fn create_triage_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -51,7 +50,6 @@ pub async fn create_triage_assessment(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -60,7 +58,6 @@ pub async fn create_triage_assessment(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot create triage assessments. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -74,7 +71,6 @@ pub async fn create_triage_assessment(
         validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -85,7 +81,6 @@ pub async fn create_triage_assessment(
         validation::MAX_TEXT_LENGTH,
     ) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -96,14 +91,12 @@ pub async fn create_triage_assessment(
         validation::MAX_TEXT_LENGTH,
     ) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if req.chief_complaint.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "chief_complaint cannot be empty".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -119,7 +112,6 @@ pub async fn create_triage_assessment(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -131,7 +123,6 @@ pub async fn create_triage_assessment(
         Some(level) => level,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "ESI level must be 1-5".to_string(),
                 code: "INVALID_ESI_LEVEL".to_string(),
             });
@@ -142,7 +133,6 @@ pub async fn create_triage_assessment(
     if let Some(pain) = req.pain_scale {
         if pain > 10 {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Pain scale must be 0-10".to_string(),
                 code: "INVALID_PAIN_SCALE".to_string(),
             });
@@ -204,7 +194,6 @@ pub async fn create_triage_assessment(
     if let Err(e) = data.repositories.triage_assessments.create(entity).await {
         log::error!("Failed to store triage assessment in repository: {e}");
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to save the triage assessment".to_string(),
             code: "REPO_ERROR".to_string(),
         });
@@ -267,7 +256,6 @@ pub async fn get_triage_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -278,7 +266,6 @@ pub async fn get_triage_assessment(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -288,7 +275,6 @@ pub async fn get_triage_assessment(
     // Healthcare providers can view any triage
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view triage assessments".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -328,7 +314,6 @@ pub async fn get_triage_assessment(
             HttpResponse::Ok().json(assessment)
         }
         Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Triage assessment '{}' not found", assessment_id),
             code: "ASSESSMENT_NOT_FOUND".to_string(),
         }),
@@ -348,7 +333,6 @@ pub async fn get_patient_triage_assessments(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -359,7 +343,6 @@ pub async fn get_patient_triage_assessments(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -371,7 +354,6 @@ pub async fn get_patient_triage_assessments(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -443,7 +425,6 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -455,7 +436,6 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -464,7 +444,6 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Insufficient permissions to view triage queue".to_string(),
             code: "FORBIDDEN".to_string(),
         });

@@ -127,7 +127,6 @@ pub async fn list_patients(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required to list patients".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -138,7 +137,6 @@ pub async fn list_patients(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -148,7 +146,6 @@ pub async fn list_patients(
     // Only healthcare providers can list all patients
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can list patients".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -162,7 +159,6 @@ pub async fn list_patients(
             Some(cursor) => Some(cursor),
             None => {
                 return HttpResponse::BadRequest().json(ErrorResponse {
-                    success: false,
                     error: "Invalid patient roster cursor".to_string(),
                     code: "INVALID_CURSOR".to_string(),
                 });
@@ -185,7 +181,6 @@ pub async fn list_patients(
         Err(e) => {
             log::error!("Patient list failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Internal server error".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -252,7 +247,6 @@ pub async fn get_patient_by_id(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -263,7 +257,6 @@ pub async fn get_patient_by_id(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -276,7 +269,6 @@ pub async fn get_patient_by_id(
         || current_user.wallet_address == patient_id;
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Patients can only view their own records".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -296,7 +288,6 @@ pub async fn get_patient_by_id(
                 let reason = unreadable_reason(&entity, &data.encryption_keyring);
                 log::error!("patient profile is unreadable ({reason})");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: format!(
                         "Patient {patient_id} is registered but their stored record could not be decrypted"
                     ),
@@ -305,7 +296,6 @@ pub async fn get_patient_by_id(
             }
         },
         Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient {} not found", patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         }),
@@ -355,7 +345,6 @@ pub async fn update_patient(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error:
                     "Missing X-User-Id header. Only doctors and nurses can update patient records."
                         .to_string(),
@@ -368,7 +357,6 @@ pub async fn update_patient(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -378,7 +366,6 @@ pub async fn update_patient(
     // CRITICAL: Only Doctor, Nurse, or Admin can edit records
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Only doctors and nurses can update medical records. Your role: {}",
                 current_user.role
@@ -392,7 +379,6 @@ pub async fn update_patient(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -402,7 +388,6 @@ pub async fn update_patient(
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -483,7 +468,6 @@ pub async fn update_patient(
     if let Err(e) = data.repositories.patients.update(updated_entity).await {
         log::error!("Patient update persistence failed: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to persist patient update".to_string(),
             code: "REPO_ERROR".to_string(),
         });
@@ -526,7 +510,6 @@ pub async fn add_emergency_contact(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -537,7 +520,6 @@ pub async fn add_emergency_contact(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -552,7 +534,6 @@ pub async fn add_emergency_contact(
 
     if !is_own_record && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You can only manage your own emergency contacts".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -564,7 +545,6 @@ pub async fn add_emergency_contact(
         || req.relationship.trim().is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Name, phone, and relationship are required".to_string(),
             code: "INVALID_INPUT".to_string(),
         });
@@ -575,7 +555,6 @@ pub async fn add_emergency_contact(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -585,7 +564,6 @@ pub async fn add_emergency_contact(
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -623,7 +601,6 @@ pub async fn add_emergency_contact(
     if let Err(e) = data.repositories.patients.update(updated_entity).await {
         log::error!("Emergency contact persistence failed: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to persist emergency contact".to_string(),
             code: "REPO_ERROR".to_string(),
         });

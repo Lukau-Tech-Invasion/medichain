@@ -14,13 +14,11 @@ use crate::repositories::traits::{JsonRecordEntity, JsonRecordRepository, Reposi
 macro_rules! pg_json_repo {
     ($name:ident, $table:literal) => {
         /// PostgreSQL-backed JSON-record repository (one Phase-7 domain table).
-        #[allow(dead_code)]
         #[derive(Debug, Clone)]
         pub struct $name {
             pool: PgPool,
         }
 
-        #[allow(dead_code)]
         impl $name {
             pub fn new(pool: PgPool) -> Self {
                 Self { pool }
@@ -208,7 +206,6 @@ pg_json_repo!(
     PgTransfusionEventRecordRepository,
     "transfusion_event_records"
 );
-pg_json_repo!(PgEPrescriptionRecordRepository, "e_prescription_records");
 pg_json_repo!(PgDispenseEventRepository, "dispense_events");
 pg_json_repo!(
     PgPrescriptionVerificationEventRepository,

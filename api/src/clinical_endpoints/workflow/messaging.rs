@@ -20,7 +20,6 @@ pub async fn log_symptom(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -54,7 +53,6 @@ pub async fn log_symptom(
         .filter(|symptom| !symptom.is_empty())
     else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A symptom is required".to_string(),
             code: "SYMPTOM_REQUIRED".to_string(),
         });
@@ -66,7 +64,6 @@ pub async fn log_symptom(
         .map(|severity| severity as u8)
     else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Severity must be between 1 and 10".to_string(),
             code: "INVALID_SYMPTOM_SEVERITY".to_string(),
         });
@@ -131,7 +128,6 @@ pub async fn log_symptom(
     {
         log::error!("symptom entry persist failed: {e}");
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Could not save the symptom entry".to_string(),
             code: "SYMPTOM_WRITE_FAILED".to_string(),
         });
@@ -204,7 +200,6 @@ pub async fn get_symptom_history(
         Err(e) => {
             log::error!("symptom history load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not load symptom history".to_string(),
                 code: "SYMPTOM_READ_FAILED".to_string(),
             });
@@ -247,7 +242,6 @@ pub async fn retract_symptom(
     };
     let Some(current_user) = get_user(&data, &current_user_id) else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
@@ -264,7 +258,6 @@ pub async fn retract_symptom(
         Err(error) => {
             log::error!("symptom entry load for retraction failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not update the symptom entry".to_string(),
                 code: "SYMPTOM_RETRACTION_FAILED".to_string(),
             });
@@ -299,7 +292,6 @@ pub async fn retract_symptom(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "This symptom entry has already been changed and cannot be retracted"
                     .to_string(),
                 code: "SYMPTOM_RETRACTION_CONFLICT".to_string(),
@@ -308,7 +300,6 @@ pub async fn retract_symptom(
         Err(error) => {
             log::error!("symptom entry retraction failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not update the symptom entry".to_string(),
                 code: "SYMPTOM_RETRACTION_FAILED".to_string(),
             });
@@ -361,7 +352,6 @@ pub async fn send_message(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -372,14 +362,12 @@ pub async fn send_message(
         Some(r) if !r.trim().is_empty() => r.trim().to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "recipient_id is required".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
         }
         Some(_) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "recipient_id cannot be empty".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
@@ -394,14 +382,12 @@ pub async fn send_message(
         Some(c) if !c.trim().is_empty() => c.trim(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "content is required".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
         }
         Some(_) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "content cannot be empty".to_string(),
                 code: "MISSING_FIELD".to_string(),
             })
@@ -421,7 +407,6 @@ pub async fn send_message(
         Some(user) => user,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Recipient account was not found".to_string(),
                 code: "INVALID_RECIPIENT".to_string(),
             })
@@ -433,7 +418,6 @@ pub async fn send_message(
         && matches!(recipient.role, crate::Role::Patient)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Patients can only message healthcare providers".to_string(),
             code: "INVALID_RECIPIENT".to_string(),
         });
@@ -487,7 +471,6 @@ pub async fn send_message(
     if let Err(e) = data.repositories.messages.create(inbox_copy).await {
         log::error!("message persist (inbox) failed: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Could not send the message".to_string(),
             code: "MESSAGE_WRITE_FAILED".to_string(),
         });
@@ -533,7 +516,6 @@ pub async fn get_messages(
         Err(e) => {
             log::error!("message load failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not load messages".to_string(),
                 code: "MESSAGE_READ_FAILED".to_string(),
             });
@@ -647,14 +629,12 @@ pub async fn mark_message_read(
         Ok(Some(record)) if record.owner_id == current_user_id => record,
         Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Only the recipient can mark this message as read".to_string(),
                 code: "FORBIDDEN".to_string(),
             })
         }
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Message not found".to_string(),
                 code: "MESSAGE_NOT_FOUND".to_string(),
             })
@@ -685,7 +665,6 @@ pub async fn mark_message_read(
 
 fn message_read_failure() -> HttpResponse {
     HttpResponse::InternalServerError().json(ErrorResponse {
-        success: false,
         error: "Could not update the message".to_string(),
         code: "MESSAGE_UPDATE_FAILED".to_string(),
     })

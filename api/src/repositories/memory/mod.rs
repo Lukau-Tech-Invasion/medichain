@@ -10,7 +10,6 @@
 
 // Phase 1 repositories
 mod access_log;
-mod allergy;
 mod medical_record;
 mod nfc_tag;
 mod patient;
@@ -38,7 +37,6 @@ mod phase3;
 
 // Phase 1 exports
 pub use access_log::MemoryAccessLogRepository;
-pub use allergy::MemoryAllergyRepository;
 pub use medical_record::MemoryMedicalRecordRepository;
 pub use nfc_tag::MemoryNfcTagRepository;
 pub use patient::MemoryPatientRepository;
@@ -88,11 +86,9 @@ pub use phase3::MemoryRadiologyOrderRepository;
 pub use phase3::MemoryRadiologyReportRepository;
 
 // Phase 3 exports - Blood Bank
-pub use phase3::MemoryBloodTypeScreenRepository;
 
 // Phase 3 exports - Pharmacy & Medications
 pub use phase3::MemoryAdherenceLogRepository;
-pub use phase3::MemoryDrugInteractionRepository;
 pub use phase3::MemoryMedicationReminderRepository;
 
 // Phase 4-6 repositories

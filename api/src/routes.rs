@@ -445,14 +445,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::fhir_capability_statement)
         // Insurance Verification endpoints
         .service(clinical_endpoints::verify_insurance)
-        // `check_eligibility` (insurance_pharmacy/insurance.rs) is NOT registered here:
-        // it was duplicate-registered on the same `POST /api/insurance/eligibility`
-        // path as `check_insurance_eligibility` below (billing/insurance_eligibility.rs,
-        // the fuller implementation with real policy-date/deductible/plan-type logic).
-        // Actix takes the first registration for an exact path+method match, so the
-        // richer handler was silently dead code — removed this duplicate registration
-        // rather than the crude handler's body (flagged as a dead-code cleanup
-        // candidate, not deleted, per this repo's "never delete without asking" rule).
         // Dashboard & Workflow endpoints
         .service(clinical_endpoints::patient_dashboard)
         .service(clinical_endpoints::doctor_dashboard)

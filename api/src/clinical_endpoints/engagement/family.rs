@@ -26,7 +26,6 @@ pub async fn create_family_group(
     // Only the primary contact can create their family group
     if current_user_id != req.primary_contact_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You can only create a family group for yourself".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -68,7 +67,6 @@ pub async fn create_family_group(
         if let Err(error) = data.repositories.family_groups.create(entity).await {
             log::error!("family_groups persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The family group could not be saved. Nothing was changed; please retry."
                     .to_string(),
                 code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),
@@ -122,7 +120,6 @@ pub async fn add_family_member(
             Ok(g) => g,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt family group record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -130,7 +127,6 @@ pub async fn add_family_member(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Family group not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -140,7 +136,6 @@ pub async fn add_family_member(
     // Only primary contact can add members
     if group.primary_account_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the primary contact can add members".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -149,7 +144,6 @@ pub async fn add_family_member(
     // Check if patient already in group
     if group.members.iter().any(|m| m.patient_id == req.patient_id) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Patient already a member of this group".to_string(),
             code: "CONFLICT".to_string(),
         });
@@ -201,7 +195,6 @@ pub async fn add_family_member(
         if let Err(error) = data.repositories.family_groups.create(entity).await {
             log::error!("family_groups persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The family group could not be saved. Nothing was changed; please retry."
                     .to_string(),
                 code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),
@@ -241,7 +234,6 @@ pub async fn get_family_group(
             Ok(g) => g,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt family group record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -249,7 +241,6 @@ pub async fn get_family_group(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Family group not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -263,7 +254,6 @@ pub async fn get_family_group(
         .any(|m| m.patient_id == current_user_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -346,7 +336,6 @@ pub async fn remove_family_member(
             Ok(g) => g,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt family group record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -354,7 +343,6 @@ pub async fn remove_family_member(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Family group not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -364,7 +352,6 @@ pub async fn remove_family_member(
     // Only primary contact can remove members (or member removing themselves)
     if group.primary_account_id != current_user_id && patient_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -373,7 +360,6 @@ pub async fn remove_family_member(
     // Can't remove primary contact
     if patient_id == group.primary_account_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Cannot remove primary contact from group".to_string(),
             code: "BAD_REQUEST".to_string(),
         });
@@ -397,7 +383,6 @@ pub async fn remove_family_member(
         if let Err(error) = data.repositories.family_groups.create(entity).await {
             log::error!("family_groups persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The family group could not be saved. Nothing was changed; please retry."
                     .to_string(),
                 code: "FAMILY_GROUP_PERSISTENCE_FAILED".to_string(),

@@ -34,21 +34,18 @@ fn authorize(
 ) -> Result<(), HttpResponse> {
     let caller_id = get_current_user_id(http_req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Missing X-User-Id header".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
     let caller = get_user(data, &caller_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
     })?;
     if !may_read(data, &caller, &caller_id, patient_id) {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You can only read your own records".to_string(),
             code: "ACCESS_DENIED".to_string(),
         }));

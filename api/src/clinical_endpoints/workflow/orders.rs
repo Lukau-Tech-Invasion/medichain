@@ -15,7 +15,6 @@ pub async fn get_patient_list(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -24,7 +23,6 @@ pub async fn get_patient_list(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -197,7 +195,6 @@ pub async fn get_order_sets(data: web::Data<AppState>, http_req: HttpRequest) ->
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -209,7 +206,6 @@ pub async fn get_order_sets(data: web::Data<AppState>, http_req: HttpRequest) ->
     // are the only person able to approve.
     if !(current_user.role.can_view_medical_records()) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -222,7 +218,6 @@ pub async fn get_order_sets(data: web::Data<AppState>, http_req: HttpRequest) ->
         Err(error) => {
             log::error!("order set read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Order sets could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             });

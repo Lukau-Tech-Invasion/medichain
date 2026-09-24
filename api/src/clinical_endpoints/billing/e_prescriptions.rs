@@ -62,7 +62,6 @@ pub async fn create_esignature_prescription(
     // Only doctors can prescribe
     if !matches!(current_user.role, crate::Role::Doctor) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only physicians can create prescriptions".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -90,7 +89,6 @@ pub async fn create_esignature_prescription(
             Err(error) => {
                 log::error!("Dispensing policy evaluation failed: {error}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "The approved dispensing policy could not be evaluated".to_string(),
                     code: "DISPENSING_POLICY_UNAVAILABLE".to_string(),
                 });
@@ -181,7 +179,6 @@ pub async fn create_esignature_prescription(
         if let Err(e) = data.repositories.e_prescriptions_v2.create(entity).await {
             log::error!("E-prescription persistence failed for {prescription_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "E-prescription could not be saved".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             });
@@ -328,7 +325,6 @@ pub async fn sign_e_prescription(
     // Only prescriber can sign
     if prescription.prescriber_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the prescriber can sign this prescription".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -357,7 +353,6 @@ pub async fn sign_e_prescription(
     );
     if !signable {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Prescription cannot be signed from state '{}'",
                 status_token(&prescription.status)
@@ -406,7 +401,6 @@ pub async fn sign_e_prescription(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Prescription was already signed or its state changed".to_string(),
                 code: "NOT_SIGNABLE".to_string(),
             });
@@ -414,7 +408,6 @@ pub async fn sign_e_prescription(
         Err(e) => {
             log::error!("E-prescription signing failed for {prescription_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Signature could not be saved".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             });
@@ -453,7 +446,6 @@ pub async fn transmit_e_prescription(
     // Must be signed first
     if prescription.status != crate::clinical::PrescriptionStatus::Signed {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Prescription must be signed before transmission".to_string(),
             code: "NOT_SIGNED".to_string(),
         });
@@ -462,7 +454,6 @@ pub async fn transmit_e_prescription(
     // Only prescriber can transmit
     if prescription.prescriber_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the prescriber can transmit this prescription".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -497,7 +488,6 @@ pub async fn transmit_e_prescription(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Prescription is no longer awaiting transmission".to_string(),
                 code: "ALREADY_TRANSMITTED".to_string(),
             });
@@ -505,7 +495,6 @@ pub async fn transmit_e_prescription(
         Err(e) => {
             log::error!("E-prescription transmission failed for {prescription_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Transmission could not be recorded".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             });
@@ -592,7 +581,6 @@ fn may_reverse(role: &crate::Role) -> bool {
 
 fn dispense_role_refused(role: &crate::Role) -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: format!("Role {role} cannot dispense. Required: Pharmacist"),
         code: "INSUFFICIENT_ROLE".to_string(),
     })
@@ -640,14 +628,12 @@ async fn transition_verification(
     {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "The verification state changed; reload the prescription".to_string(),
             code: "VERIFICATION_RACE_DETECTED".to_string(),
         })),
         Err(error) => {
             log::error!("Secondary verification transition failed: {error}");
             Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The verification decision could not be saved".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             }))
@@ -699,20 +685,17 @@ async fn load_prescription(
         Ok(Some(entity)) => serde_json::from_value(entity.data).map_err(|e| {
             log::error!("Prescription {prescription_id} could not be decoded: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The prescription could not be read".to_string(),
                 code: "PRESCRIPTION_DECODE_FAILED".to_string(),
             })
         }),
         Ok(None) => Err(HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Prescription not found".to_string(),
             code: "PRESCRIPTION_NOT_FOUND".to_string(),
         })),
         Err(e) => {
             log::error!("Prescription lookup failed for {prescription_id}: {e}");
             Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The prescription could not be read".to_string(),
                 code: "PRESCRIPTION_UNAVAILABLE".to_string(),
             }))
@@ -751,14 +734,12 @@ async fn transition_status(
     {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!("This prescription is no longer {}", status_token(&from)),
             code: "PRESCRIPTION_NOT_IN_EXPECTED_STATE".to_string(),
         })),
         Err(e) => {
             log::error!("Prescription transition failed for {prescription_id}: {e}");
             Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The transition could not be recorded".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             }))
@@ -867,7 +848,6 @@ pub async fn request_secondary_verification(
     };
     if !prescription.secondary_verification.required {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This prescription does not require secondary verification".to_string(),
             code: "VERIFICATION_NOT_REQUIRED".to_string(),
         });
@@ -879,7 +859,6 @@ pub async fn request_secondary_verification(
         != Some(current_user.wallet_address.as_str())
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the first pharmacist may request verification".to_string(),
             code: "VERIFICATION_REQUESTER_MISMATCH".to_string(),
         });
@@ -947,7 +926,6 @@ fn verification_state_conflict(
     status: &crate::clinical::SecondaryVerificationStatus,
 ) -> HttpResponse {
     HttpResponse::Conflict().json(ErrorResponse {
-        success: false,
         error: format!(
             "Verification cannot be requested while in state {}",
             verification_status_token(status)
@@ -958,7 +936,6 @@ fn verification_state_conflict(
 
 fn verification_policy_missing() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "The approved verification policy is incomplete".to_string(),
         code: "DISPENSING_POLICY_UNAVAILABLE".to_string(),
     })
@@ -978,7 +955,6 @@ async fn closed_verification_request(
         Ok(Some(value)) => value,
         Ok(None) => {
             return Err(HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "The verification request history is missing".to_string(),
                 code: "VERIFICATION_HISTORY_MISSING".to_string(),
             }))
@@ -1021,7 +997,6 @@ pub async fn decide_secondary_verification(
     }
     if verifier_is_not_distinct(&prescription, &current_user.wallet_address) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A distinct second pharmacist is required".to_string(),
             code: "SECOND_PHARMACIST_MUST_BE_DISTINCT".to_string(),
         });
@@ -1033,7 +1008,6 @@ pub async fn decide_secondary_verification(
             .is_none_or(|value| value.trim().is_empty())
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A rejection reason is required".to_string(),
             code: "VERIFICATION_REASON_REQUIRED".to_string(),
         });
@@ -1148,7 +1122,6 @@ async fn expire_secondary_verification(
         return response;
     }
     HttpResponse::Conflict().json(ErrorResponse {
-        success: false,
         error: "The secondary verification request expired".to_string(),
         code: "VERIFICATION_EXPIRED".to_string(),
     })
@@ -1174,7 +1147,6 @@ pub async fn revoke_secondary_verification(
     }
     if body.reason.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A revocation reason is required".to_string(),
             code: "VERIFICATION_REASON_REQUIRED".to_string(),
         });
@@ -1198,7 +1170,6 @@ pub async fn revoke_secondary_verification(
             == Some(current_user.wallet_address.as_str());
     if current_user.role != crate::Role::Admin && !authorized_pharmacist {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only a party to the verification or an administrator may revoke it".to_string(),
             code: "VERIFICATION_REVOCATION_FORBIDDEN".to_string(),
         });
@@ -1257,7 +1228,6 @@ pub async fn dispense_prescription(
     }
     if body.quantity == 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A dispense must hand over at least one unit".to_string(),
             code: "QUANTITY_MUST_BE_POSITIVE".to_string(),
         });
@@ -1273,7 +1243,6 @@ pub async fn dispense_prescription(
             != crate::clinical::SecondaryVerificationStatus::Verified
     {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Secondary pharmacist verification is required before dispensing".to_string(),
             code: "SECONDARY_VERIFICATION_REQUIRED".to_string(),
         });
@@ -1290,7 +1259,6 @@ pub async fn dispense_prescription(
     );
     if !dispensable {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!(
                 "A prescription in state {} cannot be dispensed",
                 status_token(&prescription.status)
@@ -1304,7 +1272,6 @@ pub async fn dispense_prescription(
     let remaining = prescribed.saturating_sub(already);
     if body.quantity > remaining {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "This prescription has {remaining} {} remaining; {} was requested",
                 prescription.medication.quantity_unit, body.quantity
@@ -1372,7 +1339,6 @@ pub async fn dispense_prescription(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Another fill was recorded while this one was being prepared; \
                         re-read the prescription and dispense the remainder"
                     .to_string(),
@@ -1382,7 +1348,6 @@ pub async fn dispense_prescription(
         Err(e) => {
             log::error!("Dispense failed for {prescription_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The dispense could not be recorded".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             });
@@ -1419,14 +1384,12 @@ pub async fn reverse_dispense(
     };
     if !may_reverse(&current_user.role) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!("Role {} cannot reverse a dispense", current_user.role),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
     if body.reason.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A reason is required to reverse a dispense".to_string(),
             code: "REASON_REQUIRED".to_string(),
         });
@@ -1442,7 +1405,6 @@ pub async fn reverse_dispense(
         Ok(Some(e)) => e,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Dispense event not found".to_string(),
                 code: "DISPENSE_EVENT_NOT_FOUND".to_string(),
             })
@@ -1450,7 +1412,6 @@ pub async fn reverse_dispense(
         Err(e) => {
             log::error!("Dispense event lookup failed: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The dispense event could not be read".to_string(),
                 code: "PRESCRIPTION_UNAVAILABLE".to_string(),
             });
@@ -1458,14 +1419,12 @@ pub async fn reverse_dispense(
     };
     if original.data["reversed"].as_bool().unwrap_or(false) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This dispense has already been reversed".to_string(),
             code: "ALREADY_REVERSED".to_string(),
         });
     }
     if original.data["prescription_id"].as_str() != Some(prescription_id.as_str()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "That dispense event belongs to a different prescription".to_string(),
             code: "DISPENSE_EVENT_MISMATCH".to_string(),
         });
@@ -1538,7 +1497,6 @@ pub async fn reverse_dispense(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "The dispensed total changed while this reversal was being prepared"
                     .to_string(),
                 code: "DISPENSE_RACE_DETECTED".to_string(),
@@ -1547,7 +1505,6 @@ pub async fn reverse_dispense(
         Err(e) => {
             log::error!("Dispense reversal failed for {prescription_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The reversal and its audit history could not be recorded".to_string(),
                 code: "PRESCRIPTION_PERSISTENCE_FAILED".to_string(),
             });
@@ -1580,7 +1537,6 @@ pub async fn list_dispense_events(
         crate::Role::Pharmacist | crate::Role::Doctor | crate::Role::Admin
     ) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!("Role {} cannot read dispensing history", current_user.role),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1598,7 +1554,6 @@ pub async fn list_dispense_events(
         Err(e) => {
             log::error!("Dispense history read failed: {e}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Dispensing history could not be read".to_string(),
                 code: "PRESCRIPTION_UNAVAILABLE".to_string(),
             })
@@ -1627,7 +1582,6 @@ pub async fn get_esignature_prescription(
     // Patient or prescriber can view
     if prescription.patient_id != current_user_id && prescription.prescriber_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -1670,7 +1624,6 @@ pub async fn get_patient_e_prescriptions(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -1686,7 +1639,6 @@ pub async fn get_patient_e_prescriptions(
         Err(error) => {
             log::error!("Patient prescription list failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Prescriptions are temporarily unavailable".to_string(),
                 code: "PRESCRIPTIONS_UNAVAILABLE".to_string(),
             });

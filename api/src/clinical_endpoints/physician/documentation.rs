@@ -46,7 +46,6 @@ pub async fn collect_ama_signatures(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -54,7 +53,6 @@ pub async fn collect_ama_signatures(
     };
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -81,7 +79,6 @@ pub async fn collect_ama_signatures(
     // leaving the record exactly as unevidenced as before.
     if signature.is_none() && refused.is_none() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Record the patient's signature, or why they would not sign".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -91,7 +88,6 @@ pub async fn collect_ama_signatures(
         Ok(record) => record,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "No such AMA discharge".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -103,7 +99,6 @@ pub async fn collect_ama_signatures(
     // document is an addendum, not a silent replacement.
     if discharge.patient_signature_at.is_some() {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Signatures have already been recorded on this discharge".to_string(),
             code: "ALREADY_SIGNED".to_string(),
         });
@@ -170,7 +165,6 @@ pub async fn collect_ama_signatures(
         Err(e) => {
             log::error!("AMA signatures could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Signatures could not be recorded".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -189,7 +183,6 @@ pub async fn create_ama(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -198,7 +191,6 @@ pub async fn create_ama(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -243,7 +235,6 @@ pub async fn create_ama(
         (Some(true), Some(_)) => {}
         (Some(true), None) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "capacity_assessment is required: record how capacity was assessed,                         not only that it was"
                     .to_string(),
                 code: "CAPACITY_ASSESSMENT_REQUIRED".to_string(),
@@ -251,7 +242,6 @@ pub async fn create_ama(
         }
         (Some(false), _) => {
             return HttpResponse::UnprocessableEntity().json(ErrorResponse {
-                success: false,
                 error: "A patient assessed as lacking decision-making capacity cannot be                         discharged against medical advice. Escalate rather than filing an                         AMA discharge."
                     .to_string(),
                 code: "PATIENT_LACKS_CAPACITY".to_string(),
@@ -259,7 +249,6 @@ pub async fn create_ama(
         }
         (None, _) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "decision_making_capacity is required: an AMA discharge is only valid                         if the patient was assessed as able to refuse treatment"
                     .to_string(),
                 code: "CAPACITY_DETERMINATION_REQUIRED".to_string(),
@@ -408,12 +397,10 @@ pub async fn create_ama(
             "ama_id": ama_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -432,7 +419,6 @@ pub async fn get_ama(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -441,7 +427,6 @@ pub async fn get_ama(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -450,12 +435,10 @@ pub async fn get_ama(
     match data.repositories.ama_discharges.get_by_id(&ama_id).await {
         Ok(ama) => HttpResponse::Ok().json(ama.data),
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "AMA discharge not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -528,7 +511,6 @@ pub async fn create_hp(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -537,7 +519,6 @@ pub async fn create_hp(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -546,7 +527,6 @@ pub async fn create_hp(
     let mut hp = req.into_inner();
     if hp.patient_id.trim().is_empty() || hp.chief_complaint.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and chief_complaint are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -559,7 +539,6 @@ pub async fn create_hp(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", hp.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -616,14 +595,12 @@ pub async fn create_hp(
             "hp_id": hp_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("history and physical persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the history and physical".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -644,14 +621,12 @@ async fn load_hp_for_write(
     match data.repositories.history_physicals.get_by_id(hp_id).await {
         Ok(entity) => Ok(entity),
         Err(RepositoryError::NotFound(_)) => Err(HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "H&P not found".to_string(),
             code: "NOT_FOUND".to_string(),
         })),
         Err(error) => {
             log::error!("history and physical read for a write failed: {error}");
             Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The history and physical is temporarily unavailable".to_string(),
                 code: "REPO_ERROR".to_string(),
             }))
@@ -670,7 +645,6 @@ fn append_hp_addendum(
 ) -> Result<(), HttpResponse> {
     let invalid = |error: &str| {
         HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: error.to_string(),
             code: "DOCUMENT_INVALID".to_string(),
         })
@@ -713,7 +687,6 @@ pub async fn update_hp_draft(
     };
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -726,14 +699,12 @@ pub async fn update_hp_draft(
     };
     if hp_is_signed(&entity) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Signed H&Ps cannot be edited; create an addendum instead".to_string(),
             code: "SIGNED_RECORD_IMMUTABLE".to_string(),
         });
     }
     if entity.performed_by != current_user.wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the clinician who started this draft can edit it".to_string(),
             code: "NOT_DRAFT_AUTHOR".to_string(),
         });
@@ -742,7 +713,6 @@ pub async fn update_hp_draft(
     let mut hp = req.into_inner();
     if hp.patient_id != entity.patient_id || hp.chief_complaint.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id must match the existing record and chief_complaint is required"
                 .to_string(),
             code: "VALIDATION_ERROR".to_string(),
@@ -781,7 +751,6 @@ pub async fn update_hp_draft(
             HttpResponse::Ok().json(serde_json::json!({ "success": true, "hp_id": hp_id }))
         }
         Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This H&P changed after it was opened (it may have been signed). Reload it \
                     before editing."
                 .to_string(),
@@ -790,7 +759,6 @@ pub async fn update_hp_draft(
         Err(error) => {
             log::error!("history and physical draft update failed: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to update the history and physical draft".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -817,7 +785,6 @@ pub async fn add_hp_addendum(
     };
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only clinicians who document records can amend them".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -828,7 +795,6 @@ pub async fn add_hp_addendum(
         .map(str::trim);
     let Some(content) = content.filter(|content| !content.is_empty()) else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Addendum content is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -849,7 +815,6 @@ pub async fn add_hp_addendum(
         };
         if !hp_is_signed(&entity) {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "Only signed H&Ps can receive an addendum".to_string(),
                 code: "RECORD_NOT_SIGNED".to_string(),
             });
@@ -872,7 +837,6 @@ pub async fn add_hp_addendum(
             Err(error) => {
                 log::error!("history and physical addendum persistence failed: {error}");
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Failed to save the H&P addendum".to_string(),
                     code: "REPO_ERROR".to_string(),
                 });
@@ -880,7 +844,6 @@ pub async fn add_hp_addendum(
         }
     }
     HttpResponse::Conflict().json(ErrorResponse {
-        success: false,
         error: "The H&P is being amended by someone else. The addendum was not saved; try again."
             .to_string(),
         code: "CONCURRENT_AMENDMENT".to_string(),
@@ -899,7 +862,6 @@ pub async fn get_hp(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -908,7 +870,6 @@ pub async fn get_hp(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -924,12 +885,10 @@ pub async fn get_hp(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "H&P not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -943,7 +902,6 @@ pub async fn list_hps(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -952,7 +910,6 @@ pub async fn list_hps(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1013,7 +970,6 @@ pub async fn respond_to_consult(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1038,7 +994,6 @@ pub async fn respond_to_consult(
 
     let (Some(assessment), Some(recommendations)) = (assessment, recommendations) else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "assessment and recommendations are required to complete a consult".to_string(),
             code: "MISSING_FIELD".to_string(),
         });
@@ -1053,7 +1008,6 @@ pub async fn respond_to_consult(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Consultation not found".to_string(),
                 code: "CONSULT_NOT_FOUND".to_string(),
             })
@@ -1065,7 +1019,6 @@ pub async fn respond_to_consult(
     // change advice that has been relied upon.
     if entity.status.as_deref() == Some("completed") {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This consultation already has a response".to_string(),
             code: "CONSULT_ALREADY_ANSWERED".to_string(),
         });
@@ -1120,7 +1073,6 @@ pub async fn respond_to_consult(
         Err(e) => {
             log::error!("consult response could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The consultation response could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -1196,7 +1148,6 @@ pub async fn create_consult(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1205,7 +1156,6 @@ pub async fn create_consult(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1219,7 +1169,6 @@ pub async fn create_consult(
     // is a 500 for what is a client mistake.
     if body.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "MISSING_PATIENT_ID".to_string(),
         });
@@ -1232,7 +1181,6 @@ pub async fn create_consult(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", body.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -1246,7 +1194,6 @@ pub async fn create_consult(
         .filter(|q| !q.is_empty());
     if question.is_none() && body.reason.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "a consult needs a reason or a clinical question".to_string(),
             code: "MISSING_FIELD".to_string(),
         });
@@ -1323,14 +1270,12 @@ pub async fn create_consult(
             "consult_id": consult_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("consult could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The consultation request could not be saved".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -1350,7 +1295,6 @@ pub async fn get_consult(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1359,7 +1303,6 @@ pub async fn get_consult(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1380,12 +1323,10 @@ pub async fn get_consult(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Consultation note not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -1468,7 +1409,6 @@ pub async fn create_progress_note(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1477,7 +1417,6 @@ pub async fn create_progress_note(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1521,12 +1460,10 @@ pub async fn create_progress_note(
             "note_id": note_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -1545,7 +1482,6 @@ pub async fn get_progress_note(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1554,7 +1490,6 @@ pub async fn get_progress_note(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1570,12 +1505,10 @@ pub async fn get_progress_note(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Progress note not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

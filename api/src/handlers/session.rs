@@ -31,7 +31,6 @@ pub async fn register_device(
             "status": "registered"
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),

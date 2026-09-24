@@ -45,7 +45,6 @@ pub async fn create_specimen(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -54,7 +53,6 @@ pub async fn create_specimen(
 
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -63,7 +61,6 @@ pub async fn create_specimen(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() || record.specimen_type.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and specimen_type are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -76,7 +73,6 @@ pub async fn create_specimen(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -121,7 +117,6 @@ pub async fn create_specimen(
     if let Err(e) = data.repositories.lab_submissions.create(submission).await {
         log::error!("lab submission for specimen collection failed: {e}");
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to raise the lab order for this collection".to_string(),
             code: "REPO_ERROR".to_string(),
         });
@@ -163,14 +158,12 @@ pub async fn create_specimen(
             "submission_id": submission_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("specimen collection persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the specimen collection".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -190,7 +183,6 @@ pub async fn get_specimen(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -199,7 +191,6 @@ pub async fn get_specimen(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -219,12 +210,10 @@ pub async fn get_specimen(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Specimen collection not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -238,7 +227,6 @@ pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) ->
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -247,7 +235,6 @@ pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) ->
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -267,7 +254,6 @@ pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) ->
         Err(error) => {
             log::error!("failed to list specimen collections: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Specimen collections could not be loaded".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -451,7 +437,6 @@ pub async fn create_chain_of_custody(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -460,7 +445,6 @@ pub async fn create_chain_of_custody(
 
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -479,7 +463,6 @@ pub async fn create_chain_of_custody(
         .is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "seal_number is required: a custody record without one cannot show the seal was unbroken".to_string(),
             code: "MISSING_SEAL_NUMBER".to_string(),
         });
@@ -596,14 +579,12 @@ pub async fn create_chain_of_custody(
             "form_id": form_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("chain of custody could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The chain-of-custody record could not be saved".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -623,7 +604,6 @@ pub async fn get_chain_of_custody(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -632,7 +612,6 @@ pub async fn get_chain_of_custody(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -647,12 +626,10 @@ pub async fn get_chain_of_custody(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Chain of custody not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -755,7 +732,6 @@ const CALIBRATION_RESULTS: [&str; 2] = ["pass", "fail"];
 
 fn calibration_error(error: &str, code: &str) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })
@@ -776,7 +752,6 @@ pub async fn create_lab_calibration(
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -784,7 +759,6 @@ pub async fn create_lab_calibration(
     };
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -840,7 +814,6 @@ pub async fn create_lab_calibration(
         Err(error) => {
             log::error!("laboratory calibration could not be stored: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The calibration run could not be saved".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -950,7 +923,6 @@ pub async fn create_lab_qc(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -959,7 +931,6 @@ pub async fn create_lab_qc(
 
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -970,7 +941,6 @@ pub async fn create_lab_qc(
 
     if body.analyte.trim().is_empty() || body.instrument.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "analyte and instrument are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -984,7 +954,6 @@ pub async fn create_lab_qc(
         body.expected_sd,
     ) else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "expectedSD must be a positive number".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1023,7 +992,6 @@ pub async fn create_lab_qc(
             .is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "a failed control requires a corrective action".to_string(),
             code: "CORRECTIVE_ACTION_REQUIRED".to_string(),
         });
@@ -1091,14 +1059,12 @@ pub async fn create_lab_qc(
             "acceptable_range_high": high
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("QC run could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The quality-control run could not be saved".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -1118,7 +1084,6 @@ pub async fn get_lab_qc(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1127,7 +1092,6 @@ pub async fn get_lab_qc(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1142,12 +1106,10 @@ pub async fn get_lab_qc(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Lab QC record not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -1215,7 +1177,6 @@ pub async fn create_critical_value(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1224,7 +1185,6 @@ pub async fn create_critical_value(
 
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1235,7 +1195,6 @@ pub async fn create_critical_value(
 
     if body.patient_id.trim().is_empty() || body.analyte.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and analyte are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1248,7 +1207,6 @@ pub async fn create_critical_value(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", body.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -1274,7 +1232,6 @@ pub async fn create_critical_value(
         .any(|t| t.analyte.eq_ignore_ascii_case(body.analyte.trim()));
     if listed && classification.is_none() {
         return HttpResponse::UnprocessableEntity().json(ErrorResponse {
-            success: false,
             error: format!(
                 "{} {} crosses no critical bound on the facility's call list",
                 body.analyte, body.value
@@ -1367,14 +1324,12 @@ pub async fn create_critical_value(
             }))
         }
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("critical value could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The critical value could not be saved".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -1394,7 +1349,6 @@ pub async fn get_critical_value(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1403,7 +1357,6 @@ pub async fn get_critical_value(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1417,12 +1370,10 @@ pub async fn get_critical_value(
     {
         Ok(entity) => HttpResponse::Ok().json(critical_value_view(&entity)),
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Critical value notification not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -1440,7 +1391,6 @@ pub async fn create_specimen_rejection(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1449,7 +1399,6 @@ pub async fn create_specimen_rejection(
 
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -1468,7 +1417,6 @@ pub async fn create_specimen_rejection(
         Some(id) if !id.trim().is_empty() => id.trim().to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "specimen_id is required: a rejection must name the specimen it rejects"
                     .to_string(),
                 code: "MISSING_FIELD".to_string(),
@@ -1484,7 +1432,6 @@ pub async fn create_specimen_rejection(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Specimen '{specimen_id}' has not been collected, so it cannot be rejected"
             ),
@@ -1557,12 +1504,10 @@ pub async fn create_specimen_rejection(
             "rejection_id": rejection_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -1655,7 +1600,6 @@ fn may_handle_recollection(role: &crate::Role) -> bool {
 
 fn recollection_role_refused(role: &crate::Role) -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: format!(
             "Role {role} cannot act on a specimen recollection. Required: LabTechnician, Doctor, Nurse, or Admin"
         ),
@@ -1694,7 +1638,6 @@ async fn audit_recollection(
         .map_err(|e| {
             log::error!("Recollection audit failed ({action}): {e}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The recollection could not be audited".to_string(),
                 code: "AUDIT_UNAVAILABLE".to_string(),
             })
@@ -1728,7 +1671,6 @@ pub async fn request_specimen_recollection(
         Ok(r) => r,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Specimen rejection not found".to_string(),
                 code: "REJECTION_NOT_FOUND".to_string(),
             })
@@ -1737,7 +1679,6 @@ pub async fn request_specimen_recollection(
 
     if body.reason.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A reason is required to ask a patient for another sample".to_string(),
             code: "REASON_REQUIRED".to_string(),
         });
@@ -1774,7 +1715,6 @@ pub async fn request_specimen_recollection(
         // truth rather than the patient being asked twice.
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "A recollection is already open for this rejection".to_string(),
                 code: "RECOLLECTION_ALREADY_OPEN".to_string(),
             })
@@ -1782,7 +1722,6 @@ pub async fn request_specimen_recollection(
         Err(e) => {
             log::error!("Recollection open failed for {rejection_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The recollection request could not be recorded".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             });
@@ -1827,7 +1766,6 @@ pub async fn complete_specimen_recollection(
     let replacement = body.replacement_specimen_id.trim().to_string();
     if replacement.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "The replacement specimen must be named".to_string(),
             code: "REPLACEMENT_REQUIRED".to_string(),
         });
@@ -1845,7 +1783,6 @@ pub async fn complete_specimen_recollection(
         Ok(Some(r)) => r,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Recollection request not found".to_string(),
                 code: "RECOLLECTION_NOT_FOUND".to_string(),
             })
@@ -1853,7 +1790,6 @@ pub async fn complete_specimen_recollection(
         Err(e) => {
             log::error!("Recollection lookup failed for {recollection_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The recollection could not be read".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             });
@@ -1861,7 +1797,6 @@ pub async fn complete_specimen_recollection(
     };
     if replacement == existing.original_specimen_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "The replacement cannot be the specimen that was rejected".to_string(),
             code: "REPLACEMENT_IS_ORIGINAL".to_string(),
         });
@@ -1879,7 +1814,6 @@ pub async fn complete_specimen_recollection(
         // replacement or revive a cancelled request.
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "This recollection is no longer open".to_string(),
                 code: "RECOLLECTION_NOT_OPEN".to_string(),
             })
@@ -1887,7 +1821,6 @@ pub async fn complete_specimen_recollection(
         Err(e) => {
             log::error!("Recollection completion failed for {recollection_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The replacement could not be recorded".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             });
@@ -1929,7 +1862,6 @@ pub async fn cancel_specimen_recollection(
     }
     if body.reason.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A reason is required to cancel a recollection".to_string(),
             code: "REASON_REQUIRED".to_string(),
         });
@@ -1946,7 +1878,6 @@ pub async fn cancel_specimen_recollection(
         Ok(Some(r)) => r,
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "This recollection is no longer open".to_string(),
                 code: "RECOLLECTION_NOT_OPEN".to_string(),
             })
@@ -1954,7 +1885,6 @@ pub async fn cancel_specimen_recollection(
         Err(e) => {
             log::error!("Recollection cancellation failed for {recollection_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The cancellation could not be recorded".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             });
@@ -2007,7 +1937,6 @@ pub async fn list_recollections_for_rejection(
         Err(e) => {
             log::error!("Recollection list failed: {e}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Recollections could not be read".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             })
@@ -2033,7 +1962,6 @@ pub async fn list_open_recollections(
         Err(e) => {
             log::error!("Open recollection list failed: {e}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Recollections could not be read".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
             })
@@ -2060,7 +1988,6 @@ pub async fn notify_rejection_ordering_provider(
     );
     if !may_notify {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot notify an ordering provider. Required: LabTechnician, Doctor, Nurse, or Admin",
                 current_user.role
@@ -2078,7 +2005,6 @@ pub async fn notify_rejection_ordering_provider(
         Ok(r) => r,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Specimen rejection not found".to_string(),
                 code: "REJECTION_NOT_FOUND".to_string(),
             })
@@ -2092,7 +2018,6 @@ pub async fn notify_rejection_ordering_provider(
         match resolve_ordering_provider(&data, &rejection.specimen_id).await {
             Some(p) => p,
             None => return HttpResponse::UnprocessableEntity().json(ErrorResponse {
-                success: false,
                 error:
                     "This specimen has no ordering provider on record, so there is nobody to notify"
                         .to_string(),
@@ -2110,7 +2035,6 @@ pub async fn notify_rejection_ordering_provider(
         Ok(Some(r)) => r,
         Ok(None) => {
             return HttpResponse::Conflict().json(ErrorResponse {
-                success: false,
                 error: "The ordering provider has already been notified about this rejection"
                     .to_string(),
                 code: "ALREADY_NOTIFIED".to_string(),
@@ -2119,7 +2043,6 @@ pub async fn notify_rejection_ordering_provider(
         Err(e) => {
             log::error!("Rejection notification transition failed for {rejection_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The notification could not be recorded".to_string(),
                 code: "NOTIFICATION_UNAVAILABLE".to_string(),
             });
@@ -2221,7 +2144,6 @@ pub async fn get_specimen_rejection(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -2230,7 +2152,6 @@ pub async fn get_specimen_rejection(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -2254,12 +2175,10 @@ pub async fn get_specimen_rejection(
         // panel. Same field, same cause.
         Ok(entity) => HttpResponse::Ok().json(entity),
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Specimen rejection not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -2606,7 +2525,6 @@ const NOTIFICATION_METHODS: [&str; 4] = ["phone", "in-person", "secure-message",
 
 fn cv_error(status: actix_web::http::StatusCode, error: &str, code: &str) -> HttpResponse {
     HttpResponse::build(status).json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })
@@ -3040,7 +2958,6 @@ pub struct TransferCustodyRequest {
 
 fn custody_error(status: actix_web::http::StatusCode, error: &str, code: &str) -> HttpResponse {
     HttpResponse::build(status).json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })

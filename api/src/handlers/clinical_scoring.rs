@@ -34,7 +34,6 @@ pub async fn get_scoring_catalog(
     let caller = get_current_user_id(&http_req).and_then(|wallet| get_user(&data, &wallet));
     if caller.is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Unauthorized".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });

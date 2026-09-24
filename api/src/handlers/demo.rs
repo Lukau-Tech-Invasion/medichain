@@ -37,7 +37,6 @@ pub async fn demo_login(
 
     if !dev_mode || !crate::support::is_demo_mode() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Demo login is only available in development mode".to_string(),
             code: "DEV_MODE_REQUIRED".to_string(),
         });
@@ -46,7 +45,6 @@ pub async fn demo_login(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error:
                 "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
                     .to_string(),
@@ -60,7 +58,6 @@ pub async fn demo_login(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_ROLE".to_string(),
             });
@@ -258,7 +255,6 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
 
     if !dev_mode || !crate::support::is_demo_mode() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Demo credentials are only available in development mode".to_string(),
             code: "DEV_MODE_REQUIRED".to_string(),
         });
@@ -266,7 +262,6 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
 
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Demo credentials are unavailable without durable storage".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -332,7 +327,6 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
         Err(error) => {
             log::error!("Demo credential lookup failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Demo credentials are temporarily unavailable".to_string(),
                 code: "DEMO_CREDENTIALS_UNAVAILABLE".to_string(),
             })

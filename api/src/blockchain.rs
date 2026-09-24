@@ -226,8 +226,6 @@ struct JsonRpcRequest<'a> {
 /// A minimal JSON-RPC 2.0 response envelope.
 #[derive(Debug, Deserialize)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
-    jsonrpc: Option<String>,
     result: Option<Value>,
     error: Option<JsonRpcError>,
 }

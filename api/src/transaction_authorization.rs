@@ -619,30 +619,6 @@ pub async fn has_active_step_up(
     Ok(elevated.unwrap_or(false))
 }
 
-/// Drop any elevation on this session without ending it.
-///
-/// ADR-0008 requires step-up state not to survive wallet credential revocation.
-/// Session revocation already clears it implicitly, because `has_active_step_up`
-/// reads elevation and liveness in one statement -- but credential revocation is
-/// the case where the login legitimately continues while the proof that
-/// justified elevated access no longer holds.
-///
-/// No caller yet: this codebase has no credential-revocation handler to call it
-/// from. Kept rather than deleted so the requirement has an implementation
-/// waiting when that handler is written, instead of being rediscovered then.
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn clear_step_up(pool: &PgPool, login_session_id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE auth_login_sessions
-         SET step_up_until = NULL, step_up_method = NULL
-         WHERE id = $1",
-    )
-    .bind(login_session_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

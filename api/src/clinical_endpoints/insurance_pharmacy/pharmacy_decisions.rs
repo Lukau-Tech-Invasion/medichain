@@ -25,7 +25,6 @@ const DECISION_QUERIED: &str = "prescriber_queried";
 
 fn pharmacy_error(status: actix_web::http::StatusCode, message: &str, code: &str) -> HttpResponse {
     HttpResponse::build(status).json(ErrorResponse {
-        success: false,
         error: message.to_string(),
         code: code.to_string(),
     })

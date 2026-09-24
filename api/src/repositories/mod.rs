@@ -14,7 +14,7 @@
 //!                               ▼
 //! ┌─────────────────────────────────────────────────────────────┐
 //! │                   Repository Traits                         │
-//! │  (PatientRepository, AllergyRepository, etc.)              │
+//! │  (PatientRepository, MedicalRecordRepository, etc.)        │
 //! └─────────────────────────────┬───────────────────────────────┘
 //!                               │
 //!            ┌──────────────────┴──────────────────┐
@@ -102,7 +102,6 @@ pub struct RepositoryContainer {
     prescription_workflow_lock: Arc<tokio::sync::Mutex<()>>,
     // Phase 1 repositories
     pub patients: Arc<dyn PatientRepository>,
-    pub allergies: Arc<dyn AllergyRepository>,
     pub medical_records: Arc<dyn MedicalRecordRepository>,
     pub nfc_tags: Arc<dyn NfcTagRepository>,
     pub vital_signs: Arc<dyn VitalSignsRepository>,
@@ -165,10 +164,8 @@ pub struct RepositoryContainer {
     pub pathology_reports: Arc<dyn PathologyReportRepository>,
 
     // Phase 3: Blood Bank repositories
-    pub blood_type_screens: Arc<dyn BloodTypeScreenRepository>,
 
     // Phase 3: Pharmacy repositories
-    pub drug_interactions: Arc<dyn DrugInteractionRepository>,
     pub medication_reminders: Arc<dyn MedicationReminderRepository>,
     pub adherence_logs: Arc<dyn AdherenceLogRepository>,
 
@@ -285,7 +282,6 @@ pub struct RepositoryContainer {
     // replayable, so its durability is a security property.
     pub blood_type_screen_records: Arc<dyn JsonRecordRepository>,
     pub transfusion_event_records: Arc<dyn JsonRecordRepository>,
-    pub e_prescription_records: Arc<dyn JsonRecordRepository>,
     /// Pharmacy dispensing events, including corrections (SCR-013).
     /// Append-only by convention: a reversal adds an entry, never removes one.
     pub dispense_events: Arc<dyn JsonRecordRepository>,
@@ -435,7 +431,6 @@ impl RepositoryContainer {
             pool: None,
             prescription_workflow_lock: Arc::new(tokio::sync::Mutex::new(())),
             patients: Arc::new(memory::MemoryPatientRepository::new()),
-            allergies: Arc::new(memory::MemoryAllergyRepository::new()),
             medical_records: Arc::new(memory::MemoryMedicalRecordRepository::new()),
             nfc_tags: Arc::new(memory::MemoryNfcTagRepository::new()),
             vital_signs: Arc::new(memory::MemoryVitalSignsRepository::new()),
@@ -490,10 +485,8 @@ impl RepositoryContainer {
             pathology_reports: Arc::new(memory::MemoryPathologyReportRepository::new()),
 
             // Phase 3: Blood Bank repositories (memory)
-            blood_type_screens: Arc::new(memory::MemoryBloodTypeScreenRepository::new()),
 
             // Phase 3: Pharmacy repositories (memory)
-            drug_interactions: Arc::new(memory::MemoryDrugInteractionRepository::new()),
             medication_reminders: Arc::new(memory::MemoryMedicationReminderRepository::new()),
             adherence_logs: Arc::new(memory::MemoryAdherenceLogRepository::new()),
 
@@ -587,7 +580,6 @@ impl RepositoryContainer {
             notification_reads: Arc::new(memory::MemoryJsonRecordRepository::new()),
             blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            e_prescription_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             dispense_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             prescription_verification_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             death_certificate_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -934,7 +926,6 @@ impl RepositoryContainer {
             pool: Some(pool.clone()),
             prescription_workflow_lock: Arc::new(tokio::sync::Mutex::new(())),
             patients: Arc::new(postgres::PgPatientRepository::new(pool.clone())),
-            allergies: Arc::new(postgres::PgAllergyRepository::new(pool.clone())),
             medical_records: Arc::new(postgres::PgMedicalRecordRepository::new(pool.clone())),
             nfc_tags: Arc::new(postgres::PgNfcTagRepository::new(pool.clone())),
             vital_signs: Arc::new(postgres::PgVitalSignsRepository::new(pool.clone())),
@@ -1009,10 +1000,8 @@ impl RepositoryContainer {
             pathology_reports: Arc::new(postgres::PgPathologyReportRepository::new(pool.clone())),
 
             // Phase 3: Blood Bank repositories (PostgreSQL)
-            blood_type_screens: Arc::new(postgres::PgBloodTypeScreenRepository::new(pool.clone())),
 
             // Phase 3: Pharmacy repositories (PostgreSQL)
-            drug_interactions: Arc::new(postgres::PgDrugInteractionRepository::new(pool.clone())),
             medication_reminders: Arc::new(postgres::PgMedicationReminderRepository::new(
                 pool.clone(),
             )),
@@ -1145,9 +1134,6 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             transfusion_event_records: Arc::new(postgres::PgTransfusionEventRecordRepository::new(
-                pool.clone(),
-            )),
-            e_prescription_records: Arc::new(postgres::PgEPrescriptionRecordRepository::new(
                 pool.clone(),
             )),
             dispense_events: Arc::new(postgres::PgDispenseEventRepository::new(pool.clone())),

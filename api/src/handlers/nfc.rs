@@ -80,7 +80,6 @@ pub async fn generate_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -91,7 +90,6 @@ pub async fn generate_nfc_card(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -100,7 +98,6 @@ pub async fn generate_nfc_card(
 
     if !current_user.role.may_issue_identity_credentials() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only a doctor, nurse or administrator can issue a health ID card".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -129,7 +126,6 @@ pub async fn generate_nfc_card(
         Some(kind) => kind,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "Unknown national ID type '{}'. Expected one of: {}",
                     body.national_id_type,
@@ -154,7 +150,6 @@ pub async fn generate_nfc_card(
     // rather than storage failures.
     if let Err(e) = data.card_registry.register_card(card.clone()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "CARD_REGISTRATION_FAILED".to_string(),
         });
@@ -171,7 +166,6 @@ pub async fn generate_nfc_card(
         log::error!("health ID card {card_id} could not be stored: {e}");
         let _ = data.card_registry.forget_card(&card_hash);
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The card could not be stored, so none was issued.".to_string(),
             code: "CARD_STORAGE_UNAVAILABLE".to_string(),
         });
@@ -204,7 +198,6 @@ pub async fn nfc_tap(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -215,7 +208,6 @@ pub async fn nfc_tap(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -224,7 +216,6 @@ pub async fn nfc_tap(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can use NFC tap".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -235,7 +226,6 @@ pub async fn nfc_tap(
         Some(h) => h.to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Missing card_hash in request body".to_string(),
                 code: "MISSING_FIELD".to_string(),
             });
@@ -328,7 +318,6 @@ pub async fn verify_my_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -339,7 +328,6 @@ pub async fn verify_my_nfc_card(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -348,7 +336,6 @@ pub async fn verify_my_nfc_card(
 
     if current_user.role != Role::Patient {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patients can self-verify a card; providers use /api/nfc/tap".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -411,7 +398,6 @@ pub async fn verify_qr_code(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -422,7 +408,6 @@ pub async fn verify_qr_code(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -431,7 +416,6 @@ pub async fn verify_qr_code(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can verify QR codes".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -442,7 +426,6 @@ pub async fn verify_qr_code(
         Some(d) => d.to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Missing qr_data in request body".to_string(),
                 code: "MISSING_FIELD".to_string(),
             });
@@ -454,7 +437,6 @@ pub async fn verify_qr_code(
         Ok(d) => d,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_QR_DATA".to_string(),
             });
@@ -464,7 +446,6 @@ pub async fn verify_qr_code(
     // Check expiration
     if qr_data.is_expired() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "QR code has expired".to_string(),
             code: "QR_EXPIRED".to_string(),
         });
@@ -475,7 +456,6 @@ pub async fn verify_qr_code(
         Some(c) => c,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Card not found".to_string(),
                 code: "CARD_NOT_FOUND".to_string(),
             });
@@ -485,7 +465,6 @@ pub async fn verify_qr_code(
     // Verify patient ID matches
     if card.patient_id != qr_data.patient_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "QR data mismatch".to_string(),
             code: "QR_MISMATCH".to_string(),
         });
@@ -534,7 +513,6 @@ pub async fn get_card_info(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -545,7 +523,6 @@ pub async fn get_card_info(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -557,7 +534,6 @@ pub async fn get_card_info(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -596,7 +572,6 @@ pub async fn suspend_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -607,7 +582,6 @@ pub async fn suspend_card(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -616,7 +590,6 @@ pub async fn suspend_card(
 
     if current_user.role != Role::Admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can suspend cards".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -627,7 +600,6 @@ pub async fn suspend_card(
         Some(h) => h.to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Missing card_hash in request body".to_string(),
                 code: "MISSING_FIELD".to_string(),
             });
@@ -637,7 +609,6 @@ pub async fn suspend_card(
     // Suspend the card
     if let Err(e) = data.card_registry.suspend_card(&card_hash) {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: e,
             code: "CARD_NOT_FOUND".to_string(),
         });
@@ -651,7 +622,6 @@ pub async fn suspend_card(
             if let Err(e) = data.persist_card(&card).await {
                 log::error!("suspension of card {card_hash} was not stored: {e}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "The suspension could not be stored and has not taken effect."
                         .to_string(),
                     code: "CARD_STORAGE_UNAVAILABLE".to_string(),
@@ -660,7 +630,6 @@ pub async fn suspend_card(
         }
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Card not found".to_string(),
                 code: "CARD_NOT_FOUND".to_string(),
             })
@@ -689,7 +658,6 @@ pub async fn list_nfc_cards(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -700,7 +668,6 @@ pub async fn list_nfc_cards(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -709,7 +676,6 @@ pub async fn list_nfc_cards(
 
     if current_user.role != Role::Admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can list all cards".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });

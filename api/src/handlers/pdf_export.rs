@@ -63,7 +63,6 @@ pub async fn export_pdf_document(
                 .body(bytes)
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e,
             code: "PDF_RENDER_ERROR".to_string(),
         }),

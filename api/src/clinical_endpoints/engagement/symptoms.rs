@@ -84,7 +84,6 @@ pub async fn start_symptom_check(
         if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
             log::error!("symptom_sessions persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The symptom session could not be saved; please retry.".to_string(),
                 code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
             });
@@ -200,7 +199,6 @@ pub async fn submit_symptom_answers(
             Ok(s) => s,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt session record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -208,7 +206,6 @@ pub async fn submit_symptom_answers(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -219,7 +216,6 @@ pub async fn submit_symptom_answers(
     // session is keyed by patient_id, the caller by wallet.
     if !crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Session does not belong to you".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -288,7 +284,6 @@ pub async fn submit_symptom_answers(
         if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
             log::error!("symptom_sessions persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The symptom session could not be saved; please retry.".to_string(),
                 code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
             });
@@ -400,7 +395,6 @@ pub async fn get_symptom_session(
             Ok(s) => s,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt session record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -408,7 +402,6 @@ pub async fn get_symptom_session(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -417,7 +410,6 @@ pub async fn get_symptom_session(
 
     if session.patient_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -452,7 +444,6 @@ pub async fn get_symptom_checker_history(
         && !is_provider
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -529,7 +520,6 @@ pub async fn analyze_symptoms(
 
     if symptoms.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "At least one symptom is required".to_string(),
             code: "INVALID_INPUT".to_string(),
         });

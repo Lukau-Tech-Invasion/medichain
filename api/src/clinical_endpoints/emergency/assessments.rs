@@ -360,7 +360,6 @@ pub async fn create_sepsis(
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -455,7 +454,6 @@ pub async fn create_sepsis(
         Err(e) => {
             log::error!("sepsis assessment persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the sepsis assessment".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -592,7 +590,6 @@ pub async fn get_patient_emergency_records(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -602,7 +599,6 @@ pub async fn get_patient_emergency_records(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });

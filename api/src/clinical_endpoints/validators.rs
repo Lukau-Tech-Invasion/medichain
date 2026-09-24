@@ -28,7 +28,6 @@ pub(crate) fn require_x_user_id_header(req: &HttpRequest) -> Result<String, Http
     match req.headers().get("X-User-Id") {
         Some(id) => Ok(id.to_str().unwrap_or("").to_string()),
         None => Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Missing X-User-Id header".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })),
@@ -46,7 +45,6 @@ pub(crate) fn require_known_user(
     match users.get(user_id) {
         Some(u) => Ok(u.clone()),
         None => Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })),
@@ -220,7 +218,6 @@ pub(crate) async fn require_known_patient(
     if patient_id.trim().is_empty() {
         return Err(
             actix_web::HttpResponse::BadRequest().json(crate::ErrorResponse {
-                success: false,
                 error: "patient_id is required".to_string(),
                 code: "MISSING_PATIENT_ID".to_string(),
             }),
@@ -235,7 +232,6 @@ pub(crate) async fn require_known_patient(
     {
         return Err(
             actix_web::HttpResponse::NotFound().json(crate::ErrorResponse {
-                success: false,
                 error: format!("Patient '{patient_id}' not found"),
                 code: "PATIENT_NOT_FOUND".to_string(),
             }),

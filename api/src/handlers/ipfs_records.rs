@@ -32,7 +32,6 @@ pub async fn upload_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -43,7 +42,6 @@ pub async fn upload_medical_record(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -53,7 +51,6 @@ pub async fn upload_medical_record(
     // Only doctors, nurses, and admins can upload medical records
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot upload medical records. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -66,7 +63,6 @@ pub async fn upload_medical_record(
     // All medical document uploads MUST be encrypted with ChaCha20-Poly1305.
     if !req.encrypted {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Unencrypted document uploads are not permitted. \
                     All medical records must be encrypted (encrypted=true)."
                 .to_string(),
@@ -79,7 +75,6 @@ pub async fn upload_medical_record(
         Ok(patient) => patient,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -88,7 +83,6 @@ pub async fn upload_medical_record(
     let patient_account = patient.wallet_address;
     if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Patient has no wallet bound for blockchain recording".to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
         });
@@ -108,7 +102,6 @@ pub async fn upload_medical_record(
         Ok(c) => c,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!("Invalid base64 content: {}", e),
                 code: "INVALID_CONTENT".to_string(),
             });
@@ -138,7 +131,6 @@ pub async fn upload_medical_record(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS upload failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             });
@@ -167,7 +159,6 @@ pub async fn upload_medical_record(
     {
         log::error!("Medical record persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The encrypted content was uploaded, but its medical-record reference could not be saved."
                 .to_string(),
             code: "RECORD_PERSISTENCE_REQUIRED".to_string(),
@@ -193,7 +184,6 @@ pub async fn upload_medical_record(
     {
         log::error!("Medical-record upload audit persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error:
                 "The medical record was saved, but its required access audit could not be recorded."
                     .to_string(),
@@ -216,7 +206,6 @@ pub async fn upload_medical_record(
         Err(error) => {
             log::error!("Medical-record chain anchor could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The record was saved, but its blockchain anchor could not be queued."
                     .to_string(),
                 code: "CHAIN_ANCHOR_UNAVAILABLE".to_string(),
@@ -237,7 +226,6 @@ pub async fn upload_medical_record(
         Err(error) => {
             log::error!("Upload access chain audit could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The record was saved, but its blockchain access audit could not be queued."
                     .to_string(),
                 code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
@@ -271,7 +259,6 @@ pub async fn download_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -282,7 +269,6 @@ pub async fn download_medical_record(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -323,14 +309,12 @@ pub async fn download_medical_record(
         Ok(r) => r,
         Err(IpfsError::NotFound(hash)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Record not found: {}", hash),
                 code: "RECORD_NOT_FOUND".to_string(),
             });
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS download failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             });
@@ -410,7 +394,6 @@ async fn patient_read_denial(
 
 fn access_denied() -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: "Patients can only download their own medical records".to_string(),
         code: "ACCESS_DENIED".to_string(),
     })
@@ -418,7 +401,6 @@ fn access_denied() -> HttpResponse {
 
 fn access_check_unavailable() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Patient consent records are temporarily unavailable".to_string(),
         code: "CONSENT_CHECK_UNAVAILABLE".to_string(),
     })
@@ -675,7 +657,6 @@ fn json_document<T: serde::Serialize>(filename: &str, kind: &str, record: &T) ->
         Err(error) => {
             log::error!("could not render {kind} {filename}: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not render record".to_string(),
                 code: "RENDER_ERROR".to_string(),
             })
@@ -685,7 +666,6 @@ fn json_document<T: serde::Serialize>(filename: &str, kind: &str, record: &T) ->
 
 fn not_found(kind: &str) -> HttpResponse {
     HttpResponse::NotFound().json(ErrorResponse {
-        success: false,
         error: format!("{kind} not found"),
         code: "RECORD_NOT_FOUND".to_string(),
     })
@@ -997,7 +977,6 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Lab result not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
@@ -1005,7 +984,6 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
         Err(e) => {
             log::error!("lab-result lookup failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lookup failed".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1017,7 +995,6 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
         Err(e) => {
             log::error!("lab-result stored payload did not parse: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lab result could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1370,7 +1347,6 @@ async fn download_procedure(
         "burn_assessments" => render_procedure!(burn_assessments, "Burn assessment"),
         "anesthesia_records" => render_procedure!(anesthesia_records, "Anaesthesia record"),
         _ => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Unsupported procedure document type".to_string(),
             code: "UNSUPPORTED_RECORD_TYPE".to_string(),
         }),
@@ -1460,7 +1436,6 @@ async fn download_structured_document(
     if let Some(procedure_ref) = content_hash.strip_prefix("procedure-") {
         let Some((kind, procedure_id)) = procedure_ref.split_once('-') else {
             return Some(HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Procedure document reference is incomplete".to_string(),
                 code: "INVALID_RECORD_REFERENCE".to_string(),
             }));
@@ -1490,7 +1465,6 @@ pub async fn download_medical_record_by_hash(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1500,7 +1474,6 @@ pub async fn download_medical_record_by_hash(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -1525,7 +1498,6 @@ pub async fn download_medical_record_by_hash(
         Ok(e) => e,
         Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Record not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
@@ -1533,7 +1505,6 @@ pub async fn download_medical_record_by_hash(
         Err(e) => {
             log::error!("Medical record lookup failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lookup failed".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1563,7 +1534,6 @@ pub async fn download_medical_record_by_hash(
         Some(h) => h,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Record has no metadata reference".to_string(),
                 code: "METADATA_MISSING".to_string(),
             })
@@ -1578,14 +1548,12 @@ pub async fn download_medical_record_by_hash(
         Ok(r) => r,
         Err(IpfsError::NotFound(hash)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Record content not found: {}", hash),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS download failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             })
@@ -1805,7 +1773,6 @@ pub async fn list_patient_records(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -1816,7 +1783,6 @@ pub async fn list_patient_records(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -1850,7 +1816,6 @@ pub async fn list_patient_records(
         Err(e) => {
             log::error!("List medical records failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to list records".to_string(),
                 code: "REPO_ERROR".to_string(),
             });

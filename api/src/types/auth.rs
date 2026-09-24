@@ -160,20 +160,15 @@ pub struct RevokeRoleResponse {
 
 /// Standard error body returned by every failing handler.
 ///
-/// Phase 9.5: this struct keeps its existing fields so the ~1000 construction
-/// sites compile unchanged, but it serializes to the **canonical error envelope**
+/// Serializes to the **canonical error envelope**
 /// `{ "error": { "code": <code>, "message": <message> } }` via a hand-written
 /// `Serialize` impl that delegates to
 /// [`crate::middleware::error_handling::error_envelope_json`] (the single source
-/// of truth for the error shape). The legacy top-level `success`/`error`/`code`
-/// fields are no longer emitted on the wire.
+/// of truth for the error shape). The legacy top-level `success` flag, never
+/// emitted since Phase 9.5, was removed from the struct and its 1,235
+/// construction sites on 2026-09-24.
 #[derive(Debug)]
 pub struct ErrorResponse {
-    /// Retained only so the ~1000 existing `ErrorResponse { success: false, .. }`
-    /// construction sites keep compiling; it is no longer emitted on the wire
-    /// (Phase 9.5 canonical envelope drops the top-level `success` flag).
-    #[allow(dead_code)]
-    pub success: bool,
     pub error: String,
     pub code: String,
 }

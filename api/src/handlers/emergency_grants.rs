@@ -36,35 +36,30 @@ fn provider_and_device(
 ) -> Result<(String, String, Option<String>), HttpResponse> {
     let user_id = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required for emergency access".into(),
             code: "UNAUTHORIZED".into(),
         })
     })?;
     let user = get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".into(),
             code: "USER_NOT_FOUND".into(),
         })
     })?;
     if !user.role.is_healthcare_provider() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can request emergency access".into(),
             code: "INSUFFICIENT_ROLE".into(),
         }));
     }
     let device = data.device_lifecycle.get(device_id).ok_or_else(|| {
         HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Approved device not found".into(),
             code: "DEVICE_NOT_FOUND".into(),
         })
     })?;
     if !data.device_lifecycle.can_access(device_id, Utc::now()) {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Device is not approved for emergency access".into(),
             code: "DEVICE_NOT_APPROVED".into(),
         }));
@@ -112,7 +107,6 @@ pub async fn issue_emergency_grant(
             HttpResponse::Created().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "EMERGENCY_GRANT_REJECTED".into(),
         }),
@@ -147,7 +141,6 @@ pub async fn list_emergency_grants(data: web::Data<AppState>, req: HttpRequest) 
 
     if current_user.role != Role::Admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only an administrator may review emergency access grants".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -162,7 +155,6 @@ pub async fn list_emergency_grants(data: web::Data<AppState>, req: HttpRequest) 
         Err(message) => {
             log::error!("emergency grant listing failed: {message}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: message.to_string(),
                 code: "GRANT_STORE_UNAVAILABLE".to_string(),
             })
@@ -181,7 +173,6 @@ pub async fn get_emergency_grant(
         Some(value) => value,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required".into(),
                 code: "UNAUTHORIZED".into(),
             })
@@ -190,17 +181,14 @@ pub async fn get_emergency_grant(
     match data.emergency_grants.get(&path.into_inner()).await {
         Ok(Some(grant)) if grant.requesting_person_id == user_id => HttpResponse::Ok().json(grant),
         Ok(Some(_)) => HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Emergency grant belongs to another professional".into(),
             code: "GRANT_OWNER_MISMATCH".into(),
         }),
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Emergency grant not found".into(),
             code: "GRANT_NOT_FOUND".into(),
         }),
         Err(_) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Emergency grant store is unavailable".into(),
             code: "STORE_UNAVAILABLE".into(),
         }),
@@ -219,7 +207,6 @@ pub async fn revoke_emergency_grant(
         Some(value) => value,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required".into(),
                 code: "UNAUTHORIZED".into(),
             })
@@ -229,14 +216,12 @@ pub async fn revoke_emergency_grant(
         Ok(Some(grant)) => grant,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Emergency grant not found".into(),
                 code: "GRANT_NOT_FOUND".into(),
             })
         }
         Err(_) => {
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Emergency grant store is unavailable".into(),
                 code: "STORE_UNAVAILABLE".into(),
             })
@@ -247,7 +232,6 @@ pub async fn revoke_emergency_grant(
         .unwrap_or(false);
     if existing.requesting_person_id != user_id && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the grant owner or an administrator can revoke this grant".into(),
             code: "GRANT_REVOKE_FORBIDDEN".into(),
         });
@@ -270,7 +254,6 @@ pub async fn revoke_emergency_grant(
             HttpResponse::Ok().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "GRANT_REVOCATION_REJECTED".into(),
         }),

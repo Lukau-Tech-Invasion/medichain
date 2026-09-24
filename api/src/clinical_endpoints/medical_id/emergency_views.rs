@@ -8,67 +8,6 @@
 
 use super::*;
 
-/// Every allergy known for a patient, merged from the allergies repository and
-/// the patient's own encrypted profile.
-///
-/// Patient registration writes allergies into the profile's `emergency_info`
-/// and **never** into the allergies repository. Both first-responder views read
-/// only the repository, so every allergy captured at registration was invisible
-/// on the card whose entire purpose is to stop a responder administering
-/// something that will harm the patient. Merged by allergen name, repository
-/// entries winning (a clinician-entered record carries a real severity
-/// assessment; a registration entry does not).
-/// Used by `core.rs` too. It was private here while
-/// `GET /api/medical-id/{id}` — the card the patient app and the lock screen
-/// actually open — read the allergies repository directly and therefore showed
-/// **no allergies at all** for a patient whose penicillin allergy was captured
-/// at registration. The correct implementation existed, unused, beside the
-/// wrong one that everything called.
-pub(super) async fn merged_allergies(
-    data: &web::Data<AppState>,
-    patient: &crate::repositories::traits::PatientEntity,
-    patient_id: &str,
-) -> Vec<crate::repositories::traits::AllergyEntity> {
-    let mut allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(patient_id)
-        .await
-        .unwrap_or_default();
-
-    if let Some(profile) = crate::patient_entity_to_profile(patient, &data.encryption_keyring) {
-        let known: std::collections::HashSet<String> = allergies
-            .iter()
-            .map(|a| a.allergen.to_lowercase())
-            .collect();
-        let now = Utc::now();
-        for a in profile.emergency_info.allergies {
-            if known.contains(&a.name.to_lowercase()) {
-                continue;
-            }
-            allergies.push(crate::repositories::traits::AllergyEntity {
-                id: format!("ALG-PROFILE-{}-{}", patient_id, a.name.to_lowercase()),
-                patient_id: patient_id.to_string(),
-                allergen: a.name,
-                allergen_type: "unspecified".to_string(),
-                reaction: a.reaction,
-                severity: a.severity.to_string(),
-                onset_date: None,
-                last_occurrence: None,
-                verified: false,
-                verified_by: None,
-                verified_at: a.verified_at,
-                source: Some("patient_registration".to_string()),
-                created_at: now,
-                updated_at: now,
-                created_by: "registration".to_string(),
-                is_active: true,
-            });
-        }
-    }
-    allergies
-}
-
 /// The active, verified primary guardian's contact info for a ward, if any —
 /// surfaced to first responders and on the lock screen so emergency access
 /// shows a *verified* guardian (name + phone from their own account) rather
@@ -185,7 +124,6 @@ pub async fn get_emergency_medical_id(
         }
         _ => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Emergency access requires a valid one-time Bearer token from an approved device."
                     .to_string(),
                 code: "EMERGENCY_ACCESS_DENIED".to_string(),
@@ -198,7 +136,6 @@ pub async fn get_emergency_medical_id(
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -246,7 +183,6 @@ pub async fn get_emergency_medical_id(
     {
         log::error!("Emergency access audit persistence failed: {}", error);
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Emergency access is temporarily unavailable because the audit trail could not be recorded."
                 .to_string(),
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
@@ -254,7 +190,6 @@ pub async fn get_emergency_medical_id(
     }
     if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
                 .to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
@@ -274,15 +209,12 @@ pub async fn get_emergency_medical_id(
         Err(error) => {
             log::error!("Emergency chain audit could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Emergency access was recorded, but its required chain audit could not be queued."
                     .to_string(),
                 code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
             });
         }
     };
-
-    let allergies = merged_allergies(&data, &patient, &patient_id).await;
 
     // DNR STATUS - LEGAL REQUIREMENT
     // Only emit the authoritative "DO NOT RESUSCITATE" flag when the advance
@@ -325,6 +257,13 @@ pub async fn get_emergency_medical_id(
     };
 
     let emergency_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    // The allergies recorded on the patient's own profile — the list
+    // registration and profile edits write. `None` when the profile could not
+    // be decrypted, which the card must say rather than render as "no
+    // allergies".
+    let allergies: Option<Vec<crate::Allergy>> = emergency_profile
+        .as_ref()
+        .map(|p| p.emergency_info.allergies.clone());
     let guardian_contact =
         primary_emergency_contact_json(&data, &patient_id, &emergency_profile).await;
 
@@ -372,20 +311,24 @@ pub async fn get_emergency_medical_id(
         // next one, and anaphylaxis on re-exposure does not care what the last
         // episode looked like. Withholding a known allergen from an emergency
         // card is never the safer default.
-        "critical_allergies": allergies.iter()
+        "critical_allergies": allergies.iter().flatten()
             .map(|a| {
-                let sev = a.severity.to_uppercase();
                 serde_json::json!({
-                    "allergen": a.allergen.to_uppercase(),
-                    "severity": sev,
+                    "allergen": a.name.to_uppercase(),
+                    "severity": a.severity.to_string().to_uppercase(),
                     "reaction": a.reaction,
                     // Lets a client emphasise the confirmed-dangerous ones
                     // without hiding the rest.
-                    "critical": matches!(sev.as_str(), "SEVERE" | "MODERATE" | "LIFETHREATENING"),
-                    "severity_assessed": !matches!(sev.as_str(), "UNKNOWN" | ""),
+                    "critical": matches!(
+                        a.severity,
+                        crate::AllergySeverity::Severe | crate::AllergySeverity::Moderate
+                    ),
+                    "severity_assessed": !matches!(a.severity, crate::AllergySeverity::Unknown),
                 })
             })
             .collect::<Vec<_>>(),
+        // An empty list above means "none recorded" only when this is false.
+        "allergies_unavailable": allergies.is_none(),
 
         // DNR STATUS - LEGAL REQUIREMENT (computed above; gated on verification)
         "dnr_status": dnr_status_json,
@@ -450,7 +393,6 @@ pub async fn get_lockscreen_medical_id(
         Some(value) => value.to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "A device-bound lockscreen capability is required".to_string(),
                 code: "DEVICE_BINDING_REQUIRED".to_string(),
             });
@@ -479,7 +421,6 @@ pub async fn get_lockscreen_medical_id(
         });
     if !capability_ok || !device_ok {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "The lockscreen capability is invalid, expired, revoked, or belongs to another device."
                 .to_string(),
             code: "DEVICE_BINDING_REQUIRED".to_string(),
@@ -491,7 +432,6 @@ pub async fn get_lockscreen_medical_id(
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -501,7 +441,6 @@ pub async fn get_lockscreen_medical_id(
         .is_some_and(|profile| profile.preferences.show_when_locked);
     if !lockscreen_enabled {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "The patient has disabled lockscreen Medical ID access".to_string(),
             code: "LOCKSCREEN_ACCESS_DISABLED".to_string(),
         });
@@ -542,7 +481,6 @@ pub async fn get_lockscreen_medical_id(
     {
         log::error!("Lockscreen access audit persistence failed: {}", error);
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Lockscreen access is temporarily unavailable because the audit trail could not be recorded."
                 .to_string(),
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
@@ -550,7 +488,6 @@ pub async fn get_lockscreen_medical_id(
     }
     if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Lockscreen access was recorded, but the patient has no blockchain wallet for the required chain audit."
                 .to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
@@ -571,15 +508,12 @@ pub async fn get_lockscreen_medical_id(
         Err(error) => {
             log::error!("Lockscreen chain audit could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Lockscreen access was recorded, but its required chain audit could not be queued."
                     .to_string(),
                 code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
             });
         }
     };
-
-    let allergies = merged_allergies(&data, &patient, &patient_id).await;
 
     // LINE 3: DNR Warning (if applicable). Computed before the json! macro
     // because a block expression cannot be a json! value.
@@ -617,6 +551,9 @@ pub async fn get_lockscreen_medical_id(
 
     // Lock screen format - maximum simplicity, high contrast
     let lockscreen_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    let allergies: Option<Vec<crate::Allergy>> = lockscreen_profile
+        .as_ref()
+        .map(|p| p.emergency_info.allergies.clone());
     let lockscreen_contact =
         primary_emergency_contact_json(&data, &patient_id, &lockscreen_profile).await;
 
@@ -649,19 +586,24 @@ pub async fn get_lockscreen_medical_id(
         // lists every known allergen and only says "None on file" when the list
         // is genuinely empty. "Nothing recorded" and "nothing to worry about"
         // are different statements and must not render identically.
+        // A profile that could not be read says so; it is not "none on file".
         "allergies_line": {
-            "text": if allergies.is_empty() {
-                "No allergies on file".to_string()
-            } else {
-                format!("ALLERGIC: {}",
-                    allergies.iter()
-                        .map(|a| a.allergen.to_uppercase())
+            "text": match allergies.as_deref() {
+                None => "Allergies could not be read - ask the patient".to_string(),
+                Some([]) => "No allergies on file".to_string(),
+                Some(known) => format!("ALLERGIC: {}",
+                    known.iter()
+                        .map(|a| a.name.to_uppercase())
                         .collect::<Vec<_>>()
                         .join(", ")
-                )
+                ),
             },
             "font_size": "20px",
-            "color": if allergies.is_empty() { "#9CA3AF" } else { "#FCA5A5" }
+            "color": match allergies.as_deref() {
+                None => "#FDE68A",
+                Some([]) => "#9CA3AF",
+                Some(_) => "#FCA5A5",
+            }
         },
 
         // LINE 3: DNR Warning (computed above; gated on verification)

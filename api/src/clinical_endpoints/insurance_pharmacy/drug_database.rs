@@ -12,20 +12,11 @@ use super::*;
 // PHASE 21: DRUG INTERACTION CHECKING
 // ============================================================================
 
-/// Get drug database for lookup/search
-#[get("/api/drugs")]
-pub async fn get_drug_database(
-    _data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
-    // Validate user is authenticated
-    let _current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
-        Err(resp) => return resp,
-    };
-
-    // Drug reference database (clinical formulary)
-    let drugs = vec![
+/// The drug reference formulary: what `GET /api/drugs` lists, and the drug
+/// classes the allergy screen uses to see that a penicillin allergy rules out
+/// amoxicillin.
+pub(super) fn formulary() -> Vec<crate::clinical::DrugReference> {
+    vec![
         crate::clinical::DrugReference {
             drug_id: "DRUG-001".to_string(),
             name: "Warfarin".to_string(),
@@ -183,7 +174,22 @@ pub async fn get_drug_database(
                 "60mg".to_string(),
             ],
         },
-    ];
+    ]
+}
+
+/// Get drug database for lookup/search
+#[get("/api/drugs")]
+pub async fn get_drug_database(
+    _data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    // Validate user is authenticated
+    let _current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let drugs = formulary();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

@@ -265,7 +265,6 @@ pub async fn create_telehealth_session(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can create telehealth sessions".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -275,7 +274,6 @@ pub async fn create_telehealth_session(
         Some(kind) => kind,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "Unknown session type '{}'. Expected one of: {}",
                     req.session_type,
@@ -292,7 +290,6 @@ pub async fn create_telehealth_session(
     let duration_minutes = req.duration_minutes.unwrap_or(60);
     if !(MIN_SESSION_MINUTES..=MAX_SESSION_MINUTES).contains(&duration_minutes) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "A session must be between {MIN_SESSION_MINUTES} and {MAX_SESSION_MINUTES} minutes"
             ),
@@ -321,7 +318,6 @@ pub async fn create_telehealth_session(
         Err(e) => {
             log::error!("telehealth session provisioning failed: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The telehealth session could not be created".to_string(),
                 code: "TELEHEALTH_UNAVAILABLE".to_string(),
             });
@@ -372,7 +368,6 @@ pub async fn get_telehealth_session(
         Some(s) => s,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -389,7 +384,6 @@ pub async fn get_telehealth_session(
         crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id);
     if !caller_is_patient && session.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -427,7 +421,6 @@ pub async fn join_telehealth_session(
         Some(s) => s,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -445,7 +438,6 @@ pub async fn join_telehealth_session(
 
     if !is_patient && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You are not part of this session".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -460,7 +452,6 @@ pub async fn join_telehealth_session(
             | crate::clinical::TelehealthStatus::NoShow
     ) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "This consultation has ended".to_string(),
             code: "SESSION_ENDED".to_string(),
         });
@@ -471,7 +462,6 @@ pub async fn join_telehealth_session(
     // used weeks early or long afterwards.
     if !within_join_window(session.scheduled_start, now) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "This consultation is not open to join yet".to_string(),
             code: "OUTSIDE_JOIN_WINDOW".to_string(),
         });
@@ -725,7 +715,6 @@ pub async fn telehealth_event(
     // trail has no record of.
     if !TELEHEALTH_EVENT_TYPES.contains(&body.event_type.as_str()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "unsupported event_type {:?}; expected one of: {}",
                 body.event_type,
@@ -824,7 +813,6 @@ pub async fn telehealth_recording(
         .unwrap_or(false);
     if !is_moderator {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only a session moderator can control recording".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -842,7 +830,6 @@ pub async fn telehealth_recording(
         Some(s) => s,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -853,7 +840,6 @@ pub async fn telehealth_recording(
         Ok(starting) => starting,
         Err(error) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: error.to_string(),
                 code: "INVALID_RECORDING_ACTION".to_string(),
             })
@@ -865,7 +851,6 @@ pub async fn telehealth_recording(
     // only moderator allowed to change this session's recording state.
     if !is_assigned_recording_provider(&actor, &session.provider_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the assigned provider can control this session's recording".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -873,7 +858,6 @@ pub async fn telehealth_recording(
 
     if starting && body.consent != Some(true) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Recording requires explicit consent".to_string(),
             code: "CONSENT_REQUIRED".to_string(),
         });
@@ -881,13 +865,6 @@ pub async fn telehealth_recording(
     session.recording_enabled = starting;
     if starting {
         session.recording_consent = true;
-    }
-
-    // Phase 6: on stop, run the configured transcriber and fold any transcript
-    // into the visit notes so it lands in the clinical record. No-op unless a
-    // STT provider is configured via `TRANSCRIPTION_PROVIDER`.
-    if !starting {
-        append_transcript_on_stop(&mut session).await;
     }
 
     let now = chrono::Utc::now();
@@ -965,7 +942,6 @@ pub async fn end_telehealth_session(
         Some(s) => s,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -975,7 +951,6 @@ pub async fn end_telehealth_session(
     // Only provider can end session
     if session.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the provider can end the session".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -1217,7 +1192,6 @@ pub async fn get_patient_telehealth_sessions(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -1243,28 +1217,6 @@ pub async fn get_patient_telehealth_sessions(
         "count": patient_sessions.len(),
         "next_cursor": next_cursor
     }))
-}
-
-/// On recording stop, run the configured transcriber and append any transcript
-/// to the session's visit notes (Phase 6). No-op when transcription is
-/// unconfigured (default). Returns true when notes were updated.
-async fn append_transcript_on_stop(session: &mut crate::clinical::TelehealthSession) -> bool {
-    let transcriber = crate::services::transcription::transcriber_from_env();
-    let req = crate::services::transcription::TranscriptionRequest {
-        session_id: session.session_id.clone(),
-        recording_ref: None,
-        language: "en".to_string(),
-    };
-    match transcriber.transcribe(&req).await {
-        Ok(Some(text)) if !text.is_empty() => {
-            let mut notes = session.visit_notes.clone().unwrap_or_default();
-            notes.push_str("\n\n[Auto-transcript]\n");
-            notes.push_str(&text);
-            session.visit_notes = Some(notes);
-            true
-        }
-        _ => false,
-    }
 }
 
 /// In-app web join URL for a session (Phase 4 — fully in-app, **no** native-app
@@ -1314,7 +1266,6 @@ pub async fn telehealth_join_qr(
             "qr_png_base64": png_base64,
         })),
         None => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to generate QR code".to_string(),
             code: "QR_ERROR".to_string(),
         }),

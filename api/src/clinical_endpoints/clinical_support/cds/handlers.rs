@@ -27,7 +27,6 @@ pub async fn create_cds_alert(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can create CDS alerts".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -85,7 +84,6 @@ pub async fn create_cds_alert(
     if let Err(e) = data.repositories.cds_alerts.create(entity).await {
         log::error!("CDS alert persistence failed: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to persist CDS alert".to_string(),
             code: "PERSISTENCE_ERROR".to_string(),
         });
@@ -117,7 +115,6 @@ pub async fn get_cds_alerts(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view CDS alerts".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -138,7 +135,6 @@ pub async fn get_cds_alerts(
             Err(e) => {
                 log::error!("Failed to fetch CDS alerts by patient: {}", e);
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Failed to fetch alerts".to_string(),
                     code: "REPOSITORY_ERROR".to_string(),
                 });
@@ -187,7 +183,6 @@ pub async fn get_cds_alert(
         Ok(e) => crate::clinical::CDSAlert::from(e),
         Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Alert not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -195,7 +190,6 @@ pub async fn get_cds_alert(
         Err(e) => {
             log::error!("Failed to fetch CDS alert: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to fetch alert".to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             });
@@ -204,7 +198,6 @@ pub async fn get_cds_alert(
 
     if alert.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -257,7 +250,6 @@ pub async fn respond_to_cds_alert(
             Ok(e) => e.into(),
             Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
                 return HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: "Alert not found".to_string(),
                     code: "NOT_FOUND".to_string(),
                 })
@@ -265,7 +257,6 @@ pub async fn respond_to_cds_alert(
             Err(e) => {
                 log::error!("Failed to fetch CDS alert: {}", e);
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Failed to fetch alert".to_string(),
                     code: "REPOSITORY_ERROR".to_string(),
                 });
@@ -274,7 +265,6 @@ pub async fn respond_to_cds_alert(
 
     if alert.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the assigned provider can respond".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -284,7 +274,6 @@ pub async fn respond_to_cds_alert(
         Some(action) => action,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "action_taken is invalid".to_string(),
                 code: "INVALID_ACTION".to_string(),
             })
@@ -318,7 +307,6 @@ pub async fn respond_to_cds_alert(
     if let Err(e) = data.repositories.cds_alerts.update(entity).await {
         log::error!("Failed to persist CDS alert response: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to record response".to_string(),
             code: "PERSISTENCE_ERROR".to_string(),
         });
@@ -394,7 +382,6 @@ pub async fn get_patient_cds_alerts(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_provider && !is_own {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers or the patient themselves can view these CDS alerts"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -414,7 +401,6 @@ pub async fn get_patient_cds_alerts(
         Err(e) => {
             log::error!("Failed to fetch patient CDS alerts: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to fetch alerts".to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             });

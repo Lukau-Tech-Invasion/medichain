@@ -905,7 +905,7 @@ impl TelehealthService {
     /// Construct the service around an explicit provider (dependency injection).
     /// Bypasses `TELEHEALTH_PROVIDER` env selection — used by tests and by
     /// callers that already hold a configured provider.
-    #[allow(dead_code)] // test-only DI seam today; kept public for reuse
+    #[cfg(test)]
     pub fn with_provider(provider: Box<dyn TelehealthProvider>) -> Self {
         TelehealthService {
             provider,

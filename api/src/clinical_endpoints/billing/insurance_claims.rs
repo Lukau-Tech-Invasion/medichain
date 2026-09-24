@@ -63,7 +63,6 @@ pub async fn create_insurance_claim(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can create insurance claims".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -169,7 +168,6 @@ pub async fn create_insurance_claim(
         if let Err(error) = data.repositories.insurance_claims.create(entity).await {
             log::error!("insurance_claims persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The claim could not be saved. Nothing was submitted; please retry."
                     .to_string(),
                 code: "INSURANCE_CLAIM_PERSISTENCE_FAILED".to_string(),
@@ -211,7 +209,6 @@ pub async fn submit_insurance_claim(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Claim not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -219,7 +216,6 @@ pub async fn submit_insurance_claim(
         Err(error) => {
             log::error!("Insurance claim read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The claim is temporarily unavailable".to_string(),
                 code: "INSURANCE_CLAIM_UNAVAILABLE".to_string(),
             });
@@ -230,7 +226,6 @@ pub async fn submit_insurance_claim(
         Err(error) => {
             log::error!("Insurance claim decode failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The stored claim could not be decoded".to_string(),
                 code: "INSURANCE_CLAIM_DECODE_FAILED".to_string(),
             });
@@ -239,7 +234,6 @@ pub async fn submit_insurance_claim(
 
     if claim.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the creating provider can submit this claim".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -269,7 +263,6 @@ pub async fn submit_insurance_claim(
         if let Err(error) = data.repositories.insurance_claims.create(entity).await {
             log::error!("insurance_claims persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The claim could not be saved. Nothing was submitted; please retry."
                     .to_string(),
                 code: "INSURANCE_CLAIM_PERSISTENCE_FAILED".to_string(),
@@ -310,7 +303,6 @@ pub async fn get_insurance_claim(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Claim not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -318,7 +310,6 @@ pub async fn get_insurance_claim(
         Err(error) => {
             log::error!("Insurance claim read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The claim is temporarily unavailable".to_string(),
                 code: "INSURANCE_CLAIM_UNAVAILABLE".to_string(),
             });
@@ -329,7 +320,6 @@ pub async fn get_insurance_claim(
         Err(error) => {
             log::error!("Insurance claim decode failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The stored claim could not be decoded".to_string(),
                 code: "INSURANCE_CLAIM_DECODE_FAILED".to_string(),
             });
@@ -371,7 +361,6 @@ pub async fn get_patient_insurance_claims(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -387,7 +376,6 @@ pub async fn get_patient_insurance_claims(
         Err(error) => {
             log::error!("Patient insurance claim list failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Insurance claims are temporarily unavailable".to_string(),
                 code: "INSURANCE_CLAIMS_UNAVAILABLE".to_string(),
             });

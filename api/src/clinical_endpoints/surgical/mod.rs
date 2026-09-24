@@ -31,7 +31,6 @@ fn require_surgical_list_access(
             Ok(())
         }
         Some(_) => Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         })),

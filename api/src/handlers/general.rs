@@ -251,7 +251,6 @@ fn validate_register_patient_request(
     validation::validate_string_length(&req.full_name, "full_name", validation::MAX_NAME_LENGTH)
         .map_err(|e| {
             HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "VALIDATION_ERROR".to_string(),
             })
@@ -259,21 +258,18 @@ fn validate_register_patient_request(
     validation::validate_string_length(&req.national_id, "national_id", validation::MAX_ID_LENGTH)
         .map_err(|e| {
             HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "VALIDATION_ERROR".to_string(),
             })
         })?;
     if req.full_name.trim().is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "full_name cannot be empty".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         }));
     }
     if req.national_id.trim().is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "national_id cannot be empty".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         }));
@@ -400,7 +396,6 @@ pub async fn register_patient(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header. Only healthcare providers can register patients."
                     .to_string(),
                 code: "UNAUTHORIZED".to_string(),
@@ -412,7 +407,6 @@ pub async fn register_patient(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -421,7 +415,6 @@ pub async fn register_patient(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Only healthcare providers can register patients. Your role: {}",
                 current_user.role
@@ -441,14 +434,12 @@ pub async fn register_patient(
         .filter(|value| !value.is_empty());
     if crate::blockchain::blockchain_enabled() && patient_wallet.is_none() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "wallet_address is required when blockchain integration is enabled".to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
         });
     }
     if patient_wallet.is_some_and(|wallet| !is_valid_wallet_address(wallet)) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "wallet_address must be a valid SS58 address".to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
@@ -605,7 +596,6 @@ pub async fn emergency_access(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required for emergency access".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -616,7 +606,6 @@ pub async fn emergency_access(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -630,7 +619,6 @@ pub async fn emergency_access(
     // bypasses the patient's consent. See `Role::may_break_glass`.
     if !current_user.role.may_break_glass() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Emergency access is restricted to treating clinicians".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -652,7 +640,6 @@ pub async fn emergency_access(
         Err(e) => {
             log::error!("NFC tag lookup failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Internal server error".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -721,14 +708,12 @@ pub async fn emergency_access(
     {
         log::error!("Failed to record emergency access: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to log access".to_string(),
             code: "REPO_ERROR".to_string(),
         });
     }
     if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
                 .to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
@@ -748,7 +733,6 @@ pub async fn emergency_access(
         Err(error) => {
             log::error!("Emergency chain audit could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Emergency access was recorded, but its required chain audit could not be queued."
                     .to_string(),
                 code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),

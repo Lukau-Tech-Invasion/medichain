@@ -165,7 +165,6 @@ pub async fn staff_login(
         // No fake fallback: without a database there is nowhere credentials
         // could have been stored, so say so rather than silently failing auth.
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Credential sign-in requires the database-backed deployment".to_string(),
             code: "CREDENTIAL_LOGIN_UNAVAILABLE".to_string(),
         });
@@ -177,7 +176,6 @@ pub async fn staff_login(
             hash_id(&identifier)
         );
         return HttpResponse::TooManyRequests().json(ErrorResponse {
-            success: false,
             error: "Too many failed sign-in attempts. Try again later.".to_string(),
             code: "ACCOUNT_LOCKED".to_string(),
         });
@@ -261,7 +259,6 @@ pub async fn staff_login(
 
 fn invalid_credentials() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: "That identifier and password combination was not recognised".to_string(),
         code: "INVALID_CREDENTIALS".to_string(),
     })
@@ -308,7 +305,6 @@ pub async fn enrol_credentials(
     let login_id = body.login_id.trim().to_string();
     if login_id.len() < 3 || login_id.len() > 64 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Employee identifier must be between 3 and 64 characters".to_string(),
             code: "INVALID_LOGIN_ID".to_string(),
         });
@@ -320,7 +316,6 @@ pub async fn enrol_credentials(
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Employee identifier may contain only letters, digits, dot, dash and underscore"
                 .to_string(),
             code: "INVALID_LOGIN_ID".to_string(),
@@ -328,7 +323,6 @@ pub async fn enrol_credentials(
     }
     if body.auth_proof.len() < 32 || body.auth_proof.len() > 512 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed authentication proof".to_string(),
             code: "INVALID_AUTH_PROOF".to_string(),
         });
@@ -341,7 +335,6 @@ pub async fn enrol_credentials(
         || !body.encrypted_keystore.trim_start().starts_with('{')
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed keystore".to_string(),
             code: "INVALID_KEYSTORE".to_string(),
         });
@@ -349,7 +342,6 @@ pub async fn enrol_credentials(
 
     let Some(pool) = &data.db_pool else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Credential enrolment requires the database-backed deployment".to_string(),
             code: "CREDENTIAL_LOGIN_UNAVAILABLE".to_string(),
         });
@@ -359,7 +351,6 @@ pub async fn enrol_credentials(
         Ok(v) => v,
         Err(_) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Malformed authentication proof".to_string(),
                 code: "INVALID_AUTH_PROOF".to_string(),
             })
@@ -399,7 +390,6 @@ pub async fn enrol_credentials(
             }))
         }
         Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "No such account".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         }),
@@ -410,14 +400,12 @@ pub async fn enrol_credentials(
             let msg = e.to_string();
             if msg.contains("users_login_id_lower_key") {
                 return HttpResponse::Conflict().json(ErrorResponse {
-                    success: false,
                     error: "That employee identifier is already in use".to_string(),
                     code: "LOGIN_ID_TAKEN".to_string(),
                 });
             }
             log::error!("credential enrolment failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Credentials could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -481,14 +469,12 @@ pub async fn rotate_credentials(
     }
     if is_locked_out(&identifier) {
         return HttpResponse::TooManyRequests().json(ErrorResponse {
-            success: false,
             error: "Too many failed attempts. Try again later.".to_string(),
             code: "ACCOUNT_LOCKED".to_string(),
         });
     }
     if body.new_auth_proof.len() < 32 || body.new_auth_proof.len() > 512 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed authentication proof".to_string(),
             code: "INVALID_AUTH_PROOF".to_string(),
         });
@@ -497,7 +483,6 @@ pub async fn rotate_credentials(
     // the clinician believing their password had changed.
     if body.new_auth_proof == body.current_auth_proof {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "The new password must differ from the current one".to_string(),
             code: "PASSWORD_UNCHANGED".to_string(),
         });
@@ -507,7 +492,6 @@ pub async fn rotate_credentials(
         || !body.new_encrypted_keystore.trim_start().starts_with('{')
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Malformed keystore".to_string(),
             code: "INVALID_KEYSTORE".to_string(),
         });
@@ -515,7 +499,6 @@ pub async fn rotate_credentials(
 
     let Some(pool) = &data.db_pool else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Credential rotation requires the database-backed deployment".to_string(),
             code: "CREDENTIAL_LOGIN_UNAVAILABLE".to_string(),
         });
@@ -582,7 +565,6 @@ pub async fn rotate_credentials(
         Ok(v) => v,
         Err(_) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Malformed authentication proof".to_string(),
                 code: "INVALID_AUTH_PROOF".to_string(),
             })
@@ -622,14 +604,12 @@ pub async fn rotate_credentials(
             }))
         }
         Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "No such account".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         }),
         Err(e) => {
             log::error!("credential rotation failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Your password could not be changed".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -706,7 +686,6 @@ pub async fn set_my_avatar(
             Err(e) => {
                 log::error!("avatar clear failed: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Your profile picture could not be updated".to_string(),
                     code: "DATABASE_ERROR".to_string(),
                 })
@@ -719,14 +698,12 @@ pub async fn set_my_avatar(
         .any(|prefix| avatar.starts_with(prefix))
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A profile picture must be a PNG, JPEG, WebP or GIF data URI".to_string(),
             code: "UNSUPPORTED_MEDIA_TYPE".to_string(),
         });
     }
     if avatar.len() > AVATAR_MAX_BYTES {
         return HttpResponse::PayloadTooLarge().json(ErrorResponse {
-            success: false,
             error: "That image is too large; please use one under 256 KB".to_string(),
             code: "AVATAR_TOO_LARGE".to_string(),
         });
@@ -753,7 +730,6 @@ pub async fn set_my_avatar(
         Err(e) => {
             log::error!("avatar upload failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Your profile picture could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -789,7 +765,6 @@ pub async fn get_user_avatar(
         Err(e) => {
             log::error!("avatar read failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The profile picture could not be read".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })

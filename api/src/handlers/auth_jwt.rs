@@ -48,7 +48,6 @@ pub async fn issue_jwt(
 ) -> impl Responder {
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format".to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
@@ -56,7 +55,6 @@ pub async fn issue_jwt(
 
     if !valid_login_proof(&body.challenge_id, &body.nonce, &body.signature) {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid authentication challenge".to_string(),
             code: "INVALID_AUTH_CHALLENGE".to_string(),
         });
@@ -76,14 +74,12 @@ pub async fn issue_jwt(
             .await;
         log::warn!("JWT wallet signature verification failed: {error}");
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid authentication challenge".to_string(),
             code: "INVALID_AUTH_CHALLENGE".to_string(),
         });
     }
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Authentication is temporarily unavailable".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -99,7 +95,6 @@ pub async fn issue_jwt(
         Ok(true) => {}
         Ok(false) => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Invalid authentication challenge".to_string(),
                 code: "INVALID_AUTH_CHALLENGE".to_string(),
             });
@@ -107,7 +102,6 @@ pub async fn issue_jwt(
         Err(error) => {
             log::error!("Could not consume authentication challenge: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Authentication is temporarily unavailable".to_string(),
                 code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
             });
@@ -119,7 +113,6 @@ pub async fn issue_jwt(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Wallet not registered".to_string(),
                 code: "WALLET_NOT_REGISTERED".to_string(),
             });
@@ -159,7 +152,6 @@ pub async fn refresh_jwt(
         Ok(c) if c.typ == jwt::TYP_REFRESH => c,
         _ => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Invalid or expired refresh token".to_string(),
                 code: "INVALID_REFRESH_TOKEN".to_string(),
             });
@@ -169,7 +161,6 @@ pub async fn refresh_jwt(
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Account is inactive or no longer registered".to_string(),
                 code: "ACCOUNT_INACTIVE".to_string(),
             });
@@ -211,7 +202,6 @@ async fn issue_token_pair(
     };
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Authentication is temporarily unavailable".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -252,7 +242,6 @@ async fn issue_token_pair(
                 HttpResponse::ServiceUnavailable()
             };
             return status.json(ErrorResponse {
-                success: false,
                 error: if previous_refresh.is_some() {
                     "Invalid or expired refresh token".to_string()
                 } else {
@@ -294,7 +283,6 @@ async fn issue_token_pair(
 fn jwt_error(e: jsonwebtoken::errors::Error) -> HttpResponse {
     log::error!("JWT issuance failed: {}", e);
     HttpResponse::InternalServerError().json(ErrorResponse {
-        success: false,
         error: "Failed to issue authentication token".to_string(),
         code: "TOKEN_ISSUE_FAILED".to_string(),
     })
@@ -328,7 +316,6 @@ pub struct MfaEnrollResponse {
 pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
     let Some(claims) = get_current_claims(&req) else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
@@ -337,14 +324,12 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
     // plainly rather than returning a success the caller cannot rely on.
     let Some(session_id) = claims.sid.as_deref().and_then(|s| Uuid::parse_str(s).ok()) else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "This session cannot be ended; sign in again".to_string(),
             code: "SESSION_NOT_REVOCABLE".to_string(),
         });
     };
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Authentication is temporarily unavailable".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -359,7 +344,6 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
         Err(error) => {
             log::error!("Session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Could not end the session".to_string(),
                 code: "SESSION_REVOCATION_FAILED".to_string(),
             })
@@ -376,14 +360,12 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
 pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
     let Some(claims) = get_current_claims(&req) else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
     };
     let Some(pool) = data.db_pool.as_ref() else {
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Authentication is temporarily unavailable".to_string(),
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
@@ -396,7 +378,6 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
         Err(error) => {
             log::error!("Bulk session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Could not end the sessions".to_string(),
                 code: "SESSION_REVOCATION_FAILED".to_string(),
             })
@@ -416,7 +397,6 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         Ok(u) => u,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "MFA_ENROLL_FAILED".to_string(),
             })
@@ -430,7 +410,6 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
     if let Err(error) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
         log::error!("Failed to persist MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA enrollment is temporarily unavailable".to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
         });
@@ -447,7 +426,6 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         Err(_) => {
             log::error!("MFA cache is unavailable after persisting enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error:
                     "MFA enrollment was stored but cannot be activated until the service recovers"
                         .to_string(),
@@ -493,7 +471,6 @@ pub async fn mfa_verify(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "No MFA enrollment in progress. Call /api/auth/mfa/enroll first."
                     .to_string(),
                 code: "MFA_NOT_ENROLLED".to_string(),
@@ -506,7 +483,6 @@ pub async fn mfa_verify(
             .observe_failed_auth(&data.ws_manager, &wallet)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
@@ -515,7 +491,6 @@ pub async fn mfa_verify(
     if let Err(error) = data.update_mfa_enabled(&wallet, true).await {
         log::error!("Failed to persist MFA activation: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA activation is temporarily unavailable".to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
         });
@@ -526,7 +501,6 @@ pub async fn mfa_verify(
             None => {
                 log::error!("Persisted MFA activation has no cache record");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "MFA was stored but cannot be used until the service recovers"
                         .to_string(),
                     code: "MFA_CACHE_UNAVAILABLE".to_string(),
@@ -536,7 +510,6 @@ pub async fn mfa_verify(
         Err(_) => {
             log::error!("MFA cache is unavailable after activation");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "MFA was stored but cannot be used until the service recovers".to_string(),
                 code: "MFA_CACHE_UNAVAILABLE".to_string(),
             });
@@ -572,7 +545,6 @@ pub async fn mfa_challenge(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "MFA is not enabled for this account".to_string(),
                 code: "MFA_NOT_ENABLED".to_string(),
             })
@@ -584,7 +556,6 @@ pub async fn mfa_challenge(
             .observe_failed_auth(&data.ws_manager, &wallet)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
@@ -657,7 +628,6 @@ pub async fn mfa_disable(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "MFA is not enabled for this account".to_string(),
                 code: "MFA_NOT_ENABLED".to_string(),
             })
@@ -666,7 +636,6 @@ pub async fn mfa_disable(
 
     if !mfa::verify_code(&secret, &wallet, &body.code) {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
@@ -675,7 +644,6 @@ pub async fn mfa_disable(
     if let Err(error) = data.delete_mfa_enrollment(&wallet).await {
         log::error!("Failed to delete MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA could not be disabled because the durable record is unavailable"
                 .to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
@@ -688,7 +656,6 @@ pub async fn mfa_disable(
         Err(_) => {
             log::error!("MFA cache is unavailable after disabling enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "MFA was disabled but the local session cache has not recovered".to_string(),
                 code: "MFA_CACHE_UNAVAILABLE".to_string(),
             });
@@ -781,7 +748,6 @@ pub async fn declare_breach(
 
 pub(crate) fn unauthorized_missing_user() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: "Authentication required (Bearer JWT or X-User-Id)".to_string(),
         code: "UNAUTHORIZED".to_string(),
     })
@@ -795,14 +761,12 @@ pub(crate) fn require_admin(
     let wallet = get_current_user_id(req).ok_or_else(unauthorized_missing_user)?;
     let user = get_user(data, &wallet).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
     })?;
     if !user.role.is_admin() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Admin role required".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
@@ -929,13 +893,11 @@ pub(crate) fn require_privileged_assurance(
     match privileged_assurance_decision(crate::support::is_demo_mode(), enrolled, assurance) {
         Ok(()) => None,
         Err(AssuranceDenial::NoCaller) => Some(HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required for this operation.".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })),
         Err(AssuranceDenial::EnrollmentRequired) => Some(
             HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "This operation requires MFA. Enroll via /api/auth/mfa/enroll, then \
                         step up via /api/auth/mfa/challenge."
                     .to_string(),
@@ -944,7 +906,6 @@ pub(crate) fn require_privileged_assurance(
         ),
         Err(AssuranceDenial::StepUpRequired) => Some(
             HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "MFA step-up required for this operation. Call /api/auth/mfa/challenge."
                     .to_string(),
                 code: "MFA_REQUIRED".to_string(),

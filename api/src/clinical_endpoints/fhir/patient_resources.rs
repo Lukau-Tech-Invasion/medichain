@@ -219,70 +219,70 @@ pub async fn fhir_get_patient(
     }
 }
 
-/// FHIR AllergyIntolerance resource - Get patient allergies
-#[get("/api/fhir/r4/AllergyIntolerance")]
-pub async fn fhir_get_allergies(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    query: web::Query<std::collections::HashMap<String, String>>,
-) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "login"}]
-            }));
-        }
-    };
+/// An `OperationOutcome` with one issue.
+fn operation_outcome(code: &str, diagnostics: Option<String>) -> serde_json::Value {
+    serde_json::json!({
+        "resourceType": "OperationOutcome",
+        "issue": [{"severity": "error", "code": code, "diagnostics": diagnostics}]
+    })
+}
 
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "unknown"}]
-            }));
-        }
+/// Authorise a FHIR search on `?patient=` and decrypt that patient's profile,
+/// or return the `OperationOutcome` response to send instead.
+///
+/// AllergyIntolerance, MedicationStatement and Condition all read the
+/// patient's encrypted profile — the same `emergency_info` the first-responder
+/// card reads, so no two surfaces can disagree about what a patient is allergic
+/// to or taking. Each bundle used to carry its own copy of this preamble, and
+/// AllergyIntolerance's copy read an allergies table that nothing writes, so it
+/// answered `total: 0` for every patient. For an interoperability endpoint an
+/// empty bundle is not "no result": it tells the importing system the patient
+/// has no allergies, which is the assertion that gets someone given penicillin.
+/// An unreadable profile therefore fails the request rather than answering
+/// empty; `history` names what is unavailable in that diagnostic.
+async fn authorize_and_load_subject(
+    data: &web::Data<AppState>,
+    http_req: &HttpRequest,
+    query: &std::collections::HashMap<String, String>,
+    history: &str,
+) -> Result<(String, crate::PatientProfile), HttpResponse> {
+    let Some(current_user_id) = get_current_user_id(http_req) else {
+        return Err(HttpResponse::Unauthorized().json(operation_outcome("login", None)));
     };
-
-    let patient_id = match query.get("patient") {
-        Some(id) => id.clone(),
-        None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{
-                    "severity": "error",
-                    "code": "required",
-                    "diagnostics": "patient parameter is required"
-                }]
-            }));
-        }
+    let Some(current_user) = get_user(data, &current_user_id) else {
+        return Err(HttpResponse::Unauthorized().json(operation_outcome("unknown", None)));
     };
-
+    let Some(patient_id) = query.get("patient").cloned() else {
+        return Err(HttpResponse::BadRequest().json(operation_outcome(
+            "required",
+            Some("patient parameter is required".to_string()),
+        )));
+    };
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+        && !crate::support::caller_owns_patient_record(data, &current_user_id, &patient_id)
     {
-        return HttpResponse::Forbidden().json(serde_json::json!({
-            "resourceType": "OperationOutcome",
-            "issue": [{"severity": "error", "code": "forbidden"}]
-        }));
+        return Err(HttpResponse::Forbidden().json(operation_outcome("forbidden", None)));
     }
+    let Ok(patient) = data.repositories.patients.get_by_id(&patient_id).await else {
+        return Err(HttpResponse::NotFound().json(operation_outcome(
+            "not-found",
+            Some(format!("Patient {patient_id} not found")),
+        )));
+    };
+    let Some(profile) = crate::patient_entity_to_profile(&patient, &data.encryption_keyring) else {
+        log::error!("FHIR {history} search: profile could not be decrypted");
+        return Err(HttpResponse::ServiceUnavailable().json(operation_outcome(
+            "exception",
+            Some(format!(
+                "{history} history is unavailable; it must not be reported as empty."
+            )),
+        )));
+    };
+    Ok((patient_id, profile))
+}
 
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
-        .unwrap_or_default();
-
-    let entries: Vec<serde_json::Value> = allergies
-        .iter()
-        .enumerate()
-        .map(|(i, allergy)| allergy_intolerance_entry(allergy, &patient_id, i))
-        .collect();
-
+/// A FHIR `searchset` Bundle of `entries`.
+fn searchset(entries: Vec<serde_json::Value>) -> HttpResponse {
     HttpResponse::Ok()
         .content_type("application/fhir+json")
         .json(serde_json::json!({
@@ -293,10 +293,33 @@ pub async fn fhir_get_allergies(
         }))
 }
 
+/// FHIR AllergyIntolerance resource - Get patient allergies
+#[get("/api/fhir/r4/AllergyIntolerance")]
+pub async fn fhir_get_allergies(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let (patient_id, profile) =
+        match authorize_and_load_subject(&data, &http_req, &query, "Allergy").await {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    searchset(
+        profile
+            .emergency_info
+            .allergies
+            .iter()
+            .enumerate()
+            .map(|(i, allergy)| allergy_intolerance_entry(allergy, &patient_id, i))
+            .collect(),
+    )
+}
+
 /// Builds one FHIR `AllergyIntolerance` bundle entry. `index` disambiguates
 /// the synthetic id/fullUrl since allergy records don't carry their own.
 fn allergy_intolerance_entry(
-    allergy: &crate::repositories::traits::AllergyEntity,
+    allergy: &crate::Allergy,
     patient_id: &str,
     index: usize,
 ) -> serde_json::Value {
@@ -314,17 +337,16 @@ fn allergy_intolerance_entry(
             "verificationStatus": {
                 "coding": [{
                     "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
-                    "code": if allergy.verified { "confirmed" } else { "unconfirmed" }
+                    "code": if allergy.verified_at.is_some() { "confirmed" } else { "unconfirmed" }
                 }]
             },
-            "criticality": match allergy.severity.as_str() {
-                "Severe" | "LifeThreatening" => "high",
-                "Moderate" => "high",
-                "Mild" => "low",
-                _ => "unable-to-assess"
+            "criticality": match allergy.severity {
+                crate::AllergySeverity::Severe | crate::AllergySeverity::Moderate => "high",
+                crate::AllergySeverity::Mild => "low",
+                crate::AllergySeverity::Unknown => "unable-to-assess",
             },
             "code": {
-                "text": allergy.allergen
+                "text": allergy.name
             },
             "patient": {
                 "reference": format!("Patient/{}", patient_id)
@@ -343,119 +365,35 @@ pub async fn fhir_get_medications(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "login"}]
-            }));
-        }
-    };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "unknown"}]
-            }));
-        }
-    };
-
-    let patient_id = match query.get("patient") {
-        Some(id) => id.clone(),
-        None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{
-                    "severity": "error",
-                    "code": "required",
-                    "diagnostics": "patient parameter is required"
-                }]
-            }));
-        }
-    };
-
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
-    {
-        return HttpResponse::Forbidden().json(serde_json::json!({
-            "resourceType": "OperationOutcome",
-            "issue": [{"severity": "error", "code": "forbidden"}]
-        }));
-    }
-
-    // These come from the patient's encrypted profile — the same
-    // `emergency_info` the first-responder card reads, so the two surfaces
-    // cannot disagree about what the patient is taking.
-    //
-    // This was `Vec::new()`, so the Bundle always reported `total: 0`. For an
-    // interoperability endpoint that is not an empty result, it is a positive
-    // statement to the importing system that the patient takes no medication —
-    // which is exactly the assertion that gets someone prescribed something
-    // that interacts. An unreadable profile now fails the request instead.
-    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(patient) => patient,
-        Err(_) => {
-            return HttpResponse::NotFound().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{
-                    "severity": "error",
-                    "code": "not-found",
-                    "diagnostics": format!("Patient {} not found", patient_id)
-                }]
-            }));
-        }
-    };
-    let medications: Vec<String> =
-        match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
-            Some(profile) => profile.emergency_info.current_medications,
-            None => {
-                log::error!(
-                    "FHIR MedicationStatement {patient_id}: profile could not be decrypted"
-                );
-                return HttpResponse::ServiceUnavailable().json(serde_json::json!({
-                    "resourceType": "OperationOutcome",
-                    "issue": [{
-                        "severity": "error",
-                        "code": "exception",
-                        "diagnostics": "Medication history is unavailable; it must not be \
-                                        reported as empty."
-                    }]
-                }));
-            }
+    let (patient_id, profile) =
+        match authorize_and_load_subject(&data, &http_req, &query, "Medication").await {
+            Ok(found) => found,
+            Err(response) => return response,
         };
-
-    let entries: Vec<serde_json::Value> = medications
-        .iter()
-        .enumerate()
-        .map(|(i, med)| {
-            serde_json::json!({
-                "fullUrl": format!("urn:uuid:med-{}-{}", patient_id, i),
-                "resource": {
-                    "resourceType": "MedicationStatement",
-                    "id": format!("med-{}-{}", patient_id, i),
-                    "status": "active",
-                    "medicationCodeableConcept": {
-                        "text": med
-                    },
-                    "subject": {
-                        "reference": format!("Patient/{}", patient_id)
+    searchset(
+        profile
+            .emergency_info
+            .current_medications
+            .iter()
+            .enumerate()
+            .map(|(i, med)| {
+                serde_json::json!({
+                    "fullUrl": format!("urn:uuid:med-{}-{}", patient_id, i),
+                    "resource": {
+                        "resourceType": "MedicationStatement",
+                        "id": format!("med-{}-{}", patient_id, i),
+                        "status": "active",
+                        "medicationCodeableConcept": {
+                            "text": med
+                        },
+                        "subject": {
+                            "reference": format!("Patient/{}", patient_id)
+                        }
                     }
-                }
+                })
             })
-        })
-        .collect();
-
-    HttpResponse::Ok()
-        .content_type("application/fhir+json")
-        .json(serde_json::json!({
-            "resourceType": "Bundle",
-            "type": "searchset",
-            "total": entries.len(),
-            "entry": entries
-        }))
+            .collect(),
+    )
 }
 
 /// FHIR Condition resource - Get patient conditions
@@ -465,114 +403,90 @@ pub async fn fhir_get_conditions(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "login"}]
-            }));
-        }
-    };
+    let (patient_id, profile) =
+        match authorize_and_load_subject(&data, &http_req, &query, "Condition").await {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    searchset(
+        profile
+            .emergency_info
+            .chronic_conditions
+            .iter()
+            .enumerate()
+            .map(|(i, cond)| {
+                serde_json::json!({
+                    "fullUrl": format!("urn:uuid:cond-{}-{}", patient_id, i),
+                    "resource": {
+                        "resourceType": "Condition",
+                        "id": format!("cond-{}-{}", patient_id, i),
+                        "clinicalStatus": {
+                            "coding": [{
+                                "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+                                "code": "active"
+                            }]
+                        },
+                        "code": {
+                            "text": cond
+                        },
+                        "subject": {
+                            "reference": format!("Patient/{}", patient_id)
+                        }
+                    }
+                })
+            })
+            .collect(),
+    )
+}
 
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{"severity": "error", "code": "unknown"}]
-            }));
-        }
-    };
+/// The three `?patient=` searches share one authorization path; these pin it.
+#[cfg(test)]
+mod search_authorization_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
 
-    let patient_id = match query.get("patient") {
-        Some(id) => id.clone(),
-        None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{
-                    "severity": "error",
-                    "code": "required",
-                    "diagnostics": "patient parameter is required"
-                }]
-            }));
+    async fn status_for(caller: Option<&str>) -> StatusCode {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        register(&state, "5Stranger", Role::Patient);
+        seed_patient(&state, "PAT-FHIR-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::fhir_get_allergies)
+                .service(super::fhir_get_medications)
+                .service(super::fhir_get_conditions),
+        )
+        .await;
+        let mut last = StatusCode::OK;
+        for resource in ["AllergyIntolerance", "MedicationStatement", "Condition"] {
+            let mut req = test::TestRequest::get()
+                .uri(&format!("/api/fhir/r4/{resource}?patient=PAT-FHIR-1"));
+            if let Some(wallet) = caller {
+                req = req.insert_header(("X-User-Id", wallet));
+            }
+            let status = test::call_service(&app, req.to_request()).await.status();
+            if resource != "AllergyIntolerance" {
+                assert_eq!(status, last, "{resource} disagrees with AllergyIntolerance");
+            }
+            last = status;
         }
-    };
-
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
-    {
-        return HttpResponse::Forbidden().json(serde_json::json!({
-            "resourceType": "OperationOutcome",
-            "issue": [{"severity": "error", "code": "forbidden"}]
-        }));
+        last
     }
 
-    // Same source and same reasoning as the MedicationStatement bundle above:
-    // an empty `Condition` bundle asserts the patient has no chronic
-    // conditions, so it must reflect the record rather than a placeholder.
-    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(patient) => patient,
-        Err(_) => {
-            return HttpResponse::NotFound().json(serde_json::json!({
-                "resourceType": "OperationOutcome",
-                "issue": [{
-                    "severity": "error",
-                    "code": "not-found",
-                    "diagnostics": format!("Patient {} not found", patient_id)
-                }]
-            }));
-        }
-    };
-    let conditions: Vec<String> =
-        match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
-            Some(profile) => profile.emergency_info.chronic_conditions,
-            None => {
-                log::error!("FHIR Condition profile could not be decrypted");
-                return HttpResponse::ServiceUnavailable().json(serde_json::json!({
-                    "resourceType": "OperationOutcome",
-                    "issue": [{
-                        "severity": "error",
-                        "code": "exception",
-                        "diagnostics": "Condition history is unavailable; it must not be \
-                                        reported as empty."
-                    }]
-                }));
-            }
-        };
+    #[actix_rt::test]
+    async fn an_anonymous_search_is_refused() {
+        assert_eq!(status_for(None).await, StatusCode::UNAUTHORIZED);
+    }
 
-    let entries: Vec<serde_json::Value> = conditions
-        .iter()
-        .enumerate()
-        .map(|(i, cond)| {
-            serde_json::json!({
-                "fullUrl": format!("urn:uuid:cond-{}-{}", patient_id, i),
-                "resource": {
-                    "resourceType": "Condition",
-                    "id": format!("cond-{}-{}", patient_id, i),
-                    "clinicalStatus": {
-                        "coding": [{
-                            "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
-                            "code": "active"
-                        }]
-                    },
-                    "code": {
-                        "text": cond
-                    },
-                    "subject": {
-                        "reference": format!("Patient/{}", patient_id)
-                    }
-                }
-            })
-        })
-        .collect();
+    #[actix_rt::test]
+    async fn a_patient_cannot_search_someone_elses_record() {
+        assert_eq!(status_for(Some("5Stranger")).await, StatusCode::FORBIDDEN);
+    }
 
-    HttpResponse::Ok()
-        .content_type("application/fhir+json")
-        .json(serde_json::json!({
-            "resourceType": "Bundle",
-            "type": "searchset",
-            "total": entries.len(),
-            "entry": entries
-        }))
+    #[actix_rt::test]
+    async fn a_clinician_can() {
+        assert_eq!(status_for(Some("5Doctor")).await, StatusCode::OK);
+    }
 }

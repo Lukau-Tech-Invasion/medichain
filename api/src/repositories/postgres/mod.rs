@@ -10,7 +10,6 @@
 //! - Functions under 60 lines
 
 mod access_log;
-mod allergy;
 mod emergency;
 mod medical_record;
 mod nfc_tag;
@@ -67,7 +66,6 @@ mod phase6_immunization;
 mod phase6_sync;
 
 pub use access_log::PgAccessLogRepository;
-pub use allergy::PgAllergyRepository;
 pub use emergency::{
     PgCardiacEventRepository, PgCodeBlueRepository, PgSepsisAssessmentRepository,
     PgStrokeAssessmentRepository, PgTraumaAssessmentRepository,
@@ -109,8 +107,6 @@ pub use phase3_surgical::{
 pub use phase3_other::{
     PgAdherenceLogRepository,
     // Blood Bank
-    PgBloodTypeScreenRepository,
-    PgDrugInteractionRepository,
     // Pharmacy
     PgMedicationReminderRepository,
     PgPathologyReportRepository,
@@ -179,7 +175,6 @@ pub use phase7::{
     PgDispenseEventRepository,
     // Round 6: shape-mismatch domains
     PgDrugInteractionCheckRepository,
-    PgEPrescriptionRecordRepository,
     PgEPrescriptionV2Repository,
     PgEligibilityCheckRepository,
     PgFamilyGroupRepository,

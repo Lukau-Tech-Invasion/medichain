@@ -116,7 +116,6 @@ pub async fn get_patient_analytics(
         Err(e) => {
             log::error!("patient analytics: gender distribution unavailable: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Population analytics are unavailable because the patient register could not be read"
                     .to_string(),
                 code: "ANALYTICS_UNAVAILABLE".to_string(),
@@ -315,7 +314,6 @@ pub async fn get_operational_metrics(
 fn operational_metrics_unavailable(source: &str, error: &dyn std::fmt::Display) -> HttpResponse {
     log::error!("Operational metrics {source} read failed: {error}");
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Operational metrics are temporarily unavailable".to_string(),
         code: "METRICS_UNAVAILABLE".to_string(),
     })
@@ -341,7 +339,6 @@ pub async fn get_quality_metrics(
             Err(e) => {
                 log::error!("quality metrics: CDS alert counts unavailable: {e}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Quality metrics are unavailable because alert counts could not be read"
                         .to_string(),
                     code: "METRICS_UNAVAILABLE".to_string(),
@@ -360,7 +357,6 @@ pub async fn get_quality_metrics(
         Err(e) => {
             log::error!("quality metrics: audit anchoring counts unavailable: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Quality metrics are unavailable because audit coverage could not be read"
                     .to_string(),
                 code: "METRICS_UNAVAILABLE".to_string(),

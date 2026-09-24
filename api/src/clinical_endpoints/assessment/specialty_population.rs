@@ -22,7 +22,6 @@ pub async fn create_peds(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -31,7 +30,6 @@ pub async fn create_peds(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -201,12 +199,10 @@ pub async fn create_peds(
             "assessment_id": assessment_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -225,7 +221,6 @@ pub async fn get_peds(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -234,7 +229,6 @@ pub async fn get_peds(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -254,12 +248,10 @@ pub async fn get_peds(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Pediatric assessment not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -277,7 +269,6 @@ pub async fn create_ob(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -286,7 +277,6 @@ pub async fn create_ob(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -520,12 +510,10 @@ pub async fn create_ob(
             "assessment_id": assessment_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -544,7 +532,6 @@ pub async fn get_ob(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -553,7 +540,6 @@ pub async fn get_ob(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -573,12 +559,10 @@ pub async fn get_ob(
             HttpResponse::Ok().json(entity)
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Obstetric emergency not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

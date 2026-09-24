@@ -78,7 +78,6 @@ pub async fn get_lab_trends(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -150,7 +149,6 @@ pub async fn get_lab_trends(
 }
 
 /// Request trend analysis
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RequestLabTrendRequest {
     pub patient_id: String,
@@ -178,7 +176,6 @@ pub async fn analyze_lab_trends(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can request trend analysis".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -308,7 +305,6 @@ pub async fn analyze_lab_trends(
             if let Err(error) = data.repositories.lab_trend_results.create(entity).await {
                 log::error!("lab_trend_results persistence failed: {error}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "The trend result could not be saved; please retry.".to_string(),
                     code: "LAB_TREND_RESULT_PERSISTENCE_FAILED".to_string(),
                 });
@@ -359,7 +355,6 @@ pub async fn get_lab_trend_result(
         Some(t) => t,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Trend result not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })

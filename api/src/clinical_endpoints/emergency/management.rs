@@ -62,7 +62,6 @@ pub async fn create_mar(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -75,7 +74,6 @@ pub async fn create_mar(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -150,7 +148,6 @@ pub async fn create_mar(
         Err(e) => {
             log::error!("MAR persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the medication record".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -288,7 +285,6 @@ pub async fn list_mar_administrations(
         Err(error) => {
             log::error!("MAR administration history read failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Medication administration history could not be loaded".to_string(),
                 code: "MAR_HISTORY_READ_FAILED".to_string(),
             });
@@ -349,7 +345,6 @@ pub async fn administer_medication(
         Some(p) if !p.trim().is_empty() => p.to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "patient_id is required".to_string(),
                 code: "MISSING_PATIENT_ID".to_string(),
             })
@@ -381,7 +376,6 @@ pub async fn administer_medication(
         Err(e) => {
             log::error!("MAR administration failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the administration".to_string(),
                 code: "MAR_WRITE_FAILED".to_string(),
             })
@@ -429,7 +423,6 @@ pub async fn create_io(
     let entry = req.into_inner();
     if entry.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patientId is required".to_string(),
             code: "MISSING_PATIENT_ID".to_string(),
         });
@@ -438,7 +431,6 @@ pub async fn create_io(
     // negating a comparison.
     if !entry.amount.is_finite() || entry.amount <= 0.0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "amount must be greater than zero".to_string(),
             code: "INVALID_AMOUNT".to_string(),
         });
@@ -451,7 +443,6 @@ pub async fn create_io(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", entry.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -500,7 +491,6 @@ pub async fn create_io(
         Err(e) => {
             log::error!("intake/output persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to record the fluid entry".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -564,7 +554,6 @@ pub async fn record_fluid(
         Some(p) if !p.trim().is_empty() => p.to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "patient_id is required".to_string(),
                 code: "MISSING_PATIENT_ID".to_string(),
             })
@@ -581,7 +570,6 @@ pub async fn record_fluid(
         Some(a) if a >= 0 => a as i32,
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "amount_ml is required and must be a non-negative number".to_string(),
                 code: "INVALID_AMOUNT".to_string(),
             })
@@ -622,7 +610,6 @@ pub async fn record_fluid(
         Err(e) => {
             log::error!("I/O write failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the fluid event".to_string(),
                 code: "IO_WRITE_FAILED".to_string(),
             })
@@ -734,7 +721,6 @@ pub async fn create_care_plan(
     let diagnoses = plan.diagnosis_lines();
     if plan.patient_id.trim().is_empty() || diagnoses.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and at least one nursing diagnosis are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -747,7 +733,6 @@ pub async fn create_care_plan(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", plan.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -788,7 +773,6 @@ pub async fn create_care_plan(
         Err(e) => {
             log::error!("nursing care plan persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the care plan".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -877,7 +861,6 @@ pub async fn create_wound(
     let assessment = req.into_inner();
     if assessment.patient_id.trim().is_empty() || assessment.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and location are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -885,7 +868,6 @@ pub async fn create_wound(
     if let Some(pain) = assessment.pain_level {
         if !(0..=10).contains(&pain) {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "pain_level must be between 0 and 10".to_string(),
                 code: "VALIDATION_ERROR".to_string(),
             });
@@ -899,7 +881,6 @@ pub async fn create_wound(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", assessment.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -945,7 +926,6 @@ pub async fn create_wound(
         Err(e) => {
             log::error!("wound assessment persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the wound assessment".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -1090,14 +1070,12 @@ pub async fn create_iv_site(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if record.sites.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "at least one IV site is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1110,7 +1088,6 @@ pub async fn create_iv_site(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -1213,7 +1190,6 @@ pub async fn create_iv_site(
         if let Err(e) = outcome {
             log::error!("IV site persistence failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the IV site record".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1369,14 +1345,12 @@ pub async fn create_shift_handoff(
     let handoff = req.into_inner();
     if handoff.incoming_nurse.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "incoming_nurse is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if handoff.patients.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "a handoff must cover at least one patient".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1404,7 +1378,6 @@ pub async fn create_shift_handoff(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", patient.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -1475,7 +1448,6 @@ pub async fn create_shift_handoff(
                 patient.patient_id
             );
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the handoff".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1518,7 +1490,6 @@ pub async fn get_shift_handoff(
         Ok(rows) => {
             if rows.is_empty() {
                 return HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: format!("No handoff found for '{id}'"),
                     code: "NOT_FOUND".to_string(),
                 });
@@ -1532,7 +1503,6 @@ pub async fn get_shift_handoff(
         Err(e) => {
             log::error!("handoff lookup failed for {id}: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The handoff could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -1640,7 +1610,6 @@ pub async fn create_incident(
     let report = req.into_inner();
     if report.description.trim().is_empty() || report.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "description and location are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1662,7 +1631,6 @@ pub async fn create_incident(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", report.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -1721,7 +1689,6 @@ pub async fn create_incident(
         Err(e) => {
             log::error!("incident report persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the incident report".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -1918,7 +1885,6 @@ pub async fn create_fall_risk(
         Err(e) => {
             log::error!("fall risk assessment persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the fall risk assessment".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -1954,7 +1920,6 @@ pub async fn list_patient_fall_risk(
         Err(e) => {
             log::error!("fall-risk history lookup failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to read the fall-risk history".to_string(),
                 code: "REPO_ERROR".to_string(),
             })

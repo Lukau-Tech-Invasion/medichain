@@ -1,11 +1,8 @@
 //! PostgreSQL repository integration tests.
 
-use crate::repositories::postgres::{
-    PgAllergyRepository, PgMedicalRecordRepository, PgPatientRepository,
-};
+use crate::repositories::postgres::{PgMedicalRecordRepository, PgPatientRepository};
 use crate::repositories::{
-    AllergyEntity, AllergyRepository, MedicalRecordEntity, MedicalRecordRepository, Pagination,
-    PatientEntity, PatientRepository,
+    MedicalRecordEntity, MedicalRecordRepository, Pagination, PatientEntity, PatientRepository,
 };
 use chrono::Utc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -460,94 +457,6 @@ async fn test_pg_patient_repository() {
         .await
         .expect("Failed to cleanup test patient");
     pool.close().await;
-}
-
-#[tokio::test]
-async fn test_pg_allergy_repository() {
-    let pool = get_test_pool().await;
-    let patient_repo = PgPatientRepository::new(pool.clone());
-    let allergy_repo = PgAllergyRepository::new(pool.clone());
-
-    let patient_id = format!("TEST-PAT-ALLERGY-{}", Utc::now().timestamp_millis());
-    let patient = create_test_patient(&patient_id);
-    patient_repo
-        .create(patient)
-        .await
-        .expect("Failed to create patient");
-
-    let allergy = AllergyEntity {
-        id: format!("ALL-{}", Utc::now().timestamp_millis()),
-        patient_id: patient_id.clone(),
-        allergen: "Peanuts".to_string(),
-        allergen_type: "Food".to_string(),
-        reaction: Some("Anaphylaxis".to_string()),
-        severity: "Severe".to_string(),
-        onset_date: None,
-        last_occurrence: None,
-        verified: true,
-        verified_by: Some("Dr. Smith".to_string()),
-        verified_at: Some(Utc::now()),
-        source: Some("Patient reported".to_string()),
-        created_by: "Dr. Smith".to_string(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        is_active: true,
-    };
-
-    // Test Create
-    let created = allergy_repo
-        .create(allergy.clone())
-        .await
-        .expect("Failed to create allergy");
-    assert_eq!(created.allergen, "Peanuts");
-
-    // Test Get by Patient
-    let allergies = allergy_repo
-        .get_by_patient(&patient_id)
-        .await
-        .expect("Failed to get allergies");
-    assert_eq!(allergies.len(), 1);
-    assert_eq!(allergies[0].allergen, "Peanuts");
-
-    // Test Has Allergen
-    let has = allergy_repo
-        .has_allergen(&patient_id, "Peanuts")
-        .await
-        .expect("Failed has_allergen");
-    assert!(has);
-
-    // Test Update
-    let mut updated_allergy = created.clone();
-    updated_allergy.severity = "LifeThreatening".to_string();
-    let updated = allergy_repo
-        .update(updated_allergy)
-        .await
-        .expect("Failed to update");
-    assert_eq!(updated.severity, "LifeThreatening");
-
-    // Test Delete
-    allergy_repo
-        .delete(&created.id)
-        .await
-        .expect("Failed to delete");
-    let active = allergy_repo
-        .get_active_by_patient(&patient_id)
-        .await
-        .expect("Failed to get active");
-    assert_eq!(active.len(), 0);
-
-    // Cleanup
-    sqlx::query("DELETE FROM allergies WHERE patient_id = $1")
-        .bind(&patient_id)
-        .execute(&pool)
-        .await
-        .ok();
-    pool.close().await;
-    sqlx::query("DELETE FROM patients WHERE id = $1")
-        .bind(&patient_id)
-        .execute(&pool)
-        .await
-        .ok();
 }
 
 #[tokio::test]
@@ -4783,15 +4692,6 @@ async fn test_pg_step_up_survives_rotation_and_dies_with_the_session() {
             .await
             .expect("assurance"),
         "elevation must survive a token rotation"
-    );
-
-    // Credential revocation drops elevation without ending the login.
-    txn::clear_step_up(&pool, sid).await.expect("clear");
-    assert!(
-        !txn::has_active_step_up(&pool, sid)
-            .await
-            .expect("assurance"),
-        "clearing elevation must take effect immediately"
     );
 
     // And a revoked session is never elevated, whatever the column says.

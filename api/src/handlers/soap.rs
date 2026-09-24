@@ -27,7 +27,6 @@ pub async fn create_soap_note(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -38,7 +37,6 @@ pub async fn create_soap_note(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -47,7 +45,6 @@ pub async fn create_soap_note(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot create SOAP notes. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -61,7 +58,6 @@ pub async fn create_soap_note(
         validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -72,7 +68,6 @@ pub async fn create_soap_note(
         validation::MAX_NAME_LENGTH,
     ) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -88,7 +83,6 @@ pub async fn create_soap_note(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -138,7 +132,6 @@ pub async fn create_soap_note(
         if let Err(error) = data.repositories.soap_note_records.create(entity).await {
             log::error!("SOAP note persistence failed for {note_id}: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The note could not be saved. Nothing was recorded; please retry."
                     .to_string(),
                 code: "SOAP_NOTE_PERSISTENCE_FAILED".to_string(),
@@ -192,7 +185,6 @@ pub async fn get_soap_note(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -203,7 +195,6 @@ pub async fn get_soap_note(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -219,7 +210,6 @@ pub async fn get_soap_note(
         Ok(Some(entity)) => entity,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("SOAP note '{}' not found", note_id),
                 code: "NOTE_NOT_FOUND".to_string(),
             });
@@ -227,7 +217,6 @@ pub async fn get_soap_note(
         Err(error) => {
             log::error!("SOAP note read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The SOAP note is temporarily unavailable".to_string(),
                 code: "SOAP_NOTE_UNAVAILABLE".to_string(),
             });
@@ -237,7 +226,6 @@ pub async fn get_soap_note(
         Ok(n) => n,
         Err(_) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to decode SOAP note".to_string(),
                 code: "DECODE_ERROR".to_string(),
             });
@@ -252,7 +240,6 @@ pub async fn get_soap_note(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &note.patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -275,7 +262,6 @@ pub async fn get_patient_soap_notes(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -286,7 +272,6 @@ pub async fn get_patient_soap_notes(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -297,7 +282,6 @@ pub async fn get_patient_soap_notes(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -313,7 +297,6 @@ pub async fn get_patient_soap_notes(
         Err(error) => {
             log::error!("Patient SOAP note list failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "SOAP notes are temporarily unavailable".to_string(),
                 code: "SOAP_NOTES_UNAVAILABLE".to_string(),
             });
@@ -348,7 +331,6 @@ pub async fn add_soap_addendum(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -359,7 +341,6 @@ pub async fn add_soap_addendum(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -368,7 +349,6 @@ pub async fn add_soap_addendum(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can add addenda".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -378,7 +358,6 @@ pub async fn add_soap_addendum(
         Some(c) => c.to_string(),
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Missing 'content' field".to_string(),
                 code: "MISSING_FIELD".to_string(),
             });
@@ -394,7 +373,6 @@ pub async fn add_soap_addendum(
         Ok(Some(entity)) => entity,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("SOAP note '{}' not found", note_id),
                 code: "NOTE_NOT_FOUND".to_string(),
             });
@@ -402,7 +380,6 @@ pub async fn add_soap_addendum(
         Err(error) => {
             log::error!("SOAP note read for addendum failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The SOAP note is temporarily unavailable".to_string(),
                 code: "SOAP_NOTE_UNAVAILABLE".to_string(),
             });
@@ -412,7 +389,6 @@ pub async fn add_soap_addendum(
         Ok(n) => n,
         Err(_) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to decode SOAP note".to_string(),
                 code: "DECODE_ERROR".to_string(),
             });
@@ -446,7 +422,6 @@ pub async fn add_soap_addendum(
     if let Err(error) = data.repositories.soap_note_records.create(entity).await {
         log::error!("SOAP addendum persistence failed for {note_id}: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The addendum could not be saved. The note is unchanged; please retry."
                 .to_string(),
             code: "SOAP_ADDENDUM_PERSISTENCE_FAILED".to_string(),

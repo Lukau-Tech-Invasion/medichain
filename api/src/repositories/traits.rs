@@ -244,27 +244,6 @@ fn default_key_version() -> i32 {
     1
 }
 
-/// Allergy entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AllergyEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub allergen: String,
-    pub allergen_type: String,
-    pub reaction: Option<String>,
-    pub severity: String,
-    pub onset_date: Option<chrono::NaiveDate>,
-    pub last_occurrence: Option<chrono::NaiveDate>,
-    pub verified: bool,
-    pub verified_by: Option<String>,
-    pub verified_at: Option<DateTime<Utc>>,
-    pub source: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub created_by: String,
-    pub is_active: bool,
-}
-
 /// Medical record entity (database model)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MedicalRecordEntity {
@@ -510,36 +489,6 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
     /// so the buckets always sum to the population — a distribution that
     /// silently drops them misstates every proportion derived from it.
     async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>>;
-}
-
-/// Allergy repository trait
-#[async_trait]
-pub trait AllergyRepository: Send + Sync + fmt::Debug {
-    /// Create a new allergy
-    async fn create(&self, allergy: AllergyEntity) -> RepositoryResult<AllergyEntity>;
-
-    /// Get allergy by ID
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<AllergyEntity>;
-
-    /// Get all allergies for a patient
-    async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<AllergyEntity>>;
-
-    /// Get active allergies for a patient
-    async fn get_active_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Vec<AllergyEntity>>;
-
-    /// Update allergy
-    async fn update(&self, allergy: AllergyEntity) -> RepositoryResult<AllergyEntity>;
-
-    /// Delete allergy (soft delete)
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-
-    /// Check if patient has specific allergen
-    async fn has_allergen(&self, patient_id: &str, allergen: &str) -> RepositoryResult<bool>;
-
-    /// Get severe allergies for a patient (Severe or LifeThreatening)
-    async fn get_severe_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Vec<AllergyEntity>>;
 }
 
 /// Medical record repository trait
@@ -2212,72 +2161,9 @@ pub struct PathologyReportEntity {
 // PHASE 3: BLOOD BANK ENTITIES
 // =============================================================================
 
-/// Blood type screen entity (ABO/Rh typing and antibody screens)
-#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
-pub struct BloodTypeScreenEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub specimen_id: Option<String>,
-    pub abo_type: String,
-    pub rh_type: String,
-    pub abo_confirmation: Option<String>,
-    pub rh_confirmation: Option<String>,
-    pub weak_d_testing: Option<bool>,
-    pub weak_d_result: Option<String>,
-    pub antibody_screen_result: String,
-    pub antibodies_identified: Option<serde_json::Value>,
-    pub antibody_titer: Option<serde_json::Value>,
-    pub direct_antiglobulin_test: Option<String>,
-    pub dat_specificity: Option<serde_json::Value>,
-    pub special_requirements: Option<serde_json::Value>,
-    pub historical_records_reviewed: Option<bool>,
-    pub discrepancy_notes: Option<String>,
-    pub performed_by: String,
-    pub verified_by: Option<String>,
-    pub performed_at: DateTime<Utc>,
-    pub verified_at: Option<DateTime<Utc>>,
-    pub expiration_date: Option<chrono::NaiveDate>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    /// The record as the form captured it.
-    ///
-    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
-    /// insert binds it. While it was skipped, PostgreSQL never selected or
-    /// wrote this field, so the blob was permanently `Value::Null` there while
-    /// holding the whole record in memory — the same endpoint behaving one way
-    /// in development and another against a database, with nothing in the
-    /// response to say which.
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
 // =============================================================================
 // PHASE 3: PHARMACY & MEDICATIONS ENTITIES
 // =============================================================================
-
-/// Drug interaction entity (drug-drug and drug-allergy interactions)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DrugInteractionEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub prescription_id: Option<String>,
-    pub drug1_name: String,
-    pub drug1_code: Option<String>,
-    pub drug2_name: Option<String>,
-    pub drug2_code: Option<String>,
-    pub interaction_type: String,
-    pub severity: String,
-    pub clinical_significance: String,
-    pub mechanism: Option<String>,
-    pub management: Option<String>,
-    pub documentation_level: Option<String>,
-    pub detected_at: DateTime<Utc>,
-    pub acknowledged: bool,
-    pub acknowledged_by: Option<String>,
-    pub acknowledged_at: Option<DateTime<Utc>>,
-    pub override_reason: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
 
 /// Medication reminder entity (patient medication reminder schedules)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -2746,54 +2632,6 @@ pub trait PathologyReportRepository: Send + Sync + fmt::Debug {
         report: PathologyReportEntity,
     ) -> RepositoryResult<PathologyReportEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>>;
-}
-
-/// Blood type screen repository trait
-#[async_trait]
-pub trait BloodTypeScreenRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        screen: BloodTypeScreenEntity,
-    ) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<BloodTypeScreenEntity>>;
-    async fn get_latest_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<BloodTypeScreenEntity>>;
-    async fn update(
-        &self,
-        screen: BloodTypeScreenEntity,
-    ) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>>;
-}
-
-/// Drug interaction repository trait
-#[async_trait]
-pub trait DrugInteractionRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        interaction: DrugInteractionEntity,
-    ) -> RepositoryResult<DrugInteractionEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<DrugInteractionEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<DrugInteractionEntity>>;
-    async fn get_unacknowledged(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<DrugInteractionEntity>>;
-    async fn acknowledge(
-        &self,
-        id: &str,
-        acknowledged_by: &str,
-        override_reason: Option<&str>,
-    ) -> RepositoryResult<DrugInteractionEntity>;
 }
 
 /// Medication reminder repository trait

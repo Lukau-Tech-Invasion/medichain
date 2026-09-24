@@ -19,7 +19,6 @@ fn require_provider(data: &web::Data<AppState>, req: &HttpRequest) -> Result<(),
     match get_user(data, &user_id) {
         Some(user) if user.role.is_healthcare_provider() || user.role.is_admin() => Ok(()),
         Some(_) => Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Nursing records are restricted to clinical staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         })),
@@ -89,7 +88,6 @@ fn required_patient_id(body: &serde_json::Value) -> Result<String, HttpResponse>
     match body.get("patient_id").and_then(|v| v.as_str()) {
         Some(p) if !p.trim().is_empty() => Ok(p.to_string()),
         _ => Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "MISSING_PATIENT_ID".to_string(),
         })),
@@ -150,7 +148,6 @@ pub async fn nursing_administer_medication(
         .is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("a dose recorded as '{status}' requires a reason"),
             code: "REASON_REQUIRED".to_string(),
         });
@@ -197,7 +194,6 @@ pub async fn nursing_administer_medication(
         Err(e) => {
             log::error!("MAR administration failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the administration".to_string(),
                 code: "MAR_WRITE_FAILED".to_string(),
             })
@@ -234,7 +230,6 @@ pub async fn nursing_record_fluid(
         Some(a) if a >= 0 => a as i32,
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "amount_ml is required and must be a non-negative number".to_string(),
                 code: "INVALID_AMOUNT".to_string(),
             })
@@ -318,7 +313,6 @@ pub async fn nursing_record_fluid(
         Err(e) => {
             log::error!("I/O write failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the fluid event".to_string(),
                 code: "IO_WRITE_FAILED".to_string(),
             })

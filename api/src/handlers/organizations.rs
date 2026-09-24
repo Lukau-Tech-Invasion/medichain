@@ -55,7 +55,6 @@ pub async fn list_organizations(data: web::Data<AppState>, req: HttpRequest) -> 
         Err(error) => {
             log::error!("organisation listing failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Organisation directory is unavailable".into(),
                 code: "ORGANIZATION_DIRECTORY_UNAVAILABLE".into(),
             })

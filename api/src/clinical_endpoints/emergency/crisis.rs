@@ -94,7 +94,6 @@ pub async fn create_code_blue(
     match data.repositories.code_blue.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "DATABASE_ERROR".to_string(),
         }),
@@ -151,7 +150,6 @@ pub async fn list_patient_code_blues(
                 ) => {}
         Some(_) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Access denied".to_string(),
                 code: "ACCESS_DENIED".to_string(),
             })
@@ -298,7 +296,6 @@ pub async fn create_cardiac(
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -319,7 +316,6 @@ pub async fn create_cardiac(
             .unwrap_or(false),
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -403,7 +399,6 @@ pub async fn create_cardiac(
         Err(e) => {
             log::error!("cardiac event persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the cardiac event".to_string(),
                 code: "REPO_ERROR".to_string(),
             })

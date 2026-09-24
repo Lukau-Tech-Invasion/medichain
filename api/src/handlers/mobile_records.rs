@@ -35,21 +35,18 @@ fn authenticated_patient_id(
 ) -> Result<String, HttpResponse> {
     let user_id = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required".into(),
             code: "UNAUTHORIZED".into(),
         })
     })?;
     let user = get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".into(),
             code: "USER_NOT_FOUND".into(),
         })
     })?;
     user.linked_patient_id.ok_or_else(|| {
         HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A patient identity is required for mobile record access".into(),
             code: "PATIENT_CONTEXT_REQUIRED".into(),
         })
@@ -79,7 +76,6 @@ pub async fn register_patient_mobile_device(
     {
         Ok(device) => HttpResponse::Created().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "MOBILE_DEVICE_REGISTRATION_REJECTED".into(),
         }),
@@ -111,7 +107,6 @@ pub async fn authorise_mobile_record(
     {
         Ok(session) => HttpResponse::Created().json(session),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "MOBILE_RECORD_AUTHORISATION_REJECTED".into(),
         }),
@@ -152,7 +147,6 @@ pub async fn list_patient_mobile_devices(
         Err(error) => {
             log::error!("mobile device listing failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: error.into(),
                 code: "MOBILE_DEVICE_STORE_UNAVAILABLE".into(),
             })
@@ -177,14 +171,12 @@ pub async fn issue_mobile_lockscreen_token(
             if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active => {}
         Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Mobile device is not active for this patient".into(),
                 code: "MOBILE_DEVICE_BINDING_REQUIRED".into(),
             });
         }
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Mobile device not found".into(),
                 code: "MOBILE_DEVICE_NOT_FOUND".into(),
             });
@@ -201,7 +193,6 @@ pub async fn issue_mobile_lockscreen_token(
         Err(error) => {
             log::error!("Lockscreen token issuance failed: {}", error);
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lockscreen token could not be issued".into(),
                 code: "TOKEN_ISSUE_FAILED".into(),
             })
@@ -226,14 +217,12 @@ pub async fn revoke_patient_mobile_device(
         Ok(Some(device)) if device.patient_id == patient_id => device,
         Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Mobile device belongs to another patient".into(),
                 code: "MOBILE_DEVICE_OWNER_MISMATCH".into(),
             })
         }
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Mobile device not found".into(),
                 code: "MOBILE_DEVICE_NOT_FOUND".into(),
             })
@@ -262,7 +251,6 @@ pub async fn revoke_patient_mobile_device(
     {
         Ok(device) => HttpResponse::Ok().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "MOBILE_DEVICE_REVOCATION_REJECTED".into(),
         }),

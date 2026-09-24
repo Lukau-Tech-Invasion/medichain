@@ -26,12 +26,6 @@ pub struct RegisterDeviceRequest {
 pub struct SyncRequest {
     #[serde(default)]
     pub device_id: String,
-    // Accepted from clients for a future incremental-sync optimization
-    // (bounding the conflict-candidate scan to changes since this point);
-    // not yet consumed — conflict detection currently scans the full queue.
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub last_sync_at: i64,
     #[serde(default)]
     pub items: Vec<SyncItemInput>,
 }
@@ -171,7 +165,6 @@ pub async fn register_sync_device(
     if let Err(error) = data.repositories.sync_devices.create(entity).await {
         log::error!("sync_devices persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The sync record could not be saved; please retry.".to_string(),
             code: "SYNC_DEVICE_PERSISTENCE_FAILED".to_string(),
         });
@@ -345,7 +338,6 @@ pub async fn perform_sync(
         if let Err(error) = data.repositories.sync_queue_items.create(entity).await {
             log::error!("sync_queue_items persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The sync record could not be saved; please retry.".to_string(),
                 code: "SYNC_QUEUE_ITEM_PERSISTENCE_FAILED".to_string(),
             });
@@ -418,7 +410,6 @@ pub async fn resolve_sync_conflict(
         Ok(c) => c,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Sync conflict '{}' not found", conflict_id),
                 code: "CONFLICT_NOT_FOUND".to_string(),
             })
@@ -427,7 +418,6 @@ pub async fn resolve_sync_conflict(
 
     if conflict.patient_id.as_deref() != Some(current_user_id.as_str()) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -443,7 +433,6 @@ pub async fn resolve_sync_conflict(
             .unwrap_or_default(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "resolution must be one of UseLocal, UseServer, Merge".to_string(),
                 code: "INVALID_RESOLUTION".to_string(),
             })
@@ -458,7 +447,6 @@ pub async fn resolve_sync_conflict(
         .is_err()
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to resolve conflict".to_string(),
             code: "RESOLVE_FAILED".to_string(),
         });
@@ -525,7 +513,6 @@ pub async fn download_offline_data(
         Ok(value) => value,
         Err(crate::repositories::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(crate::ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -571,7 +558,6 @@ pub async fn download_offline_data(
 
 fn sync_download_unavailable() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(crate::ErrorResponse {
-        success: false,
         error: "Offline patient data is temporarily unavailable".to_string(),
         code: "SYNC_DATA_UNAVAILABLE".to_string(),
     })

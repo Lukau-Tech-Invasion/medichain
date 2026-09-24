@@ -501,14 +501,12 @@ pub fn require_registered_caller(
 ) -> Result<crate::User, HttpResponse> {
     let user_id = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
     get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
@@ -539,7 +537,6 @@ pub fn require_clinical_staff(
     let user = require_registered_caller(data, req)?;
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-            success: false,
             error: "This endpoint is restricted to clinical staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
@@ -568,7 +565,6 @@ pub fn require_administrator(
     let user = require_registered_caller(data, req)?;
     if !user.role.is_admin() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-            success: false,
             error: "This endpoint is restricted to administrators".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
@@ -664,7 +660,6 @@ pub fn resolve_attributed_provider(
     let target = get_user(data, requested).filter(|u| u.role.is_healthcare_provider());
     let Some(target) = target else {
         return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
-            success: false,
             error: "The named provider is not a registered, active healthcare provider".to_string(),
             code: "UNKNOWN_PROVIDER".to_string(),
         }));
@@ -674,7 +669,6 @@ pub fn resolve_attributed_provider(
     // administrator scheduling for a colleague.
     if caller.role.can_view_medical_records() && !caller.role.is_admin() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-            success: false,
             error: "You may only file records under your own name".to_string(),
             code: "PROVIDER_MISMATCH".to_string(),
         }));
@@ -706,7 +700,6 @@ pub fn require_actor_is_caller(
     if let Some(claimed) = claimed {
         if claimed != caller.wallet_address {
             return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-                success: false,
                 error: "This record must be filed under your own name".to_string(),
                 code: "ACTOR_MISMATCH".to_string(),
             }));

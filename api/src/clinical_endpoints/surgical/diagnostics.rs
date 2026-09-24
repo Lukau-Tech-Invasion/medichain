@@ -80,7 +80,6 @@ pub async fn create_anesthesia(
     let owner_id = record.patient_id.clone();
     if owner_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -170,7 +169,6 @@ pub async fn create_anesthesia(
         Err(e) => {
             log::error!("anesthesia record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Anesthesia record could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -322,7 +320,6 @@ pub async fn create_radiology_order(
         Err(e) => {
             log::error!("radiology order could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Radiology order could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -351,7 +348,6 @@ pub async fn get_radiology_order(
                 // A partial radiology order is more dangerous than none.
                 log::error!("radiology order stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored radiology order could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -413,7 +409,6 @@ pub async fn create_radiology_report(
         Err(e) => {
             log::error!("radiology report could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Radiology report could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -442,7 +437,6 @@ pub async fn get_radiology_report(
                 // A partial radiology report is more dangerous than none.
                 log::error!("radiology report stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored radiology report could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })
@@ -633,7 +627,6 @@ pub async fn create_pathology(
         Err(e) => {
             log::error!("pathology specimen could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Pathology specimen could not be stored".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -684,7 +677,6 @@ pub async fn update_pathology_report(
         Ok(user) if user.role.can_edit_medical_records() => user,
         Ok(_) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Only clinical record editors may save pathology reports".to_string(),
                 code: "FORBIDDEN".to_string(),
             })
@@ -695,7 +687,6 @@ pub async fn update_pathology_report(
     let body = req.into_inner();
     if !matches!(body.status.as_str(), "prelim" | "final") {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Pathology report status must be prelim or final".to_string(),
             code: "INVALID_STATUS".to_string(),
         });
@@ -704,7 +695,6 @@ pub async fn update_pathology_report(
         && (body.diagnosis.trim().is_empty() || body.microscopic_description.trim().is_empty())
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "A final pathology report requires diagnosis and microscopic description"
                 .to_string(),
             code: "FINAL_REPORT_INCOMPLETE".to_string(),
@@ -723,7 +713,6 @@ pub async fn update_pathology_report(
     };
     if report.status == "final" {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Final pathology reports cannot be overwritten".to_string(),
             code: "PATHOLOGY_REPORT_FINAL".to_string(),
         });
@@ -782,7 +771,6 @@ pub async fn update_pathology_report(
         Err(error) => {
             log::error!("pathology report update failed: {error}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Pathology report could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             })
@@ -811,7 +799,6 @@ pub async fn get_pathology(
                 // A partial pathology report is more dangerous than none.
                 log::error!("pathology report stored payload is unreadable: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Stored pathology report could not be read".to_string(),
                     code: "RECORD_UNREADABLE".to_string(),
                 })

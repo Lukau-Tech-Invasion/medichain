@@ -119,7 +119,6 @@ pub async fn set_language_preference(
         if let Err(error) = data.repositories.language_preferences.create(entity).await {
             log::error!("language_preferences persistence failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The language preference could not be saved; please retry.".to_string(),
                 code: "LANGUAGE_PREFERENCE_PERSISTENCE_FAILED".to_string(),
             });
@@ -149,7 +148,6 @@ pub async fn get_language_preference(
 
     if caller.wallet_address != user_id && !caller.role().is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot view another user's language preference".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -168,14 +166,12 @@ pub async fn get_language_preference(
             match serde_json::from_value::<crate::clinical::LanguagePreference>(rec.data) {
                 Ok(pref) => HttpResponse::Ok().json(pref),
                 Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt language preference".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 }),
             }
         }
         None => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Preference not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
@@ -255,7 +251,6 @@ pub async fn translate_content(
                 req.target_language
             );
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "No translation provider is configured. The content was not translated."
                     .to_string(),
                 code: "TRANSLATION_PROVIDER_UNAVAILABLE".to_string(),
@@ -266,7 +261,6 @@ pub async fn translate_content(
             // the clinical text this endpoint exists to keep out of logs.
             log::warn!("translation provider failed: {error}");
             HttpResponse::BadGateway().json(ErrorResponse {
-                success: false,
                 error:
                     "The translation provider could not be reached. The content was not translated."
                         .to_string(),

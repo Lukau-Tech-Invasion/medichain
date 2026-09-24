@@ -17,7 +17,6 @@ pub async fn submit_lab_results(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -28,7 +27,6 @@ pub async fn submit_lab_results(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -43,7 +41,6 @@ pub async fn submit_lab_results(
 
     if !can_submit {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot submit lab results. Required: LabTechnician, Doctor, Nurse, or Admin",
                 current_user.role
@@ -58,7 +55,6 @@ pub async fn submit_lab_results(
             Ok(e) => e,
             Err(_) => {
                 return HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: format!("Patient '{}' not found", req.patient_id),
                     code: "PATIENT_NOT_FOUND".to_string(),
                 });
@@ -68,7 +64,6 @@ pub async fn submit_lab_results(
             Some(p) => p.full_name,
             None => {
                 return HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: format!("Patient '{}' not found", req.patient_id),
                     code: "PATIENT_NOT_FOUND".to_string(),
                 });
@@ -79,7 +74,6 @@ pub async fn submit_lab_results(
     // Validate test results
     if req.results.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "At least one test result is required".to_string(),
             code: "INVALID_REQUEST".to_string(),
         });
@@ -160,7 +154,6 @@ pub async fn submit_lab_results(
         {
             log::error!("Lab submission persistence failed for {submission_id}: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Lab results could not be saved".to_string(),
                 code: "LAB_SUBMISSION_PERSISTENCE_FAILED".to_string(),
             });
@@ -240,7 +233,6 @@ pub async fn get_pending_lab_results(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -251,7 +243,6 @@ pub async fn get_pending_lab_results(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -261,7 +252,6 @@ pub async fn get_pending_lab_results(
     // Only Doctor, Nurse, or Admin can review
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot review lab results. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -276,7 +266,6 @@ pub async fn get_pending_lab_results(
         Err(error) => {
             log::error!("Pending lab submission read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Pending lab results are temporarily unavailable".to_string(),
                 code: "LAB_SUBMISSIONS_UNAVAILABLE".to_string(),
             });
@@ -310,7 +299,6 @@ pub async fn get_all_lab_submissions(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -321,7 +309,6 @@ pub async fn get_all_lab_submissions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -342,7 +329,6 @@ pub async fn get_all_lab_submissions(
     // still cannot approve any result, their own least of all.
     if !current_user.role.can_perform_laboratory_work() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot view lab submissions. Required: Doctor, Nurse, or Lab Technician",
                 current_user.role
@@ -365,7 +351,6 @@ pub async fn get_all_lab_submissions(
         Err(error) => {
             log::error!("Lab submission list failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Lab submissions are temporarily unavailable".to_string(),
                 code: "LAB_SUBMISSIONS_UNAVAILABLE".to_string(),
             });
@@ -403,7 +388,6 @@ pub async fn get_lab_submission(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -414,7 +398,6 @@ pub async fn get_lab_submission(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -430,7 +413,6 @@ pub async fn get_lab_submission(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Lab submission '{}' not found", submission_id),
                 code: "SUBMISSION_NOT_FOUND".to_string(),
             });
@@ -438,7 +420,6 @@ pub async fn get_lab_submission(
         Err(error) => {
             log::error!("Lab submission read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The lab submission is temporarily unavailable".to_string(),
                 code: "LAB_SUBMISSION_UNAVAILABLE".to_string(),
             });
@@ -449,7 +430,6 @@ pub async fn get_lab_submission(
         Err(error) => {
             log::error!("Lab submission decode failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The stored lab submission could not be decoded".to_string(),
                 code: "LAB_SUBMISSION_DECODE_FAILED".to_string(),
             });
@@ -468,7 +448,6 @@ pub async fn get_lab_submission(
 
     if !can_view {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -583,7 +562,6 @@ pub async fn review_lab_results_impl(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -594,7 +572,6 @@ pub async fn review_lab_results_impl(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -604,7 +581,6 @@ pub async fn review_lab_results_impl(
     // Only Doctor, Nurse, or Admin can approve/reject
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot review lab results. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -617,7 +593,6 @@ pub async fn review_lab_results_impl(
     let action = req.action.to_lowercase();
     if action != "approve" && action != "reject" {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid action. Must be 'approve' or 'reject'".to_string(),
             code: "INVALID_ACTION".to_string(),
         });
@@ -626,7 +601,6 @@ pub async fn review_lab_results_impl(
     // Rejection requires a reason
     if action == "reject" && req.rejection_reason.is_none() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Rejection requires a reason".to_string(),
             code: "REJECTION_REASON_REQUIRED".to_string(),
         });
@@ -642,7 +616,6 @@ pub async fn review_lab_results_impl(
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Lab submission '{}' not found", req.submission_id),
                 code: "SUBMISSION_NOT_FOUND".to_string(),
             });
@@ -650,7 +623,6 @@ pub async fn review_lab_results_impl(
         Err(error) => {
             log::error!("Lab submission review read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The lab submission is temporarily unavailable".to_string(),
                 code: "LAB_SUBMISSION_UNAVAILABLE".to_string(),
             });
@@ -661,7 +633,6 @@ pub async fn review_lab_results_impl(
         Err(error) => {
             log::error!("Lab submission review decode failed: {error}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The stored lab submission could not be decoded".to_string(),
                 code: "LAB_SUBMISSION_DECODE_FAILED".to_string(),
             });
@@ -674,7 +645,6 @@ pub async fn review_lab_results_impl(
     // between them.
     if submission.status != LabResultStatus::Pending {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("Lab submission already {}", submission.status),
             code: "ALREADY_REVIEWED".to_string(),
         });
@@ -691,7 +661,6 @@ pub async fn review_lab_results_impl(
     // `submitted_by` is written once at submission and never changes.
     if submission.submitted_by == current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A lab result cannot be reviewed by the person who submitted it".to_string(),
             code: "SELF_REVIEW_FORBIDDEN".to_string(),
         });
@@ -724,7 +693,6 @@ pub async fn review_lab_results_impl(
         Ok(Some(_)) => {}
         Ok(None) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Lab submission was already reviewed".to_string(),
                 code: "ALREADY_REVIEWED".to_string(),
             });
@@ -732,7 +700,6 @@ pub async fn review_lab_results_impl(
         Err(e) => {
             log::error!("Lab review transition failed for {}: {}", submission_id, e);
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Lab review could not be recorded".to_string(),
                 code: "LAB_REVIEW_UNAVAILABLE".to_string(),
             });
@@ -778,7 +745,6 @@ pub async fn review_lab_results_impl(
             )
             .await;
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Lab result could not be added to the patient record".to_string(),
                 code: "LAB_RECORD_PERSISTENCE_FAILED".to_string(),
             });
@@ -909,7 +875,6 @@ pub async fn get_patient_lab_submissions(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -920,7 +885,6 @@ pub async fn get_patient_lab_submissions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -933,7 +897,6 @@ pub async fn get_patient_lab_submissions(
 
     if !is_healthcare && !is_own_records {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -950,7 +913,6 @@ pub async fn get_patient_lab_submissions(
         Err(error) => {
             log::error!("Patient lab submission read failed: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Patient lab results are temporarily unavailable".to_string(),
                 code: "LAB_SUBMISSIONS_UNAVAILABLE".to_string(),
             });

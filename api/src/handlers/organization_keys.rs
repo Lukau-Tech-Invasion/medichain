@@ -34,7 +34,6 @@ pub async fn register_organization_key(
     let organization_id = path.into_inner();
     if organization_id != body.organization_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Organization path and body must match".into(),
             code: "ORGANIZATION_MISMATCH".into(),
         });
@@ -61,7 +60,6 @@ pub async fn register_organization_key(
         Ok(key) => key,
         Err(message) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: message.into(),
                 code: "KEY_REGISTRATION_REJECTED".into(),
             })
@@ -92,7 +90,6 @@ pub async fn register_organization_key(
 /// need.
 fn key_persistence_failed(what_did_not_happen: &str) -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: format!("Organisation key storage is unavailable; {what_did_not_happen}"),
         code: "KEY_PERSISTENCE_REQUIRED".into(),
     })
@@ -180,7 +177,6 @@ pub async fn transition_organization_key(
         Ok(key) => key,
         Err(message) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: message.into(),
                 code: "KEY_TRANSITION_REJECTED".into(),
             })
@@ -212,7 +208,6 @@ pub async fn get_active_organization_key(
         Some(value) if !value.is_empty() => value,
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "purpose query parameter is required".into(),
                 code: "KEY_PURPOSE_REQUIRED".into(),
             })
@@ -221,7 +216,6 @@ pub async fn get_active_organization_key(
     match data.organization_keys.active(&path.into_inner(), purpose) {
         Some(key) => HttpResponse::Ok().json(key),
         None => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "No active organization key found".into(),
             code: "ACTIVE_KEY_NOT_FOUND".into(),
         }),

@@ -16,7 +16,6 @@ pub async fn assign_role(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -28,7 +27,6 @@ pub async fn assign_role(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -37,7 +35,6 @@ pub async fn assign_role(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can assign roles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -53,7 +50,6 @@ pub async fn assign_role(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_ROLE".to_string(),
             });
@@ -63,7 +59,6 @@ pub async fn assign_role(
     // Cannot assign Admin role (must be done directly)
     if role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot assign Admin role via API".to_string(),
             code: "CANNOT_ASSIGN_ADMIN".to_string(),
         });
@@ -72,7 +67,6 @@ pub async fn assign_role(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format. Must be SS58 encoded (48 chars starting with 5)"
                 .to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
@@ -130,7 +124,6 @@ pub async fn assign_role(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Role assignment could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -163,7 +156,6 @@ pub async fn revoke_role(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -175,7 +167,6 @@ pub async fn revoke_role(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -184,7 +175,6 @@ pub async fn revoke_role(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can revoke roles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -198,7 +188,6 @@ pub async fn revoke_role(
     // Cannot revoke own role
     if body.wallet_address == current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot revoke your own role".to_string(),
             code: "CANNOT_REVOKE_OWN_ROLE".to_string(),
         });
@@ -211,7 +200,6 @@ pub async fn revoke_role(
         .is_some_and(|users| users.contains_key(&body.wallet_address));
     if !exists {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
@@ -223,7 +211,6 @@ pub async fn revoke_role(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Role revocation could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -317,7 +304,6 @@ pub async fn list_guardians_for_ward(
     );
     if !is_own && !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the patient or a clinician may see who acts for them".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -338,7 +324,6 @@ pub async fn list_guardians_for_ward(
         Err(e) => {
             log::error!("guardian lookup by ward failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e.to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -374,7 +359,6 @@ pub async fn list_my_wards(data: web::Data<AppState>, req: HttpRequest) -> impl 
         Err(e) => {
             log::error!("guardian lookup by guardian failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e.to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -392,7 +376,6 @@ pub async fn verify_guardian_relationship(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -403,7 +386,6 @@ pub async fn verify_guardian_relationship(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -412,7 +394,6 @@ pub async fn verify_guardian_relationship(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can verify guardian relationships".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -420,7 +401,6 @@ pub async fn verify_guardian_relationship(
 
     if body.guardian_wallet == current_user_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "An admin cannot verify a guardian relationship naming themselves".to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         });
@@ -428,7 +408,6 @@ pub async fn verify_guardian_relationship(
 
     if body.guardian_wallet.trim().is_empty() || body.ward_patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "guardian_wallet and ward_patient_id are required".to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         });
@@ -454,7 +433,6 @@ pub async fn verify_guardian_relationship(
 
     if needs_documentary_evidence && !has_evidence {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "relationship_type '{}' requires authority_evidence_type and \
                  authority_evidence_reference identifying the document that establishes \
@@ -525,7 +503,6 @@ pub async fn verify_guardian_relationship(
             HttpResponse::Created().json(created)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         }),
@@ -557,7 +534,6 @@ pub async fn update_guardian_permissions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -565,7 +541,6 @@ pub async fn update_guardian_permissions(
     };
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can update guardian permissions".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -610,7 +585,6 @@ pub async fn update_guardian_permissions(
             HttpResponse::Ok().json(updated)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_PERMISSIONS_UPDATE_REJECTED".to_string(),
         }),
@@ -634,7 +608,6 @@ pub async fn revoke_guardian_relationship(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -645,7 +618,6 @@ pub async fn revoke_guardian_relationship(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -670,7 +642,6 @@ pub async fn revoke_guardian_relationship(
 
     if !current_user.role.is_admin() && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin or the patient themselves can revoke guardian relationships"
                 .to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
@@ -701,7 +672,6 @@ pub async fn revoke_guardian_relationship(
             HttpResponse::Ok().json(serde_json::json!({ "success": true }))
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_REVOCATION_REJECTED".to_string(),
         }),
