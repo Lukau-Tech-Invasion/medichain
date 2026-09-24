@@ -437,12 +437,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-700 to-violet-600 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docHistoryPhysical.title')}</h1>
         </div>
-        <p className="text-indigo-200">{t('docHistoryPhysical.subtitle')}</p>
+        <p className="text-white">{t('docHistoryPhysical.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -456,10 +456,10 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docHistoryPhysical.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docHistoryPhysical.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -578,7 +578,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   {/* Vitals Summary */}
                   <div className="flex gap-4 flex-wrap text-sm bg-surface-sunken rounded-lg p-3">
                     <div className="flex items-center gap-1">
-                      <Heart className="w-4 h-4 text-red-500" />
+                      <Heart className="w-4 h-4 text-critical" />
                       <span className="text-content-muted">{t('docHistoryPhysical.bpAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bloodPressure}</span>
                     </div>
@@ -588,12 +588,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <span className="font-medium">{record.vitalSigns.heartRate}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Thermometer className="w-4 h-4 text-orange-500" />
+                      <Thermometer className="w-4 h-4 text-caution" />
                       <span className="text-content-muted">{t('docHistoryPhysical.tempAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.temperature}°C</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Scale className="w-4 h-4 text-green-500" />
+                      <Scale className="w-4 h-4 text-ok" />
                       <span className="text-content-muted">{t('docHistoryPhysical.bmiAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bmi}</span>
                     </div>
@@ -826,7 +826,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       </div>
                       <div>
                         <label htmlFor="hp-allergies" className="block text-sm font-medium text-content-secondary mb-1">
-                          <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
+                          <AlertTriangle className="w-4 h-4 inline mr-1 text-critical" />
                           {t('docHistoryPhysical.allergiesLabel')}
                         </label>
                         <textarea
@@ -977,11 +977,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {systemsList.map(system => (
                       <div key={system} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
-                        <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-gray-700">{translateSystem(system)}</span>
+                        <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-content-secondary">{translateSystem(system)}</span>
                         <div className="flex gap-2" role="radiogroup" aria-labelledby={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`}>
                           {['normal', 'abnormal'].map(status => (
                             <label key={status} htmlFor={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600"
+                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-brand"
                                 checked={formData.reviewOfSystems[system] === status}
                                 onChange={() => setFormData({ ...formData, reviewOfSystems: { ...formData.reviewOfSystems, [system]: status } })} />
                               <span className="text-xs">{status === 'normal' ? t('docHistoryPhysical.negLabel') : t('docHistoryPhysical.posLabel')}</span>
@@ -1182,7 +1182,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <p className="text-sm text-content-muted">{t('docHistoryPhysical.addendumExplainer')}</p>
                   <label htmlFor="hp-addendum" className="sr-only">{t('docHistoryPhysical.addendumLabel')}</label>
                   <textarea id="hp-addendum" value={addendumText} onChange={(event) => setAddendumText(event.target.value)} className="w-full border rounded-lg px-3 py-2 h-24" placeholder={t('docHistoryPhysical.addendumPlaceholder')} />
-                  <button type="button" disabled={isAppendingAddendum || !addendumText.trim()} onClick={appendAddendum} className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">
+                  <button type="button" disabled={isAppendingAddendum || !addendumText.trim()} onClick={appendAddendum} className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                     {isAppendingAddendum ? t('docHistoryPhysical.addendumSaving') : t('docHistoryPhysical.addendumSave')}
                   </button>
                 </div>

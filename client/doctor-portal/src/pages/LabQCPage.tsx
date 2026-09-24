@@ -12,6 +12,9 @@ import {
   useValidatedForm,
   labQcSchema,
   calibrationSchema,
+  formatDateOnly,
+  formatTimestamp,
+  getApiErrorMessage,
 } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -43,12 +46,21 @@ interface QCTest {
   expectedSD: number;
   unit: string;
   result: 'pass' | 'fail' | 'warning';
+  /** As the server computed it; absent on runs stored before it did. */
+  zScore?: number;
+  /** Westgard rule codes (`1_3s`, `1_2s`). */
   violatedRules?: string[];
   performedBy: string;
   reviewedBy?: string;
   correctiveAction?: string;
   comments?: string;
 }
+
+/** Westgard rule codes the server stores, and how each is labelled. */
+const RULE_LABEL_KEYS: Record<string, string> = {
+  '1_3s': 'docLabQC.violatedRule13s',
+  '1_2s': 'docLabQC.violatedRule12s',
+};
 
 interface Calibration {
   calibrationId: string;
@@ -118,9 +130,11 @@ const LabQCPage: React.FC = () => {
       // Map API response to QCTest interface
       const items = (response.items || []) as Record<string, unknown>[];
       const mappedTests: QCTest[] = items.map((item) => ({
-        testId: (item.test_id || item.testId || '') as string,
-        date: (item.date || '') as string,
-        time: (item.time || '') as string,
+        testId: (item.qc_id || item.id || '') as string,
+        // The server records when the run was performed; the date and time
+        // the page used to send were its own clock, and are not stored.
+        date: formatDateOnly(item.performed_at as string | undefined),
+        time: formatTimestamp(item.performed_at as string | undefined, { timeStyle: 'short' }),
         instrument: (item.instrument || '') as string,
         analyte: (item.analyte || '') as string,
         level: (item.level || 'Level 1') as 'Level 1' | 'Level 2' | 'Level 3',
@@ -130,8 +144,11 @@ const LabQCPage: React.FC = () => {
         expectedMean: (item.expected_mean || item.expectedMean || 0) as number,
         expectedSD: (item.expected_sd || item.expectedSD || 0) as number,
         unit: (item.unit || '') as string,
-        result: (item.result || 'pass') as 'pass' | 'fail' | 'warning',
-        violatedRules: item.violated_rules || item.violatedRules,
+        // The server's verdict. A run stored before it recorded one carries
+        // only `passed`, which says pass or not-pass and nothing finer.
+        result: (item.result ?? (item.passed === true ? 'pass' : 'fail')) as 'pass' | 'fail' | 'warning',
+        zScore: typeof item.z_score === 'number' ? item.z_score : undefined,
+        violatedRules: item.violated_rules,
         performedBy: (item.performed_by || item.performedBy || '') as string,
         reviewedBy: item.reviewed_by || item.reviewedBy,
         correctiveAction: item.corrective_action || item.correctiveAction,
@@ -182,50 +199,32 @@ const LabQCPage: React.FC = () => {
       return;
     }
 
-    const obs = parseFloat(observedValue);
-    const mean = parseFloat(expectedMean);
-    const sd = parseFloat(expectedSD);
-
-    // Westgard rules evaluation
-    const zScore = Math.abs((obs - mean) / sd);
-    let result: 'pass' | 'fail' | 'warning' = 'pass';
-    const violatedRules: string[] = [];
-
-    if (zScore > 3) {
-      result = 'fail';
-      violatedRules.push(t('docLabQC.violatedRule13s'));
-    } else if (zScore > 2) {
-      result = 'warning';
-      violatedRules.push(t('docLabQC.violatedRule12s'));
-    }
-
-    const newTest: QCTest = {
-      testId: `QC-${String(qcTests.length + 1).padStart(3, '0')}`,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
-      instrument,
-      analyte,
-      level,
-      lotNumber,
-      expiryDate,
-      observedValue: obs,
-      expectedMean: mean,
-      expectedSD: sd,
-      unit,
-      result,
-      violatedRules: violatedRules.length > 0 ? violatedRules : undefined,
-      performedBy: user?.userId || 'Unknown',
-      correctiveAction: correctiveAction || undefined,
-      comments: qcComments || undefined
-    };
-
-    // Do not display a QC run as recorded when durable storage refuses it.
+    // The run is judged by the server (`clinical_scoring::westgard_single_run`)
+    // and this page shows the verdict it returns. It used to evaluate the
+    // Westgard rules itself -- a clinical decision in the browser -- and the
+    // list then read a `result` field the server never stored, so every run,
+    // failed controls included, displayed as a pass.
     try {
-      await createLabQc(newTest);
-      showSuccess(t('docLabQC.qcRecordedSuccess', { id: newTest.testId, result: result.toUpperCase() }));
+      const created = await createLabQc({
+        instrument,
+        analyte,
+        level,
+        lotNumber: lotNumber || undefined,
+        expiryDate: expiryDate || undefined,
+        observedValue: parseFloat(observedValue),
+        expectedMean: parseFloat(expectedMean),
+        expectedSD: parseFloat(expectedSD),
+        unit,
+        correctiveAction: correctiveAction || undefined,
+        comments: qcComments || undefined,
+      });
+      showSuccess(t('docLabQC.qcRecordedSuccess', {
+        id: created.qc_id,
+        result: t(`docLabQC.result_${created.result}`).toUpperCase(),
+      }));
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docLabQC.errorRecordQc'));
+      setError(getApiErrorMessage(err, t('docLabQC.errorRecordQc')));
       showWarning(t('docLabQC.errorRecordQc'));
       return;
     }
@@ -334,18 +333,18 @@ const LabQCPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-green-700 to-emerald-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Beaker className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docLabQC.title')}</h1>
-              <p className="text-green-100">{t('docLabQC.subtitle')}</p>
+              <p className="text-white">{t('docLabQC.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-green-100">{t('docLabQC.loggedInAs')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docLabQC.loggedInAs')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
@@ -360,7 +359,7 @@ const LabQCPage: React.FC = () => {
               type="button"
               onClick={() => void fetchData()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -494,7 +493,7 @@ const LabQCPage: React.FC = () => {
                   {filteredQcTests.map((test) => (
                     <tr
                       key={test.testId}
-                      className={`${test.result === 'fail' ? 'bg-critical-subtle' : test.result === 'warning' ? 'bg-caution-subtle' : ''} hover:bg-surface-sunken`}
+                      className={`border-l-4 ${test.result === 'fail' ? 'border-l-critical' : test.result === 'warning' ? 'border-l-caution' : 'border-l-transparent'} hover:bg-surface-sunken`}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2">
@@ -518,9 +517,11 @@ const LabQCPage: React.FC = () => {
                         <div className="text-sm">
                           <div className="font-medium text-content">{t('docLabQC.obsLine', { value: test.observedValue, unit: test.unit })}</div>
                           <div className="text-xs text-content-muted">{t('docLabQC.meanSdLine', { mean: test.expectedMean, sd: test.expectedSD })}</div>
-                          <div className="text-xs text-content-muted">
-                            {t('docLabQC.zScoreLine', { score: ((test.observedValue - test.expectedMean) / test.expectedSD).toFixed(2) })}
-                          </div>
+                          {test.zScore !== undefined && (
+                            <div className="text-xs text-content-muted">
+                              {t('docLabQC.zScoreLine', { score: test.zScore.toFixed(2) })}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -535,7 +536,7 @@ const LabQCPage: React.FC = () => {
                             {test.violatedRules.map((rule, idx) => (
                               <div key={idx} className="flex items-center">
                                 <AlertTriangle className="h-3 w-3 mr-1" />
-                                {rule}
+                                {RULE_LABEL_KEYS[rule] ? t(RULE_LABEL_KEYS[rule]) : rule}
                               </div>
                             ))}
                           </div>

@@ -17,13 +17,13 @@ import {
 import StaffName from '../components/StaffName';
 import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
   getApiClient,
   useTranslation,
   clickable,
   Input,
   useValidatedForm,
   carePlanSchema,
+  createCarePlan,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -145,16 +145,6 @@ const NursingCarePlanPage: React.FC = () => {
   });
   const { user } = useAuthStore();
 
-  useEffect(() => {
-    if (!user?.walletAddress) return;
-    fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
-    })
-      .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(() => undefined)
-      .catch(() => undefined);
-  }, [user?.walletAddress]);
-
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
@@ -169,25 +159,15 @@ const NursingCarePlanPage: React.FC = () => {
     setSaving(true);
     setSaveMessage(null);
     try {
-      const response = await fetch(apiUrl('/api/emergency/care-plan'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role || 'Nurse',
-        },
-        body: JSON.stringify({
-          patient_id: form.patientId,
-          diagnosis: form.diagnosis.trim(),
-          priority: form.priority,
-          goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
-            .map((description, index) => ({ id: `goal-${index + 1}`, description })),
-          interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
-            .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
-        }),
+      await createCarePlan({
+        patient_id: form.patientId,
+        diagnosis: form.diagnosis.trim(),
+        priority: form.priority,
+        goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
+          .map((description, index) => ({ id: `goal-${index + 1}`, description })),
+        interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
+          .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
-      if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docNursingCarePlan.savedOk'));
       setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
     } catch (err) {
@@ -329,12 +309,12 @@ const NursingCarePlanPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white p-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docNursingCarePlan.title')}</h1>
         </div>
-        <p className="text-purple-100">{t('docNursingCarePlan.subtitle')}</p>
+        <p className="text-white">{t('docNursingCarePlan.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -348,10 +328,10 @@ const NursingCarePlanPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docNursingCarePlan.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docNursingCarePlan.apiHint')}</p>
           </div>
         </div>
       )}
@@ -544,7 +524,7 @@ const NursingCarePlanPage: React.FC = () => {
               <button
                 onClick={createPlan}
                 disabled={saving}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>

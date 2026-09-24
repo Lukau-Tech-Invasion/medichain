@@ -7,6 +7,7 @@ import {
   useTranslation,
   Alert,
   LoadingSpinner,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { InboxNotification } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -127,7 +128,7 @@ const NotificationsPage: React.FC = () => {
         <button
           onClick={handleMarkAllRead}
           disabled={isLoading || unread.length === 0}
-          className="px-4 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-60"
+          className="px-4 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           <CheckCheck className="w-4 h-4" />
           {t('docNotifications.markAllRead')}
@@ -162,14 +163,14 @@ const NotificationsPage: React.FC = () => {
               key={`${entry.type}-${entry.id}`}
               className={`border rounded-lg p-4 flex items-start gap-3 ${priorityClasses(
                 entry.priority
-              )} ${isUnread ? '' : 'opacity-70'}`}
+              )}`}
             >
               <span className="mt-0.5">{iconFor(entry.type)}</span>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold">{entry.title}</p>
                 <p className="text-sm mt-1">
                   {entry.timestamp
-                    ? new Date(entry.timestamp * 1000).toLocaleString()
+                    ? formatTimestamp(entry.timestamp * 1000)
                     : t('docNotifications.timeUnknown')}
                   {entry.patient_id ? ` · ${entry.patient_id}` : ''}
                 </p>

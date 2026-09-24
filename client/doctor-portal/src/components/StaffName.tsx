@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiUrl, getApiClient } from '@medichain/shared';
+import { getProviders, type BookableProvider } from '@medichain/shared';
 import { useAuthStore } from '../store';
 
 /**
@@ -21,39 +21,21 @@ import { useAuthStore } from '../store';
  * or belonging to another facility).
  */
 
-interface Provider {
-  wallet_address: string;
-  name?: string;
-  username?: string;
-  role?: string;
-  email?: string;
-  specialty?: string;
-}
-
-type Directory = Map<string, Provider>;
+type Directory = Map<string, BookableProvider>;
 
 let cache: Directory | null = null;
 let inFlight: Promise<Directory> | null = null;
 const subscribers = new Set<(d: Directory) => void>();
 
-async function loadDirectory(wallet: string, role: string): Promise<Directory> {
+async function loadDirectory(): Promise<Directory> {
   if (cache) return cache;
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const directory: Directory = new Map();
     try {
-      const response = await fetch(apiUrl('/api/providers'), {
-        headers: {
-          ...getApiClient().getSessionHeaders(wallet),
-          'X-Provider-Role': role,
-        },
-      });
-      if (response.ok) {
-        const body = await response.json();
-        const rows: Provider[] = Array.isArray(body.providers) ? body.providers : [];
-        for (const row of rows) {
-          if (row.wallet_address) directory.set(row.wallet_address, row);
-        }
+      const { providers } = await getProviders();
+      for (const row of providers) {
+        if (row.wallet_address) directory.set(row.wallet_address, row);
       }
     } catch {
       // An unreachable directory means addresses stay as addresses, which is
@@ -88,7 +70,7 @@ export function useStaffName(id?: string | null): string {
       if (active) setDirectory(d);
     };
     subscribers.add(notify);
-    void loadDirectory(user.walletAddress, user.role).then(notify);
+    void loadDirectory().then(notify);
     return () => {
       active = false;
       subscribers.delete(notify);
@@ -97,7 +79,7 @@ export function useStaffName(id?: string | null): string {
 
   if (!id) return '';
   const found = directory?.get(id);
-  return found?.name || found?.username || found?.email || id;
+  return found?.name || found?.username || id;
 }
 
 /**
@@ -119,7 +101,7 @@ export function useStaffDirectory(): (id?: string | null) => string {
       if (active) setDirectory(d);
     };
     subscribers.add(notify);
-    void loadDirectory(user.walletAddress, user.role).then(notify);
+    void loadDirectory().then(notify);
     return () => {
       active = false;
       subscribers.delete(notify);
@@ -129,7 +111,7 @@ export function useStaffDirectory(): (id?: string | null) => string {
   return (id?: string | null) => {
     if (!id) return '';
     const found = directory?.get(id);
-    return found?.name || found?.username || found?.email || id;
+    return found?.name || found?.username || id;
   };
 }
 

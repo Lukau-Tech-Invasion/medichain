@@ -30,6 +30,7 @@ import {
   signConsent,
   useTranslation,
   clickable,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -217,7 +218,7 @@ export function ConsentManagementPage() {
   };
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -228,7 +229,7 @@ export function ConsentManagementPage() {
   const getAccessTypeColor = (type: string) => {
     switch (type) {
       case 'full':
-        return 'bg-success-100 text-success-700';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'limited':
         return 'bg-info-light text-info';
       case 'emergency':
@@ -400,7 +401,7 @@ export function ConsentManagementPage() {
           <UserCheck className="w-4 h-4 inline mr-1" />
           {t('consent.requests')}
           {pendingRequests.length > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-warning-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-5 h-5 bg-caution text-caution-fg text-xs rounded-full flex items-center justify-center">
               {pendingRequests.length}
             </span>
           )}
@@ -440,7 +441,7 @@ export function ConsentManagementPage() {
             placeholder={t('consent.searchProviders')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
       )}
@@ -452,7 +453,7 @@ export function ConsentManagementPage() {
           {/* Signed Consents */}
           <div>
             <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" /> {t('consent.signedForms')}
+              <CheckCircle className="w-4 h-4 text-ok" /> {t('consent.signedForms')}
             </h3>
             {/* Outside the list branch on purpose. Withdrawing the last
                 standing consent empties the list, and a confirmation rendered
@@ -488,7 +489,7 @@ export function ConsentManagementPage() {
                 {signedConsents.map(c => (
                   <div key={c.consent_id} className="patient-card flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-primary-500" />
+                      <FileText className="w-5 h-5 text-brand" />
                       <div>
                         <p className="font-medium text-content">{c.consent_type}</p>
                         {c.signed_at && (
@@ -510,7 +511,7 @@ export function ConsentManagementPage() {
                         type="button"
                         onClick={() => void handleWithdrawConsent(c.consent_id)}
                         disabled={withdrawingId === c.consent_id}
-                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px]"
+                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
                       >
                         {withdrawingId === c.consent_id
                           ? t('consent.withdrawing')
@@ -527,7 +528,7 @@ export function ConsentManagementPage() {
           {consentTypes.length > 0 && (
             <div>
               <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
-                <PenLine className="w-4 h-4 text-primary-500" /> {t('consent.availableForms')}
+                <PenLine className="w-4 h-4 text-brand" /> {t('consent.availableForms')}
               </h3>
               <div className="space-y-2">
                 {consentTypes.map(ct => {
@@ -549,7 +550,7 @@ export function ConsentManagementPage() {
                         <button
                           onClick={() => handleSignConsent(ct.consent_type)}
                           disabled={isSigning === ct.consent_type}
-                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           {isSigning === ct.consent_type ? t('consent.signing') : t('consent.sign')}
                         </button>
@@ -568,7 +569,7 @@ export function ConsentManagementPage() {
         <div className="space-y-3">
           {pendingRequests.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="w-12 h-12 text-success-300 mx-auto mb-4" />
+              <CheckCircle className="w-12 h-12 text-ok mx-auto mb-4" />
               <p className="text-content-muted">{t('consent.noRequests')}</p>
             </div>
           ) : (
@@ -629,7 +630,7 @@ export function ConsentManagementPage() {
         <div className="space-y-3">
           {filteredGrants.length === 0 ? (
             <div className="text-center py-12">
-              <Shield className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
+              <Shield className="w-12 h-12 text-content-muted mx-auto mb-4" />
               <p className="text-content-muted">
                 {activeTab === 'grants' ? t('consent.noActiveGrants') : t('consent.noHistory')}
               </p>
@@ -785,7 +786,7 @@ export function ConsentManagementPage() {
               <button
                 onClick={handleRevokeAccess}
                 disabled={isRevoking}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 {isRevoking ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

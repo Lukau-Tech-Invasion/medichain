@@ -296,7 +296,7 @@ export function MedicalIdPage() {
     return (
       <div className="p-6">
         <EmptyState
-          icon={<AlertTriangle className="w-12 h-12 text-amber-500" />}
+          icon={<AlertTriangle className="w-12 h-12 text-caution" />}
           title={t('medicalId.unableToLoadTitle')}
           description={t('medicalId.unableToLoadDesc')}
           action={
@@ -413,7 +413,7 @@ export function MedicalIdPage() {
       {/* Main Medical ID Card */}
       <div className="bg-surface rounded-3xl shadow-lg overflow-hidden">
         {/* Red Emergency Header */}
-        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6">
+        <div className="bg-gradient-to-r from-red-700 to-red-800 text-white p-6">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-surface/20 rounded-full flex items-center justify-center">
               <User className="w-8 h-8" />
@@ -422,7 +422,7 @@ export function MedicalIdPage() {
               <h2 className="text-2xl font-bold">
                 {data.name ?? t('medicalId.nameUnavailable')}
               </h2>
-              <div className="flex items-center gap-2 text-white/90">
+              <div className="flex items-center gap-2 text-white">
                 <Calendar className="w-4 h-4" />
                 <span>
                   {data.date_of_birth
@@ -451,12 +451,12 @@ export function MedicalIdPage() {
         {/* Blood Type & Organ Donor */}
         <div className="grid grid-cols-2 divide-x divide-border">
           <div className="p-4 text-center">
-            <Droplet className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <Droplet className="w-8 h-8 text-critical mx-auto mb-2" />
             <p className="text-3xl font-bold text-content">{asText(data.blood_type)}</p>
             <p className="text-sm text-content-muted">{t('medicalId.bloodTypeLabel')}</p>
           </div>
           <div className="p-4 text-center">
-            <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-green-500' : 'text-neutral-300'}`} />
+            <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-ok' : 'text-content-muted'}`} />
             <p className="text-lg font-bold text-content">
               {data.organ_donor ? t('medicalId.organDonorYes') : t('medicalId.organDonorNo')}
             </p>
@@ -487,7 +487,7 @@ export function MedicalIdPage() {
         {/* Allergies */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
+            <AlertTriangle className="w-5 h-5 text-critical" />
             <h3 className="font-bold text-content">{t('medicalId.allergiesTitle')}</h3>
           </div>
           {(data.allergies ?? []).length > 0 ? (
@@ -551,7 +551,7 @@ export function MedicalIdPage() {
         {/* Emergency Contacts */}
         <div className="p-4 border-t border-border bg-surface-sunken">
           <div className="flex items-center gap-2 mb-3">
-            <Phone className="w-5 h-5 text-green-500" />
+            <Phone className="w-5 h-5 text-ok" />
             <h3 className="font-bold text-content">{t('medicalId.emergencyContactsTitle')}</h3>
           </div>
           {data.emergency_contacts.map((contact, i) => {
@@ -626,7 +626,7 @@ export function MedicalIdPage() {
         {data.insurance && (
           <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-5 h-5 text-indigo-500" />
+              <Shield className="w-5 h-5 text-brand" />
               <h3 className="font-bold text-content">{t('medicalId.insuranceTitle')}</h3>
             </div>
             <div className="bg-surface-sunken p-3 rounded-lg">

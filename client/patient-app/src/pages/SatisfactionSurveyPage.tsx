@@ -184,7 +184,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               className={`w-8 h-8 ${
                 star <= (hoveredStar || rating)
                   ? 'fill-yellow-400 text-yellow-400'
-                  : 'text-gray-300'
+                  : 'text-content-muted'
               }`}
             />
           </button>
@@ -206,7 +206,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               : 'border-border hover:border-border-strong'
           }`}
         >
-          <ThumbsUp className={`w-5 h-5 ${currentValue === true ? 'text-green-500' : 'text-content-muted'}`} />
+          <ThumbsUp className={`w-5 h-5 ${currentValue === true ? 'text-ok' : 'text-content-muted'}`} />
           <span className="font-medium">{t('common.yes')}</span>
         </button>
         <button
@@ -219,7 +219,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               : 'border-border hover:border-border-strong'
           }`}
         >
-          <ThumbsDown className={`w-5 h-5 ${currentValue === false ? 'text-red-500' : 'text-content-muted'}`} />
+          <ThumbsDown className={`w-5 h-5 ${currentValue === false ? 'text-critical' : 'text-content-muted'}`} />
           <span className="font-medium">{t('common.no')}</span>
         </button>
       </div>
@@ -235,7 +235,7 @@ const SatisfactionSurveyPage: React.FC = () => {
             <div key={q.id} className="bg-surface rounded-lg shadow p-4">
               <p className="font-medium text-content mb-3">
                 {q.question}
-                {q.required && <span className="text-red-500 ml-1">*</span>}
+                {q.required && <span className="text-critical ml-1">*</span>}
               </p>
               {q.type === 'stars' && renderStarRating(q.id, response?.rating)}
               {q.type === 'yesno' && renderYesNo(q.id, response?.yesNo)}
@@ -262,12 +262,12 @@ const SatisfactionSurveyPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-pink-500 to-rose-500 text-white p-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('survey.title')}</h1>
         </div>
-        <p className="text-pink-100">{t('survey.subtitle')}</p>
+        <p className="text-white">{t('survey.subtitle')}</p>
       </div>
 
       {/* Progress Bar */}
@@ -325,7 +325,7 @@ const SatisfactionSurveyPage: React.FC = () => {
 
               <button
                 onClick={() => setStep('visit')}
-                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
+                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover flex items-center justify-center gap-2"
               >
                 {t('survey.startSurvey')}
                 <ChevronRight className="w-5 h-5" />
@@ -368,7 +368,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={!isStepComplete(visitQuestions)}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   isStepComplete(visitQuestions)
-                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-brand-hover'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -399,7 +399,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={!isStepComplete(staffQuestions)}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   isStepComplete(staffQuestions)
-                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-brand-hover'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -427,7 +427,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setStep('feedback')}
-                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover flex items-center justify-center gap-2"
               >
                 {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />
@@ -447,7 +447,7 @@ const SatisfactionSurveyPage: React.FC = () => {
             {/* Overall Rating */}
             <div className="bg-surface rounded-lg shadow p-4">
               <p className="font-medium text-content mb-3">
-                {t('survey.overallQuestion')} <span className="text-red-500">*</span>
+                {t('survey.overallQuestion')} <span className="text-critical">*</span>
               </p>
               <div className="flex justify-center gap-2">
                 {[1, 2, 3, 4, 5].map(star => (
@@ -462,7 +462,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                       className={`w-10 h-10 ${
                         star <= overallRating
                           ? 'fill-yellow-400 text-yellow-400'
-                          : 'text-gray-300'
+                          : 'text-content-muted'
                       }`}
                     />
                   </button>
@@ -478,7 +478,7 @@ const SatisfactionSurveyPage: React.FC = () => {
             {/* Would Recommend */}
             <div className="bg-surface rounded-lg shadow p-4">
               <p className="font-medium text-content mb-3">
-                {t('survey.recommendQuestion')} <span className="text-red-500">*</span>
+                {t('survey.recommendQuestion')} <span className="text-critical">*</span>
               </p>
               <div className="flex gap-4 justify-center">
                 <button
@@ -491,7 +491,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                       : 'border-border hover:border-border-strong'
                   }`}
                 >
-                  <ThumbsUp className={`w-6 h-6 ${wouldRecommend === true ? 'text-green-500' : 'text-content-muted'}`} />
+                  <ThumbsUp className={`w-6 h-6 ${wouldRecommend === true ? 'text-ok' : 'text-content-muted'}`} />
                   <span className="font-medium">{t('common.yes')}</span>
                 </button>
                 <button
@@ -504,7 +504,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                       : 'border-border hover:border-border-strong'
                   }`}
                 >
-                  <ThumbsDown className={`w-6 h-6 ${wouldRecommend === false ? 'text-red-500' : 'text-content-muted'}`} />
+                  <ThumbsDown className={`w-6 h-6 ${wouldRecommend === false ? 'text-critical' : 'text-content-muted'}`} />
                   <span className="font-medium">{t('common.no')}</span>
                 </button>
               </div>
@@ -543,7 +543,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 disabled={overallRating === 0 || wouldRecommend === null || isSubmitting}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   overallRating > 0 && wouldRecommend !== null && !isSubmitting
-                    ? 'bg-brand text-brand-fg hover:bg-pink-600'
+                    ? 'bg-brand text-brand-fg hover:bg-brand-hover'
                     : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                 }`}
               >
@@ -564,7 +564,7 @@ const SatisfactionSurveyPage: React.FC = () => {
         {step === 'submitted' && (
           <div className="text-center py-12">
             <div className="w-20 h-20 bg-ok-subtle rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-10 h-10 text-green-500" />
+              <CheckCircle className="w-10 h-10 text-ok" />
             </div>
             <h2 className="text-2xl font-bold text-content mb-2">{t('survey.thankYou')}</h2>
             <p className="text-content-muted mb-8">
@@ -579,7 +579,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 setAdditionalComments('');
                 setSubmitError(null);
               }}
-              className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-pink-600"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover"
             >
               {t('survey.submitAnother')}
             </button>

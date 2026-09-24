@@ -84,7 +84,7 @@ export function EmergencyBanner({
         
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-lg">{config.title}</h3>
-          <p className="text-white/80 text-sm">{config.subtitle}</p>
+          <p className="text-white text-sm">{config.subtitle}</p>
           
           <div className="mt-2 flex flex-wrap gap-4 text-sm">
             <span className="flex items-center gap-1">
@@ -95,7 +95,7 @@ export function EmergencyBanner({
             {accessorName && (
               <span className="flex items-center gap-1">
                 Accessed by: {accessorName}
-                {accessorRole && <span className="opacity-70">({accessorRole})</span>}
+                {accessorRole && <span>({accessorRole})</span>}
               </span>
             )}
             

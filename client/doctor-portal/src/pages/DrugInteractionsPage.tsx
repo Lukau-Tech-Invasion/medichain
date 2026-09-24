@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, useTranslation, Alert, LoadingSpinner, formatTimestamp } from '@medichain/shared';
+import {
+  getApiClient,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  formatTimestamp,
+  checkDrugInteractions,
+} from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -15,7 +22,6 @@ import {
   Calendar,
   Activity,
   TrendingUp,
-  FileText,
   ExternalLink,
   RefreshCw,
   ChevronDown,
@@ -28,7 +34,8 @@ import PatientSelect from '../components/PatientSelect';
 // Type Definitions
 type InteractionSeverity = 'contraindicated' | 'major' | 'moderate' | 'minor' | 'unknown';
 type InteractionType = 'drug-drug' | 'drug-allergy' | 'drug-condition' | 'drug-food' | 'drug-lab';
-type EvidenceLevel = 'A' | 'B' | 'C' | 'D';
+/** `clinical::EvidenceLevel`, exactly as the interaction dataset records it. */
+type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established';
 
 interface Drug {
   drugId: string;
@@ -57,10 +64,10 @@ interface Interaction {
   management: string[];
   monitoring: string[];
   alternatives?: string[];
-  evidenceLevel: EvidenceLevel;
+  /** Absent for an allergy alert: that is the patient's own record, not a
+   *  graded finding from the interaction dataset. */
+  evidenceLevel?: EvidenceLevel;
   references: string[];
-  onset: string;
-  documentation: string;
   riskFactors?: string[];
 }
 
@@ -220,37 +227,21 @@ const DrugInteractionsPage: React.FC = () => {
     setIsChecking(true);
     
     try {
-      const response = await fetch(apiUrl('/api/interactions/check'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role || 'Doctor',
-        },
-        body: JSON.stringify({
-          patient_id: patientContext.patientId || 'UNKNOWN',
-          medications: selectedDrugs.map((d) => d.name),
-          include_allergies: patientContext.allergies.length > 0,
-          include_conditions: patientContext.conditions.length > 0,
-        }),
+      // No patient chosen means a reference lookup, not a check to file on
+      // somebody's chart. This used to send `'UNKNOWN'`, and every such check
+      // was stored as the history of a patient of that name.
+      const data = await checkDrugInteractions({
+        patient_id: patientContext.patientId || undefined,
+        medications: selectedDrugs.map((d) => d.name),
+        include_allergies: patientContext.allergies.length > 0,
+        include_conditions: patientContext.conditions.length > 0,
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to check interactions');
-      }
-      
-      const data = await response.json();
-      
       // Map API response to local Interaction type
-      const foundInteractions: Interaction[] = (data.interactions || []).map((int: {
-        drug_a: string;
-        drug_b: string;
-        severity: string;
-        description: string;
-        clinical_effects: string;
-        management: string;
-      }, idx: number) => ({
+      // The dataset supplies no onset or documentation grade. This used to show
+      // "Onset: Variable" and "Evidence: B" on every finding -- values nobody
+      // measured, beside ones that were -- so only what came back is shown.
+      const foundInteractions: Interaction[] = data.interactions.map((int, idx) => ({
         interactionId: `INT-API-${idx}`,
         type: 'drug-drug' as InteractionType,
         severity: int.severity.toLowerCase() as InteractionSeverity,
@@ -262,15 +253,13 @@ const DrugInteractionsPage: React.FC = () => {
         clinicalEffects: [int.clinical_effects],
         management: [int.management],
         monitoring: [],
-        evidenceLevel: 'B' as EvidenceLevel,
-        references: [],
-        onset: 'Variable',
-        documentation: 'Established',
+        evidenceLevel: int.evidence_level as EvidenceLevel,
+        references: int.source ? [int.source] : [],
       }));
       
       // Add allergy alerts as interactions
-      if (data.allergy_alerts && data.allergy_alerts.length > 0) {
-        data.allergy_alerts.forEach((alert: { medication: string; allergen: string; reaction: string }, idx: number) => {
+      if (data.allergy_alerts.length > 0) {
+        data.allergy_alerts.forEach((alert, idx) => {
           foundInteractions.push({
             interactionId: `INT-ALLERGY-${idx}`,
             type: 'drug-allergy' as InteractionType,
@@ -283,10 +272,7 @@ const DrugInteractionsPage: React.FC = () => {
             clinicalEffects: [alert.reaction || 'Allergic reaction'],
             management: ['Do not administer', 'Use alternative medication'],
             monitoring: [],
-            evidenceLevel: 'A' as EvidenceLevel,
             references: [],
-            onset: 'Immediate',
-            documentation: 'Well-established',
           });
         });
       }
@@ -386,13 +372,14 @@ const DrugInteractionsPage: React.FC = () => {
 
   const getEvidenceBadge = (level: EvidenceLevel): string => {
     switch (level) {
-      case 'A':
+      case 'Established':
         return 'bg-ok-subtle text-ok-subtle-fg';
-      case 'B':
+      case 'ClinicalTrial':
         return 'bg-notice-subtle text-notice-subtle-fg';
-      case 'C':
+      case 'CaseStudy':
+      case 'CaseReport':
         return 'bg-caution-subtle text-caution-subtle-fg';
-      case 'D':
+      default:
         return 'bg-surface-sunken text-content-secondary';
     }
   };
@@ -416,12 +403,12 @@ const DrugInteractionsPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-pink-500 rounded-lg shadow-lg p-6 mb-6 text-white">
+      <div className="bg-gradient-to-r from-purple-700 to-pink-800 rounded-lg shadow-lg p-6 mb-6 text-white">
         <div className="flex items-center gap-4">
           <Pill className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docDrugInteractions.title')}</h1>
-            <p className="text-purple-100 mt-1">{t('docDrugInteractions.subtitle')}</p>
+            <p className="text-white mt-1">{t('docDrugInteractions.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -545,7 +532,7 @@ const DrugInteractionsPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-8 text-content-muted">
-                  <Pill className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <Pill className="w-12 h-12 mx-auto mb-2 text-content-muted" />
                   <p>{t('docDrugInteractions.noMedicationsSelected')}</p>
                   <p className="text-sm">{t('docDrugInteractions.noMedicationsHint')}</p>
                 </div>
@@ -558,7 +545,7 @@ const DrugInteractionsPage: React.FC = () => {
                 <button
                   onClick={handleCheckInteractions}
                   disabled={isChecking}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isChecking ? (
                     <>
@@ -676,7 +663,7 @@ const DrugInteractionsPage: React.FC = () => {
 
               {!error && !loading && interactions.length === 0 ? (
                 <div className="text-center py-12 bg-ok-subtle rounded-lg border-2 border-ok">
-                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
+                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-ok" />
                   <h3 className="text-xl font-semibold text-ok-subtle-fg mb-2">{t('docDrugInteractions.noInteractionsTitle')}</h3>
                   <p className="text-ok-subtle-fg">
                     {t('docDrugInteractions.noInteractionsDesc')}
@@ -724,21 +711,13 @@ const DrugInteractionsPage: React.FC = () => {
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
                                 {t(`docDrugInteractions.type_${interaction.type}`)}
                               </span>
-                              <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                                {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
-                              </span>
+                              {interaction.evidenceLevel && (
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
+                                  {t('docDrugInteractions.evidenceLabel', { level: t(`docDrugInteractions.evidence_${interaction.evidenceLevel}`) })}
+                                </span>
+                              )}
                             </div>
                             <p className="text-content-secondary mb-2">{interaction.description}</p>
-                            <div className="flex items-center gap-4 text-sm text-content-muted min-h-[24px] py-1">
-                              <span className="flex items-center gap-1">
-                                <Activity className="w-4 h-4" />
-                                {t('docDrugInteractions.onsetLabel', { value: interaction.onset })}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <FileText className="w-4 h-4" />
-                                {t('docDrugInteractions.documentationLabel', { value: interaction.documentation })}
-                              </span>
-                            </div>
                           </div>
                           <button
                             onClick={() => toggleInteractionExpansion(interaction.interactionId)}
@@ -926,7 +905,7 @@ const DrugInteractionsPage: React.FC = () => {
             ))
           ) : (
             <div className="bg-surface rounded-lg shadow p-12 text-center">
-              <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <Calendar className="w-16 h-16 text-content-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-content-secondary mb-2">{t('docDrugInteractions.noHistoryTitle')}</h3>
               <p className="text-content-muted">{t('docDrugInteractions.noHistoryHint')}</p>
             </div>
@@ -964,9 +943,11 @@ const DrugInteractionsPage: React.FC = () => {
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
                           {t(`docDrugInteractions.type_${interaction.type}`)}
                         </span>
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                          {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
-                        </span>
+                        {interaction.evidenceLevel && (
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
+                            {t('docDrugInteractions.evidenceLabel', { level: t(`docDrugInteractions.evidence_${interaction.evidenceLevel}`) })}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-content-secondary mb-2">{interaction.description}</p>
                       <div className="text-xs text-content-muted">

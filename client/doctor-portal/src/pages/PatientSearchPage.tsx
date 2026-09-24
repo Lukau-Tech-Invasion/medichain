@@ -287,7 +287,7 @@ function PatientSearchPage() {
           <button
             type="submit"
             disabled={isSearching}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             {isSearching ? t('docPatientSearch.searching') : t('docPatientSearch.search')}
           </button>
@@ -451,14 +451,14 @@ function PatientSearchPage() {
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <div className="flex items-center gap-1 justify-end">
-                        <Droplet size={14} className="text-red-500" />
+                        <Droplet size={14} className="text-critical" />
                         <span className="text-sm font-semibold text-critical-subtle-fg">{patient.bloodType}</span>
                       </div>
                       <p className="text-xs text-content-muted mt-1">
                         {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}
                       </p>
                     </div>
-                    <ChevronRight className="text-gray-300" size={20} />
+                    <ChevronRight className="text-content-muted" size={20} />
                   </div>
                 </div>
               </Link>
@@ -468,7 +468,7 @@ function PatientSearchPage() {
 
         {loading && (
           <div className="p-12 text-center">
-            <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
+            <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
             <p className="text-content-muted">{t('docPatientSearch.loading')}</p>
           </div>
         )}
@@ -476,7 +476,7 @@ function PatientSearchPage() {
         {error && !loading && (
           <div className="p-12 text-center">
             <Users className="mx-auto mb-3 text-red-300" size={48} />
-            <p className="text-red-500">{error}</p>
+            <p className="text-critical">{error}</p>
             <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.apiHint')}
             </p>
@@ -485,7 +485,7 @@ function PatientSearchPage() {
 
         {!loading && !error && displayPatients.length === 0 && (
           <div className="p-12 text-center">
-            <Users className="mx-auto mb-3 text-gray-300" size={48} />
+            <Users className="mx-auto mb-3 text-content-muted" size={48} />
             <p className="text-content-muted">{t('docPatientSearch.noneFound')}</p>
             <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.tryDifferent')}

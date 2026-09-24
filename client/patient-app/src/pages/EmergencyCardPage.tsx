@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import QRCode from 'qrcode';
 import {
+  useProviderDirectory,
   getEmergencyCapsuleAccessLog,
   getApiClient,
   useOfflineCache,
@@ -67,6 +68,8 @@ export function EmergencyCardPage() {
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const patient = usePatientAuthStore(state => state.patient);
+  // Who opened the card is stored as a wallet; the patient needs a name.
+  const { providerName } = useProviderDirectory(patient?.walletAddress);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrError, setQrError] = useState(false);
@@ -374,14 +377,14 @@ export function EmergencyCardPage() {
       {/* QR Code Card */}
       <div className="patient-card overflow-hidden">
         {/* Card Header */}
-        <div className="bg-gradient-to-r from-emergency-500 to-emergency-600 -mx-5 -mt-5 px-5 py-4 text-white">
+        <div className="bg-gradient-to-r from-emergency-600 to-emergency-700 -mx-5 -mt-5 px-5 py-4 text-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-surface/20 rounded-xl flex items-center justify-center">
                 <Heart className="w-6 h-6" />
               </div>
               <div>
-                <div className="text-xs text-white/80">{t('emergency.nationalHealthId')}</div>
+                <div className="text-xs text-white">{t('emergency.nationalHealthId')}</div>
                 <div className="font-mono font-semibold tracking-wide">
                   {emergencyData.nationalHealthId}
                 </div>
@@ -407,7 +410,7 @@ export function EmergencyCardPage() {
             <div className="w-full h-full bg-surface border-4 border-neutral-900 rounded-2xl p-3 relative overflow-hidden">
               {qrError ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-center text-content-muted">
-                  <AlertTriangle className="w-8 h-8 mb-2 text-warning-500" />
+                  <AlertTriangle className="w-8 h-8 mb-2 text-caution" />
                   <span className="text-xs">{t('emergency.qrError')}</span>
                 </div>
               ) : qrDataUrl ? (
@@ -418,7 +421,7 @@ export function EmergencyCardPage() {
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <RefreshCw className="w-8 h-8 text-neutral-300 animate-spin" />
+                  <RefreshCw className="w-8 h-8 text-content-muted animate-spin" />
                 </div>
               )}
 
@@ -435,7 +438,7 @@ export function EmergencyCardPage() {
             {/* Refresh Overlay */}
             {isRefreshing && (
               <div className="absolute inset-0 bg-surface/90 rounded-2xl flex items-center justify-center">
-                <RefreshCw className="w-10 h-10 text-primary-500 animate-spin" />
+                <RefreshCw className="w-10 h-10 text-brand animate-spin" />
               </div>
             )}
           </div>
@@ -501,7 +504,7 @@ export function EmergencyCardPage() {
           className="w-full flex items-center justify-between"
         >
           <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-warning-600" />
+            <AlertTriangle className="w-5 h-5 text-caution" />
             <span className="font-medium text-content">{t('emergency.criticalInfo')}</span>
           </div>
           {showMedicalInfo ? (
@@ -540,14 +543,14 @@ export function EmergencyCardPage() {
 
             {/* Chronic Conditions */}
             {emergencyData.chronicConditions.length > 0 ? (
-              <div className="p-3 bg-warning-50 border border-warning-200 rounded-xl">
-                <div className="flex items-center gap-2 text-warning-700 font-medium mb-2">
+              <div className="p-3 bg-caution-subtle border border-caution-subtle-fg/30 rounded-xl">
+                <div className="flex items-center gap-2 text-caution-subtle-fg font-medium mb-2">
                   <Heart className="w-4 h-4" />
                   {t('emergency.chronicConditions')}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {emergencyData.chronicConditions.map((condition, i) => (
-                    <span key={i} className="px-3 py-1 bg-warning-100 text-warning-700 rounded-full text-sm">
+                    <span key={i} className="px-3 py-1 bg-caution-subtle text-caution-subtle-fg rounded-full text-sm">
                       {condition}
                     </span>
                   ))}
@@ -590,10 +593,10 @@ export function EmergencyCardPage() {
             <div className="flex gap-3">
               <div className={`flex-1 p-3 rounded-xl text-center ${
                 emergencyData.organDonor === true
-                  ? 'bg-success-100 text-success-700'
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
                   : emergencyData.organDonor === false
                   ? 'bg-surface-sunken text-content-muted'
-                  : 'bg-warning-100 text-warning-800'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
                 <Heart className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
@@ -608,10 +611,10 @@ export function EmergencyCardPage() {
                 dnrVerified
                   ? 'bg-critical-subtle text-critical-subtle-fg'
                   : emergencyData.dnrStatus === true
-                  ? 'bg-warning-100 text-warning-800'
+                  ? 'bg-caution-subtle text-caution-subtle-fg'
                   : emergencyData.dnrStatus === false
-                  ? 'bg-success-100 text-success-700'
-                  : 'bg-warning-100 text-warning-800'
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
                 <Shield className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
@@ -656,7 +659,7 @@ export function EmergencyCardPage() {
                 <div className="text-sm font-medium text-content-secondary">
                   {emergencyData.emergencyContact.phone}
                 </div>
-                <div className="text-xs text-warning-700">
+                <div className="text-xs text-caution-subtle-fg">
                   {t('emergency.unverifiedNumber')}
                 </div>
               </div>
@@ -679,7 +682,7 @@ export function EmergencyCardPage() {
           <ul className="space-y-2" data-testid="emergency-access-list">
             {accesses.map((entry) => (
               <li key={entry.id} className="border border-border rounded-lg p-3">
-                <p className="text-sm text-content break-all">{entry.accessed_by}</p>
+                <p className="text-sm text-content break-all">{providerName(entry.accessed_by)}</p>
                 <p className="text-xs text-content-muted">
                   {formatDate(entry.accessed_at, locale)} ·{' '}
                   {entry.reason_text || entry.reason_code}

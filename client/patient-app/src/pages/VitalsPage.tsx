@@ -4,6 +4,7 @@ import {
   getPatientIntakeOutput,
   getPatientVitals,
   useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientVitalReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -117,14 +118,14 @@ export function VitalsPage() {
   };
 
   const TrendIcon = ({ direction }: { direction: 'up' | 'down' | 'stable' }) => {
-    if (direction === 'up') return <TrendingUp className="w-4 h-4 text-orange-500" />;
+    if (direction === 'up') return <TrendingUp className="w-4 h-4 text-caution" />;
     if (direction === 'down') return <TrendingDown className="w-4 h-4 text-notice-subtle-fg" />;
     return <Minus className="w-4 h-4 text-content-muted" />;
   };
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleString('en-US', {
+    return formatTimestamp(dateStr, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -136,7 +137,7 @@ export function VitalsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -168,7 +169,7 @@ export function VitalsPage() {
                 </p>
                 {record.recorded_at ? (
                   <p className="text-xs text-content-muted">
-                    {new Date(String(record.recorded_at)).toLocaleString()}
+                    {formatTimestamp(String(record.recorded_at))}
                   </p>
                 ) : null}
               </li>
@@ -201,9 +202,9 @@ export function VitalsPage() {
 
       {/* Latest Vitals */}
       {latest ? (
-        <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
           <h2 className="text-lg font-semibold mb-1">{t('vitals.latestReading')}</h2>
-          <p className="text-white/70 text-sm mb-4">
+          <p className="text-white text-sm mb-4">
             {formatDate(latest.recorded_at)}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -214,7 +215,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('systolic_bp')} />
                 </div>
                 <p className="text-xl font-bold">{latest.systolic_bp}/{latest.diastolic_bp}</p>
-                <p className="text-xs text-white/70">{t('vitals.bloodPressure')}</p>
+                <p className="text-xs text-white">{t('vitals.bloodPressure')}</p>
               </div>
             )}
             {latest.heart_rate != null && (
@@ -224,7 +225,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('heart_rate')} />
                 </div>
                 <p className="text-xl font-bold">{latest.heart_rate}</p>
-                <p className="text-xs text-white/70">{t('vitals.heartRate')}</p>
+                <p className="text-xs text-white">{t('vitals.heartRate')}</p>
               </div>
             )}
             {latest.temperature_celsius != null && (
@@ -234,7 +235,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('temperature_celsius')} />
                 </div>
                 <p className="text-xl font-bold">{latest.temperature_celsius.toFixed(1)}°C</p>
-                <p className="text-xs text-white/70">{t('vitals.temperature')}</p>
+                <p className="text-xs text-white">{t('vitals.temperature')}</p>
               </div>
             )}
             {latest.oxygen_saturation != null && (
@@ -244,7 +245,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('oxygen_saturation')} />
                 </div>
                 <p className="text-xl font-bold">{latest.oxygen_saturation}%</p>
-                <p className="text-xs text-white/70">{t('vitals.spo2')}</p>
+                <p className="text-xs text-white">{t('vitals.spo2')}</p>
               </div>
             )}
             {latest.respiratory_rate != null && (
@@ -254,7 +255,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('respiratory_rate')} />
                 </div>
                 <p className="text-xl font-bold">{latest.respiratory_rate}</p>
-                <p className="text-xs text-white/70">{t('vitals.respRate')}</p>
+                <p className="text-xs text-white">{t('vitals.respRate')}</p>
               </div>
             )}
             {latest.weight_kg != null && (
@@ -264,14 +265,14 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('weight_kg')} />
                 </div>
                 <p className="text-xl font-bold">{latest.weight_kg} kg</p>
-                <p className="text-xs text-white/70">{t('vitals.weight')}</p>
+                <p className="text-xs text-white">{t('vitals.weight')}</p>
               </div>
             )}
           </div>
         </div>
       ) : (
         <div className="patient-card text-center py-8">
-          <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+          <Activity className="w-12 h-12 text-content-muted mx-auto mb-3" />
           <p className="text-content-muted">{t('vitals.noneRecorded')}</p>
         </div>
       )}

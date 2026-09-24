@@ -9,6 +9,8 @@ import {
   Input,
   useValidatedForm,
   immunizationSchema,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -28,6 +30,7 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 
+import StaffName from '../components/StaffName';
 type VaccineType =
   | 'covid-19'
   | 'influenza'
@@ -299,7 +302,8 @@ const ImmunizationPage: React.FC = () => {
     if (!patient) return;
 
     const newAdmin: VaccineAdministration = {
-      administrationId: `VAC-${String(administrations.length + 1).padStart(3, '0')}`,
+      // Assigned by the server; this was `VAC-001`, numbered from this list.
+      administrationId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
       vaccineType: newVaccine.vaccineType,
@@ -310,7 +314,9 @@ const ImmunizationPage: React.FC = () => {
       dose: newVaccine.dose,
       route: newVaccine.route,
       site: newVaccine.site,
-      administeredBy: user?.userId || 'USER-001',
+      // Display only: the server records the authenticated caller as the
+      // administering clinician, whatever this says.
+      administeredBy: user?.userId ?? '',
       administeredAt: new Date().toISOString(),
       status: 'administered',
       doseNumber: newVaccine.doseNumber,
@@ -350,9 +356,10 @@ const ImmunizationPage: React.FC = () => {
         registry_reported: newAdmin.insuranceReported,
         adverse_reaction: newAdmin.adverseReactions,
         notes: newAdmin.notes,
-      }) as { success?: boolean; error?: string };
+      }) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
-        setAdministrations([newAdmin, ...administrations]);
+        // Read back: the stored dose carries the server's id and attribution.
+        void fetchImmunizations();
         setNewVaccine({
           patientId: '',
           vaccineType: 'covid-19',
@@ -373,7 +380,7 @@ const ImmunizationPage: React.FC = () => {
           vfcEligible: false,
         });
         setActiveTab('records');
-        showSuccess(t('docImmunization.administeredSuccess', { id: newAdmin.administrationId }));
+        showSuccess(t('docImmunization.administeredSuccess', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docImmunization.errorRecord'));
       }
@@ -426,18 +433,18 @@ const ImmunizationPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   const formatDateTime = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-purple-600 to-violet-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-purple-700 to-violet-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docImmunization.title')}</h1>
-        <p className="text-purple-100">{t('docImmunization.subtitle')}</p>
+        <p className="text-white">{t('docImmunization.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -450,7 +457,7 @@ const ImmunizationPage: React.FC = () => {
               type="button"
               onClick={() => void fetchImmunizations()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -596,7 +603,7 @@ const ImmunizationPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-content-muted mb-1">{t('docImmunization.administeredByLabel')}</p>
-                    <p className="font-semibold text-content">{admin.administeredBy}</p>
+                    <p className="font-semibold text-content"><StaffName id={admin.administeredBy} /></p>
                   </div>
                 </div>
 

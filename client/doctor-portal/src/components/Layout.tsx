@@ -160,7 +160,7 @@ function NavItemComponent({
             ${isCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}
             min-w-[20px] h-5 px-1.5 flex items-center justify-center
             text-xs font-medium rounded-full
-            ${item.priority === 'high' ? 'bg-red-500 text-white' : 'bg-surface-sunken text-content-secondary'}
+            ${item.priority === 'high' ? 'bg-red-700 text-white' : 'bg-surface-sunken text-content-secondary'}
           `}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
@@ -232,7 +232,7 @@ function NavSectionComponent({
           
           {/* Section badge total */}
           {sectionBadgeTotal > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-xs font-medium rounded-full bg-red-500 text-white">
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-xs font-medium rounded-full bg-red-700 text-white">
               {sectionBadgeTotal > 99 ? '99+' : sectionBadgeTotal}
             </span>
           )}
@@ -529,7 +529,7 @@ function Layout() {
                 (WCAG 2.2 SC 1.3.1). The page heading is now the only h1.
               */}
               <span className="block font-bold text-lg text-white">MediChain</span>
-              <span className="text-xs text-white/80">{portalTitle}</span>
+              <span className="text-xs text-white">{portalTitle}</span>
             </div>
           )}
           {/* Mobile close button */}
@@ -693,7 +693,7 @@ function Layout() {
   );
 
   return (
-    <div className="flex h-screen bg-surface-sunken dark:bg-gray-900">
+    <div className="flex h-screen bg-surface-sunken">
       {/*
         The skip link is the FIRST focusable element in the document, and that
         placement is the whole feature. It previously lived inside the sidebar,
@@ -712,23 +712,23 @@ function Layout() {
         Skip to main content
       </a>
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 h-14 bg-surface dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
+      <div className="fixed top-0 left-0 right-0 h-14 bg-surface shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button
           onClick={() => setIsMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors"
+          className="p-2 rounded-lg hover:bg-surface-sunken transition-colors"
           aria-label="Open menu"
         >
-          <Menu size={24} className="text-content-secondary dark:text-gray-200" />
+          <Menu size={24} className="text-content-secondary" />
         </button>
         
         <div className="flex items-center gap-2">
           <Shield className={theme.textLight} size={24} />
-          <span className="font-bold text-content dark:text-white">MediChain</span>
+          <span className="font-bold text-content">MediChain</span>
         </div>
         
         <button
           onClick={() => navigate('/notifications')}
-          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors relative"
+          className="p-2 rounded-lg hover:bg-surface-sunken transition-colors relative"
           aria-label="Notifications"
           title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
         >
@@ -753,7 +753,7 @@ function Layout() {
       {/* Mobile Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 w-72 bg-surface dark:bg-gray-800 shadow-xl z-50 flex flex-col
+          fixed inset-y-0 left-0 w-72 bg-surface shadow-xl z-50 flex flex-col
           transform transition-transform duration-300 ease-in-out lg:hidden
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -764,7 +764,7 @@ function Layout() {
       {/* Desktop Sidebar */}
       <aside
         className={`
-          hidden lg:flex flex-col bg-surface dark:bg-gray-800 shadow-lg overflow-hidden
+          hidden lg:flex flex-col bg-surface shadow-lg overflow-hidden
           transition-all duration-300 ease-in-out
           ${isCollapsed ? 'w-16' : 'w-64'}
         `}
@@ -773,7 +773,7 @@ function Layout() {
       </aside>
 
       {/* Main content */}
-      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken dark:bg-gray-900">
+      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken">
         {/* Offline indicator — writes are queued locally and synced on reconnect */}
         {!isOnline && (
           <div className="flex items-center gap-2 bg-caution text-caution-fg text-sm px-4 py-2">

@@ -32,6 +32,7 @@ import {
   providerScheduleSchema,
   setProviderSchedule,
   useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { ProviderBlockedTime, ProviderWorkingDay } from '@medichain/shared';
 import { CalendarClock, Clock, Plus, Save, Trash2 } from 'lucide-react';
@@ -306,7 +307,7 @@ const ProviderSchedulePage: React.FC = () => {
           <CalendarClock size={24} aria-hidden="true" />
           {t('docProviderSchedule.title')}
         </h1>
-        <p className="text-sm text-gray-600 mt-1">{t('docProviderSchedule.subtitle')}</p>
+        <p className="text-sm text-content-secondary mt-1">{t('docProviderSchedule.subtitle')}</p>
       </header>
 
       {isAdmin && (
@@ -318,7 +319,7 @@ const ProviderSchedulePage: React.FC = () => {
               value={providerId}
               onChange={id => setProviderId(id)}
             />
-            <p className="text-xs text-gray-500 mt-1">{t('docProviderSchedule.forProviderHelp')}</p>
+            <p className="text-xs text-content-muted mt-1">{t('docProviderSchedule.forProviderHelp')}</p>
           </CardContent>
         </Card>
       )}
@@ -326,7 +327,7 @@ const ProviderSchedulePage: React.FC = () => {
       {formError && <Alert variant="error">{formError}</Alert>}
 
       {isLoading ? (
-        <div className="flex items-center gap-3 text-sm text-gray-600">
+        <div className="flex items-center gap-3 text-sm text-content-secondary">
           <LoadingSpinner size="md" />
           <span>{t('docProviderSchedule.loading')}</span>
         </div>
@@ -341,7 +342,7 @@ const ProviderSchedulePage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle>{t('docProviderSchedule.weeklyHeading')}</CardTitle>
-              <p className="text-sm text-gray-600">{t('docProviderSchedule.weeklyHelp')}</p>
+              <p className="text-sm text-content-secondary">{t('docProviderSchedule.weeklyHelp')}</p>
             </CardHeader>
             <CardContent className="space-y-4">
               {WEEKDAYS.map(({ weekday, label }) => {
@@ -418,11 +419,11 @@ const ProviderSchedulePage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle>{t('docProviderSchedule.blockedHeading')}</CardTitle>
-              <p className="text-sm text-gray-600">{t('docProviderSchedule.blockedHelp')}</p>
+              <p className="text-sm text-content-secondary">{t('docProviderSchedule.blockedHelp')}</p>
             </CardHeader>
             <CardContent className="space-y-4">
               {blocked.length === 0 && (
-                <p className="text-sm text-gray-500">{t('docProviderSchedule.blockedNone')}</p>
+                <p className="text-sm text-content-muted">{t('docProviderSchedule.blockedNone')}</p>
               )}
               {blocked.map((row, index) => (
                 <div key={index} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-start">
@@ -483,9 +484,9 @@ const ProviderSchedulePage: React.FC = () => {
               {isSaving ? t('docProviderSchedule.saving') : t('docProviderSchedule.save')}
             </Button>
             {updatedAt && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-content-muted">
                 {t('docProviderSchedule.lastUpdated', {
-                  when: new Date(updatedAt * 1000).toLocaleString(),
+                  when: formatTimestamp(updatedAt * 1000),
                   who: updatedBy ?? '—',
                 })}
               </span>
@@ -495,7 +496,7 @@ const ProviderSchedulePage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle>{t('docProviderSchedule.previewHeading')}</CardTitle>
-              <p className="text-sm text-gray-600">{t('docProviderSchedule.previewHelp')}</p>
+              <p className="text-sm text-content-secondary">{t('docProviderSchedule.previewHelp')}</p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-end gap-3">
@@ -517,7 +518,7 @@ const ProviderSchedulePage: React.FC = () => {
               {previewSlots !== null && (
                 <div>
                   {previewSlots.length === 0 ? (
-                    <p className="text-sm text-gray-500">{t('docProviderSchedule.previewNone')}</p>
+                    <p className="text-sm text-content-muted">{t('docProviderSchedule.previewNone')}</p>
                   ) : (
                     <ul className="flex flex-wrap gap-2">
                       {previewSlots.map(slot => (
@@ -528,7 +529,7 @@ const ProviderSchedulePage: React.FC = () => {
                     </ul>
                   )}
                   {previewSource && (
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className="text-xs text-content-muted mt-2">
                       {t('docProviderSchedule.previewSource', { source: previewSource })}
                     </p>
                   )}

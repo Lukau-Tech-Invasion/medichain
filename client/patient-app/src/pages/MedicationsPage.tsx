@@ -5,7 +5,8 @@ import {
   getPatientReminders,
   getPatientAdherence,
   logMedicationAdherence,
-  useTranslation
+  useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -168,7 +169,7 @@ export function MedicationsPage() {
               scheduledTime,
               taken: Boolean(takenAt),
               takenAt: takenAt
-                ? new Date(takenAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                ? formatTimestamp(takenAt, { hour: '2-digit', minute: '2-digit' })
                 : undefined,
             };
           })
@@ -223,7 +224,7 @@ export function MedicationsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -253,11 +254,11 @@ export function MedicationsPage() {
       </div>
 
       {/* Today's Reminders Summary */}
-      <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold">{t('medications.todaysMeds')}</h2>
-            <p className="text-white/80 text-sm">
+            <p className="text-white text-sm">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
@@ -267,15 +268,15 @@ export function MedicationsPage() {
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{reminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.totalDoses')}</div>
+            <div className="text-xs text-white">{t('medications.totalDoses')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{completedReminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.taken')}</div>
+            <div className="text-xs text-white">{t('medications.taken')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold text-yellow-300">{pendingReminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.pending')}</div>
+            <div className="text-xs text-white">{t('medications.pending')}</div>
           </div>
         </div>
       </div>
@@ -337,7 +338,7 @@ export function MedicationsPage() {
           {completedReminders.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium text-content-secondary flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" /> {t('medications.completed')}
+                <CheckCircle className="w-4 h-4 text-ok" /> {t('medications.completed')}
               </h3>
               {completedReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between opacity-75">
@@ -357,7 +358,7 @@ export function MedicationsPage() {
 
           {reminders.length === 0 && (
             <div className="text-center py-12">
-              <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneToday')}</p>
             </div>
           )}
@@ -439,7 +440,7 @@ export function MedicationsPage() {
 
           {medications.length === 0 && (
             <div className="text-center py-12">
-              <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneActive')}</p>
             </div>
           )}

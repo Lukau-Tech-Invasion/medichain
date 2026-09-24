@@ -231,27 +231,26 @@ const ConsultPage: React.FC = () => {
       return;
     }
 
-    const consult: Consult = {
-      consultId: `CONS-${String(consults.length + 1).padStart(3, '0')}`,
-      patientId: patient.patient_id,
-      patientName: patient.full_name,
-      specialty: newConsult.specialty,
-      urgency: newConsult.urgency,
-      status: 'requested',
-      reason: newConsult.reason,
-      clinicalQuestion: newConsult.clinicalQuestion,
-      relevantHistory: newConsult.relevantHistory,
-      currentMedications: newConsult.currentMedications || undefined,
-      vitalSigns: newConsult.vitalSigns || undefined,
-      labResults: newConsult.labResults || undefined,
-      imagingResults: newConsult.imagingResults || undefined,
-      requestedBy: user?.userId || 'USER-001',
-      requestedAt: new Date().toISOString(),
-      notes: newConsult.notes || undefined,
-    };
-
+    // Only what the form collected. The id, the requester and the time are the
+    // server's to assign, and it does: this used to invent `CONS-001` and keep
+    // it in the list, so responding to a consult straight after filing it
+    // addressed an id the server had never issued.
+    let consultId: string;
     try {
-      await createConsult(consult);
+      const created = await createConsult({
+        patientId: patient.patient_id,
+        specialty: newConsult.specialty,
+        urgency: newConsult.urgency,
+        reason: newConsult.reason,
+        clinicalQuestion: newConsult.clinicalQuestion,
+        relevantHistory: newConsult.relevantHistory,
+        currentMedications: newConsult.currentMedications || undefined,
+        vitalSigns: newConsult.vitalSigns || undefined,
+        labResults: newConsult.labResults || undefined,
+        imagingResults: newConsult.imagingResults || undefined,
+        notes: newConsult.notes || undefined,
+      });
+      consultId = created.consult_id;
     } catch (err) {
       console.error('Failed to save consult:', err);
       // Stop here. Falling through announced success for a write that
@@ -260,7 +259,6 @@ const ConsultPage: React.FC = () => {
       return;
     }
 
-    setConsults([consult, ...consults]);
     setNewConsult({
       patientId: '',
       specialty: 'cardiology',
@@ -275,7 +273,9 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    showSuccess(t('docConsult.successRequested', { id: consult.consultId }));
+    showSuccess(t('docConsult.successRequested', { id: consultId }));
+    // Read the list back: the row shown is then the stored one.
+    void fetchConsults();
   };
 
   const {
@@ -389,13 +389,13 @@ const ConsultPage: React.FC = () => {
 
   const activeConsults = consults.filter((c) => c.status !== 'completed' && c.status !== 'cancelled');
   const completedConsults = consults.filter((c) => c.status === 'completed');
-  const myConsults = consults.filter((c) => c.requestedBy === (user?.userId || 'USER-001'));
+  const myConsults = consults.filter((c) => c.requestedBy === user?.userId);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-blue-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docConsult.title')}</h1>
-        <p className="text-blue-100">{t('docConsult.subtitle')}</p>
+        <p className="text-white">{t('docConsult.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -744,7 +744,7 @@ const ConsultPage: React.FC = () => {
                   <button
                     onClick={handleRespondToConsult}
                     disabled={isRespondingBusy}
-                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <Send className="w-4 h-4" />
                     {isRespondingBusy

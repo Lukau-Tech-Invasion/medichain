@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPatientLabSubmissions, useTranslation } from '@medichain/shared';
+import { getPatientLabSubmissions, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { LabResultSubmission } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -147,7 +147,7 @@ export function LabResultsPage() {
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return formatTimestamp(dateStr, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -163,7 +163,7 @@ export function LabResultsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -208,7 +208,7 @@ export function LabResultsPage() {
       {/* Results List */}
       {results.length === 0 ? (
         <div className="text-center py-12">
-          <FlaskConical className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+          <FlaskConical className="w-12 h-12 text-content-muted mx-auto mb-3" />
           <p className="text-content-muted">{t('labResults.noResults')}</p>
         </div>
       ) : (

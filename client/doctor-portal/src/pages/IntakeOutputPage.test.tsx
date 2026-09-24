@@ -19,7 +19,6 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listIntakeOutput: vi.fn(),
-  apiUrl: (path: string) => path,
 }));
 
 describe('IntakeOutputPage', () => {
@@ -33,18 +32,13 @@ describe('IntakeOutputPage', () => {
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    // The ward list is a join: the roster comes from a direct
-    // `fetch('/api/patients?limit=100')` (read as `.data`), and
-    // `listIntakeOutput()` supplies the stored fluid records, which
-    // `toPatientIO` folds together per patient. This fixture used to mock an
-    // empty roster and hand `listIntakeOutput` the already-folded camelCase view
-    // model, so the join produced nobody and the patient never appeared.
-    vi.mocked(shared.getPatients).mockResolvedValue([]);
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ data: [{ patient_id: 'PAT-001', full_name: 'Test Patient' }] }),
-    }) as unknown as typeof global.fetch;
+    // The ward list is a join: `getPatients()` supplies the roster and
+    // `listIntakeOutput()` the stored fluid records, which `toPatientIO` folds
+    // together per patient. This fixture used to hand `listIntakeOutput` the
+    // already-folded camelCase view model, so the join produced nobody.
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      { patient_id: 'PAT-001', full_name: 'Test Patient' },
+    ] as unknown as Awaited<ReturnType<typeof shared.getPatients>>);
     // Raw rows in the API's own shape — snake_case, with the per-shift totals
     // the page sums into the 24h figures.
     vi.mocked(shared.listIntakeOutput).mockResolvedValue([

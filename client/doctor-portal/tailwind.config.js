@@ -8,6 +8,12 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // A bare `border` or `divide-y` takes Tailwind's default colour, gray-200,
+      // in BOTH themes -- a light hairline across every dark surface. Pointing the
+      // default at the token makes every unqualified border follow the theme.
+      borderColor: {
+        DEFAULT: 'rgb(var(--border-default) / <alpha-value>)',
+      },
       colors: {
         // Semantic tokens (client/shared/src/styles/tokens.css).
         // Prefer these over raw palette scales: they say what a colour means,

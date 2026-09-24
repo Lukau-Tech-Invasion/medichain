@@ -33,6 +33,7 @@ import {
   recordPharmacyDecision,
   controlledSubstanceReport,
   promptDialog,
+  formatTimestamp,
 } from '@medichain/shared';
 
 interface SecondaryVerification {
@@ -515,7 +516,7 @@ export default function PharmacistDashboardPage() {
                               type="button"
                               onClick={() => void handlePharmacyAction(rx.prescription_id, 'receive')}
                               disabled={busyRx === rx.prescription_id}
-                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                             >
                               {t('docPharmDashboard.receive')}
                             </button>
@@ -525,7 +526,7 @@ export default function PharmacistDashboardPage() {
                               type="button"
                               onClick={() => void handlePharmacyAction(rx.prescription_id, 'start')}
                               disabled={busyRx === rx.prescription_id}
-                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                             >
                               {t('docPharmDashboard.startFill')}
                             </button>
@@ -537,7 +538,7 @@ export default function PharmacistDashboardPage() {
                               type="button"
                               onClick={() => void handlePharmacyAction(rx.prescription_id, 'dispense')}
                               disabled={busyRx === rx.prescription_id}
-                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60 disabled:cursor-not-allowed"
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                             >
                               {t('docPharmDashboard.dispense')}
                             </button>
@@ -549,7 +550,7 @@ export default function PharmacistDashboardPage() {
                               type="button"
                               onClick={() => void handlePharmacyAction(rx.prescription_id, 'requestVerification')}
                               disabled={busyRx === rx.prescription_id}
-                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:opacity-60"
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                             >
                               {t('docPharmDashboard.requestVerification')}
                             </button>
@@ -559,10 +560,10 @@ export default function PharmacistDashboardPage() {
                             rx.secondary_verification.first_pharmacist_id !== data?.pharmacist_id &&
                             rx.secondary_verification.requested_by !== data?.pharmacist_id && (
                             <>
-                              <button type="button" onClick={() => void handlePharmacyAction(rx.prescription_id, 'approve')} disabled={busyRx === rx.prescription_id} className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-ok-subtle-fg disabled:opacity-60">
+                              <button type="button" onClick={() => void handlePharmacyAction(rx.prescription_id, 'approve')} disabled={busyRx === rx.prescription_id} className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-ok-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                                 {t('docPharmDashboard.approveVerification')}
                               </button>
-                              <button type="button" onClick={() => void handlePharmacyAction(rx.prescription_id, 'reject')} disabled={busyRx === rx.prescription_id} className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-critical-subtle-fg disabled:opacity-60">
+                              <button type="button" onClick={() => void handlePharmacyAction(rx.prescription_id, 'reject')} disabled={busyRx === rx.prescription_id} className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                                 {t('docPharmDashboard.rejectVerification')}
                               </button>
                             </>
@@ -575,7 +576,7 @@ export default function PharmacistDashboardPage() {
                               type="button"
                               onClick={() => void loadDispenseHistory(rx.prescription_id)}
                               disabled={busyRx === rx.prescription_id}
-                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:opacity-60"
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-notice-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                             >
                               {t('docPharmDashboard.history')}
                             </button>
@@ -599,7 +600,7 @@ export default function PharmacistDashboardPage() {
                                     type="button"
                                     onClick={() => void handleReverse(rx.prescription_id, event.dispense_event_id)}
                                     disabled={busyRx === rx.prescription_id}
-                                    className="ml-2 font-medium underline text-critical-subtle-fg disabled:opacity-60"
+                                    className="ml-2 font-medium underline text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                                   >
                                     {t('docPharmDashboard.reverse')}
                                   </button>
@@ -623,7 +624,7 @@ export default function PharmacistDashboardPage() {
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2 min-h-[24px] py-1">
-              <ShieldAlert className="text-red-500" size={18} />
+              <ShieldAlert className="text-critical" size={18} />
               {t('docPharmDashboard.interactionAlerts')}
             </h3>
             <button
@@ -685,7 +686,7 @@ export default function PharmacistDashboardPage() {
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2 min-h-[24px] py-1">
-              <AlertCircle className="text-orange-500" size={18} />
+              <AlertCircle className="text-caution" size={18} />
               {t('docPharmDashboard.allergyAlerts')}
             </h3>
           </div>
@@ -786,7 +787,7 @@ export default function PharmacistDashboardPage() {
               ).slice(0, 5).map((rx, idx) => (
                 <tr key={rx.prescription_id || idx} className="hover:bg-surface-sunken">
                   <td className="px-4 py-2 text-content">
-                    {rx.created_at ? new Date(rx.created_at).toLocaleTimeString() : '--:--'}
+                    {rx.created_at ? formatTimestamp(rx.created_at, { timeStyle: 'short' }) : '--:--'}
                   </td>
                   <td className="px-4 py-2 font-medium text-content">{rx.medication_name}</td>
                   <td className="px-4 py-2 text-content-muted">{rx.patient_name || rx.patient_id || t('docPharmDashboard.noPatientRecorded')}</td>

@@ -103,7 +103,7 @@ export function PatientCard({
           {/* Allergies */}
           <div>
             <h4 className="flex items-center gap-2 font-medium text-content mb-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
+              <AlertTriangle className="w-4 h-4 text-critical" />
               Allergies
             </h4>
             {patient.emergency_info.allergies.length > 0 ? (
@@ -120,7 +120,7 @@ export function PatientCard({
           {/* Medications */}
           <div>
             <h4 className="flex items-center gap-2 font-medium text-content mb-2">
-              <Pill className="w-4 h-4 text-blue-500" />
+              <Pill className="w-4 h-4 text-brand" />
               Current Medications
             </h4>
             {patient.emergency_info.current_medications.length > 0 ? (
@@ -137,7 +137,7 @@ export function PatientCard({
           {/* Chronic Conditions */}
           <div>
             <h4 className="flex items-center gap-2 font-medium text-content mb-2">
-              <Activity className="w-4 h-4 text-orange-500" />
+              <Activity className="w-4 h-4 text-caution" />
               Chronic Conditions
             </h4>
             {patient.emergency_info.chronic_conditions.length > 0 ? (
@@ -154,7 +154,7 @@ export function PatientCard({
           {/* Emergency Contact */}
           <div>
             <h4 className="flex items-center gap-2 font-medium text-content mb-2">
-              <Phone className="w-4 h-4 text-green-500" />
+              <Phone className="w-4 h-4 text-ok" />
               Emergency Contact
             </h4>
             {patient.emergency_info.emergency_contacts.length > 0 ? (
@@ -193,7 +193,7 @@ export function EmergencyInfoCard({ info, className }: EmergencyInfoCardProps) {
       padding="lg"
     >
       <div className="flex items-center gap-2 mb-4">
-        <AlertTriangle className="w-6 h-6 text-red-500" />
+        <AlertTriangle className="w-6 h-6 text-critical" />
         <h3 className="text-lg font-bold text-critical-subtle-fg">Emergency Medical Information</h3>
       </div>
 

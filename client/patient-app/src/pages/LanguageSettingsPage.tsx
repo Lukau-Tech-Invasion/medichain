@@ -241,12 +241,12 @@ const LanguageSettingsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Globe className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('languageSettings.title')}</h1>
         </div>
-        <p className="text-indigo-100">{t('languageSettings.subtitle')}</p>
+        <p className="text-white">{t('languageSettings.subtitle')}</p>
       </div>
 
       {/* Current Selection */}
@@ -287,7 +287,7 @@ const LanguageSettingsPage: React.FC = () => {
 
       {settingsError && (
         <div className="px-4 mb-4" role="alert">
-          <div className="rounded-lg border border-danger-subtle bg-danger-subtle p-3 text-sm text-danger-subtle-fg">
+          <div className="rounded-lg border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
             {settingsError}
           </div>
         </div>
@@ -307,7 +307,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => handleLanguageSelect(lang.code)}
                   disabled={!lang.isAvailable}
                   className={`w-full flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors ${
-                    !lang.isAvailable ? 'opacity-50 cursor-not-allowed' : ''
+                    !lang.isAvailable ? 'cursor-not-allowed' : ''
                   } ${selectedLanguage === lang.code ? 'bg-surface-sunken' : ''}`}
                 >
                   <div className="flex items-center gap-3">
@@ -341,7 +341,7 @@ const LanguageSettingsPage: React.FC = () => {
                     {selectedLanguage === lang.code ? (
                       <Check className="w-5 h-5 text-content-secondary" />
                     ) : (
-                      <ChevronRight className="w-5 h-5 text-gray-300" />
+                      <ChevronRight className="w-5 h-5 text-content-muted" />
                     )}
                   </div>
                 </button>
@@ -517,10 +517,10 @@ const LanguageSettingsPage: React.FC = () => {
           disabled={saving}
           className={`w-full py-3 rounded-lg font-medium transition-colors ${
             saved
-              ? 'bg-green-500 text-white'
+              ? 'bg-green-700 text-white'
               : saving
               ? 'bg-gray-300 text-content-muted'
-              : 'bg-gradient-to-r from-indigo-600 to-violet-500 text-white hover:from-indigo-700 hover:to-violet-600'
+              : 'bg-gradient-to-r from-indigo-700 to-violet-800 text-white hover:from-indigo-800 hover:to-violet-900'
           }`}
         >
           {saved ? (

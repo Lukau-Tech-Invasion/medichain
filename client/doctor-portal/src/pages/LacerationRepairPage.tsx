@@ -373,12 +373,12 @@ const LacerationRepairPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white p-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Scissors className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docLaceration.title')}</h1>
         </div>
-        <p className="text-pink-100">{t('docLaceration.subtitle')}</p>
+        <p className="text-white">{t('docLaceration.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -392,10 +392,10 @@ const LacerationRepairPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docLaceration.errApiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docLaceration.errApiHint')}</p>
           </div>
         </div>
       )}
@@ -688,7 +688,7 @@ const LacerationRepairPage: React.FC = () => {
                 type="button"
                 onClick={handleSaveRepair}
                 disabled={saving}
-                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed min-h-[24px]"
+                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                 {saving ? t('docLaceration.saving') : t('docLaceration.saveRepair')}

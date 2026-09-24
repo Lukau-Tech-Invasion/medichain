@@ -82,6 +82,16 @@ function getStaffFixture(role: RoleName): StaffFixture {
 }
 
 /** Respect the API's durable five-challenges-per-wallet rolling budget. */
+/** The seeded patient's record id, for the routes that show one patient. */
+export function fixturePatientId(): string {
+  const fixtures = JSON.parse(readFileSync(findFixtureFile(), 'utf8')) as {
+    patient?: { linked_patient_id?: string };
+  };
+  const id = fixtures.patient?.linked_patient_id;
+  if (!id) throw new Error('The browser fixtures name no patient; run the browser fixture seed.');
+  return id;
+}
+
 async function waitForFixtureAuthBudget(loginId: string): Promise<void> {
   const windowMs = 61_000;
   const recent = (fixtureLoginTimes.get(loginId) ?? []).filter(

@@ -9,6 +9,7 @@ import {
   assessFamilyHistory,
   useValidatedForm,
   familyHistoryMemberSchema,
+  formatDateOnly,
 } from '@medichain/shared';
 import type {
   FamilyMedicalHistory,
@@ -261,7 +262,7 @@ const FamilyHistoryPage: React.FC = () => {
       conditions: memberConditions,
       consanguineous: newMember.consanguineous,
       notes: newMember.notes || undefined,
-      recordedBy: user?.userId || 'USER-001',
+      recordedBy: user?.userId ?? '',
       recordedAt: new Date().toISOString(),
     };
 
@@ -527,14 +528,14 @@ const FamilyHistoryPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docFamilyHistory.title')}</h1>
-        <p className="text-pink-100">{t('docFamilyHistory.subtitle')}</p>
+        <p className="text-white">{t('docFamilyHistory.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -547,7 +548,7 @@ const FamilyHistoryPage: React.FC = () => {
               type="button"
               onClick={() => void fetchFamilyHistory(selectedPatient)}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -1118,7 +1119,7 @@ const FamilyHistoryPage: React.FC = () => {
 
                 {summariseFamilyHistory(selectedPatient).length === 0 && (
                   <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
-                    <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                    <CheckCircle className="w-12 h-12 text-ok mx-auto mb-3" />
                     <p className="text-content-muted">{t('docFamilyHistory.noRiskIdentified')}</p>
                   </div>
                 )}

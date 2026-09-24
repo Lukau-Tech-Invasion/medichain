@@ -125,7 +125,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
       {/* Table */}
       {loading ? (
         <div className="p-8 text-center bg-surface">
-          <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+          <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
           <p className="text-content-muted">Loading...</p>
         </div>
       ) : displayedData.length > 0 ? (

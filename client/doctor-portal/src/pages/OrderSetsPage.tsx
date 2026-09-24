@@ -371,12 +371,12 @@ const OrderSetsPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3">
           <Shield className="w-10 h-10" />
           <div>
             <h1 className="text-3xl font-bold">{t('docOrderSets.title')}</h1>
-            <p className="text-teal-50 mt-1">{t('docOrderSets.subtitle')}</p>
+            <p className="text-white mt-1">{t('docOrderSets.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -515,7 +515,7 @@ const OrderSetsPage: React.FC = () => {
                           <button
                             onClick={() => handleDuplicateSet(set)}
                             disabled={isSaving}
-                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-60"
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                           >
                             <Copy className="w-4 h-4" />
                             {t('docOrderSets.duplicateButton')}
@@ -525,7 +525,7 @@ const OrderSetsPage: React.FC = () => {
                           <button
                             onClick={() => handleDeleteSet(set.setId)}
                             disabled={isSaving}
-                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-60"
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                           >
                             <Trash2 className="w-4 h-4" />
                             {t('docOrderSets.deleteButton')}
@@ -563,7 +563,7 @@ const OrderSetsPage: React.FC = () => {
                           <button
                             onClick={() => handleDecide(set.setId, 'approved')}
                             disabled={isSaving}
-                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold disabled:opacity-60"
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                           >
                             {t('docOrderSets.approveButton')}
                           </button>
@@ -574,7 +574,7 @@ const OrderSetsPage: React.FC = () => {
                                 : setRejectingSetId(set.setId)
                             }
                             disabled={isSaving}
-                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold disabled:opacity-60"
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                           >
                             {t('docOrderSets.rejectButton')}
                           </button>
@@ -789,7 +789,7 @@ const OrderSetsPage: React.FC = () => {
                         </div>
                         <button
                           onClick={() => handleDeleteOrder(order.orderId)}
-                          className="text-red-500 hover:text-critical-subtle-fg"
+                          className="text-critical hover:text-critical-subtle-fg"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -896,7 +896,7 @@ const OrderSetsPage: React.FC = () => {
 
                   <button
                     onClick={handleAddOrderToNewSet}
-                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="w-5 h-5" />
                     {t('docOrderSets.addOrderButton')}
@@ -906,7 +906,7 @@ const OrderSetsPage: React.FC = () => {
 
               <button
                 onClick={handleCreateOrderSet}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" />
                 {t('docOrderSets.createOrderSetButton')}

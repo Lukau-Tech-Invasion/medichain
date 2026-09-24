@@ -3,7 +3,7 @@ import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych, getPsychForPatient, useTranslation } from '@medichain/shared';
+import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
@@ -427,12 +427,12 @@ const PsychPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Brain className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docPsych.title')}</h1>
-            <p className="text-purple-100">{t('docPsych.subtitle')}</p>
+            <p className="text-white">{t('docPsych.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -815,7 +815,7 @@ const PsychPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(a.assessedAt)}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 text-xs rounded ${riskLevelColors[a.suicideRisk.riskLevel]}`}>

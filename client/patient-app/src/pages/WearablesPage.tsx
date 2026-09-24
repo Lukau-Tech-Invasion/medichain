@@ -31,6 +31,7 @@ import {
   registerWearableDevice,
   useTranslation,
   confirmDialog,
+  formatDateOnly,
 } from '@medichain/shared';
 import type {
   SupportedWearable,
@@ -120,7 +121,7 @@ const mapLatestMetrics = (readings: WearableReading[]): HealthMetric[] => {
   return [...latest.entries()].map(([type, reading]) => ({
     type, name: type, value: reading.value, unit: reading.unit, trend: 'stable', trendPercent: 0,
     icon: <Activity className="w-6 h-6" />, color: 'text-content-secondary',
-    history: [{ date: new Date(reading.recorded_at * 1000).toLocaleDateString(), value: reading.value }],
+    history: [{ date: formatDateOnly(reading.recorded_at * 1000), value: reading.value }],
   }));
 };
 
@@ -500,8 +501,8 @@ const WearablesPage: React.FC = () => {
 
   const getTrendIcon = (trend: TrendDirection) => {
     switch (trend) {
-      case 'up': return <TrendingUp className="w-4 h-4 text-green-500" />;
-      case 'down': return <TrendingDown className="w-4 h-4 text-red-500" />;
+      case 'up': return <TrendingUp className="w-4 h-4 text-ok" />;
+      case 'down': return <TrendingDown className="w-4 h-4 text-critical" />;
       case 'stable': return <Minus className="w-4 h-4 text-content-muted" />;
     }
   };
@@ -521,7 +522,7 @@ const WearablesPage: React.FC = () => {
           stroke="currentColor"
           strokeWidth={strokeWidth}
           fill="none"
-          className="text-gray-200"
+          className="text-content-muted"
         />
         <circle
           cx={size / 2}
@@ -552,7 +553,7 @@ const WearablesPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white p-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <Watch className="w-8 h-8" />
@@ -566,7 +567,7 @@ const WearablesPage: React.FC = () => {
             <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
         </div>
-        <p className="text-teal-100">{t('wearables.devicesConnected', { count: devices.filter(d => d.status === 'connected').length })}</p>
+        <p className="text-white">{t('wearables.devicesConnected', { count: devices.filter(d => d.status === 'connected').length })}</p>
       </div>
 
       {/* Tabs */}
@@ -710,7 +711,7 @@ const WearablesPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <h4 className="font-medium text-content">{device.name}</h4>
                         {device.status === 'connected' && (
-                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <CheckCircle className="w-4 h-4 text-ok" />
                         )}
                       </div>
                       <p className="text-sm text-content-muted">{device.model}</p>
@@ -810,7 +811,7 @@ const WearablesPage: React.FC = () => {
                       );
                       if (platform) void registerDevice(platform.apiDeviceType, platform.manufacturer);
                     }}
-                    className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                    className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
                   >
                     {registerBusy ? t('wearables.registering') : t('wearables.registerConnect')}
                   </button>
@@ -910,7 +911,7 @@ const WearablesPage: React.FC = () => {
                   <button
                     type="submit"
                     disabled={ruleBusy}
-                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
                   >
                     {ruleBusy ? t('wearables.ruleSaving') : t('wearables.ruleSave')}
                   </button>
@@ -994,7 +995,7 @@ const WearablesPage: React.FC = () => {
                       aria-labelledby={`pref-${setting.key}`}
                       disabled={!prefsLoaded}
                       onClick={() => void togglePref(setting.key, setting.fallback)}
-                      className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                      className={`w-12 h-6 rounded-full transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                         on ? 'bg-teal-500' : 'bg-gray-300'
                       }`}
                     >
@@ -1029,7 +1030,7 @@ const WearablesPage: React.FC = () => {
                     aria-labelledby="pref-shareProvider"
                     disabled={!prefsLoaded}
                     onClick={() => void togglePref('shareProvider', true)}
-                    className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                    className={`w-12 h-6 rounded-full transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                       (prefs.shareProvider ?? true) ? 'bg-teal-500' : 'bg-gray-300'
                     }`}
                   >
@@ -1056,7 +1057,7 @@ const WearablesPage: React.FC = () => {
                     aria-labelledby="pref-emergencyAccess"
                     disabled={!prefsLoaded}
                     onClick={() => void togglePref('emergencyAccess', true)}
-                    className={`w-12 h-6 rounded-full transition-colors disabled:opacity-60 ${
+                    className={`w-12 h-6 rounded-full transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                       (prefs.emergencyAccess ?? true) ? 'bg-teal-500' : 'bg-gray-300'
                     }`}
                   >
@@ -1083,7 +1084,7 @@ const WearablesPage: React.FC = () => {
                     void disconnectAll();
                   }
                 }}
-                className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium disabled:opacity-60 min-h-[44px]"
+                className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
               >
                 <Unlink className="w-5 h-5" />
                 {disconnecting ? t('wearables.disconnecting') : t('wearables.disconnectAll')}

@@ -147,7 +147,7 @@ export function NFCCardDisplay({
     <div
       className={clsx(
         'relative w-80 h-48 rounded-2xl overflow-hidden shadow-lg',
-        'bg-gradient-to-br from-blue-600 to-blue-800',
+        'bg-gradient-to-br from-blue-700 to-blue-800',
         className
       )}
     >
@@ -177,23 +177,23 @@ export function NFCCardDisplay({
 
         <div className="space-y-1">
           <div className="flex justify-between text-sm">
-            <span className="opacity-70">ID</span>
+            <span>ID</span>
             <span className="font-mono">{patientId}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="opacity-70">Type</span>
+            <span>Type</span>
             <span>{nationalIdType}</span>
           </div>
           <div className="flex justify-between text-xs">
-            <span className="opacity-70">Hash</span>
-            <span className="font-mono opacity-80">{cardHash.substring(0, 12)}...</span>
+            <span>Hash</span>
+            <span className="font-mono">{cardHash.substring(0, 12)}...</span>
           </div>
         </div>
       </div>
 
       {/* NFC symbol */}
       <div className="absolute bottom-3 right-3 w-8 h-8">
-        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white/30">
+        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white">
           <path 
             d="M6 12C6 8.68629 8.68629 6 12 6M12 18C8.68629 18 6 15.3137 6 12M9 12C9 10.3431 10.3431 9 12 9M12 15C10.3431 15 9 13.6569 9 12M12 12H12.01" 
             stroke="currentColor" 

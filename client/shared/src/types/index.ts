@@ -394,6 +394,10 @@ export interface RegisterPatientRequest {
   wallet_address?: string;
   date_of_birth: string;
   national_id: string;
+  /** Absent when not stated; never `''`, which the server stores as a stated blank. */
+  gender?: string;
+  /** The patient's own number. Absent when not collected. */
+  phone?: string;
   blood_type: string;
   /** Allergies - simple strings (converted to Mild severity on backend) */
   allergies: string[];

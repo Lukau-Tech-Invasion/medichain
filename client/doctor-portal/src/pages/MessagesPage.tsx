@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  apiUrl,
-  getApiClient,
   getApiErrorMessage,
   markMessageRead,
   useTranslation,
+  getMessages,
+  sendMessage,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { MessageConversation, SecureMessagesResponse, SecureMessage } from '@medichain/shared';
 import { Loader2, MessageSquare, RefreshCw, Send, User } from 'lucide-react';
@@ -20,11 +22,11 @@ interface SendForm {
 const EMPTY_FORM: SendForm = { recipient_id: '', subject: '', body: '' };
 
 function messageDate(sentAt: number): string {
-  return new Date(sentAt * 1000).toLocaleString();
+  return formatTimestamp(sentAt * 1000);
 }
 
 function conversationDate(sentAt: number | null): string {
-  return sentAt ? new Date(sentAt * 1000).toLocaleDateString() : '';
+  return sentAt ? formatDateOnly(sentAt * 1000) : '';
 }
 
 function participantLabel(conversation: MessageConversation): string {
@@ -53,17 +55,13 @@ export default function MessagesPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(apiUrl('/api/messages?folder=all'), {
-        headers: {
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (!response.ok) {
-        setError(t('docMessages.failLoad'));
+      let data: SecureMessagesResponse;
+      try {
+        data = await getMessages('all');
+      } catch (refused) {
+        setError(getApiErrorMessage(refused, t('docMessages.failLoad')));
         return [];
       }
-      const data = await response.json() as SecureMessagesResponse;
       const loaded = Array.isArray(data.conversations) ? data.conversations : [];
       setConversations(loaded);
       return loaded;
@@ -135,19 +133,10 @@ export default function MessagesPage() {
       if (sendForm.subject.trim()) payload.subject = sendForm.subject.trim();
       if (latest?.thread_id) payload.thread_id = latest.thread_id;
       if (latest?.message_id) payload.reply_to = latest.message_id;
-      const response = await fetch(apiUrl('/api/messages/send'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        setError(getApiErrorMessage(data, t('docMessages.failSend')));
+      try {
+        await sendMessage(payload as Parameters<typeof sendMessage>[0]);
+      } catch (refused) {
+        setError(getApiErrorMessage(refused, t('docMessages.failSend')));
         return;
       }
       setSuccess(t('docMessages.sentVisible'));
@@ -234,7 +223,7 @@ export default function MessagesPage() {
             </div>
           ) : conversations.length === 0 ? (
             <div className="p-8 text-center text-content-muted">
-              <MessageSquare className="mx-auto mb-2 text-gray-300" size={40} />
+              <MessageSquare className="mx-auto mb-2 text-content-muted" size={40} />
               <p>{t('docMessages.noConversations')}</p>
             </div>
           ) : (
@@ -310,7 +299,7 @@ export default function MessagesPage() {
                 <button
                   type="submit"
                   disabled={sendLoading || !sendForm.body.trim()}
-                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {sendLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   {t('docMessages.send')}
@@ -319,7 +308,7 @@ export default function MessagesPage() {
             </>
           ) : (
             <div className="m-auto p-8 text-center text-content-muted">
-              <MessageSquare size={40} className="mx-auto mb-2 text-gray-200" />
+              <MessageSquare size={40} className="mx-auto mb-2 text-content-muted" />
               <p className="text-sm">{t('docMessages.selectConversation')}</p>
             </div>
           )}
@@ -398,7 +387,7 @@ function ComposeForm({
           />
         </div>
         <div className="flex gap-2">
-          <button type="submit" disabled={loading || !form.recipient_id || !form.body.trim()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+          <button type="submit" disabled={loading || !form.recipient_id || !form.body.trim()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {t('docMessages.send')}
           </button>

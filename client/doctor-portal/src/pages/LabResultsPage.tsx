@@ -456,7 +456,7 @@ function LabResultsPage() {
             type="button"
             onClick={handleSubmitResult}
             disabled={isSubmitting}
-            className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed min-h-[24px]"
+            className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
           >
             {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
             {isSubmitting ? t('docLabResults.submitting') : t('docLabResults.submitForReview')}
@@ -543,7 +543,7 @@ function LabResultsPage() {
         ) : filteredSubmissions.length === 0 ? (
           <div className="bg-surface rounded-xl shadow-sm border border-border p-12">
             <div className="flex flex-col items-center justify-center">
-              <FlaskConical className="text-gray-300 mb-4" size={48} />
+              <FlaskConical className="text-content-muted mb-4" size={48} />
               <p className="text-content-muted text-lg font-medium">{t('docLabResults.noSubmissions')}</p>
               <p className="text-content-muted text-sm">
                 {filterStatus === 'pending' ? t('docLabResults.allReviewed') : t('docLabResults.adjustFilters')}
@@ -616,7 +616,7 @@ function LabResultsPage() {
                             handleExportPdf(submission);
                           }}
                           disabled={exportingId === submission.id}
-                          className="no-print px-3 py-1.5 text-sm border border-border text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="no-print px-3 py-1.5 text-sm border border-border text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
                         >
                           {exportingId === submission.id ? (
                             <Loader2 className="animate-spin" size={14} />
@@ -691,7 +691,7 @@ function LabResultsPage() {
                             setShowRejectModal(submission.id);
                           }}
                           disabled={isReviewing === submission.id}
-                          className="px-4 py-2 border border-critical text-critical-subtle-fg rounded-lg hover:bg-critical-subtle transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 border border-critical text-critical-subtle-fg rounded-lg hover:bg-critical-subtle transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
                         >
                           <XCircle size={18} />
                           {t('docLabResults.reject')}
@@ -702,7 +702,7 @@ function LabResultsPage() {
                             handleApprove(submission.id);
                           }}
                           disabled={isReviewing === submission.id}
-                          className="px-4 py-2 bg-ok text-ok-fg rounded-lg hover:bg-ok transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 bg-ok text-ok-fg rounded-lg hover:bg-ok transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
                         >
                           {isReviewing === submission.id ? (
                             <Loader2 className="animate-spin" size={18} />
@@ -726,7 +726,7 @@ function LabResultsPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-              <XCircle className="text-red-500" size={24} />
+              <XCircle className="text-critical" size={24} />
               {t('docLabResults.rejectTitle')}
             </h3>
             <label htmlFor="labresults-rejection-reason" className="text-sm text-content-muted mb-4 block">
@@ -753,7 +753,7 @@ function LabResultsPage() {
               <button
                 onClick={() => handleReject(showRejectModal)}
                 disabled={!rejectionReason.trim() || isReviewing === showRejectModal}
-                className="px-4 py-2 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isReviewing === showRejectModal ? (
                   <Loader2 className="animate-spin" size={18} />

@@ -48,7 +48,9 @@
   input:disabled,
   textarea:disabled,
   select:disabled {
-    @apply bg-surface-sunken text-content-muted;
+    /* opacity-100: Chrome's own stylesheet fades a disabled <select> to 70%,
+       which took the Burn chart's muted text from 5.3:1 to 3.06:1. */
+    @apply bg-surface-sunken text-content-muted opacity-100;
   }
 
   /* A native option list is drawn by the browser from the element's own
@@ -77,86 +79,20 @@
     scroll-padding-top: 8rem;
   }
 
+  /* The page takes its colours from the tokens, which carry both themes. */
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-app-bg text-content;
   }
 
-  /* Dark mode base styles */
-  .dark body,
-  html.dark body {
-    @apply bg-slate-900 text-gray-100;
-  }
-
-  /* Dark mode for common elements */
-  .dark {
-    color-scheme: dark;
-  }
-
-  /* The dark-mode form control rule that used to live here applied fixed
-     shades (bg-slate-800, text-gray-100) and covered only the dark theme, so
-     a light-mode input was still whatever the browser drew. The base-layer
-     rule near the top of this file now styles both themes from the semantic
-     tokens, which is one rule instead of two and no fixed shades. */
-
-  /* The dark-mode overrides that used to live here targeted *bare elements* —
-     `.dark p`, `.dark h1..h6`, `.dark label`. A type selector plus a class is
-     specificity (0,1,1), which beats a utility class at (0,1,0), so they won
-     against whatever colour a component had deliberately chosen. A paragraph
-     reading `text-green-700` inside a `bg-green-50` alert was repainted
-     gray-300 — pale text on a pale background, on a critical-value screen
-     (docs/WORKFLOW_AUDIT.md, WF-018).
-
-     They are gone. `.dark body` already sets a light default colour, which
-     every unstyled element inherits, and the utility-level overrides below
-     (`.dark .text-gray-700` and friends) still handle elements that opted into
-     a specific grey. Nothing now silently overrules a component's own choice.
-
-     New work should use the semantic tokens (`text-content`, `bg-ok-subtle`,
-     `text-critical-subtle-fg`) which carry their own dark values and need no
-     override layer at all. */
-
-  /* Dark mode cards and containers */
-  .dark .bg-white {
-    @apply bg-slate-800;
-  }
-
-  .dark .bg-gray-50 {
-    @apply bg-slate-900;
-  }
-
-  .dark .bg-gray-100 {
-    @apply bg-slate-800;
-  }
-
-  .dark .border-gray-100,
-  .dark .border-gray-200,
-  .dark .border-gray-300 {
-    @apply border-slate-700;
-  }
-
-  .dark .text-gray-500 {
-    @apply text-gray-400;
-  }
-
-  .dark .text-gray-600 {
-    @apply text-gray-300;
-  }
-
-  .dark .text-gray-700 {
-    @apply text-gray-200;
-  }
-
-  .dark .text-gray-900 {
-    @apply text-white;
-  }
-
-  .dark .hover\:bg-gray-50:hover {
-    @apply bg-slate-700;
-  }
-
-  .dark .hover\:bg-gray-100:hover {
-    @apply bg-slate-700;
-  }
+  /* The ".dark .bg-white { bg-slate-800 }" remap layer that lived here is gone.
+     It repainted a fixed list of greys in dark mode -- bg-white, gray-50/100,
+     text-gray-500/600/700/900 -- and nothing else, so `text-gray-800` or
+     `bg-gray-200` stayed light-mode colours on a dark page, and a component on
+     a deliberately fixed background had its text flipped anyway (MCI's triage
+     cards, WF-018's green alert). Every surface now uses the semantic tokens
+     directly (`bg-surface`, `text-content-muted`, `border-border`), and
+     `scripts/check-undefined-colour-classes.py` plus the colour sweep hold it
+     there. Nothing left needs a second, dark-only rule. */
 
   .dark .shadow,
   .dark .shadow-sm,
@@ -166,12 +102,8 @@
 
   /* Focus styles for accessibility */
   *:focus-visible {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+    @apply outline-none ring-2 ring-focus ring-offset-2 ring-offset-app-bg;
     scroll-margin-top: 8rem;
-  }
-
-  .dark *:focus-visible {
-    @apply ring-offset-slate-900;
   }
 }
 
@@ -238,7 +170,7 @@
 
   /* Skeleton loading */
   .skeleton {
-    @apply animate-pulse bg-gray-200 rounded;
+    @apply animate-pulse bg-border rounded;
   }
 
   /* Toast slide-in animation */

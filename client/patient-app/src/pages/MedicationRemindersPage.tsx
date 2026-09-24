@@ -177,7 +177,7 @@ export function MedicationRemindersPage() {
                 type="button"
                 onClick={() => void handleDeactivate(reminder.reminder_id)}
                 disabled={deactivatingReminderId === reminder.reminder_id}
-                className="mt-3 text-sm text-critical hover:underline disabled:opacity-50"
+                className="mt-3 text-sm text-critical hover:underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 {deactivatingReminderId === reminder.reminder_id
                   ? t('medications.deactivatingReminder')
@@ -281,7 +281,7 @@ export function MedicationRemindersPage() {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
             >
               {saving ? t('common.saving') : t('medications.saveReminder')}
             </button>

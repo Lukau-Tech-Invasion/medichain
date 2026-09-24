@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store';
 import {
   verifyNationalId,
-  apiUrl,
-  getApiClient,
+  registerPatient,
   getApiErrorMessage,
   useTranslation,
   Input,
@@ -63,7 +61,6 @@ const genders = ['male', 'female', 'other', 'unknown'] as const;
 function RegisterPatientPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
   const [formData, setFormData] = useState<FormData>(initialFormData);
   // The recovery phrase for an identity generated here, shown ONCE.
   //
@@ -205,59 +202,36 @@ function RegisterPatientPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(apiUrl('/api/register'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user?.userId),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-        },
-        body: JSON.stringify({
-          full_name: formData.fullName,
-          wallet_address: formData.walletAddress,
-          date_of_birth: formData.dateOfBirth,
-          national_id: formData.nationalId,
-          // Omit rather than send '' so the server records "not stated" as absent.
-          gender: formData.gender || undefined,
-          // Absent, not empty. This form collects an EMERGENCY contact number
-          // (sent below) and no personal one, so `''` asserted that the
-          // clinician had been asked for the patient's own phone and left it
-          // blank -- which the backend stores faithfully as a known-empty
-          // value (CLAUDE.md rule 9).
-          phone: undefined,
-          blood_type: formData.bloodType,
-          allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
-          current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
-          chronic_conditions: formData.chronicConditions.split(',').map(s => s.trim()).filter(Boolean),
-          emergency_contact_name: formData.emergencyContactName,
-          emergency_contact_phone: formData.emergencyContactPhone,
-          emergency_contact_relationship: formData.emergencyContactRelationship,
-          organ_donor: formData.organDonor,
-          dnr_status: formData.dnrStatus,
-        }),
+      const data = await registerPatient({
+        full_name: formData.fullName,
+        wallet_address: formData.walletAddress,
+        date_of_birth: formData.dateOfBirth,
+        national_id: formData.nationalId,
+        // Omit rather than send '' so the server records "not stated" as absent.
+        gender: formData.gender || undefined,
+        // Absent, not empty. This form collects an EMERGENCY contact number
+        // (sent below) and no personal one, so `''` asserted that the
+        // clinician had been asked for the patient's own phone and left it
+        // blank -- which the backend stores faithfully as a known-empty
+        // value (CLAUDE.md rule 9).
+        phone: undefined,
+        blood_type: formData.bloodType,
+        allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
+        current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
+        chronic_conditions: formData.chronicConditions.split(',').map(s => s.trim()).filter(Boolean),
+        emergency_contact_name: formData.emergencyContactName,
+        emergency_contact_phone: formData.emergencyContactPhone,
+        emergency_contact_relationship: formData.emergencyContactRelationship,
+        organ_donor: formData.organDonor,
+        dnr_status: formData.dnrStatus,
       });
-
-      const contentType = response.headers.get('content-type') || '';
-      const responseText = contentType.includes('application/json')
-        ? JSON.stringify(await response.json())
-        : await response.text();
-      let data: { patient_id?: string; nfc_tag_id?: string };
-      try {
-        data = JSON.parse(responseText) as { patient_id?: string; nfc_tag_id?: string };
-      } catch {
-        throw new Error(responseText || t('docRegisterPatient.regFailed'));
-      }
-
-      if (!response.ok) {
-        throw new Error(getApiErrorMessage(data, t('docRegisterPatient.regFailed')));
-      }
 
       setSuccess({
-        patientId: data.patient_id ?? '',
-        nfcTagId: data.nfc_tag_id ?? '',
+        patientId: data.patient_id,
+        nfcTagId: data.nfc_tag_id,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docRegisterPatient.regFailed'));
+      setError(getApiErrorMessage(err, t('docRegisterPatient.regFailed')));
     } finally {
       setIsSubmitting(false);
     }
@@ -267,8 +241,8 @@ function RegisterPatientPage() {
     return (
       <div className="p-8">
         <div className="max-w-lg mx-auto bg-surface rounded-xl shadow p-8 text-center">
-          <div className="w-16 h-16 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="text-success-600" size={32} />
+          <div className="w-16 h-16 bg-ok-subtle rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="text-ok-subtle-fg" size={32} />
           </div>
           <h2 className="text-2xl font-bold text-content mb-2">{t('docRegisterPatient.registered')}</h2>
           <p className="text-content-muted mb-6">
@@ -483,7 +457,7 @@ function RegisterPatientPage() {
                   type="button"
                   onClick={() => void checkNationalId()}
                   disabled={idChecking}
-                  className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[44px]"
+                  className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
                 >
                   {idChecking
                     ? t('docRegisterPatient.idVerifyChecking')
@@ -683,7 +657,7 @@ function RegisterPatientPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
           >
             {isSubmitting ? (
               <>

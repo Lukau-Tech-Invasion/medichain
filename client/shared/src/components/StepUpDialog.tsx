@@ -75,7 +75,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
               <button
                 type="submit"
                 disabled={state.verifying}
-                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
               >
                 {state.verifying ? t('stepUp.verifying') : t('stepUp.confirm')}
               </button>

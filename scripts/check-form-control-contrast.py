@@ -28,8 +28,12 @@ import re
 import sys
 from pathlib import Path
 
+# `(?:=>|[^>])` rather than `[^>]`: an `onChange={(e) => ...}` before the class
+# attribute ended the match at the arrow's `>`, so every control written with its
+# handler first was never checked -- which is how Radiology's selects, a dark
+# fill with no foreground, rendered their text dark-on-dark at 1.21:1.
 CONTROL = re.compile(
-    r'<(input|textarea|select)\b[^>]*?class(?:Name)?\s*=\s*'
+    r'<(input|textarea|select)\b(?:=>|[^>])*?class(?:Name)?\s*=\s*'
     r'(?:"([^"]*)"|\{`([^`]*)`\}|\{\s*"([^"]*)"\s*\})',
     re.S,
 )

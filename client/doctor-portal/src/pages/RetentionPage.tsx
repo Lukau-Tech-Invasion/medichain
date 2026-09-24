@@ -14,6 +14,8 @@ import {
   releaseLegalHold,
   requestRetentionApproval,
   useTranslation,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
 import type {
   DeletionRegisterEntry,
@@ -331,7 +333,7 @@ function RetentionPage() {
             <button
               type="submit"
               disabled={busy === 'hold'}
-              className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+              className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
             >
               {busy === 'hold' ? t('docRetention.placing') : t('docRetention.placeHold')}
             </button>
@@ -352,7 +354,7 @@ function RetentionPage() {
                   <p className="text-xs text-content-muted">
                     {hold.patient_id || hold.entity_type}
                     {hold.reference ? ` · ${hold.reference}` : ''} ·{' '}
-                    {new Date(hold.applied_at).toLocaleDateString()}
+                    {formatDateOnly(hold.applied_at)}
                   </p>
                 </div>
                 <button
@@ -364,7 +366,7 @@ function RetentionPage() {
                     })
                   }
                   disabled={busy === `release-${hold.id}`}
-                  className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                  className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap"
                 >
                   {t('docRetention.release')}
                 </button>
@@ -387,7 +389,7 @@ function RetentionPage() {
             })
           }
           disabled={busy === 'request'}
-          className="mb-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+          className="mb-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
         >
           {busy === 'request' ? t('docRetention.requesting') : t('docRetention.requestApproval')}
         </button>
@@ -408,7 +410,7 @@ function RetentionPage() {
                     </p>
                     <p className="text-xs text-content-muted break-all">
                       {approval.status} · {t('docRetention.expires')}{' '}
-                      {new Date(approval.expires_at).toLocaleString()} · {approval.token}
+                      {formatTimestamp(approval.expires_at)} · {approval.token}
                     </p>
                   </div>
                   <div className="flex gap-2 flex-wrap justify-end">
@@ -428,7 +430,7 @@ function RetentionPage() {
                             })
                           }
                           disabled={busy === `approve-${approval.token}`}
-                          className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[28px]"
+                          className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px]"
                         >
                           {t('docRetention.approve')}
                         </button>
@@ -445,7 +447,7 @@ function RetentionPage() {
                             })
                           }
                           disabled={busy === `reject-${approval.token}`}
-                          className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px]"
+                          className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px]"
                         >
                           {t('docRetention.reject')}
                         </button>
@@ -468,7 +470,7 @@ function RetentionPage() {
                           })
                         }
                         disabled={busy === `execute-${approval.token}`}
-                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[28px]"
+                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px]"
                       >
                         {/* Named for what it does. "Execute" alone reads as
                             deletion, and this deletes nothing. */}
@@ -500,7 +502,7 @@ function RetentionPage() {
                     {restriction.patient_id} · {restriction.entity_type}
                   </p>
                   <p className="text-xs text-content-muted">
-                    {restriction.reason} · {new Date(restriction.restricted_at).toLocaleDateString()}
+                    {restriction.reason} · {formatDateOnly(restriction.restricted_at)}
                   </p>
                 </div>
                 <button
@@ -515,7 +517,7 @@ function RetentionPage() {
                     })
                   }
                   disabled={busy === `lift-${restriction.id}`}
-                  className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                  className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap"
                 >
                   {t('docRetention.lift')}
                 </button>
@@ -550,7 +552,7 @@ function RetentionPage() {
                     <td className="py-2 pr-4 text-content-secondary">{entry.action}</td>
                     <td className="py-2 pr-4 text-content-muted">{entry.basis}</td>
                     <td className="py-2 pr-4 text-content-muted">
-                      {new Date(entry.executed_at).toLocaleString()}
+                      {formatTimestamp(entry.executed_at)}
                     </td>
                   </tr>
                 ))}

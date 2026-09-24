@@ -56,7 +56,7 @@ function ReviewDecisionForm({
           type="button"
           disabled={busy}
           onClick={() => void submit(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-ok px-3 py-2 text-sm font-medium text-ok-fg disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-ok px-3 py-2 text-sm font-medium text-ok-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           <Check size={16} /> Approve
         </button>
@@ -64,7 +64,7 @@ function ReviewDecisionForm({
           type="button"
           disabled={busy}
           onClick={() => void submit(false)}
-          className="inline-flex items-center gap-2 rounded-lg bg-critical px-3 py-2 text-sm font-medium text-critical-fg disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-critical px-3 py-2 text-sm font-medium text-critical-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           <X size={16} /> Reject
         </button>
@@ -118,7 +118,7 @@ function NationalIdReviewsPage() {
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-3">
-          <ShieldCheck className="mt-1 text-primary" size={28} />
+          <ShieldCheck className="mt-1 text-brand" size={28} />
           <div>
             <h1 className="text-2xl font-bold text-content">National ID reviews</h1>
             <p className="mt-1 max-w-3xl text-content-muted">

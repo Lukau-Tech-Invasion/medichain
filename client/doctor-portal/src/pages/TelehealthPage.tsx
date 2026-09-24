@@ -8,6 +8,7 @@ import {
   joinTelehealthSession,
   listMyTelehealthSessions,
   useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
@@ -213,7 +214,7 @@ export default function TelehealthPage() {
       case 'Scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
       case 'WaitingRoom': return 'bg-notice-subtle text-notice-subtle-fg';
       case 'InProgress': return 'bg-ok-subtle text-ok-subtle-fg';
-      case 'OnHold': return 'bg-warning-subtle text-warning-subtle-fg';
+      case 'OnHold': return 'bg-caution-subtle text-caution-subtle-fg';
       case 'Completed': return 'bg-surface-sunken text-content-secondary';
       case 'Cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
       case 'NoShow': return 'bg-critical-subtle text-critical-subtle-fg';
@@ -322,7 +323,7 @@ export default function TelehealthPage() {
           </div>
         ) : sessions.length === 0 ? (
           <div className="p-8 text-center text-content-muted">
-            <Video className="mx-auto mb-2 text-gray-300" size={40} />
+            <Video className="mx-auto mb-2 text-content-muted" size={40} />
             <p>{t('docTelehealth.noSessions')}</p>
             {!patientId && <p className="text-sm mt-1">{t('docTelehealth.enterPatientHint')}</p>}
           </div>
@@ -344,7 +345,7 @@ export default function TelehealthPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar size={13} />
-                      {new Date(session.scheduled_start * 1000).toLocaleString()}
+                      {formatTimestamp(session.scheduled_start * 1000)}
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock size={13} />
@@ -366,7 +367,7 @@ export default function TelehealthPage() {
                     <button
                       onClick={() => handleEndSession(session.session_id)}
                       disabled={actionLoading === session.session_id}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg text-sm rounded hover:bg-red-200 disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg text-sm rounded hover:bg-red-200 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {actionLoading === session.session_id ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />}
                       {t('docTelehealth.end')}

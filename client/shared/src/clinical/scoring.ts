@@ -85,6 +85,10 @@ export interface ScoringCatalog {
   glasgow_coma_scale?: GcsScale;
   /** The critical-value call list; absent on an older server. */
   critical_values?: { thresholds: CriticalValueThresholdEntry[] };
+  /** The recovery form's Aldrete preview; absent on an older server. */
+  aldrete?: { components: string[]; bands: ScoreBand[] };
+  /** The operative note's blood-loss flag; absent on an older server. */
+  operative?: { ebl_significant_ml: number };
   morse_fall_scale: {
     items: ScaleItem[];
     bands: ScoreBand[];
@@ -184,6 +188,28 @@ export function bandFor(score: number, bands: ScoreBand[] | undefined): string |
  */
 export function morseTotal(items: Record<string, number>): number {
   return Object.values(items).reduce((sum, v) => sum + (Number.isFinite(v) ? v : 0), 0);
+}
+
+/**
+ * The Aldrete total for the recovery form's preview, or `null` until every
+ * component the catalog names has been scored. A partial sum is not an Aldrete
+ * score, and showing one invites reading 8 of 10 as "not ready" when two
+ * components were simply not assessed yet. The stored total is recomputed by
+ * the server (`clinical_scoring::aldrete_score`).
+ */
+export function aldreteTotal(
+  components: object,
+  catalog: ScoringCatalog | null,
+): number | null {
+  const names = catalog?.aldrete?.components;
+  if (!names || names.length === 0) return null;
+  let total = 0;
+  for (const name of names) {
+    const value = (components as Record<string, unknown>)[name];
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    total += value;
+  }
+  return total;
 }
 
 /** Preview of the Parkland volumes, using the catalog's constants. */

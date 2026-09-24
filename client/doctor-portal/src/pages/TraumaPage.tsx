@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, useTranslation, type TraumaListRow } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -13,25 +13,6 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 
-interface EmergencyRecord {
-  event_id: string;
-  event_type?: string;
-  event_time?: number;
-  assessed_at?: number;
-  outcome?: string;
-}
-
-
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type EventList = { events?: EmergencyRecord[] } | EmergencyRecord[];
 
 export default function TraumaPage() {
   const { t } = useTranslation();
@@ -41,7 +22,10 @@ export default function TraumaPage() {
   // The roster this page fetched existed only to fill a patient dropdown.
   // `PatientSelect` queries the server as the clinician types.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<TraumaListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   
   // Trauma Form State
@@ -75,8 +59,7 @@ export default function TraumaPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const data = await getApiClient().get<EventList>(`/api/emergency/trauma/patient/${patientId}`);
-      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
+      setEmergencyHistory(await getPatientTraumas(patientId));
     } catch (e) {
       console.error('Failed to fetch emergency history', e);
     } finally {
@@ -90,7 +73,6 @@ export default function TraumaPage() {
 
     try {
       const traumaData = {
-        assessment_id: `TR-${Date.now()}`,
         patient_id: selectedPatient,
         trauma_type: traumaType,
         injury_severity_score: issScore,
@@ -110,7 +92,6 @@ export default function TraumaPage() {
         // a stable patient.
 
         notes: `Primary Survey:\nA: ${airway}\nB: ${breathing}\nC: ${circulation}\nD: ${disability}\nE: ${exposure}\n\nNotes: ${notes}`,
-        assessed_by: user?.userId || 'unknown',
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
@@ -157,7 +138,7 @@ export default function TraumaPage() {
         {selectedPatient && (
           <div className="bg-surface shadow rounded-lg p-6">
             <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-              <History className="h-5 w-5 text-red-500" />
+              <History className="h-5 w-5 text-critical" />
               {t('docTrauma.pastEvents')}
             </h3>
             {historyLoading ? (
@@ -170,25 +151,18 @@ export default function TraumaPage() {
                   <thead className="bg-surface-sunken">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colEventId')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colType')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colMechanism')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colTime')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colOutcome')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colGcs')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {emergencyHistory.map((ev) => (
-                      <tr key={ev.event_id} className="hover:bg-surface-sunken">
-                        <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                        <td className="px-4 py-2">{ev.event_type || t('docTrauma.trauma')}</td>
-                        <td className="px-4 py-2">
-                          {ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleString() :
-                           ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary">
-                            {ev.outcome || t('docTrauma.na')}
-                          </span>
-                        </td>
+                      <tr key={ev.id} className="hover:bg-surface-sunken">
+                        <td className="px-4 py-2 font-mono text-xs">{ev.id}</td>
+                        <td className="px-4 py-2">{ev.mechanism}</td>
+                        <td className="px-4 py-2">{formatTimestamp(ev.assessed_at * 1000) || '-'}</td>
+                        <td className="px-4 py-2">{ev.gcs ?? t('docTrauma.na')}</td>
                       </tr>
                     ))}
                   </tbody>

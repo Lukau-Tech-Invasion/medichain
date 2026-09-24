@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
+import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { TelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -130,7 +130,7 @@ export function TelehealthPage() {
   );
 
   const formatDateTime = (unixTs: number) =>
-    new Date(unixTs * 1000).toLocaleString('en-US', {
+    formatTimestamp(unixTs * 1000, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -159,7 +159,7 @@ export function TelehealthPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -246,7 +246,7 @@ export function TelehealthPage() {
             {activeTab === 'upcoming' && (
               <button
                 onClick={() => handleJoin(session)}
-                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
                 {t('telehealth.joinCall')}
@@ -265,7 +265,7 @@ export function TelehealthPage() {
         {((activeTab === 'upcoming' && upcomingSessions.length === 0) ||
           (activeTab === 'past' && pastSessions.length === 0)) && (
           <div className="text-center py-12">
-            <User className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <User className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">{activeTab === 'upcoming' ? t('telehealth.noUpcoming') : t('telehealth.noPast')}</p>
           </div>
         )}

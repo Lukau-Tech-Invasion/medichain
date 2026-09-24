@@ -20,7 +20,16 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, exportDocumentToPdf, getApiClient, useTranslation, getApiErrorMessage } from '@medichain/shared';
+import {
+  approveDischarge as postDischargeApproval,
+  createDischargeInstructions,
+  createDischargeSummary,
+  exportDocumentToPdf,
+  getApiErrorMessage,
+  getPatients,
+  listDischarges,
+  useTranslation,
+} from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -217,20 +226,8 @@ function DischargePage() {
   const fetchPatients = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await fetch(apiUrl('/api/patients'), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const patientArray = Array.isArray(data) ? data : (data.data || []);
-        setPatients(patientArray);
-        setApiConnected(true);
-      } else {
-        setApiConnected(false);
-      }
+      setPatients(await getPatients());
+      setApiConnected(true);
     } catch {
       setApiConnected(false);
     }
@@ -240,24 +237,13 @@ function DischargePage() {
     if (!user) return;
     try {
       setLoading(true);
-      const response = await fetch(apiUrl('/api/clinical/discharges'), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDischarges(
-          ((data.discharges as Record<string, unknown>[] | undefined) || []).map(
-            toDischargeSummary
-          )
-        );
-        setApiConnected(true);
-      } else {
-        setApiConnected(false);
-        setError(t('docDischarge.errorConnectFailed'));
-      }
+      const data = await listDischarges();
+      setDischarges(
+        ((data.discharges as unknown as Record<string, unknown>[] | undefined) || []).map(
+          toDischargeSummary
+        )
+      );
+      setApiConnected(true);
     } catch {
       setApiConnected(false);
       setError(t('docDischarge.errorFetchFailed'));
@@ -328,25 +314,15 @@ function DischargePage() {
         prepared_by: user.walletAddress,
       };
 
-      const response = await fetch(apiUrl('/api/clinical/discharge-summary'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
+      let created: { summary_id?: string };
+      try {
+        created = await createDischargeSummary(payload);
+      } catch (err) {
         // A failure used to be written into the SUCCESS banner, so a discharge
         // that was never filed appeared in green.
-        setError(t('docDischarge.errorCreateFailed'));
+        setError(getApiErrorMessage(err, t('docDischarge.errorCreateFailed')));
         return;
       }
-
-      const created = (await response.json().catch(() => ({}))) as { summary_id?: string };
 
       // The take-home document, as its own record.
       //
@@ -361,17 +337,10 @@ function DischargePage() {
       //
       // Filed after the summary and linked to it, so the two cannot disagree
       // about which admission they describe.
-      const instructionsResponse = await fetch(apiUrl('/api/clinical/discharge-instructions'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          // Its own key: a second mutation reusing the summary's would be
-          // refused as a replay.
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
+      try {
+        // The client mints this mutation its own Idempotency-Key, so it is not
+        // refused as a replay of the summary it follows.
+        await createDischargeInstructions({
           patient_id: selectedPatient,
           discharge_summary_id: created.summary_id ?? null,
           visit_date: payload.discharge_date,
@@ -382,13 +351,11 @@ function DischargePage() {
           follow_up_appointments: followUps,
           return_precautions: payload.warning_signs,
           emergency_instructions: formData.emergency_instructions,
-        }),
-      });
-
-      if (!instructionsResponse.ok) {
+        });
+      } catch (err) {
         // Say which half failed. The summary is filed; the patient's copy is
         // not, and a clinician who is told only "saved" will not go back for it.
-        setError(t('docDischarge.errorInstructionsFailed'));
+        setError(getApiErrorMessage(err, t('docDischarge.errorInstructionsFailed')));
         fetchDischarges();
         return;
       }
@@ -470,28 +437,16 @@ function DischargePage() {
   const approveDischarge = async (id: string) => {
     if (!user) return;
     try {
-      const response = await fetch(apiUrl(`/api/clinical/discharges/${id}/approve`), {
-        method: 'POST',
-        headers: { 
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        setError(getApiErrorMessage(detail, t('docDischarge.failApprove')));
-        return;
-      }
+      await postDischargeApproval(id);
       setSuccess(t('docDischarge.successApproved'));
       fetchDischarges();
-    } catch {
+    } catch (err) {
       // This used to report success on BOTH paths -- the unchecked response
-      // above and a "demo" message here -- so a second-clinician discharge
+      // and a "demo" message in the catch -- so a second-clinician discharge
       // approval could not fail. Approval is the control that stops one
       // clinician discharging a patient alone; a control that always reports
       // success is not a control.
-      setError(t('docDischarge.failApprove'));
+      setError(getApiErrorMessage(err, t('docDischarge.failApprove')));
     }
   };
 
@@ -549,16 +504,16 @@ function DischargePage() {
       {/* Alerts */}
       {success && (
         <div className="mb-6 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-3">
-          <CheckCircle className="text-green-500" size={20} />
+          <CheckCircle className="text-ok" size={20} />
           <span className="text-ok-subtle-fg">{success}</span>
-          <button onClick={() => setSuccess(null)} className="ml-auto text-green-500 hover:text-ok-subtle-fg">×</button>
+          <button onClick={() => setSuccess(null)} className="ml-auto text-ok hover:text-ok-subtle-fg">×</button>
         </div>
       )}
       {error && (
         <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-3">
-          <AlertTriangle className="text-red-500" size={20} />
+          <AlertTriangle className="text-critical" size={20} />
           <span className="text-critical-subtle-fg">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-critical-subtle-fg">×</button>
+          <button onClick={() => setError(null)} className="ml-auto text-critical hover:text-critical-subtle-fg">×</button>
         </div>
       )}
 
@@ -566,7 +521,7 @@ function DischargePage() {
       <div className="grid grid-cols-4 gap-4 mb-8">
         <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-yellow-500">
           <div className="flex items-center gap-3">
-            <Clock className="text-yellow-500" size={24} />
+            <Clock className="text-caution" size={24} />
             <div>
               <p className="text-2xl font-bold text-content">{pendingDischarges.length}</p>
               <p className="text-sm text-content-muted">{t('docDischarge.statPending')}</p>
@@ -575,7 +530,7 @@ function DischargePage() {
         </div>
         <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-green-500">
           <div className="flex items-center gap-3">
-            <CheckCircle className="text-green-500" size={24} />
+            <CheckCircle className="text-ok" size={24} />
             <div>
               <p className="text-2xl font-bold text-content">{completedDischarges.length}</p>
               <p className="text-sm text-content-muted">{t('docDischarge.statCompletedToday')}</p>
@@ -621,7 +576,7 @@ function DischargePage() {
       {/* Discharge List */}
       {loading ? (
         <div className="bg-surface rounded-xl shadow p-12 text-center">
-          <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
+          <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
           <p className="text-content-muted">{t('docDischarge.loadingDischarges')}</p>
         </div>
       ) : (
@@ -731,7 +686,7 @@ function DischargePage() {
                     <button
                       onClick={() => handleExportPdf(discharge)}
                       disabled={exportingId === discharge.id}
-                      className="text-brand hover:text-brand flex items-center gap-1 disabled:opacity-50 min-h-[24px] py-1"
+                      className="text-brand hover:text-brand flex items-center gap-1 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] py-1"
                     >
                       <Download size={16} />
                       {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
@@ -747,7 +702,7 @@ function DischargePage() {
 
           {(activeTab === 'pending' ? pendingDischarges : completedDischarges).length === 0 && (
             <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <LogOut className="mx-auto mb-3 text-gray-300" size={48} />
+              <LogOut className="mx-auto mb-3 text-content-muted" size={48} />
               <p className="text-content-muted">{t('docDischarge.noDischarges', { tab: activeTab })}</p>
             </div>
           )}
@@ -902,7 +857,7 @@ function DischargePage() {
                     <button
                       type="button"
                       onClick={() => setMedications(medications.filter((_, idx) => idx !== i))}
-                      className="text-red-500 hover:text-critical-subtle-fg"
+                      className="text-critical hover:text-critical-subtle-fg"
                     >
                       {t('docDischarge.removeBtn')}
                     </button>
@@ -957,7 +912,7 @@ function DischargePage() {
                     <button
                       type="button"
                       onClick={() => setFollowUps(followUps.filter((_, idx) => idx !== i))}
-                      className="text-red-500 hover:text-critical-subtle-fg"
+                      className="text-critical hover:text-critical-subtle-fg"
                     >
                       {t('docDischarge.removeBtn')}
                     </button>
@@ -1017,7 +972,7 @@ function DischargePage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center gap-2"
+                  className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
                   {t('docDischarge.createSummaryBtn')}

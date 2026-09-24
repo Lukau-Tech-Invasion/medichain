@@ -251,12 +251,12 @@ const ProgressNotePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FileText className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docProgressNote.title')}</h1>
         </div>
-        <p className="text-indigo-100">{t('docProgressNote.subtitle')}</p>
+        <p className="text-white">{t('docProgressNote.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -270,10 +270,10 @@ const ProgressNotePage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docProgressNote.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docProgressNote.apiHint')}</p>
           </div>
         </div>
       )}
@@ -459,11 +459,11 @@ const ProgressNotePage: React.FC = () => {
 
               <div className="flex gap-2">
                 <button type="button" disabled={saving} onClick={() => saveNote('draft')}
-                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:opacity-50">
+                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   {t('docProgressNote.saveDraft')}
                 </button>
                 <button type="button" disabled={saving} onClick={() => saveNote('signed')}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>

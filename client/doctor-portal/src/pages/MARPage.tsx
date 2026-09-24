@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, createMar, getApiClient, getPatients, listMar, scanBarcode, useTranslation, getApiErrorMessage } from '@medichain/shared';
+import {
+  createMar,
+  getPatients,
+  listMar,
+  scanBarcode,
+  useTranslation,
+  getApiErrorMessage,
+  administerMedication as postMarAdministration,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -231,10 +239,10 @@ export default function MARPage() {
 
   const getStatusColor = (status: MedicationStatus) => {
     switch (status) {
-      case 'given': return 'bg-green-500 text-white';
+      case 'given': return 'bg-green-700 text-white';
       case 'held': return 'bg-caution text-white';
       case 'refused': return 'bg-caution text-caution-fg';
-      case 'not-given': return 'bg-red-500 text-white';
+      case 'not-given': return 'bg-red-700 text-white';
       default: return 'bg-surface-sunken text-content-muted';
     }
   };
@@ -280,37 +288,27 @@ export default function MARPage() {
     // Call the API to mark medication as administered
     if (user && selectedPatient) {
       try {
-        const response = await fetch(apiUrl('/api/nursing/mar/administer'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-            'X-Provider-Role': user.role,
-          },
-          body: JSON.stringify({
-            patient_id: selectedPatient.patient_id,
-            medication_id: selectedMed.id,
-            medication_name: selectedMed.medicationName,
-            dose: selectedMed.dose,
-            route: selectedMed.route,
-            status: adminForm.status,
-            administered_time: adminForm.administeredTime,
-            administered_by: user.userId,
-            hold_reason: adminForm.holdReason,
-            notes: adminForm.notes,
-            prn_reason: adminForm.prnReason,
-            date: new Date().toISOString().split('T')[0],
-          }),
-        });
-        if (!response.ok) {
-          // A medication administration record the server refused must never
-          // be shown as documented. `fetch` resolves on a 403 or a 500 just as
-          // it does on a 201, so without this check a nurse saw
-          // "Documented: Metformin" for a dose no record exists of -- and the
-          // next nurse reads that screen and does not give it again.
-          const detail = await response.json().catch(() => ({}));
-          setError(getApiErrorMessage(detail, t('docMAR.administerFailed')));
+        // A medication administration record the server refused must never be
+        // shown as documented: without this a nurse saw "Documented: Metformin"
+        // for a dose no record exists of -- and the next nurse reads that screen
+        // and does not give it again. The typed client throws on any refusal.
+        try {
+          await postMarAdministration({
+          patient_id: selectedPatient.patient_id,
+          medication_id: selectedMed.id,
+          medication_name: selectedMed.medicationName,
+          dose: selectedMed.dose,
+          route: selectedMed.route,
+          status: adminForm.status,
+          administered_time: adminForm.administeredTime,
+          administered_by: user.userId,
+          hold_reason: adminForm.holdReason,
+          notes: adminForm.notes,
+          prn_reason: adminForm.prnReason,
+          date: new Date().toISOString().split('T')[0],
+          });
+        } catch (refused) {
+          setError(getApiErrorMessage(refused, t('docMAR.administerFailed')));
           return;
         }
       } catch (e) {
@@ -385,7 +383,7 @@ export default function MARPage() {
           ...med,
           documented_by: user?.userId
         })),
-        documented_by: user?.userId || 'unknown',
+        documented_by: user?.userId,
         documented_at: Math.floor(Date.now() / 1000)
       };
 
@@ -404,7 +402,7 @@ export default function MARPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-purple-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -412,7 +410,7 @@ export default function MARPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docMAR.title')}</h1>
-                <p className="text-purple-100">{t('docMAR.subtitle')}</p>
+                <p className="text-white">{t('docMAR.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -549,7 +547,7 @@ export default function MARPage() {
                               <div className="flex items-center space-x-2">
                                 <span className="font-bold text-content">{order.medicationName}</span>
                                 {order.highAlert && (
-                                  <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.highAlertBadge')}</span>
+                                  <span className="bg-red-700 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.highAlertBadge')}</span>
                                 )}
                                 {order.prn && (
                                   <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.prnBadge')}</span>
@@ -593,7 +591,7 @@ export default function MARPage() {
                           }`}>
                             <td className="p-3">
                               <div className="flex items-center space-x-2">
-                                {med.highAlert && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                                {med.highAlert && <AlertTriangle className="h-4 w-4 text-critical" />}
                                 <span className="font-medium">{med.medicationName}</span>
                               </div>
                             </td>
@@ -677,7 +675,7 @@ export default function MARPage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting}
-                    className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center"
+                    className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -695,7 +693,7 @@ export default function MARPage() {
               </div>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
-                <Pill className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <Pill className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                 <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docMAR.selectPatientEmptyTitle')}</h2>
                 <p className="text-content-muted">{t('docMAR.selectPatientEmptyMessage')}</p>
               </div>
@@ -811,8 +809,8 @@ export default function MARPage() {
               </button>
               <button
                 onClick={handleAdminister}
-                className={`px-4 py-2 text-critical-fg rounded-lg ${
-                  selectedMed.highAlert ? 'bg-critical hover:bg-critical' : 'bg-purple-600 hover:bg-purple-700'
+                className={`px-4 py-2 rounded-lg ${
+                  selectedMed.highAlert ? 'bg-critical text-critical-fg hover:bg-critical/90' : 'bg-purple-700 text-white hover:bg-purple-800'
                 }`}
               >
                 {t('docMAR.confirmButton')}

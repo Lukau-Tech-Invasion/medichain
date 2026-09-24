@@ -3,7 +3,7 @@ import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createTox, useTranslation } from '@medichain/shared';
+import { getPatients, createTox, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -174,12 +174,12 @@ const ToxicologyPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-rose-600 text-white p-6">
+      <div className="bg-gradient-to-r from-red-700 to-rose-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Skull className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docToxicology.title')}</h1>
-            <p className="text-critical-fg">{t('docToxicology.subtitle')}</p>
+            <p className="text-white">{t('docToxicology.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -188,7 +188,7 @@ const ToxicologyPage: React.FC = () => {
       <div className="bg-blue-600 text-white p-3 flex items-center gap-3">
         <Phone className="w-5 h-5" />
         <span className="font-semibold">{t('docToxicology.poisonControl')}</span>
-        <span className="text-blue-50 text-sm ml-4">{t('docToxicology.poisonControlAvail')}</span>
+        <span className="text-white text-sm ml-4">{t('docToxicology.poisonControlAvail')}</span>
       </div>
 
       {/* Tabs */}
@@ -499,7 +499,7 @@ const ToxicologyPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{c.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(c.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(c.assessedAt)}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
                       {c.severity.toUpperCase()}

@@ -30,10 +30,15 @@ import type {
   GenerateNFCCardResponse,
   NFCCardInfo,
   CodeBlueRecord,
+  CodeBlueListRow,
   TraumaAssessment,
+  TraumaListRow,
   StrokeAssessment,
+  StrokeListRow,
   CardiacEvent,
+  CardiacEventListRow,
   SepsisAssessment,
+  SepsisListRow,
   EMSHandoff,
   MedicationAdministrationRecord,
   IntakeOutputRecord,
@@ -516,6 +521,24 @@ export async function demoLogin(data: DemoLoginRequest): Promise<DemoLoginRespon
   return getApiClient().post('/api/auth/demo-login', data);
 }
 
+/** A seeded demo account the sign-in screen offers as a one-click login. */
+export interface DemoCredential {
+  login_id: string;
+  password: string;
+  name: string;
+  role: string;
+}
+
+/**
+ * The seeded demo accounts, in a demo deployment only.
+ *
+ * Outside one the server answers 403 `DEV_MODE_REQUIRED`, which the typed
+ * client throws; callers treat that as "no demo accounts", not as an error.
+ */
+export async function getDemoCredentials(): Promise<{ success: boolean; credentials: DemoCredential[] }> {
+  return getApiClient().get('/api/auth/demo-credentials');
+}
+
 /**
  * Bootstrap the first admin user (only works when no users exist)
  */
@@ -770,6 +793,12 @@ export interface ScannerSettings {
   saveHistory: boolean;
 }
 
+
+/** Scans this clinician has made, newest first, as persisted server-side. */
+export async function getMyBarcodeScans(): Promise<unknown[]> {
+  const response = await getApiClient().get<unknown>('/api/barcode/scans/my');
+  return Array.isArray(response) ? response : [];
+}
 export async function getScannerSettings(): Promise<{
   success: boolean;
   settings: ScannerSettings;
@@ -1416,26 +1445,11 @@ export interface PdfDocumentInput {
  * Powers "Export as PDF" buttons (lab results, prescriptions, visit summaries).
  */
 export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> {
-  const client = getApiClient();
-  // Identity is resolved by the one helper that owns the Bearer-vs-legacy
-  // decision. Building it by hand here used to send the wallet address
-  // alongside a valid Bearer token, putting that identifier on every export.
-  // `getMutationHeaders`, not `getSessionHeaders`: this is a POST, and the
-  // idempotency middleware refuses a keyed-subject mutation without a key.
-  // `/api/pdf/document` is not on the middleware's allowlist — that list is
-  // only the identity-establishing endpoints, which have no subject yet.
-  const headers: Record<string, string> = {
-    ...client.getMutationHeaders(),
-  };
-
-  const resp = await fetch(`${client.getBaseUrl()}/api/pdf/document`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(doc),
-  });
-  if (!resp.ok) throw new Error(`PDF export failed: ${resp.status}`);
-
-  const blob = await resp.blob();
+  // Through the client, so the export carries the session, refreshes an
+  // expired token, and sends the Idempotency-Key the middleware requires of a
+  // keyed-subject POST -- all of which a hand-built `fetch` here had to
+  // reproduce, and a failure surfaced as "PDF export failed: 401".
+  const { blob } = await getApiClient().postBlob('/api/pdf/document', doc);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1461,6 +1475,70 @@ export async function downloadMedicalRecord(
 ): Promise<DownloadMedicalRecordResponse> {
   return getApiClient().post('/api/records/download', data);
 }
+
+/**
+ * A stored document's decrypted bytes, and the content type the server gave.
+ *
+ * `contentHash` is the record's IPFS content id -- or, for the synthetic
+ * records the patient pages build (`lab-...`, `rx-...`), the id the download
+ * handler resolves to the stored JSON record.
+ */
+export async function downloadRecordContent(
+  contentHash: string
+): Promise<{ blob: Blob; contentType: string }> {
+  return getApiClient().getBlob(`/api/records/${encodeURIComponent(contentHash)}/download`);
+}
+
+/**
+ * The patient-scoped document reads in `api/src/handlers/patient_documents.rs`
+ * (CLAUDE.md rule 10). Each answers an envelope named for what it holds --
+ * `{ history_physicals }`, `{ summaries, instructions }`, `{ orders, reports }`.
+ */
+export type PatientDocumentKind =
+  | 'soap'
+  | 'history-physicals'
+  | 'progress-notes'
+  | 'wounds'
+  | 'discharges'
+  | 'imaging'
+  | 'pathology'
+  | 'consults'
+  | 'care-plans'
+  | 'blood'
+  | 'procedures'
+  | 'ama-discharges';
+
+/**
+ * One of a patient's document collections, with its envelope intact.
+ *
+ * `keepEnvelope` matters: the imaging read returns `orders` and `reports`
+ * side by side, and the client's default unwrapping would hand back the
+ * orders alone and discard every report.
+ */
+export async function getPatientDocuments(
+  patientId: string,
+  kind: PatientDocumentKind
+): Promise<Record<string, unknown>> {
+  return getApiClient().get(PATIENT_DOCUMENT_PATHS[kind](encodeURIComponent(patientId)), {
+    keepEnvelope: true,
+  });
+}
+
+/** Each path spelled out, so the route-drift gate can check it against the API. */
+const PATIENT_DOCUMENT_PATHS: Record<PatientDocumentKind, (id: string) => string> = {
+  soap: (id) => `/api/clinical/patient/${id}/soap`,
+  'history-physicals': (id) => `/api/clinical/patient/${id}/history-physicals`,
+  'progress-notes': (id) => `/api/clinical/patient/${id}/progress-notes`,
+  wounds: (id) => `/api/clinical/patient/${id}/wounds`,
+  discharges: (id) => `/api/clinical/patient/${id}/discharges`,
+  imaging: (id) => `/api/clinical/patient/${id}/imaging`,
+  pathology: (id) => `/api/clinical/patient/${id}/pathology`,
+  consults: (id) => `/api/clinical/patient/${id}/consults`,
+  'care-plans': (id) => `/api/clinical/patient/${id}/care-plans`,
+  blood: (id) => `/api/clinical/patient/${id}/blood`,
+  procedures: (id) => `/api/clinical/patient/${id}/procedures`,
+  'ama-discharges': (id) => `/api/clinical/patient/${id}/ama-discharges`,
+};
 
 /**
  * A patient's encrypted document references.
@@ -1850,8 +1928,9 @@ export async function getCodeBlue(eventId: string): Promise<CodeBlueRecord> {
   return getApiClient().get(`/api/emergency/code-blue/${eventId}`);
 }
 
-export async function getPatientCodeBlues(patientId: string): Promise<CodeBlueRecord[]> {
-  return getApiClient().get(`/api/emergency/code-blue/patient/${patientId}`);
+/** A patient's resuscitation events, newest first, as summary rows. */
+export async function getPatientCodeBlues(patientId: string): Promise<CodeBlueListRow[]> {
+  return getApiClient().get(`/api/emergency/code-blue/patient/${encodeURIComponent(patientId)}`);
 }
 
 export async function createTrauma(data: unknown): Promise<ClinicalCreateResult> {
@@ -1862,12 +1941,20 @@ export async function getTrauma(assessmentId: string): Promise<TraumaAssessment>
   return getApiClient().get(`/api/emergency/trauma/${assessmentId}`);
 }
 
+export async function getPatientTraumas(patientId: string): Promise<TraumaListRow[]> {
+  return getApiClient().get(`/api/emergency/trauma/patient/${encodeURIComponent(patientId)}`);
+}
+
 export async function createStroke(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/emergency/stroke', data);
 }
 
 export async function getStroke(assessmentId: string): Promise<StrokeAssessment> {
   return getApiClient().get(`/api/emergency/stroke/${assessmentId}`);
+}
+
+export async function getPatientStrokes(patientId: string): Promise<StrokeListRow[]> {
+  return getApiClient().get(`/api/emergency/stroke/patient/${encodeURIComponent(patientId)}`);
 }
 
 export async function createCardiac(
@@ -1880,12 +1967,20 @@ export async function getCardiac(eventId: string): Promise<CardiacEvent> {
   return getApiClient().get(`/api/emergency/cardiac/${eventId}`);
 }
 
+export async function getPatientCardiacEvents(patientId: string): Promise<CardiacEventListRow[]> {
+  return getApiClient().get(`/api/emergency/cardiac/patient/${encodeURIComponent(patientId)}`);
+}
+
 export async function createSepsis(data: unknown): Promise<SepsisCreateResult> {
   return getApiClient().post('/api/emergency/sepsis', data);
 }
 
 export async function getSepsis(assessmentId: string): Promise<SepsisAssessment> {
   return getApiClient().get(`/api/emergency/sepsis/${assessmentId}`);
+}
+
+export async function getPatientSepsisAssessments(patientId: string): Promise<SepsisListRow[]> {
+  return getApiClient().get(`/api/emergency/sepsis/patient/${encodeURIComponent(patientId)}`);
 }
 
 export async function createEmsHandoff(data: unknown): Promise<ClinicalCreateResult> {
@@ -1942,6 +2037,37 @@ export async function listMarAdministrations(patientId?: string): Promise<unknow
 
 export async function administerMedication(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/nursing/mar/administer', data);
+}
+
+// The nursing ward board. The first two answer `{ records }`, which the client
+// unwraps to the array; care plans answer `{ plans }`, which it does not.
+
+/** Today's medication administration records for the ward. */
+export async function listWardMar(): Promise<unknown[]> {
+  return getApiClient().get('/api/nursing/mar');
+}
+
+/** Intake/output records for the ward. */
+export async function listWardIntakeOutput(): Promise<unknown[]> {
+  return getApiClient().get('/api/nursing/intake-output');
+}
+
+/** Nursing care plans for the ward. */
+export async function listWardCarePlans(): Promise<unknown[]> {
+  const response = await getApiClient().get<{ plans?: unknown[] }>('/api/nursing/care-plans');
+  return response.plans ?? [];
+}
+
+/** One fluid entry (intake or output) against a patient's record for today. */
+export async function recordWardFluid(data: {
+  patient_id: string;
+  entry_type: string;
+  fluid_type: string;
+  amount_ml: number;
+  notes: string;
+  time: string;
+}): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/nursing/intake-output/record', data);
 }
 
 export async function createIo(data: unknown): Promise<ClinicalCreateResult> {
@@ -3051,17 +3177,43 @@ export async function getInteractionDatabase(): Promise<{
   return getApiClient().get('/api/interactions');
 }
 
-export async function checkDrugInteractions(data: unknown): Promise<{
+/** One drug-drug interaction, as `clinical::DrugInteraction` serialises it. */
+export interface DrugInteractionFinding {
+  drug_a: string;
+  drug_b: string;
+  severity: 'None' | 'Minor' | 'Moderate' | 'Major' | 'Contraindicated';
+  description: string;
+  clinical_effects: string;
+  management: string;
+  evidence_level: string;
+  source: string;
+}
+
+/** A prescribed medication that matches one of the patient's recorded allergies. */
+export interface AllergyAlert {
+  type: 'allergy';
+  medication: string;
+  allergen: string;
+  severity: string | null;
+  reaction: string | null;
+}
+
+export interface DrugInteractionCheck {
   success: boolean;
-  check_id: string;
-  patient_id: string;
+  /** Null for a check run without a patient: nothing is filed. */
+  check_id: string | null;
+  patient_id: string | null;
   medications_checked: number;
   interactions_found: number;
   has_critical: boolean;
-  interactions: Record<string, unknown>[];
-  allergy_alerts: Record<string, unknown>[];
+  interactions: DrugInteractionFinding[];
+  allergy_alerts: AllergyAlert[];
+  /** What was actually screened, so silence is never read as safety. */
+  screened: { drug_drug: boolean; allergies: boolean; conditions: boolean };
   recommendation: string;
-}> {
+}
+
+export async function checkDrugInteractions(data: unknown): Promise<DrugInteractionCheck> {
   return getApiClient().post('/api/interactions/check', data);
 }
 
@@ -3466,12 +3618,35 @@ export async function getPatientAnalytics(): Promise<PatientAnalyticsResponse> {
   return getApiClient().get('/api/platform/analytics/patients');
 }
 
-export async function getAppointmentAnalytics(): Promise<AppointmentAnalyticsResponse> {
-  return getApiClient().get('/api/platform/analytics/appointments');
+export async function getAppointmentAnalytics(
+  range?: { start_date: string; end_date: string }
+): Promise<AppointmentAnalyticsResponse> {
+  const query = range ? `?${new URLSearchParams(range).toString()}` : '';
+  return getApiClient().get(`/api/platform/analytics/appointments${query}`);
 }
 
 export async function getQualityMetrics(): Promise<QualityMetricsResponse> {
   return getApiClient().get('/api/platform/analytics/quality');
+}
+
+/**
+ * Operational indicators counted from stored records, and the ones this
+ * deployment cannot measure, named rather than estimated.
+ */
+export interface OperationalMetrics {
+  measured: {
+    radiology_queue: number;
+    lab_pending: number;
+    lab_turnaround_median_minutes: number | null;
+    unacknowledged_critical_values: number;
+    patient_satisfaction_average: number | null;
+    patient_satisfaction_responses: number;
+  };
+  unmeasured: string[];
+}
+
+export async function getOperationalMetrics(): Promise<OperationalMetrics> {
+  return getApiClient().get('/api/platform/analytics/operations');
 }
 
 // ============================================================================
@@ -3768,22 +3943,51 @@ export async function getLockscreenMedicalId(patientId: string): Promise<Lockscr
 /**
  * Create a triage assessment
  */
+/** The triage queue, highest acuity first. Answers `{ queue, total }`. */
+export async function getTriageQueue(): Promise<unknown[]> {
+  const response = await getApiClient().get<{ queue?: unknown[] }>('/api/clinical/triage/queue');
+  return response.queue ?? [];
+}
+
+/**
+ * Vital signs as `TriageVitalSigns` names them. This type used to say
+ * `systolic_bp`/`diastolic_bp`; the server reads `bp_systolic`/`bp_diastolic`,
+ * so a caller trusting it would have had both pressures silently dropped.
+ */
+export interface TriageVitalSignsInput {
+  heart_rate?: number | null;
+  respiratory_rate?: number | null;
+  bp_systolic?: number | null;
+  bp_diastolic?: number | null;
+  temperature_celsius?: number | null;
+  oxygen_saturation?: number | null;
+  pain_scale?: number | null;
+  gcs_score?: number | null;
+  blood_glucose?: number | null;
+  weight_kg?: number | null;
+}
+
 export async function createTriageAssessment(data: {
   patient_id: string;
   esi_level: number;
   chief_complaint: string;
-  vital_signs: {
-    heart_rate?: number;
-    systolic_bp?: number;
-    diastolic_bp?: number;
-    respiratory_rate?: number;
-    oxygen_saturation?: number;
-    temperature_celsius?: number;
-  };
-  pain_scale?: number;
-  notes?: string;
-}): Promise<{ success: boolean; assessment_id: string; esi_level: number; message: string }> {
+  vital_signs: TriageVitalSignsInput;
+  pain_scale?: number | null;
+  notes?: string | null;
+}): Promise<{
+  success: boolean;
+  assessment_id: string;
+  esi_level: number;
+  expected_wait: string;
+  has_critical_vitals: boolean;
+  message: string;
+}> {
   return getApiClient().post('/api/clinical/triage', data);
+}
+
+/** A patient's vitals flowsheet, raw as the server stores it. */
+export async function getVitalsFlowsheet(patientId: string): Promise<unknown> {
+  return getApiClient().get(`/api/clinical/vitals/flowsheet/${encodeURIComponent(patientId)}`);
 }
 
 /** The stable wire representation returned by the patient vitals flowsheet. */
@@ -3814,17 +4018,27 @@ export async function getPatientVitals(
 /**
  * Add vital signs reading
  */
+/** `AddVitalSignsRequest`: a field nobody measured is null, never a plausible default. */
 export async function addVitalSigns(data: {
   patient_id: string;
-  heart_rate?: number;
-  systolic_bp?: number;
-  diastolic_bp?: number;
-  respiratory_rate?: number;
-  oxygen_saturation?: number;
-  temperature_celsius?: number;
-  pain_scale?: number;
-  notes?: string;
-}): Promise<{ success: boolean; reading_id: string; message: string }> {
+  heart_rate?: number | null;
+  systolic_bp?: number | null;
+  diastolic_bp?: number | null;
+  respiratory_rate?: number | null;
+  oxygen_saturation?: number | null;
+  temperature_celsius?: number | null;
+  pain_scale?: number | null;
+  gcs_total?: number | null;
+  blood_glucose?: number | null;
+  weight_kg?: number | null;
+  notes?: string | null;
+}): Promise<{
+  success: boolean;
+  reading_id: string;
+  mean_arterial_pressure: number | null;
+  critical_alerts: string[];
+  message: string;
+}> {
   return getApiClient().post('/api/clinical/vitals', data);
 }
 
@@ -3920,7 +4134,8 @@ export interface SecureMessagesResponse {
 
 export async function sendMessage(data: {
   recipient_id: string;
-  subject: string;
+  /** Omitted rather than sent empty: a reply need not carry one. */
+  subject?: string;
   content: string;
   priority?: string;
   related_patient_id?: string;
@@ -5205,6 +5420,19 @@ export interface StoredSoapNote {
  */
 export async function getSoapNote(noteId: string): Promise<StoredSoapNote> {
   return getApiClient().get(`/api/clinical/soap/${encodeURIComponent(noteId)}`);
+}
+
+/** Create a SOAP note. Answers `{ note_id, ... }`. */
+export async function createSoapNote(data: unknown): Promise<{ note_id?: string; success?: boolean }> {
+  return getApiClient().post('/api/clinical/soap', data);
+}
+
+/** Every SOAP note on a patient's chart, newest first. */
+export async function listPatientSoapNotes(patientId: string): Promise<StoredSoapNote[]> {
+  const response = await getApiClient().get<{ notes?: StoredSoapNote[] } | StoredSoapNote[]>(
+    `/api/clinical/patient/${encodeURIComponent(patientId)}/soap`
+  );
+  return Array.isArray(response) ? response : response.notes ?? [];
 }
 
 /**

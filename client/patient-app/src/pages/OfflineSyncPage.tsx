@@ -36,6 +36,7 @@ import {
   downloadOfflineData,
   getSyncConflicts,
   resolveSyncConflict,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -349,8 +350,8 @@ const OfflineSyncPage: React.FC = () => {
     switch (category) {
       case 'medical-records': return <FileText className="w-5 h-5 text-notice-subtle-fg" />;
       case 'appointments': return <Clock className="w-5 h-5 text-purple-500" />;
-      case 'medications': return <Shield className="w-5 h-5 text-green-500" />;
-      case 'lab-results': return <Database className="w-5 h-5 text-orange-500" />;
+      case 'medications': return <Shield className="w-5 h-5 text-ok" />;
+      case 'lab-results': return <Database className="w-5 h-5 text-caution" />;
       case 'documents': return <FileText className="w-5 h-5 text-content-muted" />;
       case 'images': return <Image className="w-5 h-5 text-pink-500" />;
     }
@@ -358,10 +359,10 @@ const OfflineSyncPage: React.FC = () => {
 
   const getStatusIcon = (status: SyncStatus) => {
     switch (status) {
-      case 'synced': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
+      case 'synced': return <CheckCircle className="w-4 h-4 text-ok" />;
+      case 'pending': return <Clock className="w-4 h-4 text-caution" />;
       case 'syncing': return <RefreshCw className="w-4 h-4 text-notice-subtle-fg animate-spin" />;
-      case 'error': return <AlertTriangle className="w-4 h-4 text-red-500" />;
+      case 'error': return <AlertTriangle className="w-4 h-4 text-critical" />;
       case 'offline': return <CloudOff className="w-4 h-4 text-content-muted" />;
     }
   };
@@ -375,7 +376,7 @@ const OfflineSyncPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface-sunken flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-sky-500 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-12 h-12 text-brand animate-spin mx-auto mb-4" />
           <p className="text-content-muted">{t('offlineSync.loading')}</p>
         </div>
       </div>
@@ -407,7 +408,7 @@ const OfflineSyncPage: React.FC = () => {
                 {device.last_sync_at ? (
                   <p className="text-xs text-content-muted">
                     {t('offlineSync.deviceLastSync', {
-                      when: new Date(String(device.last_sync_at)).toLocaleString(),
+                      when: formatTimestamp(String(device.last_sync_at)),
                     })}
                   </p>
                 ) : (
@@ -422,7 +423,7 @@ const OfflineSyncPage: React.FC = () => {
       </div>
 
       {/* Header */}
-      <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-600 to-blue-500' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
+      <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-700 to-blue-800' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             {isOnline ? <Cloud className="w-8 h-8" /> : <CloudOff className="w-8 h-8" />}
@@ -433,7 +434,7 @@ const OfflineSyncPage: React.FC = () => {
             <span className="text-sm font-medium">{isOnline ? t('offlineSync.online') : t('offlineSync.offline')}</span>
           </div>
         </div>
-        <p className="text-sky-100">{t('offlineSync.subtitle')}</p>
+        <p className="text-white">{t('offlineSync.subtitle')}</p>
       </div>
 
       {/* Sync Buttons */}
@@ -499,7 +500,7 @@ const OfflineSyncPage: React.FC = () => {
           {conflicts.length > 0 && (
             <div className="bg-surface rounded-lg shadow p-4 border border-caution">
               <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <AlertTriangle className="w-5 h-5 text-caution" />
                 <h3 className="font-medium text-content">{t('offlineSync.conflictsTitle', { count: conflicts.length })}</h3>
               </div>
               <p className="text-sm text-content-muted mb-3">
@@ -603,7 +604,7 @@ const OfflineSyncPage: React.FC = () => {
                       {item.action === 'upload' ? (
                         <Upload className="w-4 h-4 text-notice-subtle-fg" />
                       ) : (
-                        <Download className="w-4 h-4 text-green-500" />
+                        <Download className="w-4 h-4 text-ok" />
                       )}
                       <div>
                         <p className="text-sm font-medium text-content">{item.description}</p>

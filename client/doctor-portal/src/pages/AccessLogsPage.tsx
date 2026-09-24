@@ -317,7 +317,7 @@ function AccessLogsPage() {
                               type="button"
                               onClick={() => void endGrant(grant.id)}
                               disabled={grantBusy === grant.id}
-                              className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px] whitespace-nowrap"
+                              className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
                             >
                               {grantBusy === grant.id
                                 ? t('docAccessLogs.grantWorking')
@@ -371,8 +371,8 @@ function AccessLogsPage() {
                 {new Set(logs.map(l => l.patient_id)).size}
               </p>
             </div>
-            <div className="w-10 h-10 bg-success-100 rounded-lg flex items-center justify-center">
-              <User className="text-success-600" size={20} />
+            <div className="w-10 h-10 bg-ok-subtle rounded-lg flex items-center justify-center">
+              <User className="text-ok-subtle-fg" size={20} />
             </div>
           </div>
         </div>
@@ -437,7 +437,7 @@ function AccessLogsPage() {
           </div>
         ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-12">
-            <FileText className="mx-auto mb-4 text-gray-300" size={48} />
+            <FileText className="mx-auto mb-4 text-content-muted" size={48} />
             <p className="text-content-muted">{t('docAccessLogs.noneFound')}</p>
           </div>
         ) : (
@@ -506,7 +506,7 @@ function AccessLogsPage() {
                               {t('docAccessLogs.statusEmergency')}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-success-100 text-success-700 text-xs font-medium rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-ok-subtle text-ok-subtle-fg text-xs font-medium rounded-full">
                               <Shield size={12} />
                               {t('docAccessLogs.statusVerified')}
                             </span>
@@ -533,7 +533,7 @@ function AccessLogsPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={20} />
                   </button>
@@ -543,7 +543,7 @@ function AccessLogsPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <ChevronRight size={20} />
                   </button>

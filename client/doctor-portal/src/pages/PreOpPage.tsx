@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { createPreOp, getApiClient, getPatients, useTranslation, formatDateOnly } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Stethoscope,
@@ -291,7 +291,7 @@ export default function PreOpPage() {
         patient_id: selectedPatient.patient_id,
         assessment_date: new Date().toISOString().split('T')[0],
         assessment_time: new Date().toTimeString().slice(0, 5),
-        assessed_by: user?.userId || 'unknown',
+        assessed_by: user?.userId,
         scheduled_surgery: scheduledSurgery,
         surgeon,
         scheduled_date: scheduledDate,
@@ -327,7 +327,7 @@ export default function PreOpPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-indigo-700 to-purple-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -335,7 +335,7 @@ export default function PreOpPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docPreOp.title')}</h1>
-                <p className="text-indigo-100">{t('docPreOp.subtitle')}</p>
+                <p className="text-white">{t('docPreOp.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -429,7 +429,7 @@ export default function PreOpPage() {
               {/* Patient Selection */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2 text-indigo-500" />
+                  <User className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.selectPatientHeading')}
                 </h2>
                 <div className="relative mb-4">
@@ -465,7 +465,7 @@ export default function PreOpPage() {
               {/* Surgery Information */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Scissors className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Scissors className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.surgeryDetailsHeading')}
                 </h3>
                 <div className="space-y-3">
@@ -532,7 +532,7 @@ export default function PreOpPage() {
               {/* NPO Status */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Clock className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.npoStatusHeading')}
                 </h3>
                 <div className="space-y-3">
@@ -577,7 +577,7 @@ export default function PreOpPage() {
               {/* ASA Classification */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
-                  <Shield className="h-6 w-6 mr-2 text-indigo-500" />
+                  <Shield className="h-6 w-6 mr-2 text-brand" />
                   {t('docPreOp.asaHeading')}
                 </h2>
                 {/* ASA physical status is a single mutually-exclusive choice, so
@@ -624,7 +624,7 @@ export default function PreOpPage() {
               {/* Airway Assessment */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <Wind className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Wind className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.airwayAssessmentHeading')}
                 </h3>
 
@@ -743,7 +743,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Heart className="h-5 w-5 mr-2 text-red-500" />
+                    <Heart className="h-5 w-5 mr-2 text-critical" />
                     {t('docPreOp.medicalHistoryHeading')}
                   </h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -764,7 +764,7 @@ export default function PreOpPage() {
 
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <AlertTriangle className="h-5 w-5 mr-2 text-yellow-500" />
+                    <AlertTriangle className="h-5 w-5 mr-2 text-caution" />
                     {t('docPreOp.allergiesHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
@@ -858,7 +858,7 @@ export default function PreOpPage() {
 
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
+                    <AlertCircle className="h-5 w-5 mr-2 text-caution" />
                     {t('docPreOp.medicationsToHoldHeading')}
                   </h3>
                   <div className="max-h-32 overflow-y-auto space-y-1">
@@ -882,7 +882,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Activity className="h-5 w-5 mr-2 text-green-500" />
+                    <Activity className="h-5 w-5 mr-2 text-ok" />
                     {t('docPreOp.labsReviewedHeading')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
@@ -893,7 +893,7 @@ export default function PreOpPage() {
                         onClick={() => toggleLab(lab)}
                         className={`px-3 py-1 rounded-full text-sm ${
                           labsReviewed.includes(lab)
-                            ? 'bg-green-500 text-white'
+                            ? 'bg-green-700 text-white'
                             : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                         }`}
                       >
@@ -947,7 +947,7 @@ export default function PreOpPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center"
+                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -969,7 +969,7 @@ export default function PreOpPage() {
         {activeTab === 'checklist' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <FileText className="h-6 w-6 mr-2 text-indigo-500" />
+              <FileText className="h-6 w-6 mr-2 text-brand" />
               {t('docPreOp.preOpChecklistHeading')}
             </h2>
 
@@ -1007,10 +1007,10 @@ export default function PreOpPage() {
                       {label}
                     </span>
                     {isCritical && !preOpChecklist[key] && (
-                      <span className="text-red-500 text-xs font-bold ml-2">{t('docPreOp.criticalBadge')}</span>
+                      <span className="text-critical text-xs font-bold ml-2">{t('docPreOp.criticalBadge')}</span>
                     )}
                     {preOpChecklist[key] && (
-                      <Check className="h-5 w-5 text-green-500 ml-2" />
+                      <Check className="h-5 w-5 text-ok ml-2" />
                     )}
                   </label>
                 );
@@ -1021,7 +1021,7 @@ export default function PreOpPage() {
               <button
                 onClick={handleSave}
                 disabled={isSubmitting || !selectedPatient}
-                className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center"
+                className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
               >
                 {isSubmitting ? (
                   <>
@@ -1042,7 +1042,7 @@ export default function PreOpPage() {
         {activeTab === 'history' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-indigo-500" />
+              <History className="h-6 w-6 mr-2 text-brand" />
               {t('docPreOp.assessmentHistoryHeading')}
             </h2>
             {!selectedPatient ? (
@@ -1074,7 +1074,7 @@ export default function PreOpPage() {
                         <td className="px-4 py-2 font-mono text-xs">{rec.id}</td>
                         <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>
-                        <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? new Date(rec.created_at * 1000).toLocaleDateString() : '-')}</td>
+                        <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? formatDateOnly(rec.created_at * 1000) : '-')}</td>
                       </tr>
                     ))}
                   </tbody>

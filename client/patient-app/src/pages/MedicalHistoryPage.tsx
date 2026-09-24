@@ -150,7 +150,7 @@ export function MedicalHistoryPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -202,7 +202,7 @@ export function MedicalHistoryPage() {
         <div className="space-y-3">
           {immunizations.length === 0 ? (
             <div className="text-center py-12">
-              <Syringe className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Syringe className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medicalHistory.noImmunizations')}</p>
             </div>
           ) : (
@@ -246,7 +246,7 @@ export function MedicalHistoryPage() {
         <div className="space-y-3">
           {familyHistory.length === 0 ? (
             <div className="text-center py-12">
-              <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medicalHistory.noFamily')}</p>
             </div>
           ) : (
@@ -286,7 +286,7 @@ export function MedicalHistoryPage() {
           {downloadError && <p className="text-sm text-critical" role="alert">{downloadError}</p>}
           {documents.length === 0 ? (
             <div className="text-center py-12">
-              <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <FileText className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medicalHistory.noDocuments')}</p>
             </div>
           ) : (

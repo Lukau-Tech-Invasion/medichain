@@ -158,7 +158,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search pages..."
-              className="flex-1 outline-none text-content placeholder:text-content-muted"
+              className="flex-1 outline-none bg-transparent text-content placeholder:text-content-muted"
               aria-label="Command palette search"
             />
             <kbd className="hidden sm:inline-flex px-2 py-1 text-xs bg-surface-sunken text-content-muted rounded border">esc</kbd>
@@ -187,7 +187,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                       >
                         <span className={isSelected ? 'text-brand' : 'text-content-muted'}>{item.icon}</span>
                         <span className="flex-1 font-medium">{item.label}</span>
-                        <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-gray-300'} />
+                        <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-content-muted'} />
                       </button>
                     );
                   })}

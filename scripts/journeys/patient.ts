@@ -829,13 +829,12 @@ export async function runImagingVisibilitySteps(
   const stamp = Date.now();
   const indication = `Persistent cough, six weeks (journey ${stamp})`;
   const impression = `No focal consolidation (journey ${stamp})`;
-  const orderId = `IMG-${stamp}`;
 
   // ImagingPage.tsx -> POST /api/surgical/radiology/order, field for field.
   const order = await http('POST', '/surgical/radiology/order', {
     token: clinician.token,
     body: {
-      order_id: orderId,
+      // No order_id: the server assigns it, as ImagingPage now expects.
       patient_id: id,
       study_type: 'XRay',
       body_part: 'Chest',
@@ -856,6 +855,7 @@ export async function runImagingVisibilitySteps(
     },
   });
   const ordered = j.status('a doctor orders the scan', order.status, [200, 201], order.json);
+  const orderId = String((order.json as { id?: string } | null)?.id ?? '');
 
   const report = await http('POST', '/surgical/radiology/report', {
     token: clinician.token,
@@ -1176,17 +1176,14 @@ export async function runConsultVisibilitySteps(
     body: {
       patientId: id,
       specialty: 'Cardiology',
-      requestedBy: clinician.wallet,
       consultingProvider: clinician.wallet,
       reason,
       clinicalQuestion: question,
       relevantHistory: 'Hypertension, ex-smoker.',
-      // Lowercase, as ConsultPage sends and as the `consultation_notes_status_check`
-      // CHECK constraint allows. The capitalised spellings pass in the memory
-      // backend, which enforces no constraints, and 500 on PostgreSQL.
+      // No status: a new consult is `requested`, and the server says so --
+      // which also keeps it inside the `consultation_notes_status_check`
+      // CHECK the capitalised spellings used to break on PostgreSQL.
       urgency: 'routine',
-      status: 'requested',
-      requestedAt: new Date().toISOString(),
     },
   });
   const asked = j.status('a doctor asks for a specialist opinion', consult.status, [200, 201], consult.json);

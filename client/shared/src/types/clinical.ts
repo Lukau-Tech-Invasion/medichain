@@ -149,6 +149,80 @@ export interface SepsisAssessment {
   assessed_at: number;
 }
 
+/**
+ * One row of a per-patient emergency list (`GET /api/emergency/{type}/patient/{id}`).
+ *
+ * The lists return the repository's summary entity, not the full record the
+ * by-id reads return: the id is `id`, only the columns below are typed, and
+ * everything else the screen collected is in `data`. Reading the full-record
+ * field names off a list row -- `event_id`, `mechanism_of_injury`,
+ * `antibiotics_given` -- yields `undefined`, which the Emergency Protocols
+ * page rendered as a blank ID and as "No" for every yes/no finding.
+ *
+ * Timestamps are epoch seconds. `null` means the field was not recorded.
+ */
+interface EmergencyListRow {
+  id: string;
+  patient_id: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CodeBlueListRow extends EmergencyListRow {
+  location: string | null;
+  code_called_at: number;
+  team_arrived_at: number | null;
+  initial_rhythm: string | null;
+  witnessed: boolean | null;
+  outcome: string;
+  code_leader: string | null;
+  documented_by: string;
+  documented_at: number;
+}
+
+export interface TraumaListRow extends EmergencyListRow {
+  mechanism: string;
+  gcs: number | null;
+  trauma_level: number | null;
+  mtp_activated: boolean | null;
+  disposition: string | null;
+  assessed_by: string;
+  assessed_at: number;
+}
+
+export interface StrokeListRow extends EmergencyListRow {
+  nihss_total: number | null;
+  stroke_type: string | null;
+  tpa_eligible: boolean | null;
+  tpa_given: boolean | null;
+  hemorrhage: boolean | null;
+  lvo_suspected: boolean | null;
+  assessed_by: string;
+  assessed_at: number;
+}
+
+export interface CardiacEventListRow extends EmergencyListRow {
+  event_type: string;
+  cath_lab_activated: boolean;
+  pci_performed: boolean;
+  door_to_balloon_minutes: number | null;
+  documented_by: string;
+  documented_at: number;
+}
+
+export interface SepsisListRow extends EmergencyListRow {
+  severity: string;
+  suspected_source: string;
+  qsofa_score: number;
+  /** Null when no organ system was measured -- not a SOFA of 0. */
+  sofa_score: number | null;
+  vasopressors_required: boolean;
+  icu_admission: boolean;
+  assessed_by: string;
+  assessed_at: number;
+}
+
 export interface EMSHandoff {
   report_id: string;
   patient_id: string | null;
@@ -1303,6 +1377,13 @@ export interface FormCreateResult {
 export interface QcCreateResult {
   success: boolean;
   qc_id: string;
+  /** The server's verdict on the run (`clinical_scoring::westgard_single_run`). */
+  passed: boolean;
+  result: 'pass' | 'warning' | 'fail';
+  z_score: number;
+  violated_rules: string[];
+  acceptable_range_low: number;
+  acceptable_range_high: number;
 }
 
 export interface NotificationCreateResult {
@@ -1741,6 +1822,9 @@ export interface AppointmentAnalyticsResponse {
   /** Keys are Rust Debug-formatted `AppointmentStatus` variants, e.g. "Scheduled". */
   status_distribution: Record<string, number>;
   total_appointments: number;
+  completed_appointments: number;
+  /** Null when no appointment falls in the range: 0% of nothing is not a measurement. */
+  telehealth_percentage: number | null;
 }
 
 export interface QualityMetricsResponse {

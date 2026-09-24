@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getApiClient, getPatients, useTranslation, clickable } from '@medichain/shared';
+import { createSepsis, getPatients, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
@@ -51,16 +51,6 @@ const INFECTION_SOURCE_KEYS: Record<string, string> = {
 };
 
 
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type EventList = { events?: { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[] } | { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[];
 
 export default function SepsisPage() {
   const navigate = useNavigate();
@@ -72,7 +62,10 @@ export default function SepsisPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [emergencyHistory, setEmergencyHistory] = useState<Array<{event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string}>>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<SepsisListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [sepsisStartTime, setSepsisStartTime] = useState<Date | null>(null);
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
@@ -171,8 +164,7 @@ export default function SepsisPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const data = await getApiClient().get<EventList>(`/api/emergency/sepsis/patient/${patientId}`);
-      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
+      setEmergencyHistory(await getPatientSepsisAssessments(patientId));
     } catch (e) {
       console.error(e);
     } finally {
@@ -345,7 +337,7 @@ export default function SepsisPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header with Timer */}
-        <div className="bg-gradient-to-r from-orange-600 to-red-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-orange-700 to-red-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -353,17 +345,17 @@ export default function SepsisPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docSepsis.title')}</h1>
-                <p className="text-orange-100">{t('docSepsis.subtitle')}</p>
+                <p className="text-white">{t('docSepsis.subtitle')}</p>
               </div>
             </div>
             <div className="text-right">
               {sepsisStartTime ? (
                 <div className="bg-surface/20 rounded-lg p-4">
-                  <p className="text-sm text-orange-100">{t('docSepsis.protocolActive')}</p>
+                  <p className="text-sm text-white">{t('docSepsis.protocolActive')}</p>
                   <p className={`text-3xl font-bold ${getTimeColor()} bg-surface rounded px-3 py-1`}>
                     {Math.floor(elapsedMinutes / 60)}:{(elapsedMinutes % 60).toString().padStart(2, '0')}
                   </p>
-                  <p className="text-xs text-orange-100 mt-1">
+                  <p className="text-xs text-white mt-1">
                     {elapsedMinutes > 60 ? (
                       <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.exceedsTarget')}</span>
                     ) : t('docSepsis.withinTarget')}
@@ -403,7 +395,7 @@ export default function SepsisPage() {
               {/* Patient Selection */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Search className="h-5 w-5 mr-2 text-orange-500" />
+                  <Search className="h-5 w-5 mr-2 text-caution" />
                   {t('docSepsis.patientSelection')}
                 </h2>
                 <div className="relative mb-4">
@@ -428,7 +420,7 @@ export default function SepsisPage() {
                 {selectedPatient && (
                   <div className="mt-3">
                     <h4 className="text-xs font-medium text-content-muted mb-1 flex items-center gap-1">
-                      <History className="h-3 w-3 text-orange-500" /> {t('docSepsis.pastEmergencyEvents')}
+                      <History className="h-3 w-3 text-caution" /> {t('docSepsis.pastEmergencyEvents')}
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docSepsis.loading')}</p>
@@ -437,9 +429,9 @@ export default function SepsisPage() {
                     ) : (
                       <div className="space-y-1">
                         {emergencyHistory.slice(0, 3).map((ev) => (
-                          <div key={ev.event_id} className="text-xs bg-surface-sunken rounded p-1.5 flex justify-between">
-                            <span>{ev.event_type || t('docSepsis.defaultEventType')}</span>
-                            <span className="text-content-muted">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : '-'}</span>
+                          <div key={ev.id} className="text-xs bg-surface-sunken rounded p-1.5 flex justify-between">
+                            <span>{ev.severity || t('docSepsis.defaultEventType')}</span>
+                            <span className="text-content-muted">{formatDateOnly(ev.assessed_at * 1000) || '-'}</span>
                           </div>
                         ))}
                       </div>
@@ -477,7 +469,7 @@ export default function SepsisPage() {
               {/* qSOFA Score */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Brain className="h-5 w-5 mr-2 text-orange-500" />
+                  <Brain className="h-5 w-5 mr-2 text-caution" />
                   {t('docSepsis.qsofaScore')}
                 </h2>
                 <div className="space-y-4">
@@ -624,7 +616,7 @@ export default function SepsisPage() {
               <div className="bg-surface rounded-lg shadow p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-content flex items-center">
-                    <Clock className="h-5 w-5 mr-2 text-orange-500" />
+                    <Clock className="h-5 w-5 mr-2 text-caution" />
                     {t('docSepsis.hour1BundleTitle')}
                   </h2>
                   {hour1Complete ? (
@@ -665,7 +657,7 @@ export default function SepsisPage() {
                           <p className="text-xs text-content-muted">{t(`docSepsis.hour1_${item.id}_desc`)}</p>
                           {item.completedAt && (
                             <p className="text-xs text-ok-subtle-fg mt-1">
-                              ✓ {new Date(item.completedAt).toLocaleTimeString()}
+                              ✓ {formatTimestamp(item.completedAt, { timeStyle: 'short' })}
                             </p>
                           )}
                         </div>
@@ -678,7 +670,7 @@ export default function SepsisPage() {
               {/* Lactate Trending */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <TrendingUp className="h-5 w-5 mr-2 text-orange-500" />
+                  <TrendingUp className="h-5 w-5 mr-2 text-caution" />
                   {t('docSepsis.lactateTrending')}
                 </h2>
                 <div className="flex space-x-2 mb-4">
@@ -719,7 +711,7 @@ export default function SepsisPage() {
                           )}
                         </div>
                         <span className="text-xs text-content-muted">
-                          {new Date(reading.timestamp).toLocaleTimeString()}
+                          {formatTimestamp(reading.timestamp, { timeStyle: 'short' })}
                         </span>
                       </div>
                     ))
@@ -769,7 +761,7 @@ export default function SepsisPage() {
               {/* Antibiotics */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Syringe className="h-5 w-5 mr-2 text-orange-500" />
+                  <Syringe className="h-5 w-5 mr-2 text-caution" />
                   {t('docSepsis.antibioticsAdministered')}
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
@@ -800,7 +792,7 @@ export default function SepsisPage() {
               {/* Fluid Resuscitation */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Droplets className="h-5 w-5 mr-2 text-orange-500" />
+                  <Droplets className="h-5 w-5 mr-2 text-caution" />
                   {t('docSepsis.fluidResuscitation')}
                 </h2>
                 <div className="space-y-4">
@@ -880,9 +872,9 @@ export default function SepsisPage() {
                     >
                       <div className="flex items-center">
                         {item.completed ? (
-                          <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
+                          <CheckCircle className="h-4 w-4 text-ok mr-2" />
                         ) : (
-                          <XCircle className="h-4 w-4 text-gray-300 mr-2" />
+                          <XCircle className="h-4 w-4 text-content-muted mr-2" />
                         )}
                         <span>{t(`docSepsis.hour3_${item.id}_label`)}</span>
                       </div>
@@ -918,7 +910,7 @@ export default function SepsisPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

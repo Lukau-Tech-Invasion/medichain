@@ -179,7 +179,7 @@ export default function EPrescribePage() {
             type="button"
             onClick={handleExportPdf}
             disabled={isExportingPdf}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-ok-subtle-fg border border-ok rounded-md hover:bg-ok-subtle disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-ok-subtle-fg border border-ok rounded-md hover:bg-ok-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             <Download className="h-4 w-4" />
             {isExportingPdf ? t('docEPrescribe.exportingPdf') : t('docEPrescribe.exportPdf')}
@@ -205,8 +205,8 @@ export default function EPrescribePage() {
       )}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
-        <div className="bg-surface dark:bg-slate-800 shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium text-content dark:text-white mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
+        <div className="bg-surface shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-content mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <PatientSelect
               id="patient_id"

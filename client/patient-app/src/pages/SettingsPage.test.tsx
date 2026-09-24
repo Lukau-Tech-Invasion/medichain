@@ -158,7 +158,7 @@ describe('SettingsPage (Patient)', () => {
 
     // Seeing that the lost phone can no longer open anything is the whole
     // reason to come to this screen.
-    await waitFor(() => expect(screen.getByText(/Revoked 2026/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Revoked .*2026/i)).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /^Revoke$/i })).not.toBeInTheDocument();
   });
 

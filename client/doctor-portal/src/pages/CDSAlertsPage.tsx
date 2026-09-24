@@ -581,12 +581,12 @@ const CDSAlertsPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-lg shadow-lg p-6 mb-6 text-white">
+      <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6 text-white">
         <div className="flex items-center gap-4">
           <Bell className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docCDS.title')}</h1>
-            <p className="text-critical-fg mt-1">{t('docCDS.subtitle')}</p>
+            <p className="text-white mt-1">{t('docCDS.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -957,7 +957,7 @@ const CDSAlertsPage: React.FC = () => {
             </div>
           ) : (
             <div className="bg-surface rounded-lg shadow p-12 text-center">
-              <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <Bell className="w-16 h-16 text-content-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-content-secondary mb-2">{t('docCDS.noRulesTitle')}</h3>
               <p className="text-content-muted">{t('docCDS.noRulesHint')}</p>
             </div>
@@ -1436,7 +1436,7 @@ const CDSAlertsPage: React.FC = () => {
                         {String(entry.patient_id ?? '')}
                         {entry.action ? ` · ${String(entry.action)}` : ''}
                         {entry.created_at
-                          ? ` · ${new Date(String(entry.created_at)).toLocaleString()}`
+                          ? ` · ${formatTimestamp(String(entry.created_at))}`
                           : ''}
                       </p>
                     </li>

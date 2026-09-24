@@ -89,6 +89,12 @@ export interface RoleTheme {
   primary: string;
   bg: string;
   bgLight: string;
+  /**
+   * The sidebar brand block, under white text in both themes. 700 to 800 on
+   * purpose: the 600 shades measured 2.6:1 (green) to 3.9:1 (blue) with the
+   * portal name on them -- the one line that tells a user which portal they
+   * are in. Every 700-800 pair here clears 5:1 against white.
+   */
   bgGradient: string;
   text: string;
   textLight: string;
@@ -105,9 +111,9 @@ export interface RoleTheme {
 export const ROLE_THEMES: Record<Role, RoleTheme> = {
   Admin: {
     primary: 'purple',
-    bg: 'bg-purple-600',
+    bg: 'bg-purple-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-purple-600 to-purple-700',
+    bgGradient: 'from-purple-700 to-purple-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-purple-200',
@@ -119,7 +125,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'blue',
     bg: 'bg-brand',
     bgLight: 'bg-brand-subtle',
-    bgGradient: 'from-primary-600 to-primary-700',
+    bgGradient: 'from-primary-700 to-primary-800',
     text: 'text-brand',
     textLight: 'text-brand',
     border: 'border-brand',
@@ -136,7 +142,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'green',
     bg: 'bg-ok',
     bgLight: 'bg-ok-subtle',
-    bgGradient: 'from-green-600 to-green-700',
+    bgGradient: 'from-green-700 to-green-800',
     text: 'text-ok-subtle-fg',
     textLight: 'text-ok-subtle-fg',
     border: 'border-ok',
@@ -148,7 +154,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'amber',
     bg: 'bg-caution',
     bgLight: 'bg-caution-subtle',
-    bgGradient: 'from-amber-600 to-amber-700',
+    bgGradient: 'from-amber-700 to-amber-800',
     text: 'text-caution-subtle-fg',
     textLight: 'text-caution-subtle-fg',
     border: 'border-caution',
@@ -158,9 +164,9 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
   },
   Pharmacist: {
     primary: 'pink',
-    bg: 'bg-pink-600',
+    bg: 'bg-pink-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-pink-600 to-pink-700',
+    bgGradient: 'from-pink-700 to-pink-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-pink-200',
@@ -170,9 +176,9 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
   },
   Patient: {
     primary: 'teal',
-    bg: 'bg-teal-600',
+    bg: 'bg-teal-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-teal-600 to-teal-700',
+    bgGradient: 'from-teal-700 to-teal-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-teal-200',

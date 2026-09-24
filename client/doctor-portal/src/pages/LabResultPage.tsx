@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner } from '@medichain/shared';
 
+import StaffName from '../components/StaffName';
 /**
  * LabResultPage
  * 
@@ -186,12 +187,12 @@ const LabResultPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FlaskConical className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docLabResult.title')}</h1>
         </div>
-        <p className="text-emerald-100">{t('docLabResult.subtitle')}</p>
+        <p className="text-white">{t('docLabResult.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -294,7 +295,7 @@ const LabResultPage: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <User className="w-3 h-3" />
-                {result.orderedBy}
+                <StaffName id={result.orderedBy} />
               </span>
             </div>
 

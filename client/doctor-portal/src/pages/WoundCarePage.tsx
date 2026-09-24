@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
+  createWound,
+  getPatients,
+  getWound,
   getApiClient,
   useProviderDirectory,
   useTranslation,
@@ -181,14 +183,8 @@ const WoundCarePage: React.FC = () => {
   // was impossible. Load the real roster instead.
   useEffect(() => {
     if (!user?.walletAddress) return;
-    fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
-    })
-      .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(body => {
-        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
-        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
-      })
+    getPatients({ limit: 100 })
+      .then(rows => setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name }))))
       .catch(() => setPatients([]));
   }, [user?.walletAddress]);
 
@@ -207,28 +203,18 @@ const WoundCarePage: React.FC = () => {
     setSaveMessage(null);
     try {
       const numeric = (v: string) => (v.trim() === '' ? null : Number(v));
-      const response = await fetch(apiUrl('/api/emergency/wound'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role || 'Nurse',
-        },
-        body: JSON.stringify({
-          patient_id: form.patientId,
-          wound_type: form.woundType,
-          location: form.location.trim(),
-          length_cm: numeric(form.lengthCm),
-          width_cm: numeric(form.widthCm),
-          depth_cm: numeric(form.depthCm),
-          exudate: form.exudate,
-          pain_level: numeric(form.painLevel),
-          tissue_types: form.tissueTypes,
-          notes: form.notes.trim() || null,
-        }),
+      await createWound({
+        patient_id: form.patientId,
+        wound_type: form.woundType,
+        location: form.location.trim(),
+        length_cm: numeric(form.lengthCm),
+        width_cm: numeric(form.widthCm),
+        depth_cm: numeric(form.depthCm),
+        exudate: form.exudate,
+        pain_level: numeric(form.painLevel),
+        tissue_types: form.tissueTypes,
+        notes: form.notes.trim() || null,
       });
-      if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docWoundCare.savedOk'));
       setForm({
         patientId: '', woundType: 'pressure-ulcer', location: '', lengthCm: '',
@@ -277,37 +263,31 @@ const WoundCarePage: React.FC = () => {
     fetchWounds();
   }, [user, t]);
 
-  // Fetch wound detail when selected
+  // Fetch wound detail when selected.
+  //
+  // Keyed on the id alone. It depended on `selectedWound` itself and then set
+  // `selectedWound` to a new object, so opening a wound refetched it in a loop
+  // until the rate limiter began refusing the page's other requests.
+  const selectedWoundId = selectedWound?.id;
   useEffect(() => {
-    if (!selectedWound || !user?.walletAddress) return;
-    const fetchWoundDetail = async () => {
-      try {
-        const response = await fetch(apiUrl(`/api/emergency/wound/${selectedWound.id}`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Nurse',
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.id) {
-            setSelectedWound({
-              ...data,
-              discoveredDate: new Date(data.discoveredDate || data.discovered_date || selectedWound.discoveredDate),
-              lastAssessment: new Date(data.lastAssessment || data.last_assessment || selectedWound.lastAssessment),
-              measurements: (data.measurements || []).map((m: WoundMeasurement & { date: string }) => ({
-                ...m,
-                date: new Date(m.date)
-              }))
-            });
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch wound detail:', err);
-      }
+    if (!selectedWoundId || !user?.walletAddress) return;
+    let cancelled = false;
+    getWound(selectedWoundId)
+      .then((detail) => {
+        const data = detail as unknown as Record<string, unknown> & { id?: string; measurements?: Array<WoundMeasurement & { date: string }> };
+        if (cancelled || !data?.id) return;
+        setSelectedWound((previous) => previous && ({
+          ...(data as unknown as typeof previous),
+          discoveredDate: new Date(String(data.discoveredDate || data.discovered_date || previous.discoveredDate)),
+          lastAssessment: new Date(String(data.lastAssessment || data.last_assessment || previous.lastAssessment)),
+          measurements: (data.measurements || []).map((m) => ({ ...m, date: new Date(m.date) })),
+        }));
+      })
+      .catch((err) => console.error('Failed to fetch wound detail:', err));
+    return () => {
+      cancelled = true;
     };
-    fetchWoundDetail();
-  }, [selectedWound?.id, user, selectedWound]);
+  }, [selectedWoundId, user?.walletAddress]);
 
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {
@@ -353,9 +333,9 @@ const WoundCarePage: React.FC = () => {
     const latest = measurements[measurements.length - 1].area;
     const previous = measurements[measurements.length - 2].area;
     const change = ((latest - previous) / previous) * 100;
-    if (change < -5) return { icon: <TrendingDown className="w-4 h-4 text-green-500" />, text: t('docWoundCare.trendImproving'), color: 'text-ok-subtle-fg' };
-    if (change > 5) return { icon: <TrendingUp className="w-4 h-4 text-red-500" />, text: t('docWoundCare.trendWorsening'), color: 'text-critical-subtle-fg' };
-    return { icon: <Minus className="w-4 h-4 text-yellow-500" />, text: t('docWoundCare.trendStable'), color: 'text-caution-subtle-fg' };
+    if (change < -5) return { icon: <TrendingDown className="w-4 h-4 text-ok" />, text: t('docWoundCare.trendImproving'), color: 'text-ok-subtle-fg' };
+    if (change > 5) return { icon: <TrendingUp className="w-4 h-4 text-critical" />, text: t('docWoundCare.trendWorsening'), color: 'text-critical-subtle-fg' };
+    return { icon: <Minus className="w-4 h-4 text-caution" />, text: t('docWoundCare.trendStable'), color: 'text-caution-subtle-fg' };
   };
 
   const filteredWounds = wounds.filter(w =>
@@ -367,12 +347,12 @@ const WoundCarePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-rose-600 to-pink-500 text-white p-6">
+      <div className="bg-gradient-to-r from-rose-700 to-pink-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Heart className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docWoundCare.title')}</h1>
         </div>
-        <p className="text-critical-fg">{t('docWoundCare.subtitle')}</p>
+        <p className="text-white">{t('docWoundCare.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -386,10 +366,10 @@ const WoundCarePage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docWoundCare.errApiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docWoundCare.errApiHint')}</p>
           </div>
         </div>
       )}
@@ -642,7 +622,7 @@ const WoundCarePage: React.FC = () => {
               <button
                 onClick={saveAssessment}
                 disabled={saving}
-                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docWoundCare.saveAssessment')}
               </button>

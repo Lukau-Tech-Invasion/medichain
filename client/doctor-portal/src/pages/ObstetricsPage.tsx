@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createOb, useTranslation } from '@medichain/shared';
+import { getPatients, createOb, useTranslation, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -161,12 +161,12 @@ const ObstetricsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white p-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Baby className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docObstetrics.title')}</h1>
-            <p className="text-pink-100">{t('docObstetrics.subtitle')}</p>
+            <p className="text-white">{t('docObstetrics.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -569,7 +569,7 @@ const ObstetricsPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(a.assessedAt)}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${fhrCategories[a.fetalMonitoring.category].color}`}>
                       {t('docObstetrics.fhrCat', { cat: a.fetalMonitoring.category })}

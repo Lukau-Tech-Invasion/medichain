@@ -230,7 +230,7 @@ export function MessagesPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -305,7 +305,7 @@ export function MessagesPage() {
               onClick={() => void sendMessage()}
               disabled={!newMessage.trim()}
               aria-label={t('messages.send')}
-              className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-5 h-5" />
             </button>
@@ -409,7 +409,7 @@ export function MessagesPage() {
 
         {filteredConversations.length === 0 && (
           <div className="text-center py-12">
-            <MessageCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <MessageCircle className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">{t('messages.noConversations')}</p>
           </div>
         )}

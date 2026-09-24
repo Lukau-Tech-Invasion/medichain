@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiUrl, getApiClient, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable } from '@medichain/shared';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -76,17 +76,12 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
     : 'other';
 }
 
-async function fetchJson(url: string, headers: HeadersInit): Promise<Record<string, unknown>> {
-  const response = await fetch(apiUrl(url), { headers });
-  return response.ok ? response.json() : {};
-}
-
 /**
  * My Records Page
- * 
+ *
  * View and download medical records stored on IPFS.
  * Records are encrypted and blockchain-verified.
- * 
+ *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyRecordsPage() {
@@ -98,11 +93,18 @@ export function MyRecordsPage() {
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedRecord, setSelectedRecord] = useState<MedicalRecord | null>(null);
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
+  // Sections whose read failed. What is shown is then a partial record, and
+  // the patient is told so rather than left to believe it is complete.
+  const [unloadedSections, setUnloadedSections] = useState<string[]>([]);
   const patient = usePatientAuthStore(state => state.patient);
+  // Records name their author by wallet address, which is the API's identity
+  // and means nothing to a patient. The directory turns it into a name, and
+  // leaves an address it cannot resolve as it is rather than guessing.
+  const { providerName } = useProviderDirectory(patient?.walletAddress);
 
   const loadRecords = useCallback(async () => {
     setIsLoading(true);
-    
+
     if (!patient) {
       setRecords([]);
       setIsLoading(false);
@@ -110,14 +112,22 @@ export function MyRecordsPage() {
     }
 
     const patientId = patient.healthId;
-    const headers = {
-      ...getApiClient().getSessionHeaders(patient.walletAddress),
-      'X-Health-Id': patientId,
-    };
-    
-    // Fetch records from API
+
     const allRecords: MedicalRecord[] = [];
-    
+    // One failed read used to reject the whole `Promise.all`, and the catch
+    // below logged it and showed an EMPTY page: a patient with forty records
+    // was told they had none because, say, the GCS read was refused. Each
+    // section now fails on its own and is named.
+    const failed: string[] = [];
+    const settle = <T,>(section: string, read: Promise<T>, empty: T): Promise<T> =>
+      read.catch((error: unknown) => {
+        console.error(`Failed to load ${section}:`, error);
+        failed.push(section);
+        return empty;
+      });
+    const documents = (kind: Parameters<typeof getPatientDocuments>[1]) =>
+      settle(kind, getPatientDocuments(patientId, kind), {} as Record<string, unknown>);
+
     try {
       const [
         labData,
@@ -139,50 +149,66 @@ export function MyRecordsPage() {
         amaData,
         gcsData,
       ] = await Promise.all([
-        getPatientLabSubmissions(patientId),
-        getPatientRecords(patientId),
-        fetchJson(`/api/clinical/patient/${patientId}/soap`, headers),
-        getPatientEPrescriptions(patientId),
-        getPatientTriageAssessments(patientId),
+        settle('lab', getPatientLabSubmissions(patientId), []),
+        settle('documents', getPatientRecords(patientId), []),
+        documents('soap'),
+        settle(
+          'prescriptions',
+          getPatientEPrescriptions(patientId),
+          { prescriptions: [] } as unknown as Awaited<ReturnType<typeof getPatientEPrescriptions>>,
+        ),
+        settle(
+          'triage',
+          getPatientTriageAssessments(patientId),
+          { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientTriageAssessments>>,
+        ),
         // A History & Physical, a progress note, a wound assessment and a
         // vitals reading are all written about the patient, and none of them
         // were reachable from this page before.
-        fetchJson(`/api/clinical/patient/${patientId}/history-physicals`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/progress-notes`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/wounds`, headers),
-        getPatientVitals(patientId),
+        documents('history-physicals'),
+        documents('progress-notes'),
+        documents('wounds'),
+        settle(
+          'vitals',
+          getPatientVitals(patientId),
+          { readings: [] } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
+        ),
         // The document a patient physically leaves hospital with. It was
         // reachable only by an id the patient has never seen, so it could be
         // written, approved by a second clinician, stored — and never read by
         // the person it was written for.
-        fetchJson(`/api/clinical/patient/${patientId}/discharges`, headers),
+        documents('discharges'),
         // The scan the patient was sent for, waited for and worried about.
         // The report was readable only by an id they have never seen, behind a
         // clinical-staff gate that refused them even with it.
-        fetchJson(`/api/clinical/patient/${patientId}/imaging`, headers),
+        documents('imaging'),
         // Where a cancer diagnosis, a margin status and a staging live — the
         // result a patient chases hardest, and the one they were least able to
         // reach: it was keyed by an accession number they have never seen.
-        fetchJson(`/api/clinical/patient/${patientId}/pathology`, headers),
+        documents('pathology'),
         // What the specialist actually said, and what they want done next. A
         // patient told "the specialist has seen your notes" and unable to read
         // the answer is being asked to take the recommendation on trust.
-        fetchJson(`/api/clinical/patient/${patientId}/consults`, headers),
+        documents('consults'),
         // The one clinical document written in the second person: what the
         // goals of this admission are and what the patient is expected to do.
-        fetchJson(`/api/clinical/patient/${patientId}/care-plans`, headers),
+        documents('care-plans'),
         // A blood group is the single most reusable fact in a record — asked
         // in every emergency department and on every pre-operative form.
-        fetchJson(`/api/clinical/patient/${patientId}/blood`, headers),
+        documents('blood'),
         // "What was done to me" is one question; it was split across five
         // endpoints, none of which the patient could reach.
-        fetchJson(`/api/clinical/patient/${patientId}/procedures`, headers),
+        documents('procedures'),
         // The document most likely to be cited against the patient later.
-        fetchJson(`/api/clinical/patient/${patientId}/ama-discharges`, headers),
+        documents('ama-discharges'),
         // Neurological observations. `POST /api/clinical/gcs` and this read had
         // both existed with no caller at either end: nothing wrote a GCS
         // assessment and nothing displayed one.
-        getPatientGCS(patientId),
+        settle(
+          'gcs',
+          getPatientGCS(patientId),
+          { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientGCS>>,
+        ),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -559,13 +585,16 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...vitalsRecords);
     } catch (error) {
+      // A read that answered with a shape this page cannot map lands here.
       console.error('Failed to fetch records:', error);
+      failed.push('records');
     }
 
     // Sort by date descending
     allRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     setRecords(allRecords);
+    setUnloadedSections(failed);
     setIsLoading(false);
   }, [patient, t]);
 
@@ -599,11 +628,11 @@ export function MyRecordsPage() {
       case 'imaging':
         return 'bg-surface-sunken text-content-secondary';
       case 'prescription':
-        return 'bg-success-50 text-success-600';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consultation':
         return 'bg-brand-subtle text-brand';
       case 'discharge_summary':
-        return 'bg-warning-50 text-warning-600';
+        return 'bg-caution-subtle text-caution';
       case 'vaccination':
         return 'bg-critical-subtle text-critical-subtle-fg';
       default:
@@ -630,7 +659,7 @@ export function MyRecordsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -665,18 +694,14 @@ export function MyRecordsPage() {
   const handleView = async (record: MedicalRecord) => {
     setIsViewing(record.id);
     try {
-      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
-        headers: {
-          ...getApiClient().getSessionHeaders(patient?.walletAddress),
-          'X-Health-Id': patient?.healthId || '',
-        },
-      });
-      if (!response.ok) {
+      let download: { blob: Blob; contentType: string };
+      try {
+        download = await downloadRecordContent(record.contentHash);
+      } catch {
         showError(t('records.viewFailed', { title: record.title }));
         return;
       }
-      const contentType = response.headers.get('content-type') || '';
-      const blob = await response.blob();
+      const { blob, contentType } = download;
 
       if (contentType.startsWith('text/') || contentType.includes('json')) {
         setPreview({
@@ -713,25 +738,20 @@ export function MyRecordsPage() {
   const handleDownload = async (record: MedicalRecord) => {
     setIsDownloading(record.id);
     try {
-      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
-        headers: {
-          ...getApiClient().getSessionHeaders(patient?.walletAddress),
-          'X-Health-Id': patient?.healthId || '',
-        },
-      });
-      
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = record.title;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        console.error('Failed to download record');
+      let blob: Blob;
+      try {
+        ({ blob } = await downloadRecordContent(record.contentHash));
+      } catch (error) {
+        console.error('Failed to download record:', error);
         showError(t('records.downloadFailed', { title: record.title }));
+        return;
       }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.title;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading record:', error);
       showError(t('records.downloadError', { title: record.title }));
@@ -743,7 +763,7 @@ export function MyRecordsPage() {
   const filteredRecords = records.filter(record => {
     const needle = searchQuery.toLowerCase();
     const hit = (value: unknown) => String(value ?? '').toLowerCase().includes(needle);
-    const matchesSearch = hit(record.title) || hit(record.provider);
+    const matchesSearch = hit(record.title) || hit(providerName(record.provider));
     const matchesFilter = filterType === 'all' || record.type === filterType;
     return matchesSearch && matchesFilter;
   });
@@ -770,6 +790,19 @@ export function MyRecordsPage() {
         <p className="text-content-muted">{t('records.subtitle')}</p>
       </div>
 
+      {unloadedSections.length > 0 && (
+        <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
+          <p>{t('records.partialLoad')}</p>
+          <button
+            type="button"
+            onClick={() => void loadRecords()}
+            className="shrink-0 font-medium underline"
+          >
+            {t('records.retry')}
+          </button>
+        </div>
+      )}
+
       {/* Search & Filter */}
       <div className="space-y-4">
         <div className="relative">
@@ -779,7 +812,7 @@ export function MyRecordsPage() {
             placeholder={t('records.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -829,7 +862,7 @@ export function MyRecordsPage() {
                 <div className="flex items-center gap-4 text-xs text-content-muted">
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    {record.provider}
+                    {providerName(record.provider)}
                   </span>
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -844,7 +877,7 @@ export function MyRecordsPage() {
 
         {filteredRecords.length === 0 && (
           <div className="text-center py-12">
-            <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
+            <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" />
             <p className="text-content-muted">{t('records.noRecords')}</p>
           </div>
         )}
@@ -885,7 +918,7 @@ export function MyRecordsPage() {
                   <User className="w-5 h-5 text-content-muted" />
                   <div>
                     <p className="text-sm text-content-muted">{t('records.provider')}</p>
-                    <p className="font-medium text-content">{selectedRecord.provider}</p>
+                    <p className="font-medium text-content">{providerName(selectedRecord.provider)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -900,7 +933,7 @@ export function MyRecordsPage() {
                   <div>
                     <p className="text-sm text-content-muted">{t('records.status')}</p>
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-warning-500'}`} />
+                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-caution'}`} />
                       <p className="font-medium text-content">
                         {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
                       </p>
@@ -924,7 +957,7 @@ export function MyRecordsPage() {
                   <div className="flex items-center gap-2">
                     <FlaskConical className="w-5 h-5 text-info" />
                     <h4 className="font-semibold text-content">{t('records.testResults')}</h4>
-                    <span className="text-xs text-success-600 flex items-center gap-1 bg-success-50 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-ok-subtle-fg flex items-center gap-1 bg-ok-subtle px-2 py-0.5 rounded-full">
                       <CheckCircle className="w-3 h-3" />
                       {t('records.doctorApproved')}
                     </span>
@@ -945,7 +978,7 @@ export function MyRecordsPage() {
                             <td className="px-4 py-2 text-right">
                               <span className={`font-medium ${
                                 result.flag === 'High' ? 'text-critical-subtle-fg' :
-                                result.flag === 'Low' ? 'text-warning-600' :
+                                result.flag === 'Low' ? 'text-caution' :
                                 'text-content'
                               }`}>
                                 {result.value} {result.unit}
@@ -953,7 +986,7 @@ export function MyRecordsPage() {
                               {result.flag && (
                                 <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
                                   result.flag === 'High' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  'bg-warning-50 text-warning-600'
+                                  'bg-caution-subtle text-caution'
                                 }`}>
                                   {result.flag}
                                 </span>
@@ -979,7 +1012,7 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => handleDownload(selectedRecord)}
                   disabled={isDownloading === selectedRecord.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {isDownloading === selectedRecord.id ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -991,7 +1024,7 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => void handleView(selectedRecord)}
                   disabled={isViewing === selectedRecord.id}
-                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {isViewing === selectedRecord.id ? (
                     <div className="w-5 h-5 border-2 border-border-strong border-t-neutral-600 rounded-full animate-spin" />

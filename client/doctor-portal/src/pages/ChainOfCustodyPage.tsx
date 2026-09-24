@@ -140,7 +140,9 @@ const ChainOfCustodyPage: React.FC = () => {
       // Map API response to interface
       const custodyItems = (custodyData.items || []) as Record<string, unknown>[];
       const mappedRecords: ChainOfCustody[] = custodyItems.map((item) => ({
-        custodyId: (item.custody_id || item.custodyId || '') as string,
+        // The row's own id first: the stored document may still carry the
+        // `COC-001` the page used to invent, which the server never issued.
+        custodyId: (item.id || item.custody_id || item.custodyId || '') as string,
         patientId: (item.patient_id || item.patientId || '') as string,
         patientName: (item.patient_name || item.patientName || '') as string,
         specimenType: (item.specimen_type || item.specimenType || 'other-fluid') as SpecimenType,
@@ -205,7 +207,8 @@ const ChainOfCustodyPage: React.FC = () => {
     if (!patient) return;
 
     const newRecord: ChainOfCustody = {
-      custodyId: `COC-${String(records.length + 1).padStart(3, '0')}`,
+      // Assigned by the server; see the read-back below.
+      custodyId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
       specimenType: newCollection.specimenType,
@@ -221,7 +224,7 @@ const ChainOfCustodyPage: React.FC = () => {
       sealNumber: newCollection.sealNumber,
       containerType: newCollection.containerType,
       quantity: newCollection.quantity,
-      currentCustodian: user?.userId || 'USER-001',
+      currentCustodian: user?.userId ?? '',
       currentLocation: newCollection.collectionLocation,
       storageConditions: newCollection.storageConditions,
       integrityVerified: newCollection.integrityVerified,
@@ -231,12 +234,14 @@ const ChainOfCustodyPage: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
+    let formId: string;
     try {
       const response = await createChainOfCustody(newRecord);
       if (!response.success) {
         setError(t('common.saveFailed'));
         return;
       }
+      formId = response.form_id;
     } catch (err) {
       console.error('Failed to save chain-of-custody record:', err);
       setError(t('common.saveFailed'));
@@ -245,7 +250,10 @@ const ChainOfCustodyPage: React.FC = () => {
       setIsLoading(false);
     }
 
-    setRecords([newRecord, ...records]);
+    // Read back rather than insert the local copy. It carried `COC-001`,
+    // numbered from this page's list, while the server stored its own id --
+    // so a transfer recorded against the new row addressed nothing.
+    void fetchData();
     setNewCollection({
       patientId: '',
       specimenType: 'blood',
@@ -264,7 +272,7 @@ const ChainOfCustodyPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    showSuccess(t('docChainOfCustody.successCreated', { id: newRecord.custodyId }));
+    showSuccess(t('docChainOfCustody.successCreated', { id: formId }));
   };
 
   const {
@@ -381,7 +389,7 @@ const ChainOfCustodyPage: React.FC = () => {
               type="button"
               onClick={() => void fetchData()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}

@@ -6,8 +6,6 @@ import {
   getEmergencyCapsuleVersions,
   publishEmergencyCapsule,
   revokeEmergencyCapsule,
-  apiUrl,
-  getApiClient,
   getApiErrorMessage,
   updatePatient,
   getGuardiansForWard,
@@ -16,6 +14,11 @@ import {
   useStepUp,
   StepUpDialog,
   useTranslation,
+  ApiClientError,
+  getPatient,
+  type PatientProfile,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
@@ -51,7 +54,8 @@ interface PatientDetails {
   organDonor: boolean;
   dnrStatus: boolean;
   lastUpdated: string;
-  registeredBy: string;
+  /** The primary doctor named on the profile, when one is recorded. */
+  primaryDoctor: string;
 }
 
 interface ClinicalDetailsForm {
@@ -85,7 +89,7 @@ export function downloadPatientSummary(patient: PatientDetails): void {
     organ_donor: patient.organDonor,
     dnr_status: patient.dnrStatus,
     record_last_updated: patient.lastUpdated,
-    registered_by: patient.registeredBy,
+    primary_doctor: patient.primaryDoctor,
   }, null, 2);
   const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
   const anchor = document.createElement('a');
@@ -421,26 +425,19 @@ function PatientDetailPage() {
       setError(null);
       
       try {
-        const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          if (response.status === 404) {
+        let data: PatientProfile & Record<string, any>;
+        try {
+          data = (await getPatient(patientId)) as PatientProfile & Record<string, any>;
+        } catch (refused) {
+          if (refused instanceof ApiClientError && refused.status === 404) {
             setPatient(null);
           } else {
-            const errorData = await response.json().catch(() => ({}));
-            setError(getApiErrorMessage(errorData, t('docPatientDetail.errorStatus', { status: response.status })));
+            const status = refused instanceof ApiClientError ? refused.status : 0;
+            setError(getApiErrorMessage(refused, t('docPatientDetail.errorStatus', { status })));
           }
           setLoading(false);
           return;
         }
-
-        const data = await response.json();
         
         // Map API response to PatientDetails interface
         setPatient({
@@ -456,7 +453,7 @@ function PatientDetailPage() {
           organDonor: data.emergency_info?.organ_donor || false,
           dnrStatus: data.emergency_info?.dnr_status || false,
           lastUpdated: data.last_updated || new Date().toISOString(),
-          registeredBy: data.primary_doctor?.provider_id || t('docPatientDetail.unknown'),
+          primaryDoctor: data.primary_doctor?.name || t('docPatientDetail.unknown'),
         });
       } catch (err) {
         console.error('Failed to fetch patient:', err);
@@ -504,7 +501,7 @@ function PatientDetailPage() {
     return (
       <div className="p-8">
         <div className="text-center py-12">
-          <User className="mx-auto mb-4 text-gray-300" size={64} />
+          <User className="mx-auto mb-4 text-content-muted" size={64} />
           <h2 className="text-xl font-semibold text-content-secondary">{t('docPatientDetail.notFound')}</h2>
           <p className="text-content-muted mt-2">{t('docPatientDetail.notExist', { id: patientId ?? '' })}</p>
           <Link to="/patients" className="mt-4 inline-block text-brand hover:underline">
@@ -639,7 +636,7 @@ function PatientDetailPage() {
           {/* Chronic Conditions */}
           <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
-              <Heart className="text-red-500" size={20} />
+              <Heart className="text-critical" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.chronicConditions')}</h3>
             </div>
             {patient.chronicConditions.length > 0 ? (
@@ -700,7 +697,7 @@ function PatientDetailPage() {
                         `new Date` dated every reading to January 1970, which is
                         wrong in a way a clinician would notice and distrust. */}
                     {typeof latestVitals.timestamp === 'number'
-                      ? new Date(latestVitals.timestamp * 1000).toLocaleString()
+                      ? formatTimestamp(latestVitals.timestamp * 1000)
                       : '—'}
                   </dd>
                 </div>
@@ -773,7 +770,7 @@ function PatientDetailPage() {
                   {capsuleCurrent
                     ? t('docPatientDetail.capsuleCurrent', {
                         version: capsuleCurrent.version,
-                        date: new Date(capsuleCurrent.created_at).toLocaleDateString(),
+                        date: formatDateOnly(capsuleCurrent.created_at),
                       })
                     : t('docPatientDetail.capsuleNone')}
                 </p>
@@ -782,7 +779,7 @@ function PatientDetailPage() {
                   type="button"
                   onClick={() => void publishCapsule()}
                   disabled={capsuleBusy}
-                  className="mb-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                  className="mb-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
                 >
                   {capsuleBusy
                     ? t('docPatientDetail.capsulePublishing')
@@ -800,7 +797,7 @@ function PatientDetailPage() {
                           <p className="text-sm text-content">
                             {t('docPatientDetail.capsuleVersionLine', {
                               version: entry.version,
-                              date: new Date(entry.created_at).toLocaleString(),
+                              date: formatTimestamp(entry.created_at),
                             })}
                           </p>
                           <p className="text-xs text-content-muted break-all">
@@ -813,7 +810,7 @@ function PatientDetailPage() {
                           {entry.revoked_at && (
                             <p className="text-xs text-content-muted mt-1">
                               {t('docPatientDetail.capsuleRevokedOn', {
-                                date: new Date(entry.revoked_at).toLocaleDateString(),
+                                date: formatDateOnly(entry.revoked_at),
                               })}
                             </p>
                           )}
@@ -823,7 +820,7 @@ function PatientDetailPage() {
                             type="button"
                             onClick={() => void revokeCapsuleVersion(entry.version)}
                             disabled={capsuleBusy}
-                            className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                            className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap"
                           >
                             {t('docPatientDetail.capsuleRevoke')}
                           </button>
@@ -857,7 +854,7 @@ function PatientDetailPage() {
                   <li key={entry.id} className="border border-border rounded-lg p-3">
                     <p className="text-sm text-content break-all">{entry.accessed_by}</p>
                     <p className="text-xs text-content-muted">
-                      {new Date(entry.accessed_at).toLocaleString()} ·{' '}
+                      {formatTimestamp(entry.accessed_at)} ·{' '}
                       {entry.reason_text || entry.reason_code}
                     </p>
                     {/* Which fields were actually revealed, not which were
@@ -921,7 +918,7 @@ function PatientDetailPage() {
                         type="button"
                         onClick={() => void endGuardianship(relationship.id)}
                         disabled={guardianBusy}
-                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px] whitespace-nowrap"
+                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
                       >
                         {t('docPatientDetail.guardianEnd')}
                       </button>
@@ -992,7 +989,7 @@ function PatientDetailPage() {
                 type="button"
                 onClick={recordGuardian}
                 disabled={guardianBusy}
-                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
               >
                 {guardianBusy ? t('docPatientDetail.guardianWorking') : t('docPatientDetail.guardianRecord')}
               </button>
@@ -1052,7 +1049,7 @@ function PatientDetailPage() {
                 type="button"
                 disabled={savingClinicalDetails}
                 onClick={() => setEditingClinicalDetails(false)}
-                className="rounded-lg border border-border px-4 py-2 text-content hover:bg-surface-sunken disabled:opacity-50"
+                className="rounded-lg border border-border px-4 py-2 text-content hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 {t('docPatientDetail.editCancel')}
               </button>
@@ -1060,7 +1057,7 @@ function PatientDetailPage() {
                 type="button"
                 disabled={savingClinicalDetails}
                 onClick={saveClinicalDetails}
-                className="rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand disabled:opacity-50"
+                className="rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 {savingClinicalDetails ? t('docPatientDetail.editSaving') : t('docPatientDetail.editSave')}
               </button>

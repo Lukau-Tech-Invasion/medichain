@@ -306,12 +306,12 @@ const IncidentReportPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-rose-700 to-red-600 text-white p-6">
+      <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <AlertOctagon className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docIncidentReport.title')}</h1>
         </div>
-        <p className="text-critical-fg">{t('docIncidentReport.subtitle')}</p>
+        <p className="text-white">{t('docIncidentReport.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -325,10 +325,10 @@ const IncidentReportPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -487,7 +487,7 @@ const IncidentReportPage: React.FC = () => {
                   <div
                     key={step}
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      formStep === step ? 'bg-critical text-critical-fg' : formStep > step ? 'bg-green-500 text-critical-fg' : 'bg-surface-sunken'
+                      formStep === step ? 'bg-critical text-critical-fg' : formStep > step ? 'bg-ok text-ok-fg' : 'bg-surface-sunken'
                     }`}
                   >
                     {formStep > step ? <CheckCircle className="w-4 h-4" /> : step}

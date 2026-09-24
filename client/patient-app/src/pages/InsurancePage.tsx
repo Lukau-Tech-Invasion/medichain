@@ -452,12 +452,12 @@ const InsurancePage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <CreditCard className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('insurance.title')}</h1>
         </div>
-        <p className="text-teal-100">{t('insurance.subtitle')}</p>
+        <p className="text-white">{t('insurance.subtitle')}</p>
       </div>
 
       {/* Summary Cards */}
@@ -643,7 +643,7 @@ const InsurancePage: React.FC = () => {
                       <button
                         onClick={() => handleVerifyCoverage(card.id)}
                         disabled={verifying === card.id}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                       >
                         {verifying === card.id ? (
                           <><RefreshCw className="w-4 h-4 animate-spin" /> {t('insurance.verifying')}</>
@@ -716,7 +716,7 @@ const InsurancePage: React.FC = () => {
               <button
                 onClick={handleLoadMoreClaims}
                 disabled={loadingMoreClaims}
-                className="w-full py-3 text-center text-sm font-medium text-content-secondary bg-surface rounded-lg shadow hover:bg-surface-sunken disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 text-center text-sm font-medium text-content-secondary bg-surface rounded-lg shadow hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-2"
               >
                 {loadingMoreClaims ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> {t('insurance.loadingMoreClaims')}</>
@@ -736,7 +736,7 @@ const InsurancePage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceTypeLabel')} <span className="text-red-500">*</span>
+                  {t('insurance.insuranceTypeLabel')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="insurance-type"
@@ -754,7 +754,7 @@ const InsurancePage: React.FC = () => {
 
               <div>
                 <label htmlFor="insurance-provider" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceProviderLabel')} <span className="text-red-500">*</span>
+                  {t('insurance.insuranceProviderLabel')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="insurance-provider"
@@ -783,7 +783,7 @@ const InsurancePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="insurance-member-id" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('insurance.memberIdLabel')} <span className="text-red-500">*</span>
+                    {t('insurance.memberIdLabel')} <span className="text-critical">*</span>
                   </label>
                   <input
                     id="insurance-member-id"
@@ -900,7 +900,7 @@ const InsurancePage: React.FC = () => {
               <button
                 onClick={() => void handleAddInsurance()}
                 disabled={savingCard || !newInsurance.providerName || !newInsurance.memberId}
-                className="w-full py-3 bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg font-medium hover:from-teal-700 hover:to-cyan-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
               >
                 {t('insurance.addInsuranceCardButton')}
               </button>
@@ -919,7 +919,7 @@ const InsurancePage: React.FC = () => {
 
             <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-4">
               {uploadingImage ? (
-                <Loader2 className="w-12 h-12 mx-auto text-teal-500 mb-3 animate-spin" />
+                <Loader2 className="w-12 h-12 mx-auto text-brand mb-3 animate-spin" />
               ) : (
                 <Upload className="w-12 h-12 mx-auto text-content-muted mb-3" />
               )}
@@ -935,13 +935,13 @@ const InsurancePage: React.FC = () => {
               />
               <label
                 htmlFor="card-upload"
-                className={`mt-4 inline-block px-4 py-2 bg-teal-600 text-white rounded-lg cursor-pointer hover:bg-teal-700 transition-colors ${uploadingImage ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`mt-4 inline-block px-4 py-2 rounded-lg transition-colors ${uploadingImage ? 'bg-disabled text-disabled-fg pointer-events-none' : 'bg-teal-700 text-white hover:bg-teal-800 cursor-pointer'}`}
               >
                 {uploadingImage ? t('insurance.uploadingButton') : t('insurance.chooseFileButton')}
               </label>
             </div>
 
-            {uploadError ? <p className="text-sm text-red-600 mb-4 text-center">{uploadError}</p> : null}
+            {uploadError ? <p className="text-sm text-critical mb-4 text-center">{uploadError}</p> : null}
 
             <div className="flex items-center justify-center gap-2 mb-4 text-gray-500">
               <span className="h-px flex-1 bg-gray-200" />
@@ -960,7 +960,7 @@ const InsurancePage: React.FC = () => {
             />
             <label
               htmlFor="card-upload-camera"
-              className={`w-full flex items-center justify-center gap-2 py-3 border border-teal-600 text-teal-600 rounded-lg font-medium hover:bg-teal-50 transition-colors cursor-pointer ${uploadingImage ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`w-full flex items-center justify-center gap-2 py-3 border rounded-lg font-medium transition-colors ${uploadingImage ? 'border-border bg-disabled text-disabled-fg pointer-events-none' : 'border-brand text-brand hover:bg-brand-subtle cursor-pointer'}`}
             >
               <Camera className="w-5 h-5" /> {t('insurance.takePhotoButton')}
             </label>
@@ -971,7 +971,7 @@ const InsurancePage: React.FC = () => {
                 setUploadError(null);
               }}
               disabled={uploadingImage}
-              className="w-full mt-3 py-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+              className="w-full mt-3 py-2 text-gray-500 hover:text-gray-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
             >
               {t('insurance.cancelButton')}
             </button>

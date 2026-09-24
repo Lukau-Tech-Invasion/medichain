@@ -9,6 +9,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -254,12 +255,12 @@ const IntubationPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-600 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Wind className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docIntubation.title')}</h1>
-            <p className="text-cyan-100">{t('docIntubation.subtitle')}</p>
+            <p className="text-white">{t('docIntubation.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -642,7 +643,7 @@ const IntubationPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{r.performedAt ? new Date(r.performedAt).toLocaleString() : ""}</p>
+                      <p className="text-sm text-content-muted">{r.performedAt ? formatTimestamp(r.performedAt) : ""}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${r.successful ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                       {r.successful ? t('docIntubation.successfulBadge') : t('docIntubation.unsuccessfulBadge')}

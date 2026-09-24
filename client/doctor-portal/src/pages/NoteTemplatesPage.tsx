@@ -11,6 +11,7 @@ import {
   Alert,
   LoadingSpinner,
   confirmDialog,
+  formatTimestamp,
 } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -311,17 +312,17 @@ const NoteTemplatesPage: React.FC = () => {
   });
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-indigo-600 to-blue-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-blue-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3">
           <FileCheck className="w-10 h-10" />
           <div>
             <h1 className="text-3xl font-bold">{t('docNoteTemplates.title')}</h1>
-            <p className="text-indigo-50 mt-1">{t('docNoteTemplates.subtitle')}</p>
+            <p className="text-white mt-1">{t('docNoteTemplates.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -336,7 +337,7 @@ const NoteTemplatesPage: React.FC = () => {
               type="button"
               onClick={() => void fetchTemplates()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}

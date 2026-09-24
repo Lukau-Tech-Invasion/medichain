@@ -1,4 +1,4 @@
-import { useTranslation } from '@medichain/shared';
+import { useTranslation, formatTimestamp } from '@medichain/shared';
 import { EmergencyInfo } from '../store';
 import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -66,7 +66,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
           </div>
           {accessId && (
             <div className="text-right text-sm">
-              <p className="opacity-75">Access ID</p>
+              <p>Access ID</p>
               <p className="font-mono">{accessId}</p>
             </div>
           )}
@@ -78,7 +78,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Blood Type - CRITICAL */}
         <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
-            <Droplets className="text-red-500" size={32} />
+            <Droplets className="text-critical" size={32} />
           </div>
           <div>
             <p className="text-sm text-content-muted">Blood Type</p>
@@ -93,7 +93,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* DNR Status */}
         <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
-            <FileHeart className={patient.dnrStatus === true ? 'text-red-500' : 'text-content-muted'} size={32} />
+            <FileHeart className={patient.dnrStatus === true ? 'text-critical' : 'text-content-muted'} size={32} />
           </div>
           <div>
             <p className="text-sm text-content-muted">DNR Status</p>
@@ -103,7 +103,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
                   ? 'bg-critical-subtle text-critical-subtle-fg'
                   : patient.dnrStatus === false
                   ? 'bg-ok-subtle text-ok-subtle-fg'
-                  : 'bg-warning-100 text-warning-800'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}
             >
               {patient.dnrStatus === true
@@ -118,7 +118,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Allergies - CRITICAL */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="text-amber-500" size={20} />
+            <AlertTriangle className="text-caution" size={20} />
             <h3 className="font-semibold text-content">Allergies</h3>
           </div>
           {patient.allergies.length > 0 ? (
@@ -140,7 +140,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Current Medications */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <Pill className="text-blue-500" size={20} />
+            <Pill className="text-brand" size={20} />
             <h3 className="font-semibold text-content">Current Medications</h3>
           </div>
           {patient.currentMedications.length > 0 ? (
@@ -160,7 +160,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Chronic Conditions */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <Heart className="text-red-500" size={20} />
+            <Heart className="text-critical" size={20} />
             <h3 className="font-semibold text-content">Chronic Conditions</h3>
           </div>
           {chronicConditions.length > 0 ? (
@@ -183,7 +183,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {showFullDetails && emergencyContacts.length > 0 && (
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
-              <Phone className="text-green-500" size={20} />
+              <Phone className="text-ok" size={20} />
               <h3 className="font-semibold text-content">Emergency Contacts</h3>
             </div>
             <div className="space-y-2">
@@ -235,7 +235,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       <div className="px-6 py-4 bg-surface-sunken border-t border-border">
         <p className="text-xs text-content-muted">
           Last updated: {patient.lastUpdated
-            ? new Date(patient.lastUpdated).toLocaleString()
+            ? formatTimestamp(patient.lastUpdated)
             : t('emergency.noneRecorded')}
         </p>
       </div>

@@ -7,6 +7,7 @@ import {
   revokeManagedDevice,
   rotateManagedDevice,
   useTranslation,
+  formatDateOnly,
 } from '@medichain/shared';
 import type { ManagedDevice, OrganizationSummary } from '@medichain/shared';
 import { Laptop, Loader2, RefreshCw, ShieldOff } from 'lucide-react';
@@ -296,7 +297,7 @@ function ManagedDevicesPage() {
         <button
           type="submit"
           disabled={enrolling}
-          className="mt-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+          className="mt-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
         >
           {enrolling ? t('docDevices.enrolling') : t('docDevices.enroll')}
         </button>
@@ -353,7 +354,7 @@ function ManagedDevicesPage() {
                     </td>
                     <td className="py-2 pr-4 text-content-muted">
                       {device.last_rotation_at
-                        ? new Date(device.next_rotation_at).toLocaleDateString()
+                        ? formatDateOnly(device.next_rotation_at)
                         : t('docDevices.neverRotated')}
                     </td>
                     <td className="py-2">
@@ -362,7 +363,7 @@ function ManagedDevicesPage() {
                           type="button"
                           onClick={() => void provisionKey(device)}
                           disabled={busyId === device.id || device.status === 'revoked'}
-                          className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:opacity-60 min-h-[28px] whitespace-nowrap inline-flex items-center gap-1"
+                          className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap inline-flex items-center gap-1"
                         >
                           <RefreshCw size={12} /> {t('docDevices.rotate')}
                         </button>
@@ -370,7 +371,7 @@ function ManagedDevicesPage() {
                           type="button"
                           onClick={() => void revoke(device, 'Revoked from device administration')}
                           disabled={busyId === device.id || device.status === 'revoked'}
-                          className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px] whitespace-nowrap inline-flex items-center gap-1"
+                          className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap inline-flex items-center gap-1"
                         >
                           <ShieldOff size={12} /> {t('docDevices.revoke')}
                         </button>

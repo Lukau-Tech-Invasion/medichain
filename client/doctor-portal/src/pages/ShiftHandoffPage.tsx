@@ -127,6 +127,9 @@ const CODE_STATUS_KEYS: Record<string, string> = {
  */
 type HandoffList = { handoffs?: ShiftHandoff[] } | ShiftHandoff[];
 
+/** How far back the History tab reaches. The API caps it at 30. */
+const HANDOFF_HISTORY_DAYS = 14;
+
 export default function ShiftHandoffPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -221,7 +224,12 @@ export default function ShiftHandoffPage() {
         setHistoryLoading(true);
         try {
           // Fetch recent handoffs (use user ID as the handoff ID reference)
-          const data = await getApiClient().get<HandoffList>(`/api/clinical/shift-handoff/${user.walletAddress}`);
+          // The history tab asked for today only, because that was all the
+          // endpoint could answer -- so yesterday's handover, the one a
+          // clinician starting a shift most needs, was never on it.
+          const data = await getApiClient().get<HandoffList>(
+            `/api/clinical/shift-handoff/${user.walletAddress}?days=${HANDOFF_HISTORY_DAYS}`
+          );
           setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
         } catch (err) {
           console.error('Failed to fetch handoff history:', err);
@@ -240,9 +248,9 @@ export default function ShiftHandoffPage() {
 
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
-      case 'critical': return 'bg-red-500 text-white';
+      case 'critical': return 'bg-red-700 text-white';
       case 'urgent': return 'bg-caution text-white';
-      default: return 'bg-green-500 text-white';
+      default: return 'bg-green-700 text-white';
     }
   };
 
@@ -376,7 +384,7 @@ export default function ShiftHandoffPage() {
         unit: handoff.unit,
         patients: patientHandoffs,
         status: 'pending',
-        created_by: user?.userId || 'unknown',
+        created_by: user?.userId,
         created_at: Math.floor(Date.now() / 1000)
       };
 
@@ -395,7 +403,7 @@ export default function ShiftHandoffPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-purple-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -403,12 +411,12 @@ export default function ShiftHandoffPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docShiftHandoff.title')}</h1>
-                <p className="text-purple-100">{t('docShiftHandoff.subtitle')}</p>
+                <p className="text-white">{t('docShiftHandoff.subtitle')}</p>
               </div>
             </div>
             <div className="text-right text-white">
               <p className="font-medium">{new Date().toLocaleDateString()}</p>
-              <p className="text-sm opacity-75">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
+              <p className="text-sm">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
             </div>
           </div>
         </div>
@@ -524,7 +532,7 @@ export default function ShiftHandoffPage() {
                       type="text"
                       value={handoff.outgoingNurse}
                       onChange={(e) => setHandoff({ ...handoff, outgoingNurse: e.target.value })}
-                      className="w-full p-2 border border-border-interactive rounded-lg bg-surface-sunken"
+                      className="w-full p-2 border border-border-interactive rounded-lg bg-surface-sunken text-content"
                       readOnly
                     />
                   </div>
@@ -717,7 +725,7 @@ export default function ShiftHandoffPage() {
                           </span>
                           <button
                             onClick={(e) => { e.stopPropagation(); removePatientFromHandoff(patient.patientId); }}
-                            className="text-red-500 hover:text-critical-subtle-fg p-1"
+                            className="text-critical hover:text-critical-subtle-fg p-1"
                           >
                             ×
                           </button>
@@ -911,8 +919,8 @@ export default function ShiftHandoffPage() {
                                 onClick={() => toggleSafetyRisk(patient.patientId, risk)}
                                 className={`px-2 py-1 rounded text-xs ${
                                   patient.safetyRisks.includes(risk)
-                                    ? 'bg-orange-500 text-white'
-                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-200'
+                                    ? 'bg-orange-700 text-white'
+                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-800'
                                 }`}
                               >
                                 {t(`docShiftHandoff.risk_${SAFETY_RISK_KEYS[risk]}`)}
@@ -965,7 +973,7 @@ export default function ShiftHandoffPage() {
 
                 {patientHandoffs.length === 0 && !showAddPatient && (
                   <div className="bg-surface rounded-lg shadow p-12 text-center">
-                    <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                    <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                     <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
                     <p className="text-content-muted mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
                     <button
@@ -984,7 +992,7 @@ export default function ShiftHandoffPage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting}
-                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center"
+                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>

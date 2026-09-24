@@ -163,7 +163,7 @@ export function NotificationsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -230,7 +230,7 @@ export function NotificationsPage() {
         >
           {t('notifications.tabNotifications', { count: notifications.length })}
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {unreadCount}
             </span>
           )}
@@ -245,7 +245,7 @@ export function NotificationsPage() {
         >
           {t('notifications.tabAlerts', { count: alerts.length })}
           {highAlerts > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {highAlerts}
             </span>
           )}
@@ -257,7 +257,7 @@ export function NotificationsPage() {
         <div className="space-y-3">
           {notifications.length === 0 ? (
             <div className="text-center py-12">
-              <Bell className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Bell className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('notifications.noNotifications')}</p>
             </div>
           ) : (
@@ -285,7 +285,7 @@ export function NotificationsPage() {
                     )}
                   </div>
                   {(n.is_read || n.read) && (
-                    <CheckCircle className="w-4 h-4 text-neutral-300 flex-shrink-0 mt-0.5" />
+                    <CheckCircle className="w-4 h-4 text-content-muted flex-shrink-0 mt-0.5" />
                   )}
                 </div>
               </div>
@@ -299,7 +299,7 @@ export function NotificationsPage() {
         <div className="space-y-3">
           {alerts.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <CheckCircle className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('notifications.noAlerts')}</p>
             </div>
           ) : (

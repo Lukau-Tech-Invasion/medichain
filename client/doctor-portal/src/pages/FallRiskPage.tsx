@@ -253,9 +253,9 @@ export default function FallRiskPage() {
 
   const getRiskBadge = (level: RiskLevel | null) => {
     switch (level) {
-      case 'high': return 'bg-red-500 text-white';
+      case 'high': return 'bg-red-700 text-white';
       case 'moderate': return 'bg-caution text-white';
-      default: return 'bg-green-500 text-white';
+      default: return 'bg-green-700 text-white';
     }
   };
 
@@ -344,7 +344,7 @@ export default function FallRiskPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-orange-700 to-amber-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -352,7 +352,7 @@ export default function FallRiskPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docFallRisk.title')}</h1>
-                <p className="text-orange-100">{t('docFallRisk.subtitle')}</p>
+                <p className="text-white">{t('docFallRisk.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -384,9 +384,9 @@ export default function FallRiskPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="p-3 rounded-full bg-surface shadow">
-                  {riskLevel === 'high' && <AlertTriangle className="h-8 w-8 text-red-500" />}
-                  {riskLevel === 'moderate' && <AlertCircle className="h-8 w-8 text-yellow-500" />}
-                  {riskLevel === 'low' && <Shield className="h-8 w-8 text-green-500" />}
+                  {riskLevel === 'high' && <AlertTriangle className="h-8 w-8 text-critical" />}
+                  {riskLevel === 'moderate' && <AlertCircle className="h-8 w-8 text-caution" />}
+                  {riskLevel === 'low' && <Shield className="h-8 w-8 text-ok" />}
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold">{t('docFallRisk.morseScoreTitle', { score: displayScore })}</h2>
@@ -447,7 +447,7 @@ export default function FallRiskPage() {
             <div className="lg:col-span-1">
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2 text-orange-500" />
+                  <User className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.selectPatientTitle')}
                 </h2>
                 <div className="relative mb-4">
@@ -483,7 +483,7 @@ export default function FallRiskPage() {
               {/* Risk Factor Medications */}
               <div className="bg-surface rounded-lg shadow p-4 mt-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <HeartPulse className="h-5 w-5 mr-2 text-orange-500" />
+                  <HeartPulse className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.highRiskMedsTitle')}
                 </h3>
                 <div className="space-y-2">
@@ -510,7 +510,7 @@ export default function FallRiskPage() {
               {/* Mobility Status */}
               <div className="bg-surface rounded-lg shadow p-4 mt-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Activity className="h-5 w-5 mr-2 text-orange-500" />
+                  <Activity className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.mobilityStatusTitle')}
                 </h3>
                 <div className="space-y-2">
@@ -540,7 +540,7 @@ export default function FallRiskPage() {
               {/* Morse Fall Scale */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
-                  <TrendingUp className="h-6 w-6 mr-2 text-orange-500" />
+                  <TrendingUp className="h-6 w-6 mr-2 text-caution" />
                   {t('docFallRisk.morseScaleTitle')}
                 </h2>
 
@@ -758,7 +758,7 @@ export default function FallRiskPage() {
               {/* Recent Fall History */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
+                  <AlertTriangle className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.recentFallTitle')}
                 </h3>
                 <label className="flex items-center space-x-2 mb-4 cursor-pointer">
@@ -811,7 +811,7 @@ export default function FallRiskPage() {
               {/* Additional Risk Factors */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <Brain className="h-5 w-5 mr-2 text-orange-500" />
+                  <Brain className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.additionalRiskFactorsTitle')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
@@ -822,7 +822,7 @@ export default function FallRiskPage() {
                       onClick={() => toggleAdditionalFactor(factor)}
                       className={`px-3 py-1 rounded-full text-sm transition-colors ${
                         additionalFactors.includes(factor)
-                          ? 'bg-orange-500 text-white'
+                          ? 'bg-orange-700 text-white'
                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
@@ -835,7 +835,7 @@ export default function FallRiskPage() {
               {/* Environmental Hazards */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <Eye className="h-5 w-5 mr-2 text-orange-500" />
+                  <Eye className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.environmentalHazardsTitle')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
@@ -846,7 +846,7 @@ export default function FallRiskPage() {
                       onClick={() => toggleEnvironmentalHazard(hazard)}
                       className={`px-3 py-1 rounded-full text-sm transition-colors ${
                         environmentalHazards.includes(hazard)
-                          ? 'bg-red-500 text-white'
+                          ? 'bg-red-700 text-white'
                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
@@ -859,7 +859,7 @@ export default function FallRiskPage() {
               {/* Interventions */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <Shield className="h-5 w-5 mr-2 text-green-500" />
+                  <Shield className="h-5 w-5 mr-2 text-ok" />
                   {t('docFallRisk.preventionInterventionsTitle')}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
@@ -898,7 +898,7 @@ export default function FallRiskPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 disabled:opacity-50 flex items-center"
+                  className="bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -920,7 +920,7 @@ export default function FallRiskPage() {
         {activeTab === 'history' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-orange-500" />
+              <History className="h-6 w-6 mr-2 text-caution" />
               {t('docFallRisk.assessmentHistoryTitle')}
             </h2>
             {assessmentHistory.length === 0 ? (

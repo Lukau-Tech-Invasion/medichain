@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
-import { getDoctorDashboard, useTranslation } from '@medichain/shared';
+import { getDoctorDashboard, useTranslation, formatDateOnly } from '@medichain/shared';
 import { 
   Users, 
   AlertTriangle, 
@@ -367,14 +367,14 @@ function DashboardPage() {
         {/* Emergency Access Card */}
         <Link
           to="/emergency"
-          className="bg-gradient-to-r from-emergency-500 to-emergency-600 rounded-xl p-6 text-white hover:from-emergency-600 hover:to-emergency-700 transition-all group"
+          className="bg-gradient-to-r from-emergency-700 to-emergency-800 rounded-xl p-6 text-white hover:from-emergency-800 hover:to-emergency-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <Siren size={20} aria-hidden="true" /> {t('docDashboard.emergencyAccessTitle')}
               </h3>
-              <p className="text-emergency-100 text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.emergencyAccessDesc')}
               </p>
             </div>
@@ -385,14 +385,14 @@ function DashboardPage() {
         {/* Register Patient Card */}
         <Link
           to="/register"
-          className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl p-6 text-white hover:from-primary-600 hover:to-primary-700 transition-all group"
+          className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-xl p-6 text-white hover:from-primary-800 hover:to-primary-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <UserPlus size={20} aria-hidden="true" /> {t('docDashboard.registerPatientTitle')}
               </h3>
-              <p className="text-brand-fg text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.registerPatientDesc')}
               </p>
             </div>
@@ -403,14 +403,14 @@ function DashboardPage() {
         {/* Triage Card */}
         <Link
           to="/triage"
-          className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl p-6 text-white hover:from-amber-600 hover:to-orange-600 transition-all group"
+          className="bg-gradient-to-r from-amber-700 to-orange-800 rounded-xl p-6 text-white hover:from-amber-800 hover:to-orange-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <ClipboardList size={20} aria-hidden="true" /> {t('docDashboard.triageAssessmentTitle')}
               </h3>
-              <p className="text-amber-100 text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.triageAssessmentDesc')}
               </p>
             </div>
@@ -494,7 +494,7 @@ function DashboardPage() {
                   <p className="text-sm text-caution-subtle-fg">{lab.test_name}</p>
                 </div>
                 <span className="text-xs text-caution-subtle-fg">
-                  {new Date(lab.submitted_at).toLocaleDateString()}
+                  {formatDateOnly(lab.submitted_at)}
                 </span>
               </Link>
             ))}
@@ -509,14 +509,14 @@ function DashboardPage() {
 
       {/* Recent Code Blues */}
       {dashboard?.recent_code_blues && dashboard.recent_code_blues.length > 0 && (
-        <div className="bg-notice-subtle border border-notice rounded-xl mb-8 dark:bg-slate-800 dark:border-slate-600">
-          <div className="p-4 border-b border-notice dark:border-slate-600">
+        <div className="bg-notice-subtle border border-notice rounded-xl mb-8">
+          <div className="p-4 border-b border-notice">
             <div className="flex items-center gap-2">
               <Heart className="text-notice-subtle-fg dark:text-blue-400" size={20} />
               <h2 className="font-semibold text-notice-subtle-fg dark:text-blue-300">{t('docDashboard.recentCodeBluesTitle')}</h2>
             </div>
           </div>
-          <div className="divide-y divide-blue-200 dark:divide-slate-600">
+          <div className="divide-y divide-blue-200">
             {dashboard.recent_code_blues.slice(0, 3).map((code) => {
               // Handle both API field names (event_id/code_leader) and legacy names (record_id/team_leader)
               const recordId = code.event_id || code.record_id || 'unknown';
@@ -541,7 +541,7 @@ function DashboardPage() {
                   return 'bg-caution-subtle text-caution-subtle-fg dark:bg-yellow-900/30 dark:text-yellow-300';
                 if (outcomeValue === 'ROSC') 
                   return 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900/30 dark:text-green-300';
-                return 'bg-surface-sunken text-content-secondary dark:bg-gray-700 dark:text-gray-300';
+                return 'bg-surface-sunken text-content-secondary';
               })();
 
               return (
@@ -550,11 +550,11 @@ function DashboardPage() {
                   className="flex items-center justify-between p-4"
                 >
                   <div>
-                    <p className="font-medium text-content dark:text-white">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
-                    <p className="text-sm text-content-muted dark:text-gray-400">{t('docDashboard.locationLabel', { value: code.location })}</p>
+                    <p className="font-medium text-content">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
+                    <p className="text-sm text-content-muted">{t('docDashboard.locationLabel', { value: code.location })}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-content-muted dark:text-gray-400">{teamLeader || t('docDashboard.noTeamLeader')}</p>
+                    <p className="text-sm text-content-muted">{teamLeader || t('docDashboard.noTeamLeader')}</p>
                     <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
                       {outcomeDisplay}
                     </p>
@@ -625,7 +625,7 @@ function DashboardPage() {
 
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+            <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
             <p className="text-content-muted">{t('docDashboard.loadingPatients')}</p>
           </div>
         ) : dashboard?.patients?.list && dashboard.patients.list.length > 0 ? (
@@ -680,14 +680,14 @@ function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                   <Clock size={14} />
-                  <span>{patient.lastAccessed ? new Date(patient.lastAccessed).toLocaleDateString() : t('docDashboard.naLabel')}</span>
+                  <span>{patient.lastAccessed ? formatDateOnly(patient.lastAccessed) : t('docDashboard.naLabel')}</span>
                 </div>
               </Link>
             ))}
           </div>
         ) : (
           <div className="p-8 text-center text-content-muted">
-            <Users className="mx-auto mb-3 text-gray-300" size={48} />
+            <Users className="mx-auto mb-3 text-content-muted" size={48} />
             <p>{t('docDashboard.noPatientsFound')}</p>
             <p className="text-sm mt-1">{t('docDashboard.noPatientsHint')}</p>
           </div>

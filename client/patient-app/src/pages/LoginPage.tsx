@@ -108,7 +108,7 @@ export function LoginPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-success-50 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-brand-subtle via-app-bg to-app-bg flex flex-col">
       {/* Header */}
       <header className="p-6">
         <div className="flex items-center justify-between gap-2">
@@ -130,7 +130,9 @@ export function LoginPage() {
             <h1 className="text-3xl font-bold text-content mb-2">
               {t('auth.welcomeTitle')}
             </h1>
-            <p className="text-content-muted">
+            {/* Secondary, not muted: this sits on the brand-tinted gradient,
+                where muted text measured 4.08:1 in dark mode. */}
+            <p className="text-content-secondary">
               {t('auth.welcomeSubtitle')}
             </p>
           </div>
@@ -173,7 +175,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -272,16 +274,16 @@ export function LoginPage() {
 
           {/* Demo Wallet Section (Development Only) */}
           {IS_DEVELOPMENT && (
-            <div className="mt-6 bg-warning-50 border border-warning-200 rounded-xl p-4">
+            <div className="mt-6 bg-caution-subtle border border-caution-subtle-fg/30 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Zap className="w-5 h-5 text-warning-600" />
-                <span className="font-medium text-warning-800">{t('auth.devMode')}</span>
+                <Zap className="w-5 h-5 text-caution" />
+                <span className="font-medium text-caution-subtle-fg">{t('auth.devMode')}</span>
               </div>
               
               {!showDemoForm ? (
                 <button
                   onClick={() => setShowDemoForm(true)}
-                  className="w-full bg-warning-100 text-warning-800 py-2 px-4 rounded-lg font-medium hover:bg-warning-200 transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-caution-subtle text-caution-subtle-fg py-2 px-4 rounded-lg font-medium hover:bg-caution-subtle/80 transition-colors flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-4 h-4" />
                   {t('auth.createDemoWallet')}
@@ -293,19 +295,19 @@ export function LoginPage() {
                     value={demoName}
                     onChange={(e) => setDemoName(e.target.value)}
                     placeholder={t('auth.demoNamePlaceholder')}
-                    className="block w-full px-4 py-2 border border-warning-200 rounded-lg focus:ring-2 focus:ring-warning-500 focus:border-warning-500 transition-colors"
+                    className="block w-full px-4 py-2 border border-caution-subtle-fg/30 rounded-lg focus:ring-2 focus:ring-caution focus:border-caution transition-colors"
                   />
                   <div className="flex gap-2">
                     <button
                       onClick={handleDemoLogin}
                       disabled={isLoading}
-                      className="flex-1 bg-warning-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-warning-600 transition-colors disabled:opacity-50"
+                      className="flex-1 bg-caution text-caution-fg py-2 px-4 rounded-lg font-medium hover:bg-caution/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {isLoading ? t('auth.creating') : t('auth.createAndLogin')}
                     </button>
                     <button
                       onClick={() => setShowDemoForm(false)}
-                      className="px-4 py-2 border border-warning-200 text-warning-700 rounded-lg hover:bg-warning-100 transition-colors"
+                      className="px-4 py-2 border border-caution-subtle-fg/30 text-caution-subtle-fg rounded-lg hover:bg-caution-subtle/80 transition-colors"
                     >
                       {t('common.cancel')}
                     </button>
@@ -316,7 +318,7 @@ export function LoginPage() {
           )}
 
           {/* Security notice */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-content-muted text-sm">
+          <div className="mt-6 flex items-center justify-center gap-2 text-content-secondary text-sm">
             <Shield className="w-4 h-4" />
             <span>{t('auth.securityNotice')}</span>
           </div>
@@ -324,7 +326,7 @@ export function LoginPage() {
       </main>
 
       {/* Footer */}
-      <footer className="p-6 text-center text-sm text-content-muted">
+      <footer className="p-6 text-center text-sm text-content-secondary">
         © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
       </footer>
     </div>

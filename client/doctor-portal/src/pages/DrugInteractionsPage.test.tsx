@@ -19,7 +19,8 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   apiUrl: (path: string) => path,
 }));
 
-// The page calls fetch directly for /api/drugs and /api/interactions/check.
+// The page reaches /api/drugs and /api/interactions/check through the typed
+// client, which calls fetch underneath.
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
@@ -46,17 +47,30 @@ describe('DrugInteractionsPage', () => {
     mockFetch.mockImplementation((input: RequestInfo | URL) => {
       const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
       if (url.includes('/api/interactions/check')) {
+        // The server's own shape: `clinical::DrugInteraction` serialises its
+        // enums PascalCase, and a patientless check files nothing.
         return json({
+          success: true,
+          check_id: null,
+          patient_id: null,
+          medications_checked: 2,
+          interactions_found: 1,
+          has_critical: true,
           interactions: [
             {
               drug_a: 'Warfarin',
               drug_b: 'Aspirin',
-              severity: 'major',
+              severity: 'Major',
               description: 'Major interaction between Warfarin and Aspirin',
               clinical_effects: 'Increased bleeding risk',
               management: 'Monitor INR closely',
+              evidence_level: 'Established',
+              source: 'Test formulary',
             },
           ],
+          allergy_alerts: [],
+          screened: { drug_drug: true, allergies: false, conditions: false },
+          recommendation: 'MAJOR interactions - Consider alternatives',
         });
       }
       if (url.includes('/api/drugs')) {

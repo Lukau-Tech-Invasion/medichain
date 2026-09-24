@@ -2,15 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
 import {
   addSoapAddendum,
-  apiUrl,
-  getApiClient,
+  createSoapNote,
   getApiErrorMessage,
   getSoapNote,
-  useTranslation,
   Input,
-  Textarea,
-  useValidatedForm,
+  listPatientSoapNotes,
   soapNoteSchema,
+  Textarea,
+  useTranslation,
+  useValidatedForm,
+  formatDateOnly,
 } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
@@ -187,45 +188,14 @@ function SOAPNotePage() {
     }
   }, [isAuthenticated, navigate]);
   
-  // Fetch patients from API
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchPatients = async () => {
-      try {
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (!response.ok) {
-          console.error('Failed to fetch patients:', response.status);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients:', err);
-      } finally {
-      }
-    };
-
-    fetchPatients();
-  }, [user]);
-
   // Fetch existing SOAP notes when patient is selected
   useEffect(() => {
     if (!user || !selectedPatientId) return;
     const fetchNotes = async () => {
       try {
-        const response = await fetch(apiUrl(`/api/clinical/patient/${selectedPatientId}/soap`), {
-          headers: {
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setExistingNotes(Array.isArray(data) ? data : (data.notes || data.soap_notes || []));
-        }
+        setExistingNotes(
+          (await listPatientSoapNotes(selectedPatientId)) as unknown as typeof existingNotes
+        );
       } catch (err) {
         console.error('Failed to fetch SOAP notes:', err);
       }
@@ -403,26 +373,10 @@ function SOAPNotePage() {
         },
       };
 
-      const response = await fetch(apiUrl('/api/clinical/soap'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData: unknown;
-        try {
-          errorData = JSON.parse(errorText) as unknown;
-        } catch {
-          throw new Error(errorText || t('docSOAPNote.errorCreateFailed'));
-        }
-        throw new Error(getApiErrorMessage(errorData, t('docSOAPNote.errorCreateFailed')));
+      try {
+        await createSoapNote(requestBody);
+      } catch (err) {
+        throw new Error(getApiErrorMessage(err, t('docSOAPNote.errorCreateFailed')));
       }
 
       setSuccess(true);
@@ -504,7 +458,7 @@ function SOAPNotePage() {
                     <div>
                       <p className="font-medium text-content text-sm">{note.subjective?.chief_complaint || t('docSOAPNote.noChiefComplaint')}</p>
                       <p className="text-xs text-content-muted mt-0.5">
-                        {note.encounter_type} &bull; {note.created_at ? new Date(note.created_at * 1000).toLocaleDateString() : t('docSOAPNote.notAvailable')}
+                        {note.encounter_type} &bull; {note.created_at ? formatDateOnly(note.created_at * 1000) : t('docSOAPNote.notAvailable')}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -557,7 +511,7 @@ function SOAPNotePage() {
                         type="button"
                         onClick={() => void submitAddendum(note.note_id)}
                         disabled={addendumBusy}
-                        className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[44px]"
+                        className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
                       >
                         {addendumBusy
                           ? t('docSOAPNote.addendumSaving')
@@ -1159,7 +1113,7 @@ function SOAPNotePage() {
           <button
             type="submit"
             disabled={submitting || success}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
           >
             {submitting ? (
               <>

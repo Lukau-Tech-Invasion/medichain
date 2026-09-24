@@ -352,7 +352,7 @@ const RadiologyPage: React.FC = () => {
               type="button"
               onClick={() => void fetchData()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -399,13 +399,13 @@ const RadiologyPage: React.FC = () => {
                   placeholder={t('docRadiology.searchPlaceholder')}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="flex-1 bg-gray-800 border border-gray-600 rounded p-2 text-white"
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
                 />
               </div>
               <select
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2"
+                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
               >
                 <option value="all">{t('docRadiology.allStatus')}</option>
                 <option value="pending">{t('docRadiology.filterPending')}</option>
@@ -416,7 +416,7 @@ const RadiologyPage: React.FC = () => {
               <select
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2"
+                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
               >
                 <option value="all">{t('docRadiology.allModalities')}</option>
                 <option value="CT">CT</option>
@@ -442,7 +442,7 @@ const RadiologyPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {filteredStudies.map(s => (
-                    <tr key={s.id} className={`border-b border-gray-700 hover:bg-gray-750 ${s.priority === 'stat' ? 'bg-red-900/20' : ''}`}>
+                    <tr key={s.id} className={`border-b border-gray-700 hover:bg-gray-700 ${s.priority === 'stat' ? 'bg-red-900/20' : ''}`}>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
                           // Each background carries its own paired foreground.
@@ -476,7 +476,16 @@ const RadiologyPage: React.FC = () => {
                       </td>
                       <td className="p-3 text-center">
                         <div className="flex gap-2 justify-center">
-                          <button className="p-2 bg-gray-700 rounded hover:bg-gray-600" title={t('docRadiology.viewImages')}>
+                          {/* No image store exists: a study row carries a count of
+                              images and no reference to any of them. The control
+                              says so instead of answering a click with nothing. */}
+                          <button
+                            type="button"
+                            disabled
+                            className="p-2 bg-gray-700 rounded opacity-60 cursor-not-allowed"
+                            title={t('docRadiology.imagesNotStored')}
+                            aria-label={t('docRadiology.imagesNotStored')}
+                          >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
@@ -525,7 +534,7 @@ const RadiologyPage: React.FC = () => {
                   id="rad-technique"
                   value={technique}
                   onChange={e => setTechnique(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-16"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-16 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.techniquePlaceholder')}
                 />
               </div>
@@ -536,7 +545,7 @@ const RadiologyPage: React.FC = () => {
                   type="text"
                   value={comparison}
                   onChange={e => setComparison(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.comparisonPlaceholder')}
                 />
               </div>
@@ -546,7 +555,7 @@ const RadiologyPage: React.FC = () => {
                   id="rad-findings"
                   value={findings}
                   onChange={e => setFindings(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-32"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-32 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.findingsPlaceholder')}
                 />
               </div>
@@ -556,7 +565,7 @@ const RadiologyPage: React.FC = () => {
                   id="rad-impression"
                   value={impression}
                   onChange={e => setImpression(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-20"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-20 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.impressionPlaceholder')}
                 />
               </div>
@@ -581,7 +590,7 @@ const RadiologyPage: React.FC = () => {
                       type="text"
                       value={communicatedTo}
                       onChange={e => setCommunicatedTo(e.target.value)}
-                      className="w-full bg-gray-800 border border-red-500 rounded p-2"
+                      className="w-full bg-gray-800 border border-red-500 rounded p-2 text-white placeholder:text-gray-400"
                       placeholder={t('docRadiology.communicatedPlaceholder')}
                     />
                   </div>
@@ -593,14 +602,14 @@ const RadiologyPage: React.FC = () => {
                 <button
                   onClick={() => saveReport(false)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.savePreliminary')}
                 </button>
                 <button
                   onClick={() => saveReport(true)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.finalizeReport')}
                 </button>
@@ -629,7 +638,7 @@ const RadiologyPage: React.FC = () => {
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   placeholder={t('docRadiology.searchPriorsPlaceholder')}
-                  className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white"
+                  className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white placeholder:text-gray-400"
                 />
               </div>
             </div>

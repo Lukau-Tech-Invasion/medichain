@@ -8,7 +8,6 @@ import {
   AlertCircle,
   PenTool,
   Search,
-  Eye,
   Edit,
   FileSignature,
   Heart
@@ -24,6 +23,7 @@ import {
   Input,
   useValidatedForm,
   deathCertificateSchema,
+  formatDateOnly,
 } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 
@@ -479,9 +479,6 @@ const DeathCertificatePage: React.FC = () => {
                     <p className="text-sm text-content-muted mt-1">{t('docDeathCertificate.certificateIdLabel', { id: cert.id })}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.viewTitle')}>
-                      <Eye className="w-5 h-5 text-content-muted" />
-                    </button>
                     {cert.status !== 'filed' && (
                       <button
                         type="button"
@@ -501,11 +498,11 @@ const DeathCertificatePage: React.FC = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblDateOfBirth')}</p>
-                    <p className="font-medium">{new Date(cert.dateOfBirth).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateOnly(cert.dateOfBirth)}</p>
                   </div>
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblDateOfDeath')}</p>
-                    <p className="font-medium">{new Date(cert.dateOfDeath).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateOnly(cert.dateOfDeath)}</p>
                   </div>
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblTimeOfDeath')}</p>
@@ -1131,7 +1128,7 @@ const DeathCertificatePage: React.FC = () => {
                    {...clickable(() => setCertifierInfo({ ...certifierInfo, signature: 'DIGITAL_SIG_' + Date.now() }))}>
                 {certifierInfo.signature ? (
                   <div className="flex flex-col items-center">
-                    <CheckCircle className="w-8 h-8 text-green-500 mb-2" />
+                    <CheckCircle className="w-8 h-8 text-ok mb-2" />
                     <p className="text-ok-subtle-fg font-medium">{t('docDeathCertificate.signedDigitallyLabel')}</p>
                     <p className="text-xs text-content-muted mt-1">{certifierInfo.signature}</p>
                   </div>

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Siren, AlertTriangle, X } from 'lucide-react';
 
+import { formatTimestamp } from '@medichain/shared';
 export interface CriticalAlert {
   id: string;
   type: 'critical_value' | 'code_blue' | 'allergy' | 'drug_interaction' | 'medication_due';
@@ -123,7 +124,7 @@ export default function CriticalAlertsBanner({
             </div>
             <div className="flex items-center gap-3">
               <span className="text-critical-fg text-xs">
-                {new Date(alert.timestamp).toLocaleTimeString()}
+                {formatTimestamp(alert.timestamp, { timeStyle: 'short' })}
               </span>
               {onAcknowledge && (
                 <button

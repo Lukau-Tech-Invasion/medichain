@@ -334,7 +334,7 @@ function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           {saved ? (
             <>
@@ -473,7 +473,7 @@ function SettingsPage() {
               <div className="mt-6 pt-6 border-t border-border">
                 <h4 className="font-medium text-content mb-3">{t('docSettings.accountStatus')}</h4>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center px-3 py-1 bg-success-100 text-success-700 text-sm font-medium rounded-full">
+                  <span className="inline-flex items-center px-3 py-1 bg-ok-subtle text-ok-subtle-fg text-sm font-medium rounded-full">
                     {t('docSettings.active')}
                   </span>
                   <span className="text-sm text-content-muted">
@@ -620,7 +620,7 @@ function SettingsPage() {
                       type="button"
                       onClick={beginMfaEnrollment}
                       disabled={mfaBusy}
-                      className="mt-3 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+                      className="mt-3 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
                     >
                       {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaSetUp')}
                     </button>
@@ -659,7 +659,7 @@ function SettingsPage() {
                         type="button"
                         onClick={confirmMfaEnrollment}
                         disabled={mfaBusy || !mfaCode.trim()}
-                        className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:opacity-60 min-h-[24px]"
+                        className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
                       >
                         {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaConfirm')}
                       </button>
@@ -689,7 +689,7 @@ function SettingsPage() {
                         type="button"
                         onClick={turnOffMfa}
                         disabled={mfaBusy || !mfaCode.trim()}
-                        className="px-4 py-2 rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[24px]"
+                        className="px-4 py-2 rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
                       >
                         {mfaBusy ? t('docSettings.mfaWorking') : t('docSettings.mfaTurnOff')}
                       </button>
@@ -752,16 +752,16 @@ function SettingsPage() {
 
           {/* Display Tab */}
           {activeTab === 'display' && (
-            <div className="dark:text-white">
-              <h2 className="text-lg font-semibold text-content dark:text-white mb-6">{t('docSettings.displayPrefs')}</h2>
+            <div className=" text-content">
+              <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.displayPrefs')}</h2>
 
               <div className="space-y-6">
-                <div className="py-3 border-b border-border dark:border-gray-700">
+                <div className="py-3 border-b border-border">
                   <div className="flex items-start gap-3 mb-3">
-                    <Palette className="text-content-muted dark:text-gray-300 mt-1" size={20} />
+                    <Palette className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-content dark:text-white">{t('docSettings.theme')}</h4>
-                      <p className="text-sm text-content-muted dark:text-gray-400">{t('docSettings.themeDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.theme')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.themeDesc')}</p>
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -779,7 +779,7 @@ function SettingsPage() {
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                           settings.display.theme === value
                             ? 'bg-brand-subtle dark:bg-primary-900 text-brand-subtle-fg dark:text-primary-300 border-2 border-brand'
-                            : 'bg-surface-sunken dark:bg-gray-700 text-content-secondary dark:text-gray-300 border-2 border-transparent hover:bg-surface-sunken dark:hover:bg-gray-600'
+                            : 'bg-surface-sunken text-content-secondary border-2 border-transparent hover:bg-surface-sunken'
                         }`}
                       >
                         <Icon size={18} />

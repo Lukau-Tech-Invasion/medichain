@@ -14,7 +14,7 @@ import {
   Pill,
   type LucideIcon,
 } from 'lucide-react';
-import { FEATURES, apiUrl, useTranslation } from '@medichain/shared';
+import { FEATURES, getDemoCredentials, useTranslation, type DemoCredential as DemoCredentialRow } from '@medichain/shared';
 
 /**
  * Demo sign-in shortcut.
@@ -37,12 +37,7 @@ import { FEATURES, apiUrl, useTranslation } from '@medichain/shared';
  * else it 403s, the list is empty, and the whole section is not rendered. No
  * fixture password ships in the bundle.
  */
-interface DemoCredential {
-  login_id: string;
-  password: string;
-  name: string;
-  role: Role;
-}
+type DemoCredential = DemoCredentialRow & { role: Role };
 
 const ROLE_ICONS: Record<string, LucideIcon> = {
   Admin: ShieldCheck,
@@ -112,13 +107,9 @@ function LoginPage() {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch(apiUrl('/api/auth/demo-credentials'), {
-          headers: { Accept: 'application/json' },
-        });
-        if (!resp.ok) return;
-        const body = await resp.json();
-        if (!cancelled && Array.isArray(body?.credentials)) {
-          setDemoAccounts(body.credentials);
+        const { credentials } = await getDemoCredentials();
+        if (!cancelled && Array.isArray(credentials)) {
+          setDemoAccounts(credentials as DemoCredential[]);
         }
       } catch {
         // No demo accounts available; the section stays hidden.
@@ -145,7 +136,7 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary-700 to-primary-900 flex items-center justify-center p-4">
       <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
         <div className="bg-brand p-8 text-center">
@@ -153,7 +144,7 @@ function LoginPage() {
             <Shield className="text-white" size={40} />
           </div>
           <h1 className="text-2xl font-bold text-white">MediChain</h1>
-          <p className="text-brand-fg mt-1">{t('docLogin.portal')}</p>
+          <p className="text-white mt-1">{t('docLogin.portal')}</p>
         </div>
 
         {/* Staff sign-in. No wallet address is entered here by design: a
@@ -210,7 +201,7 @@ function LoginPage() {
           <button
             type="submit"
             disabled={isLoading || !identifier.trim() || !password}
-            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
+            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
           >
             {isLoading ? (
               <>
@@ -238,7 +229,7 @@ function LoginPage() {
               type="button"
               onClick={handleExtensionLogin}
               disabled={isLoading}
-              className="mt-3 w-full py-3 bg-surface border-2 border-brand text-brand-subtle-fg font-semibold rounded-lg hover:bg-brand-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="mt-3 w-full py-3 bg-surface border-2 border-brand text-brand-subtle-fg font-semibold rounded-lg hover:bg-brand-subtle transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Shield size={18} aria-hidden="true" />
               {t('docLogin.loginExtension')}
@@ -273,7 +264,7 @@ function LoginPage() {
                     key={account.login_id}
                     onClick={() => handleDemoUserLogin(account)}
                     disabled={isLoading}
-                    className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${ROLE_STYLES[account.role] ?? ROLE_STYLES.Doctor}`}
+                    className={`p-2 border rounded-lg transition-all text-left disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${ROLE_STYLES[account.role] ?? ROLE_STYLES.Doctor}`}
                   >
                     <Icon className="mx-auto mb-1 text-content-secondary" size={22} aria-hidden="true" />
                     <span className="block text-xs font-semibold text-content-secondary truncate text-center">{account.name.split(' ').slice(-1)[0]}</span>

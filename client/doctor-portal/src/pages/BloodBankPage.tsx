@@ -233,7 +233,8 @@ const BloodBankPage: React.FC = () => {
     if (!patient) return;
 
     const newOrder: BloodOrder = {
-      orderId: `BB-${String(orders.length + 1).padStart(3, '0')}`,
+      // Assigned by the server, which ignores any id sent.
+      orderId: '',
       patientId: selectedPatientId,
       patientName: patient.full_name,
       // The patient's blood type, which is already on file — this was
@@ -257,12 +258,12 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string };
+      const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
         // The server assigns the order ID and signed orderer.  Reload those
         // durable values instead of displaying the browser's provisional one.
         await fetchBloodBankOrders();
-        showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: newOrder.orderId }));
+        showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: response.id ?? '' }));
         setSelectedPatientId('');
         setProduct('RBC');
         setUnits(1);
@@ -430,18 +431,18 @@ const BloodBankPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-red-600 to-pink-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-red-700 to-pink-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Droplets className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docBloodBank.title')}</h1>
-              <p className="text-critical-fg">{t('docBloodBank.subtitle')}</p>
+              <p className="text-white">{t('docBloodBank.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-critical-fg">{t('docBloodBank.loggedInAs')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docBloodBank.loggedInAs')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
@@ -456,7 +457,7 @@ const BloodBankPage: React.FC = () => {
               type="button"
               onClick={() => void fetchBloodBankOrders()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}

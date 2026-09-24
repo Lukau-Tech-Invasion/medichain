@@ -312,7 +312,7 @@ export default function BurnPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -320,13 +320,13 @@ export default function BurnPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docBurn.title')}</h1>
-                <p className="text-orange-100">{t('docBurn.subtitle')}</p>
+                <p className="text-white">{t('docBurn.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                <p className="text-sm">{selectedPatient.patient_id}</p>
               </div>
             )}
           </div>
@@ -371,10 +371,10 @@ export default function BurnPage() {
               </div>
               <div className="text-right">
                 {inhalationInjury.suspected && (
-                  <span className="px-3 py-1 bg-red-500 text-white rounded-full text-sm mr-2">{t('docBurn.inhalationInjuryBadge')}</span>
+                  <span className="px-3 py-1 bg-red-700 text-white rounded-full text-sm mr-2">{t('docBurn.inhalationInjuryBadge')}</span>
                 )}
                 {circumferential.present && (
-                  <span className="px-3 py-1 bg-purple-500 text-white rounded-full text-sm">{t('docBurn.circumferentialBadge')}</span>
+                  <span className="px-3 py-1 bg-purple-700 text-white rounded-full text-sm">{t('docBurn.circumferentialBadge')}</span>
                 )}
               </div>
             </div>
@@ -426,7 +426,7 @@ export default function BurnPage() {
             <div className="lg:col-span-1 space-y-4">
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2 text-red-500" />
+                  <User className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.selectPatientTitle')}
                 </h2>
                 <div className="relative mb-4">
@@ -462,7 +462,7 @@ export default function BurnPage() {
               {/* Injury Details */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-red-500" />
+                  <Clock className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.injuryDetailsTitle')}
                 </h3>
                 <div className="space-y-3">
@@ -582,7 +582,7 @@ export default function BurnPage() {
               {/* Rule of 9s Body Map */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
-                  <Ruler className="h-6 w-6 mr-2 text-red-500" />
+                  <Ruler className="h-6 w-6 mr-2 text-critical" />
                   {t('docBurn.lundBrowderTitle')}
                 </h2>
                 <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
@@ -629,7 +629,7 @@ export default function BurnPage() {
                               disabled={ageBand === null}
                               value={currentPercent}
                               onChange={(e) => updateBurnArea(region.id, 'percentOfRegion', Math.min(100, Math.max(0, Number(e.target.value))))}
-                              className="w-full p-1 border border-border-interactive rounded text-sm disabled:bg-surface-sunken"
+                              className="w-full p-1 border border-border-interactive rounded text-sm"
                             />
                             {contribution !== null && currentPercent > 0 && (
                               <p className="text-xs text-content-muted mt-1">
@@ -674,7 +674,7 @@ export default function BurnPage() {
               {/* Inhalation Injury */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
+                  <AlertTriangle className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.inhalationInjuryTitle')}
                 </h3>
                 <label htmlFor="burn-inhalation-suspected" className="flex items-center space-x-2 mb-4 min-h-[24px] py-1 cursor-pointer">
@@ -752,7 +752,7 @@ export default function BurnPage() {
                             onClick={() => toggleCircumferentialLocation(loc)}
                             className={`px-3 py-1 rounded-full text-sm ${
                               circumferential.locations.includes(loc)
-                                ? 'bg-purple-500 text-white'
+                                ? 'bg-purple-700 text-white'
                                 : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                             }`}
                           >
@@ -834,7 +834,7 @@ export default function BurnPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:opacity-50 flex items-center"
+                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -856,7 +856,7 @@ export default function BurnPage() {
         {activeTab === 'calculator' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <Calculator className="h-6 w-6 mr-2 text-red-500" />
+              <Calculator className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.parklandCalcTitle')}
             </h2>
 
@@ -999,7 +999,7 @@ export default function BurnPage() {
         {activeTab === 'history' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-red-500" />
+              <History className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.assessmentHistoryTitle')}
             </h2>
             <div className="text-center py-12 text-content-muted">

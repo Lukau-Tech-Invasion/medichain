@@ -5,6 +5,7 @@ import {
   useTranslation,
   updateDemographics,
   replaceEmergencyContacts,
+  formatTimestamp,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -405,7 +406,7 @@ export function MyProfilePage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
@@ -467,11 +468,11 @@ export function MyProfilePage() {
       {/* Error Message */}
       {error && (
         <div className="error-card flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-danger-500" />
+          <AlertTriangle className="w-5 h-5 text-critical" />
           <span>{error}</span>
           <button 
             onClick={() => setError(null)}
-            className="ml-auto text-danger-500 hover:text-danger-600"
+            className="ml-auto text-critical hover:text-critical/80"
           >
             <X className="w-4 h-4" />
           </button>
@@ -584,14 +585,14 @@ export function MyProfilePage() {
           {/* Chronic Conditions */}
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <Activity className="w-5 h-5 text-warning-500" />
+              <Activity className="w-5 h-5 text-caution" />
               <span className="font-medium text-content">{t('profile.chronicConditions')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {profile?.chronicConditions.map((condition, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1.5 bg-warning-50 text-warning-700 rounded-full text-sm font-medium"
+                  className="px-3 py-1.5 bg-caution-subtle text-caution-subtle-fg rounded-full text-sm font-medium"
                 >
                   {condition}
                 </span>
@@ -608,10 +609,10 @@ export function MyProfilePage() {
               <span className="text-sm font-medium text-content-secondary">{t('profile.organDonor')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 profile?.organDonor === true
-                  ? 'bg-success-100 text-success-700'
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
                   : profile?.organDonor === false
                   ? 'bg-surface-sunken text-content-muted'
-                  : 'bg-warning-100 text-warning-800'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
                 {profile?.organDonor === true
                   ? t('common.yes')
@@ -627,7 +628,7 @@ export function MyProfilePage() {
                   ? 'bg-critical-subtle text-critical-subtle-fg'
                   : profile?.dnrStatus === false
                   ? 'bg-surface-sunken text-content-muted'
-                  : 'bg-warning-100 text-warning-800'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
                 {profile?.dnrStatus === true
                   ? t('common.yes')
@@ -718,7 +719,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveDetails}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -853,7 +854,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveAddress}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -1005,7 +1006,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveInsurance}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -1110,7 +1111,7 @@ export function MyProfilePage() {
                   onChange={(e) =>
                     setNewContact({ ...newContact, canMakeMedicalDecisions: e.target.checked })
                   }
-                  className="w-4 h-4 rounded border-border-interactive text-success-600 focus:ring-success-500"
+                  className="w-4 h-4 rounded border-border-interactive text-ok focus:ring-success-500"
                 />
                 {t('profile.canMakeDecisions')}
               </label>
@@ -1125,7 +1126,7 @@ export function MyProfilePage() {
                 <button
                   onClick={handleAddContact}
                   disabled={isSaving || !newContact.name || !newContact.phone || !newContact.relationship}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1169,7 +1170,7 @@ export function MyProfilePage() {
                   onClick={() => handleRemoveContact(idx)}
                   disabled={isSaving}
                   aria-label={`${t('profile.removeContact')} ${contact.name}`}
-                  className="p-2 text-danger-500 hover:bg-danger-50 rounded-xl transition-colors disabled:opacity-50"
+                  className="p-2 text-critical hover:bg-critical-subtle rounded-xl transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

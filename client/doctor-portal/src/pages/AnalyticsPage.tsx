@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiClient, useTranslation, RestrictedSection } from '@medichain/shared';
+import {
+  ApiClientError,
+  formatTimestamp,
+  getAppointmentAnalytics,
+  getDashboardMetrics,
+  getOperationalMetrics,
+  getQualityMetrics,
+  listCriticalValues,
+  RestrictedSection,
+  useTranslation,
+  type AppointmentAnalyticsResponse,
+  type DashboardMetricsResponse,
+  type OperationalMetrics as SharedOperationalMetrics,
+  type QualityMetricsResponse,
+} from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, Calendar, Loader2 } from 'lucide-react';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
@@ -31,18 +45,7 @@ interface PatientFlowData {
 }
 
 /** Counted operational indicators, from `/api/platform/analytics/operations`. */
-interface OperationalMetrics {
-  measured: {
-    radiology_queue: number;
-    lab_pending: number;
-    lab_turnaround_median_minutes: number | null;
-    unacknowledged_critical_values: number;
-    patient_satisfaction_average: number | null;
-    patient_satisfaction_responses: number;
-  };
-  /** Indicators this deployment has no model for. Named, never estimated. */
-  unmeasured: string[];
-}
+type OperationalMetrics = SharedOperationalMetrics;
 
 /** One outstanding event on the activity table. */
 interface RecentEvent {
@@ -90,7 +93,8 @@ function MetricRow({
           {urgent && <AlertCircle className="w-4 h-4 text-critical-subtle-fg shrink-0" aria-hidden="true" />}
           {label}
         </span>
-        {hint && <span className="block text-xs text-content-muted">{hint}</span>}
+        {/* The row's own foreground: muted grey on the dark-mode tint measured 3.59:1. */}
+        {hint && <span className={`block text-xs ${value == null ? 'text-content-muted' : text}`}>{hint}</span>}
       </span>
       <span className={`text-lg font-bold ${text}`}>{value ?? '—'}</span>
     </div>
@@ -194,23 +198,16 @@ const AnalyticsPage: React.FC = () => {
         const { startDate, endDate } = getDateRange(selectedPeriod);
         
         // Fetch dashboard metrics from API with proper date parameters
-        const response = await fetch(apiUrl(`/api/platform/analytics/dashboard?start_date=${startDate}&end_date=${endDate}`), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor'
-          }
-        });
-
-        if (response.status === 403) {
-          throw new Error('Analytics are available to administrators only.');
+        let data: DashboardMetricsResponse;
+        try {
+          data = await getDashboardMetrics({ start_date: startDate, end_date: endDate });
+        } catch (dashboardError) {
+          throw new Error(
+            dashboardError instanceof ApiClientError && dashboardError.status === 403
+              ? 'Analytics are available to administrators only.'
+              : 'Unable to load analytics right now.'
+          );
         }
-
-        if (!response.ok) {
-          throw new Error('Unable to load analytics right now.');
-        }
-
-        const data = await response.json();
 
         // The dashboard endpoint returns a flat `metrics` object. This block
         // used to read `data.patient_metrics.total_patients`,
@@ -220,35 +217,17 @@ const AnalyticsPage: React.FC = () => {
         // reported a hospital with 0 patients, 0 appointments and 0 alerts. A
         // wrong field name renders as a confident zero, not as an error, which
         // is why this survived: the tiles looked like working tiles.
-        const dash = (data.metrics ?? {}) as Record<string, number | string | null>;
+        const dash = (data.metrics ?? {}) as unknown as Record<string, number | string | null>;
 
         // Appointment figures come from the endpoint that actually aggregates
         // them, scoped to the selected period.
-        const apptResponse = await fetch(
-          apiUrl(`/api/platform/analytics/appointments?start_date=${startDate}&end_date=${endDate}`),
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              ...getApiClient().getSessionHeaders(user.walletAddress),
-              'X-Provider-Role': user.role || 'Doctor',
-            },
-          }
-        );
-        const appts = apptResponse.ok
-          ? ((await apptResponse.json()) as Record<string, number | null>)
-          : {};
+        const appts: Partial<AppointmentAnalyticsResponse> = await getAppointmentAnalytics({
+          start_date: startDate,
+          end_date: endDate,
+        }).catch(() => ({}));
 
         // Clinical-alert counts live on the quality endpoint.
-        const qualityResponse = await fetch(apiUrl('/api/platform/analytics/quality'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        const quality = qualityResponse.ok
-          ? ((await qualityResponse.json()) as Record<string, number | null>)
-          : {};
+        const quality: Partial<QualityMetricsResponse> = await getQualityMetrics().catch(() => ({}));
 
         const telehealthPct = appts.telehealth_percentage;
 
@@ -318,40 +297,24 @@ const AnalyticsPage: React.FC = () => {
         // aggregated over the selected period, and a failure here must not
         // blank the metrics above.
         try {
-          const opsResponse = await fetch(apiUrl('/api/platform/analytics/operations'), {
-            headers: {
-              'Content-Type': 'application/json',
-              ...getApiClient().getSessionHeaders(user.walletAddress),
-            },
-          });
-          if (opsResponse.ok) {
-            setOperations((await opsResponse.json()) as OperationalMetrics);
-          }
+          setOperations(await getOperationalMetrics());
 
-          const criticalResponse = await fetch(apiUrl('/api/platform/list/critical-values'), {
-            headers: {
-              'Content-Type': 'application/json',
-              ...getApiClient().getSessionHeaders(user.walletAddress),
-            },
-          });
-          if (criticalResponse.ok) {
-            const rows = (await criticalResponse.json()) as Array<Record<string, unknown>>;
-            setRecentEvents(
-              (Array.isArray(rows) ? rows : [])
-                .filter((row) => !row.acknowledged_at)
-                .slice(0, 10)
-                .map((row) => {
-                  const at = (row.notified_at ?? row.created_at) as string | undefined;
-                  const when = at ? new Date(at) : null;
-                  return {
-                    id: String(row.id ?? ''),
-                    when: when && !Number.isNaN(when.getTime()) ? when.toLocaleString() : '—',
-                    label: `${row.test_name ?? 'Critical value'}: ${row.value ?? ''}${row.unit ? ` ${row.unit}` : ''}`,
-                    patientId: String(row.patient_id ?? '—'),
-                  };
-                })
-            );
-          }
+          const { items } = await listCriticalValues();
+          const rows = items as Array<Record<string, unknown>>;
+          setRecentEvents(
+            rows
+              .filter((row) => !row.acknowledged_at)
+              .slice(0, 10)
+              .map((row) => {
+                const at = (row.notified_at ?? row.created_at) as string | undefined;
+                return {
+                  id: String(row.id ?? ''),
+                  when: formatTimestamp(at) || '—',
+                  label: `${row.test_name ?? 'Critical value'}: ${row.value ?? ''}${row.unit ? ` ${row.unit}` : ''}`,
+                  patientId: String(row.patient_id ?? '—'),
+                };
+              })
+          );
         } catch (opsError) {
           console.error('Error fetching operational metrics:', opsError);
         }
@@ -466,12 +429,12 @@ const AnalyticsPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-purple-700 to-pink-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3">
           <BarChart3 className="w-10 h-10" />
           <div>
             <h1 className="text-3xl font-bold">{t('docAnalytics.title')}</h1>
-            <p className="text-purple-50 mt-1">{t('docAnalytics.subtitle')}</p>
+            <p className="text-white mt-1">{t('docAnalytics.subtitle')}</p>
           </div>
         </div>
       </div>

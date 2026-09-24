@@ -32,6 +32,7 @@ import {
   reviewLabResult,
   useTranslation,
   type LabResultSubmission,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import {
@@ -156,7 +157,7 @@ function LabReviewPage() {
           type="button"
           onClick={() => void load()}
           disabled={isLoading}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-sunken hover:bg-surface-sunken text-content-secondary text-sm disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-sunken hover:bg-surface-sunken text-content-secondary text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
           {t('common.refresh')}
@@ -175,7 +176,7 @@ function LabReviewPage() {
       {loadError && (
         <div
           role="alert"
-          className="mb-4 p-3 rounded-lg bg-red-900/40 border border-red-700 text-red-200 text-sm"
+          className="mb-4 p-3 rounded-lg bg-red-900/40 border border-red-700 text-white text-sm"
         >
           {t('lab.review.loadFailed')} — {loadError}
         </div>
@@ -228,7 +229,7 @@ function LabReviewPage() {
                   </div>
                   <p className="text-content-muted text-xs">
                     {t('lab.review.submittedAt', {
-                      when: new Date(s.submitted_at).toLocaleString(),
+                      when: formatTimestamp(s.submitted_at),
                     })}
                   </p>
                 </div>
@@ -301,7 +302,7 @@ function LabReviewPage() {
                     type="button"
                     onClick={() => void decide(s, 'approve')}
                     disabled={busy || isOwnSubmission}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ok hover:bg-ok text-ok-fg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ok hover:bg-ok text-ok-fg text-sm font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     {busy ? (
                       <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
@@ -326,7 +327,7 @@ function LabReviewPage() {
                     type="button"
                     onClick={() => void decide(s, 'reject')}
                     disabled={busy || isOwnSubmission}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-critical hover:bg-critical text-critical-fg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-critical hover:bg-critical text-critical-fg text-sm font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <XCircle className="w-4 h-4" aria-hidden="true" />
                     {t('lab.review.reject')}

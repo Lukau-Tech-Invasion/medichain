@@ -132,6 +132,16 @@ jobs:
             - name: No client calls a native browser dialog
               run: python scripts/check-native-dialogs.py
 
+            # `new Date(undefined).toLocaleString()` prints "Invalid Date";
+            # 83 sites did it before they moved onto the shared formatters.
+            - name: No client formats a timestamp without the shared guard
+              run: python scripts/check-invalid-date.py
+
+            # A class naming a colour the Tailwind config does not define
+            # compiles to nothing: the element keeps whatever it inherits.
+            - name: No client uses a colour class the theme does not define
+              run: python scripts/check-undefined-colour-classes.py
+
             # The idempotency middleware requires a header on every
             # authenticated mutation and was landed without migrating one
             # caller. The breakage surfaced four separate times, days apart,

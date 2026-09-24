@@ -10,6 +10,7 @@ import {
   Textarea,
   useValidatedForm,
   autopsyReportSchema,
+  formatDateOnly,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -29,8 +30,9 @@ type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'undeterm
 type AutopsyStatus = 'pending' | 'in-progress' | 'completed' | 'reviewed';
 
 interface ExternalExamination {
-  bodyLength: number;
-  bodyWeight: number;
+  /** Absent when nobody measured it -- not 0 cm (CLAUDE.md rule 12). */
+  bodyLength?: number;
+  bodyWeight?: number;
   bodyHabitus: string;
   rigorMortis: string;
   livorMortis: string;
@@ -61,6 +63,34 @@ interface HistologyResult {
   organ: string;
   findings: string;
   diagnosis: string;
+}
+
+/** A number the clinician typed, or nothing when the box was left empty. */
+function measured(value: string): number | undefined {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * A stored report, as the registry list returns it.
+ *
+ * The list serves the stored document flattened onto its row, and the create
+ * request stores the id as `report_id` and the patient as `patient_id` -- not
+ * the `autopsyId` / `patientId` this page reads. Cast straight to the page's
+ * shape, the first real report made `a.autopsyId.toLowerCase()` throw.
+ */
+function toAutopsy(row: Record<string, unknown>): AutopsyReport {
+  const report = row as unknown as AutopsyReport;
+  const text = (key: string) => (typeof row[key] === 'string' ? (row[key] as string) : '');
+  return {
+    ...report,
+    autopsyId: text('autopsyId') || text('report_id') || text('id'),
+    patientId: text('patientId') || text('patient_id') || text('owner_id'),
+    patientName: text('patientName'),
+    causeOfDeath: text('causeOfDeath'),
+    externalExam: report.externalExam ?? ({} as ExternalExamination),
+    internalExam: report.internalExam ?? ({} as InternalExamination),
+  };
 }
 
 interface AutopsyReport {
@@ -160,7 +190,7 @@ const AutopsyPage: React.FC = () => {
       setError(null);
       const response = await listAutopsy();
       if (response.success && response.reports?.items) {
-        setAutopsies(response.reports.items as AutopsyReport[]);
+        setAutopsies((response.reports.items as Record<string, unknown>[]).map(toAutopsy));
       }
     } catch (err) {
       console.error('Error fetching autopsy reports:', err);
@@ -194,7 +224,9 @@ const AutopsyPage: React.FC = () => {
     if (!patient) return;
 
     const autopsy: AutopsyReport = {
-      autopsyId: `AUT-${String(autopsies.length + 1).padStart(3, '0')}`,
+      // The server assigns the id; this used to send `AUT-001` numbered from
+      // the length of this page's own list, which every session repeated.
+      autopsyId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
       autopsyType: newAutopsy.autopsyType,
@@ -202,14 +234,14 @@ const AutopsyPage: React.FC = () => {
       dateOfAutopsy: newAutopsy.dateOfAutopsy,
       timeOfAutopsy: newAutopsy.timeOfAutopsy,
       location: newAutopsy.location,
-      prosector: user?.userId || 'USER-001',
+      prosector: user?.userId ?? '',
       assistant: newAutopsy.assistant || undefined,
       status: 'in-progress',
       circumstances: newAutopsy.circumstances,
       clinicalHistory: newAutopsy.clinicalHistory,
       externalExam: {
-        bodyLength: parseFloat(newAutopsy.bodyLength) || 0,
-        bodyWeight: parseFloat(newAutopsy.bodyWeight) || 0,
+        bodyLength: measured(newAutopsy.bodyLength),
+        bodyWeight: measured(newAutopsy.bodyWeight),
         bodyHabitus: newAutopsy.bodyHabitus,
         rigorMortis: newAutopsy.rigorMortis,
         livorMortis: newAutopsy.livorMortis,
@@ -242,9 +274,11 @@ const AutopsyPage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await createAutopsyReport(autopsy) as { success?: boolean; error?: string };
+      const response = await createAutopsyReport(autopsy) as { success?: boolean; error?: string; id?: string };
       if (response.success) {
-        setAutopsies([autopsy, ...autopsies]);
+        // Read back rather than insert the local copy: the stored report
+        // carries the id the server assigned.
+        void fetchAutopsies();
         setNewAutopsy({
           patientId: '',
           autopsyType: 'hospital',
@@ -283,7 +317,7 @@ const AutopsyPage: React.FC = () => {
           notes: '',
         });
         setActiveTab('reports');
-        showSuccess(t('docAutopsy.successCreated'));
+        showSuccess(t('docAutopsy.successCreated', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docAutopsy.errorCreateFailed'));
       }
@@ -318,7 +352,7 @@ const AutopsyPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   const filteredAutopsies = autopsies.filter((a) => {
@@ -334,9 +368,9 @@ const AutopsyPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-orange-600 to-red-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-orange-700 to-red-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docAutopsy.title')}</h1>
-        <p className="text-orange-100">{t('docAutopsy.subtitle')}</p>
+        <p className="text-white">{t('docAutopsy.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -349,7 +383,7 @@ const AutopsyPage: React.FC = () => {
               type="button"
               onClick={() => void fetchAutopsies()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -490,10 +524,10 @@ const AutopsyPage: React.FC = () => {
                     <p className="text-sm font-semibold text-notice-subtle-fg mb-3">{t('docAutopsy.externalExamTitle')}</p>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblLength')}</span> {t('docAutopsy.cmSuffix', { value: autopsy.externalExam.bodyLength })}
+                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblLength')}</span> {autopsy.externalExam.bodyLength != null ? t('docAutopsy.cmSuffix', { value: autopsy.externalExam.bodyLength }) : t('docAutopsy.notMeasured')}
                       </div>
                       <div>
-                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblWeight')}</span> {t('docAutopsy.kgSuffix', { value: autopsy.externalExam.bodyWeight })}
+                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblWeight')}</span> {autopsy.externalExam.bodyWeight != null ? t('docAutopsy.kgSuffix', { value: autopsy.externalExam.bodyWeight }) : t('docAutopsy.notMeasured')}
                       </div>
                       <div className="col-span-2">
                         <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblHabitus')}</span> {autopsy.externalExam.bodyHabitus}
@@ -1022,7 +1056,7 @@ const AutopsyPage: React.FC = () => {
 
             <button
               onClick={handleCreateAutopsy}
-              className="w-full bg-orange-600 hover:bg-orange-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-orange-700 hover:bg-orange-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
               {t('docAutopsy.createBtn')}

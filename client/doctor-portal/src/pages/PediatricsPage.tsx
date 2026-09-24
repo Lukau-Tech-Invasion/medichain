@@ -333,12 +333,12 @@ const PediatricsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-sky-500 to-blue-400 text-white p-6">
+      <div className="bg-gradient-to-r from-sky-700 to-blue-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Baby className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docPediatrics.title')}</h1>
         </div>
-        <p className="text-sky-100">{t('docPediatrics.subtitle')}</p>
+        <p className="text-white">{t('docPediatrics.subtitle')}</p>
       </div>
 
       {/* Stats */}
@@ -635,7 +635,7 @@ const PediatricsPage: React.FC = () => {
                       <h3 className="font-semibold">{patient.name}</h3>
                       <p className="text-sm text-content-muted">{getAgeDisplay(patient.ageMonths)}</p>
                     </div>
-                    <TrendingUp className="w-5 h-5 text-green-500" />
+                    <TrendingUp className="w-5 h-5 text-ok" />
                   </div>
                   <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-content-muted">
                     <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>

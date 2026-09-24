@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
   createIntakeOutput,
   getApiClient,
   listIntakeOutput,
@@ -27,6 +26,7 @@ import {
   Input,
   useValidatedForm,
   intakeOutputSchema,
+  getPatients,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -193,15 +193,12 @@ const IntakeOutputPage: React.FC = () => {
         // The ward list is the patient roster with each patient's fluid record
         // folded in — not the raw io_records rows, which carry no patient name
         // and left every card rendering the untranslated `{{mrn}}` placeholder.
-        const [rosterResponse, records] = await Promise.all([
-          fetch(apiUrl('/api/patients?limit=100'), {
-            headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
-          }).then(r => (r.ok ? r.json() : { data: [] })),
+        const [roster, records] = await Promise.all([
+          getPatients({ limit: 100 }),
           listIntakeOutput().catch(() => []),
         ]);
 
         const rows = (Array.isArray(records) ? records : []) as unknown as IoRecordRow[];
-        const roster = (rosterResponse.data || []) as Array<{ patient_id: string; full_name: string }>;
         setPatients(roster.map(person => toPatientIO(person, rows)));
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
@@ -393,12 +390,12 @@ const IntakeOutputPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Droplets className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docIntakeOutput.title')}</h1>
         </div>
-        <p className="text-cyan-100">{t('docIntakeOutput.subtitle')}</p>
+        <p className="text-white">{t('docIntakeOutput.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -412,10 +409,10 @@ const IntakeOutputPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -643,7 +640,7 @@ const IntakeOutputPage: React.FC = () => {
                 onClick={handleAddEntry}
                 disabled={isSubmitting}
                 className={`w-full py-3 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
-                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-800'
+                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-700 hover:bg-cyan-800'
                 }`}
               >
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}

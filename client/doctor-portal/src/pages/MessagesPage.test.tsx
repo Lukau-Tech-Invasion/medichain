@@ -83,15 +83,24 @@ describe('MessagesPage', () => {
       isAuthenticated: true,
     });
     vi.mocked(shared.markMessageRead).mockResolvedValue({ success: true, message_id: 'msg-1', read: true });
+    // A real JSON response: the page now goes through the typed client, which
+    // reads the content type before it parses anything.
+    const json = (body: unknown) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(body),
+      });
     mockFetch.mockImplementation((url, init) => {
       if (String(url).includes('/api/messages/send') && init?.method === 'POST') {
         replySent = true;
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+        return json({ success: true });
       }
       if (String(url).includes('/api/messages')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(responseMessages(replySent)) });
+        return json(responseMessages(replySent));
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      return json({});
     });
   });
 

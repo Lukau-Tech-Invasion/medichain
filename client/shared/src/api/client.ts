@@ -50,6 +50,15 @@ export interface ApiClientConfig {
 export interface RequestOptions {
   /** Skip retry logic for this request */
   noRetry?: boolean;
+  /**
+   * Return the response body as the server sent it.
+   *
+   * By default a body carrying an `items`/`records`/`orders`/... array is
+   * unwrapped to that array. That is wrong for a response that carries two
+   * lists side by side -- the patient imaging read returns `orders` AND
+   * `reports`, and unwrapping would silently discard every report.
+   */
+  keepEnvelope?: boolean;
   /** Custom timeout for this request */
   timeout?: number;
   /** Additional headers */
@@ -141,6 +150,11 @@ function extractApiError(
  * can be found.
  */
 export function getApiErrorMessage(data: unknown, fallback = 'Request failed'): string {
+  // What the typed client throws already carries the server's message. Parsing
+  // it as a response body found no `error` field and returned the fallback, so
+  // every page that caught a typed-client error showed "Request failed" in
+  // place of the reason the server gave.
+  if (data instanceof ApiClientError) return data.message || fallback;
   return parseErrorBody(data).message ?? fallback;
 }
 
@@ -481,7 +495,9 @@ export class ApiClient {
     method: string,
     path: string,
     body?: unknown,
-    options?: RequestOptions
+    options?: RequestOptions,
+    /** Internal: return the bytes rather than parsing JSON (see `getBlob`). */
+    asBlob = false
   ): Promise<T> {
     const maxAttempts = options?.noRetry ? 1 : this.maxRetries + 1;
     const timeout = options?.timeout ?? this.timeout;
@@ -501,7 +517,10 @@ export class ApiClient {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const result = await this.executeRequest<T>(method, path, body, timeout, requestHeaders);
+        const result = await this.executeRequest<T>(method, path, body, timeout, requestHeaders, {
+          keepEnvelope: options?.keepEnvelope,
+          blob: asBlob,
+        });
         
         // Success - mark as connected
         this.setConnectionStatus(true);
@@ -564,7 +583,8 @@ export class ApiClient {
     path: string,
     body?: unknown,
     timeout?: number,
-    extraHeaders?: Record<string, string>
+    extraHeaders?: Record<string, string>,
+    mode: { keepEnvelope?: boolean; blob?: boolean } = {}
   ): Promise<T> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
@@ -645,6 +665,17 @@ export class ApiClient {
 
       // Handle non-JSON responses
       const contentType = response.headers.get('content-type');
+
+      if (mode.blob) {
+        if (!response.ok) {
+          const errorBody = contentType?.includes('application/json')
+            ? await response.json().catch(() => ({}))
+            : {};
+          const { message, code } = extractApiError(errorBody, response.status);
+          throw new ApiClientError(message, code, response.status);
+        }
+        return { blob: await response.blob(), contentType: contentType ?? '' } as T;
+      }
       if (!contentType?.includes('application/json')) {
         if (!response.ok) {
           throw new ApiClientError(
@@ -666,7 +697,7 @@ export class ApiClient {
       }
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
-      if (data && typeof data === 'object' && !Array.isArray(data)) {
+      if (!mode.keepEnvelope && data && typeof data === 'object' && !Array.isArray(data)) {
         const wrappedData = data as Record<string, unknown>;
         if (Array.isArray(wrappedData.items)) return wrappedData.items as T;
         if (Array.isArray(wrappedData.records)) return wrappedData.records as T;
@@ -738,6 +769,28 @@ export class ApiClient {
 
   async post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>('POST', path, body, options);
+  }
+
+  /**
+   * A binary download: the bytes, and the type the server declared for them.
+   *
+   * Same session, refresh and retry handling as every other read. A document
+   * download written as a raw `fetch` had none of it, so a patient whose access
+   * token had expired got "download failed" rather than a refreshed session.
+   */
+  async getBlob(path: string, options?: RequestOptions): Promise<{ blob: Blob; contentType: string }> {
+    const blobOptions: RequestOptions = { ...options, headers: { Accept: '*/*', ...options?.headers } };
+    return this.request('GET', path, undefined, blobOptions, true);
+  }
+
+  /** A mutation whose answer is a file -- a rendered PDF. See {@link getBlob}. */
+  async postBlob(
+    path: string,
+    body: unknown,
+    options?: RequestOptions
+  ): Promise<{ blob: Blob; contentType: string }> {
+    const blobOptions: RequestOptions = { ...options, headers: { Accept: '*/*', ...options?.headers } };
+    return this.request('POST', path, body, blobOptions, true);
   }
 
   async put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {

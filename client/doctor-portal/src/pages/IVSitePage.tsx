@@ -9,6 +9,8 @@ import {
   useScoringCatalog,
   vipScorePreview,
   dwellDueAt,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
@@ -430,7 +432,7 @@ export default function IVSitePage() {
         record_id: `IVSITE-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
         sites: ivSites,
-        documented_by: user?.userId || 'unknown',
+        documented_by: user?.userId,
         documented_at: Math.floor(Date.now() / 1000)
       };
 
@@ -452,7 +454,7 @@ export default function IVSitePage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-blue-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -460,7 +462,7 @@ export default function IVSitePage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docIVSite.title')}</h1>
-                <p className="text-blue-100">{t('docIVSite.subtitle')}</p>
+                <p className="text-white">{t('docIVSite.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -657,14 +659,14 @@ export default function IVSitePage() {
                                   <div className="mt-2 ml-8 grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.insertedLabel')}</span>
-                                      <span className="ml-2">{new Date(site.insertedAt).toLocaleDateString()}</span>
+                                      <span className="ml-2">{formatDateOnly(site.insertedAt)}</span>
                                       <span className="ml-2 text-content-muted">{t('docIVSite.daysActiveSuffix', { days: daysActive })}</span>
                                     </div>
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.expiresLabel')}</span>
                                       <span className={`ml-2 ${expired ? 'text-critical-subtle-fg font-bold' : expiringSoon ? 'text-caution-subtle-fg font-bold' : ''}`}>
                                         {site.expiresAt
-                                          ? new Date(site.expiresAt).toLocaleDateString()
+                                          ? formatDateOnly(site.expiresAt)
                                           : '—'}
                                       </span>
                                     </div>
@@ -679,7 +681,7 @@ export default function IVSitePage() {
                                   </div>
                                   {latestAssessment && (
                                     <div className="mt-3 ml-8 p-2 bg-surface rounded text-sm">
-                                      <p className="text-content-muted text-xs">{t('docIVSite.latestAssessmentLine', { date: new Date(latestAssessment.assessedAt).toLocaleString() })}</p>
+                                      <p className="text-content-muted text-xs">{t('docIVSite.latestAssessmentLine', { date: formatTimestamp(latestAssessment.assessedAt) })}</p>
                                       <div className="flex items-center space-x-2 mt-1">
                                         <span className={`px-2 py-0.5 rounded text-xs ${
                                           latestAssessment.phlebitisScore === 0 ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -752,7 +754,7 @@ export default function IVSitePage() {
                                     <span className="text-sm">{site.gauge} {catheterTypes[site.catheterType]}</span>
                                   </div>
                                   <div className="text-sm">
-                                    {t('docIVSite.discontinuedLine', { date: new Date(site.discontinuedAt!).toLocaleDateString() })}
+                                    {t('docIVSite.discontinuedLine', { date: formatDateOnly(site.discontinuedAt!) })}
                                     <span className="ml-2 text-content-muted">{t('docIVSite.discontinuedReasonSuffix', { reason: site.discontinuedReason || '' })}</span>
                                   </div>
                                 </div>
@@ -915,8 +917,8 @@ export default function IVSitePage() {
                                       onClick={() => toggleCondition(key)}
                                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                         newAssessment.conditions?.includes(key)
-                                          ? severity === 'normal' ? 'bg-ok text-critical-fg' :
-                                            severity === 'warning' ? 'bg-caution text-critical-fg' :
+                                          ? severity === 'normal' ? 'bg-ok text-ok-fg' :
+                                            severity === 'warning' ? 'bg-caution text-caution-fg' :
                                             'bg-critical text-critical-fg'
                                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                       }`}
@@ -1115,7 +1117,7 @@ export default function IVSitePage() {
                                   <div key={a.id} className="p-3 bg-surface rounded border text-sm">
                                     <div className="flex justify-between items-start">
                                       <div>
-                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: new Date(a.assessedAt).toLocaleString(), by: a.assessedBy })}</p>
+                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: formatTimestamp(a.assessedAt), by: a.assessedBy })}</p>
                                         <div className="flex flex-wrap gap-1 mt-1">
                                           {a.conditions.map(c => (
                                             <span key={c} className={`text-xs px-2 py-0.5 rounded ${
@@ -1153,7 +1155,7 @@ export default function IVSitePage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting || ivSites.length === 0}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -1171,7 +1173,7 @@ export default function IVSitePage() {
               </div>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
-                <Syringe className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <Syringe className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                 <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docIVSite.selectPatientEmptyTitle')}</h2>
                 <p className="text-content-muted">{t('docIVSite.selectPatientEmptyMessage')}</p>
               </div>

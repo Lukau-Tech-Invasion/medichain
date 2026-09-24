@@ -159,8 +159,8 @@ export async function labTechJourney(
       expectedMean: 5.0,
       expectedSD: 0.2,
       unit: 'mmol/L',
-      result: 'fail',
-      violatedRules: ['1_3s'],
+      // No `result` or `violatedRules`: the page no longer judges the run.
+      // 6.4 against 5.0 +/- 0.2 is 7 SD out, and the server must say so.
       performedBy: lab.userId,
       correctiveAction: 'Recalibrated, control repeated',
       comments: `Journey harness ${stamp}`,
@@ -183,12 +183,19 @@ export async function labTechJourney(
       `register held ${Array.isArray(rows) ? rows.length : 'a non-array'} row(s)`
     );
     j.record(
+      'the register shows the run as failed, as the server judged it',
+      (mine as { result?: string } | undefined)?.result === 'fail',
+      `the list used to read a \`result\` nobody stored and showed every run, failed ones included, as a pass. ` +
+        `Row: ${JSON.stringify(mine ?? null).slice(0, 200)}`
+    );
+    j.record(
       'the Westgard rule that failed, and what was done about it, survive',
       JSON.stringify(rows ?? null).includes('1_3s') && JSON.stringify(rows ?? null).includes('Recalibrated'),
       `a failed control with no rule and no corrective action is an audit finding, not a QC record`
     );
   } else {
     j.skip('the QC run is on the register', 'the QC run was refused');
+    j.skip('the register shows the run as failed, as the server judged it', 'the QC run was refused');
     j.skip('the Westgard rule that failed, and what was done about it, survive', 'the QC run was refused');
   }
 

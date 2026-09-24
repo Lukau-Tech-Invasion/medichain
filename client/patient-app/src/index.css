@@ -48,7 +48,9 @@
   input:disabled,
   textarea:disabled,
   select:disabled {
-    @apply bg-surface-sunken text-content-muted;
+    /* opacity-100: Chrome's own stylesheet fades a disabled <select> to 70%,
+       which took the Burn chart's muted text from 5.3:1 to 3.06:1. */
+    @apply bg-surface-sunken text-content-muted opacity-100;
   }
 
   /* A native option list is drawn by the browser from the element's own
@@ -87,12 +89,7 @@ body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  @apply bg-neutral-50 text-neutral-900;
-}
-
-/* Dark mode base */
-.dark body {
-  @apply bg-neutral-900 text-neutral-100;
+  @apply bg-app-bg text-content;
 }
 
 /* Custom scrollbar */
@@ -102,38 +99,28 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-neutral-100;
+  @apply bg-surface-sunken;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-neutral-300 rounded-full;
+  @apply bg-border-strong rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-neutral-400;
+  @apply bg-border-interactive;
 }
 
-.dark ::-webkit-scrollbar-track {
-  @apply bg-neutral-800;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  @apply bg-neutral-600;
-}
 
 /* Patient card styling */
 @layer components {
   .patient-card {
-    @apply bg-white rounded-xl shadow-card p-6 transition-all duration-200;
+    @apply bg-surface rounded-xl shadow-card p-6 transition-all duration-200;
   }
 
   .patient-card:hover {
     @apply shadow-card-hover transform -translate-y-0.5;
   }
 
-  .dark .patient-card {
-    @apply bg-neutral-800;
-  }
 
   /* Health status indicator */
   .health-indicator {
@@ -151,11 +138,11 @@ body {
   }
 
   .action-btn-primary {
-    @apply action-btn bg-primary-500 text-brand-fg hover:bg-primary-600 active:scale-98;
+    @apply action-btn bg-brand text-brand-fg hover:bg-brand-hover active:scale-98;
   }
 
   .action-btn-success {
-    @apply action-btn bg-success-400 text-white hover:bg-success-500 active:scale-98;
+    @apply action-btn bg-ok text-ok-fg hover:bg-ok/90 active:scale-98;
   }
 
   .action-btn-outline {
@@ -186,20 +173,13 @@ body {
 
   /* Navigation link - patient app style */
   .nav-link {
-    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-neutral-600 hover:bg-neutral-100 transition-colors;
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-content-secondary hover:bg-surface-sunken transition-colors;
   }
 
   .nav-link.active {
-    @apply bg-primary-50 text-primary-500 font-medium;
+    @apply bg-brand-subtle text-brand-subtle-fg font-medium;
   }
 
-  .dark .nav-link {
-    @apply text-neutral-400 hover:bg-neutral-800;
-  }
-
-  .dark .nav-link.active {
-    @apply bg-primary-900/30 text-primary-400;
-  }
 }
 
 /* Utility classes */
@@ -220,11 +200,7 @@ body {
 
 /* Loading skeleton animation */
 .skeleton {
-  @apply bg-neutral-200 animate-pulse rounded;
-}
-
-  .dark .skeleton {
-  @apply bg-neutral-700;
+  @apply bg-border animate-pulse rounded;
 }
 
 /* Toast slide-in animation */
@@ -245,7 +221,7 @@ body {
 
 /* Focus styles for accessibility */
 :focus-visible {
-  @apply outline-2 outline-offset-2 outline-primary-500;
+  @apply outline-2 outline-offset-2 outline-focus;
 }
 
 /*

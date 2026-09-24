@@ -427,12 +427,12 @@ const SymptomCheckerPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken flex flex-col">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Stethoscope className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('symptomChecker.title')}</h1>
         </div>
-        <p className="text-purple-100">{t('symptomChecker.subtitle')}</p>
+        <p className="text-white">{t('symptomChecker.subtitle')}</p>
       </div>
 
       {/* Intro Screen */}
@@ -590,7 +590,7 @@ const SymptomCheckerPage: React.FC = () => {
                   onClick={() => handleSymptomSelect(symptom)}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-all ${
                     selectedSymptoms.find(s => s.id === symptom.id)
-                      ? 'bg-purple-500 text-white'
+                      ? 'bg-purple-700 text-white'
                       : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                   }`}
                 >
@@ -674,7 +674,7 @@ const SymptomCheckerPage: React.FC = () => {
             <ul className="space-y-2">
               {triageResult.recommendations.map((rec, idx) => (
                 <li key={idx} className="flex items-start gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle className="w-5 h-5 text-ok mt-0.5 flex-shrink-0" />
                   <span className="text-content-secondary">{rec}</span>
                 </li>
               ))}

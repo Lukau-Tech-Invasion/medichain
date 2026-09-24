@@ -45,7 +45,7 @@ describe('PatientDetailPage', () => {
       dnr_status: false,
     },
     last_updated: '2025-01-01',
-    primary_doctor: { provider_id: 'DOC-123' },
+    primary_doctor: { name: 'Dr Test', phone: '+27000000000' },
   };
 
   it('exports only the displayed patient summary as JSON', () => {
@@ -60,7 +60,7 @@ describe('PatientDetailPage', () => {
       nationalHealthId: 'ID12345', bloodType: 'A+', allergies: ['Peanuts'],
       currentMedications: ['Lisinopril'], chronicConditions: ['Hypertension'],
       emergencyContacts: [], organDonor: true, dnrStatus: false,
-      lastUpdated: '2025-01-01', registeredBy: 'DOC-123',
+      lastUpdated: '2025-01-01', primaryDoctor: 'Dr Test',
     });
 
     expect(createObjectUrl).toHaveBeenCalledOnce();
@@ -137,6 +137,8 @@ describe('PatientDetailPage', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 404,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ error: 'Patient not found', code: 'PATIENT_NOT_FOUND' }),
     });
 
     render(

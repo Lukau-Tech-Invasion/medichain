@@ -231,7 +231,7 @@ export default function AdminDashboardPage() {
     switch (status) {
       case 'online': return <CheckCircle className="text-ok-subtle-fg" size={18} />;
       case 'degraded': return <AlertTriangle className="text-caution-subtle-fg" size={18} />;
-      case 'offline': return <AlertTriangle className="text-red-500" size={18} />;
+      case 'offline': return <AlertTriangle className="text-critical" size={18} />;
       default: return <Clock className="text-content-muted" size={18} />;
     }
   };

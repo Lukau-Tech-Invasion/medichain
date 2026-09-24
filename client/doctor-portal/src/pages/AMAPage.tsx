@@ -321,12 +321,12 @@ const AMAPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-orange-500 text-white p-6">
+      <div className="bg-gradient-to-r from-red-700 to-orange-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FileWarning className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docAMA.title')}</h1>
         </div>
-        <p className="text-critical-fg">{t('docAMA.subtitle')}</p>
+        <p className="text-white">{t('docAMA.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -340,10 +340,10 @@ const AMAPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docAMA.errorHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docAMA.errorHint')}</p>
           </div>
         </div>
       )}
@@ -413,7 +413,7 @@ const AMAPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow divide-y">
               {filteredRecords.length === 0 ? (
                 <div className="p-8 text-center text-content-muted">
-                  <FileWarning className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <FileWarning className="w-12 h-12 mx-auto mb-3 text-content-muted" />
                   <p>{t('docAMA.noRecords')}</p>
                 </div>
               ) : (
@@ -534,9 +534,9 @@ const AMAPage: React.FC = () => {
                     <span>{t('docAMA.lblPatientSignature')}</span>
                   </div>
                   {selectedRecord.patientSigned ? (
-                    <CheckCircle className="w-6 h-6 text-green-500" />
+                    <CheckCircle className="w-6 h-6 text-ok" />
                   ) : (
-                    <XCircle className="w-6 h-6 text-gray-300" />
+                    <XCircle className="w-6 h-6 text-content-muted" />
                   )}
                 </div>
                 <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
@@ -545,9 +545,9 @@ const AMAPage: React.FC = () => {
                     <span>{t('docAMA.lblWitnessSignature')} {selectedRecord.witnessName && `(${selectedRecord.witnessName})`}</span>
                   </div>
                   {selectedRecord.witnessSigned ? (
-                    <CheckCircle className="w-6 h-6 text-green-500" />
+                    <CheckCircle className="w-6 h-6 text-ok" />
                   ) : (
-                    <XCircle className="w-6 h-6 text-gray-300" />
+                    <XCircle className="w-6 h-6 text-content-muted" />
                   )}
                 </div>
                 <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
@@ -556,9 +556,9 @@ const AMAPage: React.FC = () => {
                     <span>{t('docAMA.lblProviderSignature')}</span>
                   </div>
                   {selectedRecord.providerSigned ? (
-                    <CheckCircle className="w-6 h-6 text-green-500" />
+                    <CheckCircle className="w-6 h-6 text-ok" />
                   ) : (
-                    <XCircle className="w-6 h-6 text-gray-300" />
+                    <XCircle className="w-6 h-6 text-content-muted" />
                   )}
                 </div>
               </div>
@@ -892,7 +892,7 @@ const AMAPage: React.FC = () => {
                         <UserCheck className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblPatientSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
+                      <span className="text-critical text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
                     <label htmlFor="ama-form-signed" className="flex items-center gap-2 rounded border border-border bg-surface-sunken p-4 cursor-pointer">
                       <input
@@ -912,7 +912,7 @@ const AMAPage: React.FC = () => {
                         <Users className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblWitnessSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
+                      <span className="text-critical text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
                     <label htmlFor="ama-witness-name" className="sr-only">{t('docAMA.witnessNamePh')}</label>
                     <input
@@ -942,7 +942,7 @@ const AMAPage: React.FC = () => {
                         <Pen className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblProviderSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
+                      <span className="text-critical text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
                     <label htmlFor="ama-provider-attested" className="flex items-center gap-2 rounded border border-border bg-surface-sunken p-4 cursor-pointer">
                       <input

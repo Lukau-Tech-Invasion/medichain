@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatients, getPatientCodeBlues, formatTimestamp, useTranslation, type CodeBlueListRow } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -18,27 +18,6 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 
-interface EmergencyRecord {
-  event_id: string;
-  patient_id: string;
-  event_type?: string;
-  event_time?: number;
-  code_called_at?: number;
-  outcome?: string;
-  narrative?: string;
-}
-
-
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type EventList = { events?: EmergencyRecord[] } | EmergencyRecord[];
 
 export default function CodeBluePage() {
   const { t } = useTranslation();
@@ -50,7 +29,10 @@ export default function CodeBluePage() {
   // the list is no longer fetched or kept here; `loadPatients` remains as
   // the warm-up call the page already made on mount.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<CodeBlueListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -93,8 +75,7 @@ export default function CodeBluePage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const data = await getApiClient().get<EventList>(`/api/emergency/code-blue/patient/${patientId}`);
-      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
+      setEmergencyHistory(await getPatientCodeBlues(patientId));
     } catch (e) {
       console.error('Failed to fetch emergency history', e);
     } finally {
@@ -165,10 +146,8 @@ export default function CodeBluePage() {
 
     try {
       const codeData = {
-        event_id: `CB-${Date.now()}`,
         patient_id: selectedPatient,
         code_called_at: Math.floor(startTime / 1000),
-        code_called_by: user?.userId || 'unknown',
         location: location.trim() || null,
         primary_cause: primaryCause.trim() || null,
         outcome,
@@ -203,7 +182,7 @@ export default function CodeBluePage() {
       {selectedPatient && (
         <div className="bg-surface shadow rounded-lg p-6 mb-8">
           <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-            <History className="h-5 w-5 text-red-500" />
+            <History className="h-5 w-5 text-critical" />
             {t('docCodeBlue.pastEvents')}
           </h2>
           {historyLoading ? (
@@ -216,20 +195,17 @@ export default function CodeBluePage() {
                 <thead className="bg-surface-sunken">
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colEventId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colType')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colLocation')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colTime')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colOutcome')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {emergencyHistory.map((ev) => (
-                    <tr key={ev.event_id} className="hover:bg-surface-sunken">
-                      <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                      <td className="px-4 py-2">{ev.event_type || t('docCodeBlue.codeBlue')}</td>
-                      <td className="px-4 py-2">
-                        {ev.code_called_at ? new Date(ev.code_called_at * 1000).toLocaleString() :
-                         ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
-                      </td>
+                    <tr key={ev.id} className="hover:bg-surface-sunken">
+                      <td className="px-4 py-2 font-mono text-xs">{ev.id}</td>
+                      <td className="px-4 py-2">{ev.location || t('docCodeBlue.unknown')}</td>
+                      <td className="px-4 py-2">{formatTimestamp(ev.code_called_at * 1000) || '-'}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           ev.outcome === 'rosc' ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -312,7 +288,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('CPR Cycle Started')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Activity className="h-8 w-8 text-notice-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.cprCycle')}</span>
@@ -321,7 +297,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('Shock Delivered - 200J')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Zap className="h-8 w-8 text-caution-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.shock')}</span>
@@ -330,7 +306,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => void logMedication('Epinephrine', '1mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Syringe className="h-8 w-8 text-content-secondary mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.epi')}</span>
@@ -344,7 +320,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => void logMedication('Amiodarone', '300mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Syringe className="h-8 w-8 text-caution-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.amiodarone')}</span>
@@ -353,7 +329,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('Pulse Check - Pulse Present')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Heart className="h-8 w-8 text-ok-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.rosc')}</span>

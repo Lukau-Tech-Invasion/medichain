@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import {
-  createCardiac,
-  getApiClient,
-  getPatients,
-  useTranslation,
-  useScoringCatalog,
-} from '@medichain/shared';
+import { createCardiac, getPatients, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
 import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
@@ -58,16 +52,6 @@ const TIMI_CRITERIA_FIELDS: ReadonlyArray<{
 ];
 
 
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type EventList = { events?: { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[] } | { event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string }[];
 
 export default function CardiacPage() {
   const { t } = useTranslation();
@@ -79,7 +63,10 @@ export default function CardiacPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [emergencyHistory, setEmergencyHistory] = useState<Array<{event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string}>>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<CardiacEventListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Cardiac Event Form State
@@ -156,8 +143,7 @@ export default function CardiacPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const data = await getApiClient().get<EventList>(`/api/emergency/cardiac/patient/${patientId}`);
-      setEmergencyHistory(Array.isArray(data) ? data : (data.events ?? []));
+      setEmergencyHistory(await getPatientCardiacEvents(patientId));
     } catch (e) {
       console.error(e);
     } finally {
@@ -273,7 +259,7 @@ export default function CardiacPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-red-600 to-pink-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-pink-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -281,7 +267,7 @@ export default function CardiacPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docCardiac.title')}</h1>
-                <p className="text-critical-fg">{t('docCardiac.subtitle')}</p>
+                <p className="text-white">{t('docCardiac.subtitle')}</p>
               </div>
             </div>
             {eventType && (
@@ -313,7 +299,7 @@ export default function CardiacPage() {
               {/* Patient Selection */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Search className="h-5 w-5 mr-2 text-red-500" />
+                  <Search className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.patientSelectionTitle')}
                 </h2>
                 <div className="relative mb-4">
@@ -349,7 +335,7 @@ export default function CardiacPage() {
                 {selectedPatient && (
                   <div className="mt-4">
                     <h4 className="font-medium text-sm text-content-secondary mb-2 flex items-center gap-1 min-h-[24px] py-1">
-                      <History className="h-4 w-4 text-red-500" /> {t('docCardiac.pastEmergencyEventsTitle')}
+                      <History className="h-4 w-4 text-critical" /> {t('docCardiac.pastEmergencyEventsTitle')}
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docCardiac.loadingHistory')}</p>
@@ -358,9 +344,9 @@ export default function CardiacPage() {
                     ) : (
                       <div className="space-y-1">
                         {emergencyHistory.slice(0, 5).map((ev) => (
-                          <div key={ev.event_id} className="text-xs bg-critical-subtle rounded p-2 flex justify-between">
+                          <div key={ev.id} className="text-xs bg-critical-subtle text-critical-subtle-fg rounded p-2 flex justify-between">
                             <span>{ev.event_type || t('docCardiac.defaultEventLabel')}</span>
-                            <span className="text-content-muted">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : ev.event_time ? new Date(ev.event_time * 1000).toLocaleDateString() : '-'}</span>
+                            <span>{formatDateOnly(ev.documented_at * 1000) || '-'}</span>
                           </div>
                         ))}
                       </div>
@@ -372,7 +358,7 @@ export default function CardiacPage() {
               {/* Event Type */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Heart className="h-5 w-5 mr-2 text-red-500" />
+                  <Heart className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.eventTypeTitle')}
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
@@ -463,7 +449,7 @@ export default function CardiacPage() {
               {/* Symptoms */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Activity className="h-5 w-5 mr-2 text-red-500" />
+                  <Activity className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.clinicalPresentationTitle')}
                 </h2>
                 <div className="space-y-4">
@@ -651,7 +637,7 @@ export default function CardiacPage() {
               <div className="bg-surface rounded-lg shadow p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-content flex items-center">
-                    <Zap className="h-5 w-5 mr-2 text-red-500" />
+                    <Zap className="h-5 w-5 mr-2 text-critical" />
                     {t('docCardiac.ecgReadingsTitle')}
                   </h2>
                   <button
@@ -762,7 +748,7 @@ export default function CardiacPage() {
                             )}
                           </div>
                           <span className="text-xs text-content-muted">
-                            {new Date(ecg.timestamp).toLocaleTimeString()}
+                            {formatTimestamp(ecg.timestamp, { timeStyle: 'short' })}
                           </span>
                         </div>
                       </div>
@@ -774,7 +760,7 @@ export default function CardiacPage() {
               {/* Event Timeline */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-red-500" />
+                  <Clock className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.eventTimelineTitle')}
                 </h2>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -842,7 +828,7 @@ export default function CardiacPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

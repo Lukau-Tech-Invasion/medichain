@@ -329,7 +329,7 @@ function OrdersPage() {
 
         {loading ? (
           <div className="p-12 text-center">
-            <Loader2 className="mx-auto animate-spin text-primary-500" size={48} />
+            <Loader2 className="mx-auto animate-spin text-brand" size={48} />
             <p className="text-content-muted mt-3">{t('docOrders.loading')}</p>
           </div>
         ) : error ? (

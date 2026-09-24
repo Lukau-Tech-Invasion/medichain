@@ -19,44 +19,44 @@ interface QuickActionsPanelProps {
 
 const colorClasses = {
   primary: {
-    bg: 'bg-gradient-to-r from-primary-500 to-primary-600',
-    hover: 'hover:from-primary-600 hover:to-primary-700',
-    text: 'text-brand-fg',
+    bg: 'bg-gradient-to-r from-primary-700 to-primary-800',
+    hover: 'hover:from-primary-800 hover:to-primary-900',
+    text: 'text-white',
   },
   emergency: {
-    bg: 'bg-gradient-to-r from-emergency-500 to-emergency-600',
-    hover: 'hover:from-emergency-600 hover:to-emergency-700',
-    text: 'text-emergency-100',
+    bg: 'bg-gradient-to-r from-emergency-700 to-emergency-800',
+    hover: 'hover:from-emergency-800 hover:to-emergency-900',
+    text: 'text-white',
   },
   amber: {
-    bg: 'bg-gradient-to-r from-amber-500 to-orange-500',
-    hover: 'hover:from-amber-600 hover:to-orange-600',
-    text: 'text-amber-100',
+    bg: 'bg-gradient-to-r from-amber-700 to-orange-800',
+    hover: 'hover:from-amber-800 hover:to-orange-900',
+    text: 'text-white',
   },
   green: {
-    bg: 'bg-gradient-to-r from-green-500 to-emerald-500',
-    hover: 'hover:from-green-600 hover:to-emerald-600',
-    text: 'text-green-100',
+    bg: 'bg-gradient-to-r from-green-700 to-emerald-800',
+    hover: 'hover:from-green-800 hover:to-emerald-900',
+    text: 'text-white',
   },
   purple: {
-    bg: 'bg-gradient-to-r from-purple-500 to-violet-500',
-    hover: 'hover:from-purple-600 hover:to-violet-600',
-    text: 'text-purple-100',
+    bg: 'bg-gradient-to-r from-purple-700 to-violet-800',
+    hover: 'hover:from-purple-800 hover:to-violet-900',
+    text: 'text-white',
   },
   blue: {
-    bg: 'bg-gradient-to-r from-blue-500 to-indigo-500',
-    hover: 'hover:from-blue-600 hover:to-indigo-600',
-    text: 'text-blue-100',
+    bg: 'bg-gradient-to-r from-blue-700 to-indigo-800',
+    hover: 'hover:from-blue-800 hover:to-indigo-900',
+    text: 'text-white',
   },
   teal: {
-    bg: 'bg-gradient-to-r from-teal-500 to-cyan-500',
-    hover: 'hover:from-teal-600 hover:to-cyan-600',
-    text: 'text-teal-100',
+    bg: 'bg-gradient-to-r from-teal-700 to-cyan-800',
+    hover: 'hover:from-teal-800 hover:to-cyan-900',
+    text: 'text-white',
   },
   pink: {
-    bg: 'bg-gradient-to-r from-pink-500 to-rose-500',
-    hover: 'hover:from-pink-600 hover:to-rose-600',
-    text: 'text-pink-100',
+    bg: 'bg-gradient-to-r from-pink-700 to-rose-800',
+    hover: 'hover:from-pink-800 hover:to-rose-900',
+    text: 'text-white',
   },
 };
 

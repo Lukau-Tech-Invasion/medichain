@@ -202,7 +202,7 @@ export function FamilyGroupPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -299,7 +299,7 @@ export function FamilyGroupPage() {
       {/* Create Group Form */}
       <div className="patient-card">
         <h2 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-primary-500" />
+          <Plus className="w-4 h-4 text-brand" />
           {t('family.createNewGroup')}
         </h2>
         <form onSubmit={handleCreateGroup} className="flex gap-2">
@@ -315,7 +315,7 @@ export function FamilyGroupPage() {
           <button
             type="submit"
             disabled={isCreating || !newGroupName.trim()}
-            className="bg-primary-500 text-brand-fg px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:opacity-50 flex items-center gap-1"
+            className="bg-primary-500 text-brand-fg px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-1"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             {t('family.create')}
@@ -327,7 +327,7 @@ export function FamilyGroupPage() {
       <div className="space-y-3">
         {groups.length === 0 ? (
           <div className="text-center py-12">
-            <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">{t('family.noGroups')}</p>
           </div>
         ) : (
@@ -383,7 +383,7 @@ export function FamilyGroupPage() {
                                   type="button"
                                   onClick={() => void handleRemoveMember(group.group_id, m.patient_id)}
                                   disabled={removingMemberId === m.patient_id}
-                                  className="ml-auto text-xs text-critical-subtle-fg hover:underline disabled:opacity-50"
+                                  className="ml-auto text-xs text-critical-subtle-fg hover:underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                                 >
                                   {removingMemberId === m.patient_id
                                     ? t('common.loading')
@@ -429,7 +429,7 @@ export function FamilyGroupPage() {
                         <button
                           type="submit"
                           disabled={isAddingMember || !newMemberWalletAddress.trim()}
-                          className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:opacity-50 flex items-center justify-center gap-1"
+                          className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                           {t('common.add')}

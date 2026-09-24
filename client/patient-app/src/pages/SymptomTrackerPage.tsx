@@ -311,7 +311,7 @@ export function SymptomTrackerPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -364,7 +364,7 @@ export function SymptomTrackerPage() {
       {/* Add New Button */}
       <button
         onClick={() => setShowAddModal(true)}
-        className="w-full bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-2xl p-6 flex items-center justify-center gap-3 hover:from-primary-600 hover:to-primary-700 transition-all"
+        className="w-full bg-gradient-to-r from-primary-700 to-primary-800 text-white rounded-2xl p-6 flex items-center justify-center gap-3 hover:from-primary-800 hover:to-primary-900 transition-all"
       >
         <Plus className="w-6 h-6" />
         <span className="font-semibold text-lg">{t('symptomTracker.logNew')}</span>
@@ -438,7 +438,7 @@ export function SymptomTrackerPage() {
 
           {entries.length === 0 && (
             <div className="text-center py-12">
-              <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Activity className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('symptomTracker.noneLogged')}</p>
               <p className="text-sm text-content-muted">{t('symptomTracker.noneHint')}</p>
             </div>
@@ -450,7 +450,7 @@ export function SymptomTrackerPage() {
       {entries.length >= 3 && (
         <div className="patient-card">
           <h3 className="font-semibold text-content mb-3 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary-500" />
+            <TrendingUp className="w-5 h-5 text-brand" />
             {t('symptomTracker.insights')}
           </h3>
           <div className="space-y-2 text-sm">
@@ -470,7 +470,7 @@ export function SymptomTrackerPage() {
           <button
             type="button"
             onClick={downloadReport}
-            className="mt-3 text-primary-500 font-medium text-sm flex items-center gap-1"
+            className="mt-3 text-brand font-medium text-sm flex items-center gap-1"
           >
             {t('symptomTracker.viewReport')} <ChevronRight className="w-4 h-4" />
             <Download className="w-4 h-4" aria-hidden="true" />
@@ -606,7 +606,7 @@ export function SymptomTrackerPage() {
                     <button
                       onClick={addEntry}
                       disabled={!newEntry.symptom}
-                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                     >
                       {t('symptomTracker.saveEntry')}
                     </button>

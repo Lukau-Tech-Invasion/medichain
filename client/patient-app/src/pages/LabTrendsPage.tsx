@@ -8,7 +8,7 @@ import {
   CheckCircle,
   LineChart as Loader2
 } from 'lucide-react';
-import { getLabTrends, useTranslation } from '@medichain/shared';
+import { getLabTrends, useTranslation, formatDateOnly, formatTimestamp } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -218,12 +218,12 @@ const LabTrendsPage: React.FC = () => {
     if (trend === 'stable' || trend === 'unknown') return <Minus className="w-4 h-4 text-content-muted" />;
     if (trend === 'up') {
       return isGoodIfDown 
-        ? <TrendingUp className="w-4 h-4 text-orange-500" />
-        : <TrendingUp className="w-4 h-4 text-green-500" />;
+        ? <TrendingUp className="w-4 h-4 text-caution" />
+        : <TrendingUp className="w-4 h-4 text-ok" />;
     }
     return isGoodIfDown 
-      ? <TrendingDown className="w-4 h-4 text-green-500" />
-      : <TrendingDown className="w-4 h-4 text-orange-500" />;
+      ? <TrendingDown className="w-4 h-4 text-ok" />
+      : <TrendingDown className="w-4 h-4 text-caution" />;
   };
 
   const visibleTrends = trendsInRange(labTrends, rangeStart(timeRange));
@@ -333,7 +333,7 @@ const LabTrendsPage: React.FC = () => {
         {/* X-axis labels */}
         <div className="flex justify-between text-xs text-content-muted mt-2 px-4">
           {results.map(r => (
-            <span key={r.id}>{new Date(r.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}</span>
+            <span key={r.id}>{formatTimestamp(r.date, { month: 'short', year: '2-digit' })}</span>
           ))}
         </div>
       </div>
@@ -353,12 +353,12 @@ const LabTrendsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Activity className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('labTrends.title')}</h1>
         </div>
-        <p className="text-emerald-100">{t('labTrends.subtitle')}</p>
+        <p className="text-white">{t('labTrends.subtitle')}</p>
       </div>
 
       {/* Time Range Selector */}
@@ -489,7 +489,7 @@ const LabTrendsPage: React.FC = () => {
                 <div className="space-y-2">
                   {selectedTrend.results.slice(0, 5).map(r => (
                     <div key={r.id} className="flex justify-between items-center py-2 border-b border-border">
-                      <span className="text-sm text-content-muted">{new Date(r.date).toLocaleDateString()}</span>
+                      <span className="text-sm text-content-muted">{formatDateOnly(r.date)}</span>
                       <span className={`font-medium ${getStatusColor(r.status)}`}>
                         {r.value} {selectedTrend.test.unit}
                       </span>

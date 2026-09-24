@@ -12,6 +12,7 @@ import {
   Textarea,
   useValidatedForm,
   imagingRequestSchema,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -225,7 +226,7 @@ const ImagingPage: React.FC = () => {
     setSubmitting(true);
     try {
       await createRadiologyOrder({
-          order_id: `IMG-${Date.now()}`, patient_id: selectedPatient,
+          patient_id: selectedPatient,
           study_type: studyTypes[modality], body_part: bodyPart,
           laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
           indication, priority: priority[0].toUpperCase() + priority.slice(1),
@@ -306,7 +307,7 @@ const ImagingPage: React.FC = () => {
       <div className="p-6">
         {ordersError && (
           <div className="mb-4" role="alert">
-            <div className="rounded-lg border border-danger-subtle bg-danger-subtle p-3 text-sm text-danger-subtle-fg">
+            <div className="rounded-lg border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
               {ordersError}
             </div>
           </div>
@@ -368,7 +369,7 @@ const ImagingPage: React.FC = () => {
                         </div>
                         <p className="text-sm text-content-muted">{o.study}</p>
                         <p className="text-xs text-content-muted">
-                          {t('docImaging.orderedByLine', { date: new Date(o.orderedAt).toLocaleString(), by: o.orderedBy })}
+                          {t('docImaging.orderedByLine', { date: formatTimestamp(o.orderedAt), by: o.orderedBy })}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">

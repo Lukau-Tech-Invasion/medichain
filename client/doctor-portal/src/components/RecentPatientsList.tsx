@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Users, Clock, Loader2 } from 'lucide-react';
 
+import { formatDateOnly } from '@medichain/shared';
 interface RecentPatient {
   patientId: string;
   fullName: string;
@@ -20,7 +21,7 @@ const RecentPatientsList: React.FC<RecentPatientsListProps> = ({ loading, patien
   if (loading) {
     return (
       <div className="p-8 text-center">
-        <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+        <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
         <p className="text-content-muted">Loading patients...</p>
       </div>
     );
@@ -29,7 +30,7 @@ const RecentPatientsList: React.FC<RecentPatientsListProps> = ({ loading, patien
   if (patients.length === 0) {
     return (
       <div className="p-8 text-center text-content-muted">
-        <Users className="mx-auto mb-3 text-gray-300" size={48} />
+        <Users className="mx-auto mb-3 text-content-muted" size={48} />
         <p>No patients found</p>
         <p className="text-sm mt-1">Register a patient or connect to the API</p>
       </div>
@@ -67,7 +68,7 @@ const RecentPatientsList: React.FC<RecentPatientsListProps> = ({ loading, patien
             {patient.lastAccessed ? (
                 <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                     <Clock size={14} />
-                    <span>{new Date(patient.lastAccessed).toLocaleDateString()}</span>
+                    <span>{formatDateOnly(patient.lastAccessed)}</span>
                 </div>
             ) : <ArrowRight size={16} className="text-content-muted" />}
           </div>

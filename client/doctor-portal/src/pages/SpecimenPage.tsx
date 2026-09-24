@@ -15,16 +15,17 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
   getApiClient,
   useTranslation,
   clickable,
   Input,
   useValidatedForm,
   specimenSchema,
+  createSpecimen,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
+import StaffName from '../components/StaffName';
 /**
  * SpecimenPage
  * 
@@ -105,18 +106,6 @@ const SpecimenPage: React.FC = () => {
   });
   const { user } = useAuthStore();
 
-  // Built from existing specimens before, so a patient with no specimen on file
-  // could never be selected — i.e. a first collection was impossible.
-  useEffect(() => {
-    if (!user?.walletAddress) return;
-    fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', ...getApiClient().getSessionHeaders(user.walletAddress) },
-    })
-      .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(() => undefined)
-      .catch(() => undefined);
-  }, [user?.walletAddress]);
-
   const toggleCheck = (key: string) =>
     setForm(f => ({
       ...f,
@@ -137,25 +126,15 @@ const SpecimenPage: React.FC = () => {
     setSaving(true);
     setSaveMessage(null);
     try {
-      const response = await fetch(apiUrl('/api/clinical/specimen'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role || 'Nurse',
-        },
-        body: JSON.stringify({
-          patient_id: form.patientId,
-          specimen_type: form.specimenType,
-          priority: form.priority,
-          tests_ordered: form.testsOrdered.trim(),
-          collection_site: form.collectionSite.trim() || null,
-          notes: form.notes.trim() || null,
-          checklist: form.checklist,
-        }),
+      await createSpecimen({
+        patient_id: form.patientId,
+        specimen_type: form.specimenType,
+        priority: form.priority,
+        tests_ordered: form.testsOrdered.trim(),
+        collection_site: form.collectionSite.trim() || null,
+        notes: form.notes.trim() || null,
+        checklist: form.checklist,
       });
-      if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docSpecimen.savedOk'));
       setForm({
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
@@ -224,13 +203,13 @@ const SpecimenPage: React.FC = () => {
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
-      'blood': <Droplet className="w-5 h-5 text-red-500" />,
-      'urine': <TestTube className="w-5 h-5 text-yellow-500" />,
+      'blood': <Droplet className="w-5 h-5 text-critical" />,
+      'urine': <TestTube className="w-5 h-5 text-caution" />,
       'stool': <TestTube className="w-5 h-5 text-caution-subtle-fg" />,
       'swab': <TestTube className="w-5 h-5 text-notice-subtle-fg" />,
       'tissue': <FlaskConical className="w-5 h-5 text-pink-500" />,
       'csf': <Droplet className="w-5 h-5 text-purple-500" />,
-      'sputum': <TestTube className="w-5 h-5 text-green-500" />,
+      'sputum': <TestTube className="w-5 h-5 text-ok" />,
       'other': <TestTube className="w-5 h-5 text-content-muted" />
     };
     return icons[type];
@@ -309,12 +288,12 @@ const SpecimenPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <TestTube className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docSpecimen.title')}</h1>
         </div>
-        <p className="text-teal-100">{t('docSpecimen.subtitle')}</p>
+        <p className="text-white">{t('docSpecimen.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -328,10 +307,10 @@ const SpecimenPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docSpecimen.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docSpecimen.apiHint')}</p>
           </div>
         </div>
       )}
@@ -537,7 +516,7 @@ const SpecimenPage: React.FC = () => {
               <button
                 onClick={recordCollection}
                 disabled={saving}
-                className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-teal-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docSpecimen.recordCollection')}
               </button>
@@ -628,7 +607,7 @@ const SpecimenPage: React.FC = () => {
               {selectedSpecimen.collectedBy && (
                 <div className="bg-notice-subtle rounded-lg p-4">
                   <h3 className="font-medium mb-2">{t('docSpecimen.collectionDetails')}</h3>
-                  <p><strong>{t('docSpecimen.collectedByLabel')}</strong> {selectedSpecimen.collectedBy}</p>
+                  <p><strong>{t('docSpecimen.collectedByLabel')}</strong> <StaffName id={selectedSpecimen.collectedBy} /></p>
                   <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>
                   {selectedSpecimen.notes && <p><strong>{t('docSpecimen.notesLabel')}</strong> {selectedSpecimen.notes}</p>}
                 </div>

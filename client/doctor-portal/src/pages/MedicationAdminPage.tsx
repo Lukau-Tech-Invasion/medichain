@@ -19,6 +19,7 @@ import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Searc
 import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
+import StaffName from '../components/StaffName';
 /**
  * MedicationAdminPage
  * 
@@ -307,17 +308,17 @@ const MedicationAdminPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-indigo-600 to-blue-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-blue-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Pill className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docMedicationAdmin.title')}</h1>
-              <p className="text-indigo-100">{t('docMedicationAdmin.subtitle')}</p>
+              <p className="text-white">{t('docMedicationAdmin.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-indigo-100">{t('docMedicationAdmin.nurseLabel')}</p>
+            <p className="text-sm text-white">{t('docMedicationAdmin.nurseLabel')}</p>
             <p className="font-semibold">{user?.username || 'Unknown'}</p>
           </div>
         </div>
@@ -333,7 +334,7 @@ const MedicationAdminPage: React.FC = () => {
               type="button"
               onClick={() => void loadData()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -685,7 +686,7 @@ const MedicationAdminPage: React.FC = () => {
                     <label htmlFor="medadmin-site" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docMedicationAdmin.administrationSiteLabel')}
                       {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') &&
-                        <span className="text-red-500"> *</span>
+                        <span className="text-critical"> *</span>
                       }
                     </label>
                     <input
@@ -813,7 +814,7 @@ const MedicationAdminPage: React.FC = () => {
                         <div className="text-xs text-content-muted mt-1">{admin.reasonNotGiven}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-content-secondary">{admin.administeredBy}</td>
+                    <td className="px-4 py-3 text-sm text-content-secondary"><StaffName id={admin.administeredBy} /></td>
                     <td className="px-4 py-3 text-xs">
                       {admin.site && <div className="text-content-muted">{t('docMedicationAdmin.siteLine', { site: admin.site })}</div>}
                       {admin.witnessedBy && <div className="text-content-muted">{t('docMedicationAdmin.witnessLine', { name: admin.witnessedBy })}</div>}

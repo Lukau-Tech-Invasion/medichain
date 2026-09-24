@@ -182,11 +182,11 @@ export default function CarePlanPage() {
 
   const getStatusColor = (status: GoalStatus) => {
     switch (status) {
-      case 'met': return 'bg-green-500 text-white';
+      case 'met': return 'bg-green-700 text-white';
       case 'partially-met': return 'bg-caution text-white';
       case 'in-progress': return 'bg-blue-600 text-white';
-      case 'not-met': return 'bg-red-500 text-white';
-      case 'revised': return 'bg-purple-500 text-white';
+      case 'not-met': return 'bg-red-700 text-white';
+      case 'revised': return 'bg-purple-700 text-white';
       default: return 'bg-gray-300 text-content-secondary';
     }
   };
@@ -288,7 +288,7 @@ export default function CarePlanPage() {
         diagnoses,
         goals,
         interventions,
-        created_by: user?.userId || 'unknown',
+        created_by: user?.userId,
         created_at: Math.floor(Date.now() / 1000),
         updated_at: Math.floor(Date.now() / 1000)
       };
@@ -308,7 +308,7 @@ export default function CarePlanPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-teal-600 to-cyan-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-teal-700 to-cyan-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -316,7 +316,7 @@ export default function CarePlanPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docCarePlan.title')}</h1>
-                <p className="text-teal-100">{t('docCarePlan.subtitle')}</p>
+                <p className="text-white">{t('docCarePlan.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -346,7 +346,7 @@ export default function CarePlanPage() {
         {carePlans.length > 0 && (
           <div className="bg-surface rounded-lg shadow mb-6 p-4">
             <h2 className="font-bold text-content mb-3 flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-teal-500" />
+              <ClipboardList className="h-5 w-5 text-brand" />
               {t('docCarePlan.recentCarePlansTitle')}
               {plansLoading && <span className="text-sm text-content-muted ml-2">{t('docCarePlan.loading')}</span>}
             </h2>
@@ -388,7 +388,7 @@ export default function CarePlanPage() {
           <div className="lg:col-span-1">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-bold text-content mb-4 flex items-center">
-                <User className="h-5 w-5 mr-2 text-teal-500" />
+                <User className="h-5 w-5 mr-2 text-brand" />
                 {t('docCarePlan.selectPatientTitle')}
               </h2>
               <div className="relative mb-4">
@@ -492,7 +492,7 @@ export default function CarePlanPage() {
                         <h2 className="text-xl font-bold text-content">{t('docCarePlan.diagnosesTitle')}</h2>
                         <button
                           onClick={() => setShowAddDiagnosis(true)}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addDiagnosisBtn')}</span>
@@ -570,7 +570,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addDiagnosis}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addDiagnosisBtn')}
                             </button>
@@ -628,7 +628,7 @@ export default function CarePlanPage() {
                         <button
                           onClick={() => setShowAddGoal(true)}
                           disabled={diagnoses.length === 0}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addGoalBtn')}</span>
@@ -702,7 +702,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addGoal}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addGoalBtn')}
                             </button>
@@ -772,7 +772,7 @@ export default function CarePlanPage() {
                         <button
                           onClick={() => setShowAddIntervention(true)}
                           disabled={goals.length === 0}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addInterventionBtn')}</span>
@@ -858,7 +858,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addIntervention}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addInterventionBtn')}
                             </button>
@@ -929,7 +929,7 @@ export default function CarePlanPage() {
                               return (
                                 <div key={goal.id} className="ml-4 mb-4">
                                   <div className="flex items-center space-x-2 mb-2">
-                                    <ArrowRight className="h-4 w-4 text-teal-500" />
+                                    <ArrowRight className="h-4 w-4 text-brand" />
                                     <span className="font-medium">{goal.description}</span>
                                     <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(goal.status)}`}>
                                       {t(`docCarePlan.goalStatus_${goal.status}`)}
@@ -964,7 +964,7 @@ export default function CarePlanPage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting || diagnoses.length === 0}
-                    className="bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center"
+                    className="bg-teal-700 text-white px-6 py-3 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -982,7 +982,7 @@ export default function CarePlanPage() {
               </div>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
-                <ClipboardList className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <ClipboardList className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                 <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docCarePlan.selectPatientEmptyTitle')}</h2>
                 <p className="text-content-muted">{t('docCarePlan.selectPatientEmptyHint')}</p>
               </div>

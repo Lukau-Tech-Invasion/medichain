@@ -271,7 +271,7 @@ export function JitsiMeetComponent({
             <button
               onClick={toggleRecording}
               disabled={recordBusy}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:opacity-50 ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                 recording ? 'bg-gray-700 hover:bg-gray-600' : 'bg-critical hover:bg-critical'
               }`}
             >

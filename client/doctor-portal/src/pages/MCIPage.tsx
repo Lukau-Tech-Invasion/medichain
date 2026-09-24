@@ -171,13 +171,13 @@ export default function MCIPage() {
    * triage colour code must not change because the operator prefers dark mode.
    * The five colours here mean the same thing on every screen in the building.
    *
-   * And `text-black`, not `text-gray-900`: `src/index.css` carries
+   * And `text-black`, not `text-gray-900`: `src/index.css` used to carry
    * `.dark .text-gray-900 { @apply text-white }`, a compatibility override at
-   * specificity (0,2,0) that beats the utility. On this card — whose background
+   * specificity (0,2,0) that beat the utility. On this card — whose background
    * does *not* flip — that turned the dark text white and put it back at 2.15:1.
-   * The same override layer is what repainted a green alert's text grey on the
-   * critical-value screen (WF-018); it is narrower now but still catches any
-   * `text-gray-900` placed on a deliberately fixed background.
+   * The same layer repainted a green alert's text grey on the critical-value
+   * screen (WF-018). It was removed on 2026-09-23; `text-black` stays because it
+   * says what this card needs regardless.
    */
   const triageCategories: {
     value: TriageCategory;
@@ -368,7 +368,7 @@ export default function MCIPage() {
     <div className="min-h-screen bg-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header - Alert Banner */}
-        <div className="bg-gradient-to-r from-red-700 to-orange-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full animate-pulse">
@@ -376,11 +376,11 @@ export default function MCIPage() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">{t('docMCI.title')}</h1>
-                <p className="text-orange-100">{t('docMCI.subtitle')}</p>
+                <p className="text-white">{t('docMCI.subtitle')}</p>
               </div>
             </div>
             <div className="text-right text-white">
-              <p className="text-sm opacity-75">{t('docMCI.totalPatients')}</p>
+              <p className="text-sm">{t('docMCI.totalPatients')}</p>
               <p className="text-4xl font-bold">{patients.length}</p>
             </div>
           </div>
@@ -606,7 +606,7 @@ export default function MCIPage() {
                               }}
                               className={`text-xs px-2 py-1 rounded ${
                                 newPatient.injuries?.includes(injury)
-                                  ? 'bg-red-500 text-white'
+                                  ? 'bg-red-700 text-white'
                                   : 'bg-surface-sunken text-content-secondary'
                               }`}
                             >
@@ -645,7 +645,7 @@ export default function MCIPage() {
                     <div key={cat.value} className="mb-6">
                       <div className={`${cat.bgColor} text-white px-4 py-2 rounded-t-lg flex items-center justify-between`}>
                         <span className="font-bold">{cat.label} ({categoryPatients.length})</span>
-                        <span className="text-sm opacity-75">{cat.description}</span>
+                        <span className="text-sm">{cat.description}</span>
                       </div>
                       <div className="bg-surface-sunken rounded-b-lg border border-t-0">
                         {categoryPatients.map(patient => (
@@ -882,7 +882,7 @@ export default function MCIPage() {
             <button
               type="submit"
               disabled={isSubmitting || patients.length === 0}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

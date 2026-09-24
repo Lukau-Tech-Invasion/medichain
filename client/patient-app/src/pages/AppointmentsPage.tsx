@@ -9,6 +9,7 @@ import {
   getAvailableSlots,
   getPatientAppointmentSummaries,
   promptDialog,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -99,7 +100,7 @@ function normalizeAppointmentType(value?: string, isTelehealth?: boolean): Appoi
 function displayTime(startTime?: string, scheduledTime?: number | string): string {
   if (startTime) return startTime;
   if (typeof scheduledTime === 'number') {
-    return new Date(scheduledTime * 1000).toLocaleTimeString([], {
+    return formatTimestamp(scheduledTime * 1000, {
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -400,7 +401,7 @@ export function AppointmentsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -411,7 +412,7 @@ export function AppointmentsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -595,7 +596,7 @@ export function AppointmentsPage() {
           </label>
 
           {bookingError && (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-sm text-critical">
               {bookingError}
             </p>
           )}
@@ -604,7 +605,7 @@ export function AppointmentsPage() {
             type="button"
             onClick={() => void submitBooking()}
             disabled={!bookingReady || bookingBusy}
-            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50"
+            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             {bookingBusy ? t('appointments.bookSubmitting') : t('appointments.bookSubmit')}
           </button>
@@ -613,7 +614,7 @@ export function AppointmentsPage() {
 
       {/* Upcoming Summary */}
       {upcomingAppointments.length > 0 && (
-        <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
           <h2 className="text-lg font-semibold mb-2">{t('appointments.nextAppointment')}</h2>
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-surface/20 rounded-xl flex items-center justify-center">
@@ -625,8 +626,8 @@ export function AppointmentsPage() {
             </div>
             <div>
               <p className="font-medium">{upcomingAppointments[0].provider}</p>
-              <p className="text-white/80 text-sm">{upcomingAppointments[0].specialty}</p>
-              <p className="text-white/80 text-sm">
+              <p className="text-white text-sm">{upcomingAppointments[0].specialty}</p>
+              <p className="text-white text-sm">
                 {formatDate(upcomingAppointments[0].date)} {t('appointments.at')} {upcomingAppointments[0].time}
               </p>
             </div>
@@ -734,7 +735,7 @@ export function AppointmentsPage() {
                       type="button"
                       onClick={() => void changeStatus(appointment.id, 'confirmed')}
                       disabled={busyId === appointment.id}
-                      className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:opacity-50"
+                      className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {t('appointments.confirm')}
                     </button>
@@ -742,7 +743,7 @@ export function AppointmentsPage() {
                       type="button"
                       onClick={() => void changeStatus(appointment.id, 'declined')}
                       disabled={busyId === appointment.id}
-                      className="flex-1 py-2 border border-danger text-danger rounded-lg font-medium hover:bg-critical-subtle transition-colors text-sm disabled:opacity-50"
+                      className="flex-1 py-2 border border-critical text-critical rounded-lg font-medium hover:bg-critical-subtle transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {t('appointments.decline')}
                     </button>
@@ -757,7 +758,7 @@ export function AppointmentsPage() {
                   type="button"
                   onClick={() => void changeStatus(appointment.id, 'cancelled')}
                   disabled={busyId === appointment.id}
-                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:opacity-50"
+                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {t('appointments.cancelAppointment')}
                 </button>
@@ -770,7 +771,7 @@ export function AppointmentsPage() {
                   type="button"
                   onClick={() => void checkIn(appointment.id)}
                   disabled={busyId === appointment.id}
-                  className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:opacity-50"
+                  className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {t('appointments.checkIn')}
                 </button>
@@ -778,7 +779,7 @@ export function AppointmentsPage() {
                   type="button"
                   onClick={() => void changeStatus(appointment.id, 'cancelled')}
                   disabled={busyId === appointment.id}
-                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:opacity-50"
+                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {t('appointments.cancelAppointment')}
                 </button>
@@ -795,7 +796,7 @@ export function AppointmentsPage() {
                 {appointment.videoLink ? (
                   <a
                     href={appointment.videoLink}
-                    className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm flex items-center justify-center gap-2"
+                    className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors text-sm flex items-center justify-center gap-2"
                   >
                     <Video className="w-4 h-4" aria-hidden="true" />
                     {t('appointments.joinVideo')}
@@ -823,7 +824,7 @@ export function AppointmentsPage() {
         {((activeTab === 'upcoming' && upcomingAppointments.length === 0) || 
           (activeTab === 'past' && pastAppointments.length === 0)) && (
           <div className="text-center py-12">
-            <Calendar className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <Calendar className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">
               {activeTab === 'upcoming' ? t('appointments.noUpcoming') : t('appointments.noPast')}
             </p>

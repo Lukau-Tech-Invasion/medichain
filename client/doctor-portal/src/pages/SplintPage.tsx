@@ -9,6 +9,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
@@ -175,12 +176,12 @@ const SplintPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white p-6">
+      <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Bone className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docSplint.title')}</h1>
-            <p className="text-blue-100">{t('docSplint.subtitle')}</p>
+            <p className="text-white">{t('docSplint.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -506,7 +507,7 @@ const SplintPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{r.appliedAt ? new Date(r.appliedAt).toLocaleString() : ""}</p>
+                      <p className="text-sm text-content-muted">{r.appliedAt ? formatTimestamp(r.appliedAt) : ""}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className="px-2 py-1 text-xs rounded bg-notice-subtle text-notice-subtle-fg capitalize">{typeLabel(r.type)}</span>

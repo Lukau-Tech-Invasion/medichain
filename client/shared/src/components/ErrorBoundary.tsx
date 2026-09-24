@@ -265,7 +265,7 @@ export function InlineErrorFallback({
       role="alert"
     >
       <div className="flex items-center gap-2 mb-2">
-        <AlertTriangle className="w-5 h-5 text-red-500" aria-hidden="true" />
+        <AlertTriangle className="w-5 h-5 text-critical" aria-hidden="true" />
         <span className="font-medium text-critical-subtle-fg">
           Error loading {componentName}
         </span>

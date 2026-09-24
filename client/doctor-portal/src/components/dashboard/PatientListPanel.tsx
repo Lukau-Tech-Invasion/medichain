@@ -101,7 +101,7 @@ export default function PatientListPanel({
 
       {loading ? (
         <div className="p-8 text-center">
-          <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+          <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
           <p className="text-content-muted">Loading patients...</p>
         </div>
       ) : displayedPatients.length > 0 ? (
@@ -125,15 +125,15 @@ export default function PatientListPanel({
                           size={14}
                           className={
                             patient.flags.fall_risk === 'high'
-                              ? 'text-red-500'
-                              : 'text-yellow-500'
+                              ? 'text-critical'
+                              : 'text-caution'
                           }
                         />
                       </span>
                     )}
                     {showFlags && patient.flags?.iv_site && (
                       <span title={`IV site: ${patient.flags.iv_site}`}>
-                        <Syringe size={14} className="text-blue-500" />
+                        <Syringe size={14} className="text-brand" />
                       </span>
                     )}
                     {showFlags && patient.flags?.diabetic && (
@@ -167,7 +167,7 @@ export default function PatientListPanel({
                   </span>
                 )}
                 {patient.last_vitals?.abnormal && (
-                  <Activity size={16} className="text-red-500 animate-pulse" />
+                  <Activity size={16} className="text-critical animate-pulse" />
                 )}
                 <ArrowRight size={16} className="text-content-muted" />
               </div>
@@ -176,7 +176,7 @@ export default function PatientListPanel({
         </div>
       ) : (
         <div className="p-8 text-center text-content-muted">
-          <Users className="mx-auto mb-3 text-gray-300" size={48} />
+          <Users className="mx-auto mb-3 text-content-muted" size={48} />
           <p>{emptyMessage}</p>
         </div>
       )}

@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import {
+  createTriageAssessment,
+  getApiErrorMessage,
+  getPatients,
+  getTriageQueue,
+  useTranslation,
+  formatTimestamp,
+} from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -48,7 +55,9 @@ interface TriageAssessment {
 interface Patient {
   patient_id: string;
   full_name: string;
-  health_id: string;
+  // Only on a roster row whose profile could not be decrypted; a readable
+  // patient carries no health_id in the list response.
+  health_id?: string;
   date_of_birth: string;
 }
 
@@ -158,18 +167,8 @@ function TriagePage() {
     
     const fetchPatients = async () => {
       try {
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: { 
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const patientArray = Array.isArray(data) ? data : (data.data || []);
-          setPatients(patientArray);
-          setApiConnected(true);
-        }
+        setPatients(await getPatients());
+        setApiConnected(true);
       } catch (err) {
         console.error('Failed to fetch patients:', err);
         setApiConnected(false);
@@ -186,22 +185,11 @@ function TriagePage() {
     const fetchTriageQueue = async () => {
       setLoading(true);
       try {
-        const response = await fetch(apiUrl('/api/clinical/triage/queue'), {
-          headers: { 
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          // The API returns `{ queue, total, success }` (GET
-          // /api/clinical/triage/queue, api/src/handlers/triage.rs). This read
-          // `data.assessments`, a key the server never sends, so the triage
-          // queue rendered empty in production no matter how many patients were
-          // waiting. The old unit test mocked a third shape (`triage_queue`),
-          // so it agreed with neither and never caught it.
-          setTriageQueue(data.queue || data.assessments || []);
-        }
+        // The API returns `{ queue, total, success }`. This read
+        // `data.assessments`, a key the server never sends, so the triage queue
+        // rendered empty in production no matter how many patients were
+        // waiting; `getTriageQueue` owns the shape now.
+        setTriageQueue((await getTriageQueue()) as typeof triageQueue);
       } catch (err) {
         console.error('Failed to fetch triage queue:', err);
       } finally {
@@ -254,51 +242,35 @@ function TriagePage() {
     setSuccess(null);
 
     try {
-      const response = await fetch(apiUrl('/api/clinical/triage'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          patient_id: selectedPatientId,
-          esi_level: selectedESI,
-          chief_complaint: chiefComplaint,
-          vital_signs: vitalSigns,
-          pain_scale: vitalSigns.pain_scale,
-          notes: notes || null,
-        }),
+      const data = await createTriageAssessment({
+        patient_id: selectedPatientId,
+        esi_level: selectedESI as number,
+        chief_complaint: chiefComplaint,
+        vital_signs: vitalSigns,
+        pain_scale: vitalSigns.pain_scale,
+        notes: notes || null,
       });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setSuccess(t('docTriage.successMessage', { id: data.assessment_id, level: data.esi_level, wait: data.expected_wait }));
-        // Reset form
-        setSelectedPatientId('');
-        setPatientSearch('');
-        setSelectedESI(null);
-        setChiefComplaint('');
-        setNotes('');
-        setVitalSigns({
-          heart_rate: null,
-          respiratory_rate: null,
-          bp_systolic: null,
-          bp_diastolic: null,
-          temperature_celsius: null,
-          oxygen_saturation: null,
-          pain_scale: null,
-          gcs_score: null,
-          blood_glucose: null,
-          weight_kg: null,
-        });
-      } else {
-        setError(getApiErrorMessage(data, t('docTriage.errorCreateFailed')));
-      }
+      setSuccess(t('docTriage.successMessage', { id: data.assessment_id, level: data.esi_level, wait: data.expected_wait }));
+      // Reset form
+      setSelectedPatientId('');
+      setPatientSearch('');
+      setSelectedESI(null);
+      setChiefComplaint('');
+      setNotes('');
+      setVitalSigns({
+        heart_rate: null,
+        respiratory_rate: null,
+        bp_systolic: null,
+        bp_diastolic: null,
+        temperature_celsius: null,
+        oxygen_saturation: null,
+        pain_scale: null,
+        gcs_score: null,
+        blood_glucose: null,
+        weight_kg: null,
+      });
     } catch (err) {
-      setError(t('docTriage.errorConnection'));
+      setError(getApiErrorMessage(err, t('docTriage.errorCreateFailed')));
     } finally {
       setSubmitting(false);
     }
@@ -316,7 +288,7 @@ function TriagePage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-2">
-            <AlertTriangle className="text-orange-500" />
+            <AlertTriangle className="text-caution" />
             {t('docTriage.title')}
           </h1>
           <p className="text-content-muted mt-1">
@@ -411,7 +383,8 @@ function TriagePage() {
                     >
                       <p className="font-medium text-content">{patient.full_name}</p>
                       <p className="text-sm text-content-muted">
-                        {patient.patient_id} • {t('docTriage.healthIdPrefix', { id: patient.health_id })}
+                        {patient.patient_id}
+                        {patient.health_id && <> • {t('docTriage.healthIdPrefix', { id: patient.health_id })}</>}
                       </p>
                     </button>
                   ))}
@@ -505,7 +478,7 @@ function TriagePage() {
               {/* Heart Rate */}
               <div>
                 <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
-                  <Heart size={14} className="text-red-500" />
+                  <Heart size={14} className="text-critical" />
                   {t('docTriage.heartRateLabel')}
                 </label>
                 <input
@@ -579,7 +552,7 @@ function TriagePage() {
               {/* Temperature */}
               <div>
                 <label htmlFor="triage-temperature" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
-                  <Thermometer size={14} className="text-orange-500" />
+                  <Thermometer size={14} className="text-caution" />
                   {t('docTriage.temperatureLabel')}
                 </label>
                 <input
@@ -600,7 +573,7 @@ function TriagePage() {
               {/* O2 Saturation */}
               <div>
                 <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
-                  <Droplet size={14} className="text-cyan-500" />
+                  <Droplet size={14} className="text-brand" />
                   {t('docTriage.o2SatLabel')}
                 </label>
                 <input
@@ -711,7 +684,7 @@ function TriagePage() {
             <button
               type="submit"
               disabled={submitting || !selectedPatientId || selectedESI === null || !chiefComplaint.trim()}
-              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {submitting ? (
                 <>
@@ -737,7 +710,7 @@ function TriagePage() {
 
           {loading ? (
             <div className="p-12 text-center">
-              <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
+              <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
               <p className="text-content-muted">{t('docTriage.loadingQueue')}</p>
             </div>
           ) : triageQueue.length > 0 ? (
@@ -771,7 +744,7 @@ function TriagePage() {
                           </p>
                           <p className="text-sm text-content-muted">{assessment.chief_complaint}</p>
                           <p className="text-xs text-content-muted mt-1">
-                            {new Date(assessment.performed_at * 1000).toLocaleTimeString()}
+                            {formatTimestamp(assessment.performed_at * 1000, { timeStyle: 'short' })}
                           </p>
                         </div>
                       </div>
@@ -782,7 +755,7 @@ function TriagePage() {
                           </span>
                           <p className="text-xs text-content-muted mt-1">{esiConfig?.wait}</p>
                         </div>
-                        <ChevronRight className="text-gray-300" size={20} />
+                        <ChevronRight className="text-content-muted" size={20} />
                       </div>
                     </Link>
                   );
@@ -790,7 +763,7 @@ function TriagePage() {
             </div>
           ) : (
             <div className="p-12 text-center">
-              <Clock className="mx-auto mb-3 text-gray-300" size={48} />
+              <Clock className="mx-auto mb-3 text-content-muted" size={48} />
               <p className="text-content-muted">{t('docTriage.noPatientsInQueue')}</p>
               <button
                 onClick={() => setActiveTab('new')}

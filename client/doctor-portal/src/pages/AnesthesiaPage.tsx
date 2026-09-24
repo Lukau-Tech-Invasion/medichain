@@ -12,6 +12,7 @@ import {
   Input,
   useValidatedForm,
   anesthesiaRecordSchema,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -178,7 +179,7 @@ const AnesthesiaPage: React.FC = () => {
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const record: AnesthesiaRecord = {
-      id: `ANES-${Date.now()}`,
+      id: '', // assigned by the server
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
       documentedBy: user?.userId || 'Unknown',
@@ -205,12 +206,12 @@ const AnesthesiaPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Syringe className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docAnesthesia.title')}</h1>
-            <p className="text-cyan-100">{t('docAnesthesia.subtitle')}</p>
+            <p className="text-white">{t('docAnesthesia.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -631,7 +632,7 @@ const AnesthesiaPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{r.documentedAt ? new Date(r.documentedAt).toLocaleString() : ""}</p>
+                      <p className="text-sm text-content-muted">{r.documentedAt ? formatTimestamp(r.documentedAt) : ""}</p>
                     </div>
                     <span className="px-2 py-1 text-xs rounded bg-surface-sunken text-content-secondary">
                       {t('docAnesthesia.asaBadge', { class: r.asaClass })}

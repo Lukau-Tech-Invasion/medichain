@@ -8,6 +8,7 @@ import {
   suspendCard,
   useTranslation,
   clickable,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { NFCCardInfo } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -205,7 +206,7 @@ const HealthIdCardsPage: React.FC = () => {
       status === 'Active'
         ? 'bg-ok-subtle text-ok-subtle-fg'
         : status === 'Suspended'
-          ? 'bg-warning-subtle text-warning-subtle-fg'
+          ? 'bg-caution-subtle text-caution-subtle-fg'
           : 'bg-critical-subtle text-critical-subtle-fg';
     return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tone}`}>{status}</span>;
   };
@@ -222,7 +223,7 @@ const HealthIdCardsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="border-b border-border-subtle mb-6">
+      <div className="border-b border-border mb-6">
         <div className="flex">
           {tabs.map((name) => (
             <button
@@ -264,7 +265,7 @@ const HealthIdCardsPage: React.FC = () => {
               id="healthid-type"
               value={idType}
               onChange={(e) => setIdType(e.target.value)}
-              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface"
+              className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface text-content"
             >
               <option value="">{t('docHealthIdCards.idTypePlaceholder')}</option>
               {ID_TYPES.map((option) => (
@@ -277,23 +278,23 @@ const HealthIdCardsPage: React.FC = () => {
           <button
             onClick={handleIssue}
             disabled={issuing || Boolean(existingCard) || preflightUnknown}
-            className={`px-4 py-2 rounded-lg bg-accent text-accent-fg disabled:opacity-50 ${clickable}`}
+            className={`px-4 py-2 rounded-lg bg-brand text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${clickable}`}
           >
             {issuing ? t('docHealthIdCards.issuing') : t('docHealthIdCards.issue')}
           </button>
           {existingCard && (
-            <p className="text-sm text-warning-subtle-fg" role="status">
+            <p className="text-sm text-caution-subtle-fg" role="status">
               {t('docHealthIdCards.alreadyIssued')}
             </p>
           )}
           {preflightUnknown && (
-            <p className="text-sm text-danger-subtle-fg" role="status">
+            <p className="text-sm text-critical-subtle-fg" role="status">
               {t('docHealthIdCards.cardStatusUnknown')}
             </p>
           )}
 
           {issued && (
-            <div className="border border-border-subtle rounded-lg p-4 bg-surface">
+            <div className="border border-border rounded-lg p-4 bg-surface">
               <h2 className="font-semibold mb-2 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4" /> {t('docHealthIdCards.issuedHeading')}
               </h2>
@@ -336,20 +337,20 @@ const HealthIdCardsPage: React.FC = () => {
           <button
             onClick={handleLookup}
             disabled={looking}
-            className={`px-4 py-2 rounded-lg border border-border-interactive disabled:opacity-50 flex items-center gap-2 ${clickable}`}
+            className={`px-4 py-2 rounded-lg border border-border-interactive disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2 ${clickable}`}
           >
             <Search className="w-4 h-4" />
             {looking ? t('docHealthIdCards.looking') : t('docHealthIdCards.lookup')}
           </button>
 
           {lookupMessage && (
-            <div className="rounded-lg border border-border-subtle bg-surface-sunken p-3 text-sm text-content-secondary">
+            <div className="rounded-lg border border-border bg-surface-sunken p-3 text-sm text-content-secondary">
               {lookupMessage}
             </div>
           )}
 
           {found && (
-            <div className="border border-border-subtle rounded-lg p-4 bg-surface text-sm space-y-1">
+            <div className="border border-border rounded-lg p-4 bg-surface text-sm space-y-1">
               <div className="flex items-center gap-2 mb-2">
                 <ShieldAlert className="w-4 h-4" />
                 <span className="font-semibold">{found.card_id}</span>
@@ -359,13 +360,13 @@ const HealthIdCardsPage: React.FC = () => {
               <p className="text-content-secondary">{found.national_id_type}</p>
               <p className="text-content-muted">
                 {t('docHealthIdCards.issuedAt', {
-                  when: new Date(found.created_at * 1000).toLocaleString(),
+                  when: formatTimestamp(found.created_at * 1000),
                 })}
               </p>
               <p className="text-content-muted">
                 {found.last_used_at
                   ? t('docHealthIdCards.lastUsed', {
-                      when: new Date(found.last_used_at * 1000).toLocaleString(),
+                      when: formatTimestamp(found.last_used_at * 1000),
                     })
                   : t('docHealthIdCards.neverUsed')}
               </p>
@@ -379,7 +380,7 @@ const HealthIdCardsPage: React.FC = () => {
           <button
             onClick={() => void loadRegistry()}
             disabled={loadingCards}
-            className={`px-3 py-2 rounded-lg border border-border-interactive text-sm flex items-center gap-2 disabled:opacity-50 ${clickable}`}
+            className={`px-3 py-2 rounded-lg border border-border-interactive text-sm flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${clickable}`}
           >
             <RefreshCw className="w-4 h-4" />
             {t('docHealthIdCards.refresh')}
@@ -410,7 +411,7 @@ const HealthIdCardsPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {cards.map((card) => (
-                    <tr key={card.card_id} className="border-t border-border-subtle">
+                    <tr key={card.card_id} className="border-t border-border">
                       <td className="py-2 pr-4 font-mono break-all">{card.patient_id}</td>
                       <td className="py-2 pr-4 font-mono break-all">{card.card_id}</td>
                       <td className="py-2 pr-4">{card.national_id_type}</td>
@@ -420,7 +421,7 @@ const HealthIdCardsPage: React.FC = () => {
                           <button
                             onClick={() => void handleSuspend(card.card_hash)}
                             disabled={suspending === card.card_hash}
-                            className={`px-3 py-1 rounded-lg border border-critical text-critical-subtle-fg text-xs flex items-center gap-1 disabled:opacity-50 ${clickable}`}
+                            className={`px-3 py-1 rounded-lg border border-critical text-critical-subtle-fg text-xs flex items-center gap-1 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${clickable}`}
                           >
                             <Ban className="w-3 h-3" />
                             {t('docHealthIdCards.suspend')}

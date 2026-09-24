@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiClient, useTranslation } from '@medichain/shared';
+import {
+  administerMedication as postMarAdministration,
+  getApiErrorMessage,
+  listWardCarePlans,
+  listWardIntakeOutput,
+  listWardMar,
+  recordWardFluid,
+  useTranslation,
+} from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
   AlertCircle, CheckCircle, User, Calendar, Loader2,
@@ -255,30 +263,24 @@ function NursingPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const headers = { 
-        ...getApiClient().getSessionHeaders(user.walletAddress),
-        'X-Provider-Role': user.role,
-      };
-      
-      const [marRes, ioRes, planRes] = await Promise.all([
-        fetch(apiUrl('/api/nursing/mar'), { headers }),
-        fetch(apiUrl('/api/nursing/intake-output'), { headers }),
-        fetch(apiUrl('/api/nursing/care-plans'), { headers }),
+      // Each list stands alone: one refused does not blank the other two.
+      const [mar, io, plans] = await Promise.allSettled([
+        listWardMar(),
+        listWardIntakeOutput(),
+        listWardCarePlans(),
       ]);
 
-      if (marRes.ok) {
-        const data = await marRes.json();
-        setMarRecords(asObjects(data.records).map(mapMarRecord).filter((record): record is MAR => record !== null));
+      if (mar.status === 'fulfilled') {
+        setMarRecords(asObjects(mar.value).map(mapMarRecord).filter((record): record is MAR => record !== null));
       }
-      if (ioRes.ok) {
-        const data = await ioRes.json();
-        setIoRecords(asObjects(data.records).map(mapIoRecord).filter((record): record is IntakeOutputRecord => record !== null));
+      if (io.status === 'fulfilled') {
+        setIoRecords(asObjects(io.value).map(mapIoRecord).filter((record): record is IntakeOutputRecord => record !== null));
       }
-      if (planRes.ok) {
-        const data = await planRes.json();
-        setCarePlans(asObjects(data.plans).map(mapCarePlan).filter((plan): plan is NursingCarePlan => plan !== null));
+      if (plans.status === 'fulfilled') {
+        setCarePlans(asObjects(plans.value).map(mapCarePlan).filter((plan): plan is NursingCarePlan => plan !== null));
       }
-      setError(null);
+      const refused = [mar, io, plans].find((result) => result.status === 'rejected');
+      setError(refused ? t('docNursing.errorFetch') : null);
     } catch (err) {
       setError(t('docNursing.errorFetch'));
     } finally {
@@ -286,29 +288,11 @@ function NursingPage() {
     }
   }, [t, user]);
 
-  const fetchPatients = useCallback(async () => {
-    if (!user) return;
-    try {
-      const response = await fetch(apiUrl('/api/patients'), {
-        headers: { 
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (!response.ok) {
-        console.error('Failed to fetch patients:', response.status);
-      }
-    } catch (err) {
-      console.error('Failed to fetch patients:', err);
-    }
-  }, [user]);
-
   useEffect(() => {
     if (isAuthenticated && user) {
       fetchData();
-      fetchPatients();
     }
-  }, [isAuthenticated, user, fetchData, fetchPatients]);
+  }, [isAuthenticated, user, fetchData]);
 
   // MAR: Administer medication
   //
@@ -329,33 +313,19 @@ function NursingPage() {
     if (!user) return;
     setSaving(true);
     try {
-      const response = await fetch(apiUrl('/api/nursing/mar/administer'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          patient_id: mar.patient_id,
-          medication_name: med.medication_name,
-          dose: med.dose,
-          route: med.route,
-          scheduled_time: dose.scheduled_time,
-          actual_time: new Date().toISOString(),
-          status: 'given',
-        }),
+      await postMarAdministration({
+        patient_id: mar.patient_id,
+        medication_name: med.medication_name,
+        dose: med.dose,
+        route: med.route,
+        scheduled_time: dose.scheduled_time,
+        actual_time: new Date().toISOString(),
+        status: 'given',
       });
-
-      if (response.ok) {
-        setSuccess(t('docNursing.successAdminister'));
-        fetchData();
-      } else {
-        setError(t('docNursing.errorAdminister'));
-      }
+      setSuccess(t('docNursing.successAdminister'));
+      fetchData();
     } catch (err) {
-      setError(t('docNursing.errorApiConnection'));
+      setError(getApiErrorMessage(err, t('docNursing.errorAdminister')));
     } finally {
       setSaving(false);
       setTimeout(() => setSuccess(null), 3000);
@@ -379,33 +349,19 @@ function NursingPage() {
 
     setSaving(true);
     try {
-      const response = await fetch(apiUrl('/api/nursing/intake-output/record'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiClient().getSessionHeaders(user.walletAddress),
-          'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          patient_id: selectedPatient,
-          entry_type: newFluidEntry.type,
-          fluid_type: newFluidEntry.fluidType,
-          amount_ml: newFluidEntry.amount,
-          notes: newFluidEntry.notes,
-          time: new Date().toISOString(),
-        }),
+      await recordWardFluid({
+        patient_id: selectedPatient,
+        entry_type: newFluidEntry.type,
+        fluid_type: newFluidEntry.fluidType,
+        amount_ml: newFluidEntry.amount,
+        notes: newFluidEntry.notes,
+        time: new Date().toISOString(),
       });
-
-      if (response.ok) {
-        setSuccess(t('docNursing.successFluidRecorded'));
-        setNewFluidEntry({ type: 'intake', fluidType: 'Oral', amount: 0, notes: '' });
-        fetchData();
-      } else {
-        setError(t('docNursing.errorRecordFluid'));
-      }
+      setSuccess(t('docNursing.successFluidRecorded'));
+      setNewFluidEntry({ type: 'intake', fluidType: 'Oral', amount: 0, notes: '' });
+      fetchData();
     } catch (err) {
-      setError(t('docNursing.errorApiConnection'));
+      setError(getApiErrorMessage(err, t('docNursing.errorRecordFluid')));
     } finally {
       setSaving(false);
       setTimeout(() => { setSuccess(null); setError(null); }, 3000);
@@ -423,8 +379,8 @@ function NursingPage() {
   };
 
   const getBalanceIcon = (balance: number) => {
-    if (balance > 500) return <TrendingUp className="text-green-500" size={20} />;
-    if (balance < -500) return <TrendingDown className="text-red-500" size={20} />;
+    if (balance > 500) return <TrendingUp className="text-ok" size={20} />;
+    if (balance < -500) return <TrendingDown className="text-critical" size={20} />;
     return <Minus className="text-content-muted" size={20} />;
   };
 
@@ -439,13 +395,13 @@ function NursingPage() {
       {/* Alerts */}
       {error && (
         <div className="mb-4 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-2">
-          <AlertCircle className="text-red-500" size={20} />
+          <AlertCircle className="text-critical" size={20} />
           <span className="text-critical-subtle-fg">{error}</span>
         </div>
       )}
       {success && (
         <div className="mb-4 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-2">
-          <CheckCircle className="text-green-500" size={20} />
+          <CheckCircle className="text-ok" size={20} />
           <span className="text-ok-subtle-fg">{success}</span>
         </div>
       )}
@@ -489,7 +445,7 @@ function NursingPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="animate-spin text-primary-500" size={48} />
+          <Loader2 className="animate-spin text-brand" size={48} />
         </div>
       ) : (
         <>
@@ -498,7 +454,7 @@ function NursingPage() {
             <div className="space-y-6">
               {marRecords.length === 0 ? (
                 <div className="bg-surface rounded-xl shadow p-8 text-center">
-                  <Pill className="mx-auto mb-4 text-gray-300" size={48} />
+                  <Pill className="mx-auto mb-4 text-content-muted" size={48} />
                   <p className="text-content-muted">{t('docNursing.noMedicationRecords')}</p>
                   <p className="text-sm text-content-muted">{t('docNursing.noMedicationRecordsHint')}</p>
                 </div>
@@ -579,7 +535,7 @@ function NursingPage() {
                                     <button
                                       onClick={() => administerMedication(mar, med, dose)}
                                       disabled={saving}
-                                      className="px-3 py-1 bg-ok text-ok-fg text-sm rounded hover:bg-ok disabled:opacity-50"
+                                      className="px-3 py-1 bg-ok text-ok-fg text-sm rounded hover:bg-ok disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                                     >
                                       {t('docNursing.giveButton')}
                                     </button>
@@ -674,7 +630,7 @@ function NursingPage() {
                   <button
                     onClick={recordFluid}
                     disabled={saving}
-                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-2"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                     {t('docNursing.recordButton')}
@@ -685,7 +641,7 @@ function NursingPage() {
               {/* I/O Records */}
               {ioRecords.length === 0 ? (
                 <div className="bg-surface rounded-xl shadow p-8 text-center">
-                  <Droplets className="mx-auto mb-4 text-gray-300" size={48} />
+                  <Droplets className="mx-auto mb-4 text-content-muted" size={48} />
                   <p className="text-content-muted">{t('docNursing.noIoRecords')}</p>
                 </div>
               ) : (
@@ -756,7 +712,7 @@ function NursingPage() {
             <div className="space-y-6">
               {carePlans.length === 0 ? (
                 <div className="bg-surface rounded-xl shadow p-8 text-center">
-                  <ClipboardList className="mx-auto mb-4 text-gray-300" size={48} />
+                  <ClipboardList className="mx-auto mb-4 text-content-muted" size={48} />
                   <p className="text-content-muted">{t('docNursing.noCarePlans')}</p>
                 </div>
               ) : (

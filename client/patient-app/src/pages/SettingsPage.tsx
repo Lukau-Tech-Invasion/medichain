@@ -15,6 +15,7 @@ import {
   useTranslation,
   setThemePreference,
   readThemePreference,
+  formatDateOnly,
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -267,7 +268,7 @@ export function SettingsPage() {
       disabled={disabled}
       className={`relative w-12 h-7 rounded-full transition-colors ${
         enabled ? 'bg-primary-500' : 'bg-neutral-300'
-      } disabled:cursor-not-allowed disabled:opacity-50`}
+      } disabled:cursor-not-allowed disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100`}
     >
       <div
         className={`absolute top-1 w-5 h-5 bg-surface rounded-full shadow transition-transform ${
@@ -373,7 +374,7 @@ export function SettingsPage() {
           type="button"
           onClick={handleSave}
           disabled={isSaving || isLoading}
-          className="flex items-center gap-2 rounded-xl bg-brand px-4 py-2 font-medium text-brand-fg hover:bg-brand disabled:opacity-50"
+          className="flex items-center gap-2 rounded-xl bg-brand px-4 py-2 font-medium text-brand-fg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
         >
           {saveSucceeded ? <CheckCircle className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           {isSaving ? t('settings.saving') : saveSucceeded ? t('settings.saved') : t('settings.save')}
@@ -437,7 +438,7 @@ export function SettingsPage() {
             {mfaNotice && <div role="status" className="mt-3 rounded-lg border border-ok bg-ok-subtle p-3 text-sm text-ok-subtle-fg">{mfaNotice}</div>}
 
             {mfaEnrolled === false && !mfaSecret && (
-              <button type="button" onClick={beginMfaEnrollment} disabled={mfaBusy} className="mt-3 min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:opacity-60">
+              <button type="button" onClick={beginMfaEnrollment} disabled={mfaBusy} className="mt-3 min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                 {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaSetUp')}
               </button>
             )}
@@ -451,7 +452,7 @@ export function SettingsPage() {
                   <label htmlFor="mfa-enrollment-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaCodeLabel')}</label>
                   <input id="mfa-enrollment-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
                 </div>
-                <button type="button" onClick={confirmMfaEnrollment} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:opacity-60">
+                <button type="button" onClick={confirmMfaEnrollment} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaConfirm')}
                 </button>
               </div>
@@ -463,7 +464,7 @@ export function SettingsPage() {
                   <label htmlFor="mfa-disable-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaDisableCodeLabel')}</label>
                   <input id="mfa-disable-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
                 </div>
-                <button type="button" onClick={turnOffMfa} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg border border-critical px-4 py-2 text-critical-subtle-fg disabled:opacity-60">
+                <button type="button" onClick={turnOffMfa} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg border border-critical px-4 py-2 text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaTurnOff')}
                 </button>
               </div>
@@ -589,8 +590,8 @@ export function SettingsPage() {
           </SettingRow>
 
           {!privacy.allowEmergencyAccess && (
-            <div className="py-3 px-4 bg-warning-50 border border-warning-200 rounded-xl my-2">
-              <div className="flex items-start gap-2 text-warning-700 text-sm">
+            <div className="py-3 px-4 bg-caution-subtle border border-caution-subtle-fg/30 rounded-xl my-2">
+              <div className="flex items-start gap-2 text-caution-subtle-fg text-sm">
                 <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>
                   {t('settings.emergencyAccessWarning')}
@@ -680,7 +681,7 @@ export function SettingsPage() {
                     {revoked && (
                       <p className="text-xs text-content-muted mt-1">
                         {t('settings.deviceRevokedOn', {
-                          date: new Date(device.revoked_at as string).toLocaleDateString(),
+                          date: formatDateOnly(device.revoked_at as string),
                         })}
                       </p>
                     )}
@@ -690,7 +691,7 @@ export function SettingsPage() {
                       type="button"
                       onClick={() => void revokeDevice(device)}
                       disabled={deviceBusy === device.id}
-                      className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:opacity-60 min-h-[28px] whitespace-nowrap"
+                      className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[28px] whitespace-nowrap"
                     >
                       {deviceBusy === device.id
                         ? t('settings.deviceRevoking')

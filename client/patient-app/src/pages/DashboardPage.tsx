@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getAccessLogs, getPatient, useTranslation } from '@medichain/shared';
+import { getAccessLogs, getPatient, useTranslation, formatTimestamp } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -158,7 +158,7 @@ export function DashboardPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -166,7 +166,7 @@ export function DashboardPage() {
   };
 
   const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -217,7 +217,7 @@ export function DashboardPage() {
           >
             <Bell className="w-6 h-6" />
             {(patientData?.unreadMessages || 0) > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-400 text-white text-xs rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-700 text-white text-xs rounded-full flex items-center justify-center">
                 {patientData?.unreadMessages}
               </span>
             )}
@@ -233,7 +233,7 @@ export function DashboardPage() {
       </div>
 
       {/* Health Status Card */}
-      <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-surface/20 rounded-xl flex items-center justify-center">
@@ -241,7 +241,7 @@ export function DashboardPage() {
             </div>
             <div>
               <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
-              <p className="text-white/80 text-sm">{patientData?.healthId}</p>
+              <p className="text-white text-sm">{patientData?.healthId}</p>
             </div>
           </div>
           <div className="health-indicator !bg-surface" />
@@ -251,17 +251,17 @@ export function DashboardPage() {
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <Droplets className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.bloodType}</div>
-            <div className="text-xs text-white/70">{t('dashboard.bloodType')}</div>
+            <div className="text-xs text-white">{t('dashboard.bloodType')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.allergies.length}</div>
-            <div className="text-xs text-white/70">{t('dashboard.allergies')}</div>
+            <div className="text-xs text-white">{t('dashboard.allergies')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <Pill className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.medications.length}</div>
-            <div className="text-xs text-white/70">{t('dashboard.medications')}</div>
+            <div className="text-xs text-white">{t('dashboard.medications')}</div>
           </div>
         </div>
       </div>
@@ -351,7 +351,7 @@ export function DashboardPage() {
             <Clock className="w-5 h-5 text-content-muted" />
             {t('dashboard.recentActivity')}
           </h3>
-          <Link to="/consent" className="text-sm text-primary-500 hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
+          <Link to="/consent" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
             {t('dashboard.viewAll')}
           </Link>
         </div>

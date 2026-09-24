@@ -93,6 +93,7 @@ describe('RegisterPatientPage', () => {
   it('shows error message on failure', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
+      status: 400,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ error: 'Database error' }),
     });

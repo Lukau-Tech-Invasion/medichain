@@ -17,6 +17,7 @@ import {
   useValidatedForm,
   newUserSchema,
   confirmDialog,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -313,7 +314,7 @@ const UserManagementPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   const filteredUsers = users.filter((u) => {
@@ -353,9 +354,9 @@ const UserManagementPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docUserManagement.title')}</h1>
-        <p className="text-purple-100">{t('docUserManagement.subtitle')}</p>
+        <p className="text-white">{t('docUserManagement.subtitle')}</p>
       </div>
 
       {/* The page already tracked this; it just never showed it. A failed
@@ -368,7 +369,7 @@ const UserManagementPage: React.FC = () => {
               type="button"
               onClick={() => void fetchUsers()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}

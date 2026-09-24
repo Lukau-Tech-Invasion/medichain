@@ -17,9 +17,8 @@ import {
   Activity
 } from 'lucide-react';
 import {
-  apiUrl,
+  getMyBarcodeScans,
   EmptyState,
-  getApiClient,
   scanBarcode,
   useTranslation,
   LoadingSpinner,
@@ -135,14 +134,8 @@ const BarcodePage: React.FC = () => {
     const user = useAuthStore.getState().user;
     if (!user?.walletAddress) return;
     try {
-      const response = await fetch(apiUrl('/api/barcode/scans/my'), {
-        headers: getApiClient().getSessionHeaders(user.walletAddress),
-      });
-      if (!response.ok) return;
-      const history = await response.json();
-      if (Array.isArray(history)) {
-        setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
-      }
+      const history = await getMyBarcodeScans();
+      setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
     } catch (error) {
       console.error('Barcode scan history could not be loaded:', error);
     }
@@ -204,22 +197,7 @@ const BarcodePage: React.FC = () => {
       }
       
       try {
-        const response = await fetch(apiUrl('/api/barcode/scans/my'), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...getApiClient().getSessionHeaders(user.walletAddress),
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setScanHistory(data.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
-          }
-        }
-      } catch (error) {
-        console.error('Barcode scan history could not be loaded:', error);
+        await loadScanHistory();
       } finally {
         setLoading(false);
       }
@@ -278,15 +256,7 @@ const BarcodePage: React.FC = () => {
 
       setLastScan(newScan);
       // Re-read the persisted record rather than adding a browser-only row.
-      const response = await fetch(apiUrl('/api/barcode/scans/my'), {
-        headers: getApiClient().getSessionHeaders(user.walletAddress),
-      });
-      if (response.ok) {
-        const history = await response.json();
-        if (Array.isArray(history)) {
-          setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
-        }
-      }
+      await loadScanHistory();
     } catch (err) {
       console.error('Barcode scan error:', err);
       const errorScan: ScannedItem = {
@@ -359,9 +329,9 @@ const BarcodePage: React.FC = () => {
 
   const getResultIcon = (result: ScanResult) => {
     switch (result) {
-      case 'success': return <CheckCircle className="w-6 h-6 text-green-500" />;
-      case 'warning': return <AlertTriangle className="w-6 h-6 text-yellow-500" />;
-      case 'error': return <XCircle className="w-6 h-6 text-red-500" />;
+      case 'success': return <CheckCircle className="w-6 h-6 text-ok" />;
+      case 'warning': return <AlertTriangle className="w-6 h-6 text-caution" />;
+      case 'error': return <XCircle className="w-6 h-6 text-critical" />;
       case 'pending': return <Clock className="w-6 h-6 text-content-muted" />;
     }
   };
@@ -518,7 +488,7 @@ const BarcodePage: React.FC = () => {
                     disabled={isScanning}
                     className={`px-8 py-3 rounded-full font-semibold ${
                       isScanning
-                        ? 'bg-blue-400 text-white'
+                        ? 'bg-blue-700 text-white'
                         : 'bg-blue-600 text-white'
                     }`}
                   >
@@ -556,7 +526,7 @@ const BarcodePage: React.FC = () => {
                   value={manualEntry}
                   onChange={(e) => setManualEntry(e.target.value)}
                   placeholder={t('docBarcode.manualPlaceholder')}
-                  className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
+                  className="w-full bg-gray-700 text-white placeholder:text-gray-300 border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
                 />
                 <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               </div>

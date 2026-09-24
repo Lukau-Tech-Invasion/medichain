@@ -473,18 +473,18 @@ const PathologyPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-amber-600 to-orange-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-amber-700 to-orange-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Microscope className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docPathology.title')}</h1>
-              <p className="text-amber-100">{t('docPathology.subtitle')}</p>
+              <p className="text-white">{t('docPathology.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-amber-100">{t('docPathology.pathologistLabel')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docPathology.pathologistLabel')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
@@ -499,7 +499,7 @@ const PathologyPage: React.FC = () => {
               type="button"
               onClick={() => void fetchSpecimens()}
               disabled={isLoading}
-              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               {t('common.refresh')}
@@ -883,7 +883,7 @@ const PathologyPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
+                className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docPathology.submitSpecimenButton')}
@@ -963,7 +963,7 @@ const PathologyPage: React.FC = () => {
                 <Microscope className="h-5 w-5 text-content-secondary" />
                 {t('docPathology.viewerHeading')}
               </h3>
-              <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-500">
+              <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-800">
                 {slideUploading ? t('docPathology.slideUploading') : t('docPathology.slideAttach')}
                 <input
                   type="file"
@@ -980,7 +980,7 @@ const PathologyPage: React.FC = () => {
             </div>
 
             {slideImagesLoading ? (
-              <p className="text-sm text-gray-500 py-6 text-center">
+              <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesLoading')}
               </p>
             ) : slideImages.length > 0 ? (
@@ -992,14 +992,14 @@ const PathologyPage: React.FC = () => {
                       alt={t('docPathology.slideImageAlt', { label: image.label })}
                       className="w-full h-40 object-cover bg-black"
                     />
-                    <figcaption className="px-2 py-1 text-xs text-gray-600 truncate">
+                    <figcaption className="px-2 py-1 text-xs text-content-secondary truncate">
                       {image.label}
                     </figcaption>
                   </figure>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 py-6 text-center">
+              <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesNoneAttached')}
               </p>
             )}
@@ -1055,7 +1055,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addBlock}
-                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1084,7 +1084,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addSlide}
-                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1234,7 +1234,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
-              className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
+              className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
               {t('docPathology.savePreliminaryButton')}

@@ -327,28 +327,24 @@ export async function doctorJourney(
   // ConsultPage.tsx: createConsult, then PUT /consult/{id}/response.
   // The answer is the half that matters and the half that was silently dropped
   // for seventeen repositories, so it is asserted from the ASKER's session.
-  const consultId = `CONS-${stamp}`;
   const question = `Is basal insulin indicated now? (journey ${stamp})`;
   const consult = await http('POST', '/clinical/consult', {
     token: doctor.token,
+    // ConsultPage's payload: only what the form collects. The id, requester,
+    // status and time are the server's.
     body: {
-      consultId,
       patientId: patient,
-      patientName: fullName,
       specialty: 'Endocrinology',
       urgency: 'routine',
-      status: 'requested',
       reason: 'Poorly controlled type 2 diabetes',
       clinicalQuestion: question,
       relevantHistory: 'Metformin 1 g BD, HbA1c pending',
       currentMedications: 'Metformin',
-      requestedBy: doctor.userId,
-      requestedAt: iso(),
       notes: `Journey harness ${stamp}`,
     },
   });
   const consultOk = j.status('a consult is requested', consult.status, [200, 201], consult.json);
-  const consultRef = String(consult.json.consult_id ?? consult.json.id ?? consultId);
+  const consultRef = String(consult.json.consult_id ?? consult.json.id ?? '');
 
   if (consultOk) {
     const inbox = await http('GET', '/platform/list/consults', { token: colleague.token });
