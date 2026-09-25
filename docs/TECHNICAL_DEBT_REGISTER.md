@@ -21,6 +21,67 @@ Last updated: 2026-09-25.
 
 ---
 
+## 2026-09-25 — SI units, and a blood group that can be Unknown
+
+Both decided by the owner the same day, from the decisions list.
+
+### Units: SI throughout, as South African laboratories report them
+
+The screens mixed conventions, and the server compared bare numbers. Blood
+glucose was entered in mg/dL on Vitals, Triage and Stroke but mmol/L on the
+ambulance handover, and the vital-sign band that raises alerts was in mg/dL
+(critical below 50) -- so a nurse entering a normal 5.4 mmol/L from a meter
+recorded a critical low. SOFA took bilirubin and creatinine in mg/dL; the
+critical-value call list mixed mg/dL (glucose, calcium, creatinine) with mmol/L
+(potassium, sodium); the lab catalogue was US-conventional for nine analytes;
+wearable glucose alerts fired above 180 and below 70, so every mmol/L reading
+was "low" and a real low never was; toxicology levels were page literals in
+mg/dL (rule 8).
+
+Now: one unit per analyte, SI, declared by the server.
+
+  * **Every threshold is the previous one converted**, not a new clinical
+    choice: glucose band 3.9-7.8 mmol/L, critical below 2.8 or above 22.2;
+    critical-value list glucose 2.2/27.8, calcium 1.5/3.24, creatinine 442
+    umol/L (panic 884); wearable net 3.9/10.0 mmol/L.
+  * **SOFA** uses the SI bands published beside the mg/dL ones in the Sepsis-3
+    table (Singer et al., JAMA 2016;315(8):801-810, Table 1), and the request
+    fields are `bilirubin_umol_l` and `creatinine_umol_l`.
+  * **The lab catalogue** changes code with unit, because LOINC codes are
+    unit-specific (2345-7 is glucose by mass, 14749-6 by moles). All 30 codes
+    were checked against the NLM LOINC service. That check found an older
+    error: "Free T3" carried 3053-6, which is TOTAL T3, so a free T3 would
+    have been exported as the wrong analyte. BUN became Urea (mmol/L), as local
+    laboratories report it.
+  * **Blood glucose is stored as a decimal.** It was an INTEGER column in three
+    tables and `u16`/`i32` in Rust, which cannot hold 5.4. Migration
+    `20260925000006` converts stored values (mg/dL / 18.016, one decimal)
+    rather than reinterpreting them.
+  * **A critical glucose now raises a vitals alert.** It raised none in any
+    unit: the alert builder never looked at glucose.
+  * **A value typed in mg/dL from habit is refused** (`GLUCOSE_UNIT_SUSPECT`,
+    above 60 mmol/L), in the manner of the transposed-blood-pressure check.
+    That limit is an engineering plausibility check, not a clinical threshold;
+    the clinical owner may move it.
+  * **Toxicology levels** moved to the scoring catalogue in SI. They were
+    never clinically approved, and two are not toxicity levels at all (80
+    mg/dL ethanol is a driving limit; 150 mg/L paracetamol is the four-hour
+    nomogram line). Converted as they stand; **needs clinical review.**
+
+### Blood group: `Unknown` is a value
+
+Registration required one of the eight groups, which forced a guess for an
+unconscious or untyped patient, and the emergency card then showed the guess
+as fact. `BloodType::Unknown` is a Special Case (Fowler, *Patterns of
+Enterprise Application Architecture*): the same interface as a real group, so
+every reader handles it, rather than `Option` threaded through every screen.
+`patients.blood_type` has always allowed 'Unknown', the emergency views already
+answer "compatible donors: O-" for it (the uncrossmatched default), and the
+capsule already records its source as unknown. Registration offers "Unknown
+(not typed)" as an explicit choice; it is never assumed.
+
+---
+
 ## 2026-09-25 — Browser pass on the Docker stack: what a user actually hits
 
 Every staff sidebar route for every role (117) and every patient-app route (25)
@@ -87,13 +148,9 @@ database and was removed afterwards by restoring the snapshot taken first.
 
 ### Found, not changed — each needs a decision
 
-  * **Registration requires a blood group and offers no "Unknown".** A patient
-    who arrives unconscious, or simply has never been typed, cannot be
-    registered without a clinician guessing one. `EmergencyInfo.blood_type` is
-    a non-optional `BloodType`, read by the emergency views, FHIR and the
-    dashboards, so the honest fix is `Option<BloodType>` through all of them
-    (the emergency capsule already models `BloodTypeSource::Unknown`). Not a
-    change to make the week of a presentation without the owner.
+  * ~~**Registration requires a blood group and offers no "Unknown".**~~
+    Decided and fixed the same day: see "SI units, and a blood group that can
+    be Unknown" above.
   * **My Records makes 20 API calls per visit**, one per record type. At 120
     requests a minute a patient who opens it six times in a minute is refused
     everywhere. A combined patient-records endpoint is the fix.
@@ -210,9 +267,8 @@ prescribed medicine); the patient app's "Create Demo Wallet".
     and the page no longer shows "stable" for one.
   * **An unrecorded blood group became O+.** The patient loader used by the
     in-memory store defaulted a missing or `Unknown` blood group to O+
-    ("universal donor"). Such a patient is no longer loaded, and the count is
-    logged; the profile type cannot say "unknown", so absent is the honest
-    option until it can.
+    ("universal donor"). It now loads such a patient as `BloodType::Unknown`
+    (first skipped, until the type could say "unknown" the same day).
 
 ### Workflows that had an endpoint and no screen, now reachable
 
