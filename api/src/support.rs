@@ -213,6 +213,7 @@ pub fn parse_blood_type(s: &str) -> Result<BloodType, String> {
         "AB-" | "AB_NEGATIVE" | "ABNEGATIVE" => Ok(BloodType::ABNegative),
         "O+" | "O_POSITIVE" | "OPOSITIVE" => Ok(BloodType::OPositive),
         "O-" | "O_NEGATIVE" | "ONEGATIVE" => Ok(BloodType::ONegative),
+        "UNKNOWN" => Ok(BloodType::Unknown),
         _ => Err(format!("Invalid blood type: {}", s)),
     }
 }

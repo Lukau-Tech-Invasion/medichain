@@ -150,6 +150,60 @@ mod tests {
         assert_eq!(retrieved["full_name"], "Test Patient");
     }
 
+    /// A patient nobody has typed registers as Unknown, not as a guessed
+    /// group. Registration used to require one of the eight groups.
+    #[actix_web::test]
+    async fn a_patient_whose_blood_group_is_not_known_registers_as_unknown() {
+        let app_state = setup_app_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(register_patient)
+                .service(get_patient_by_id),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(json!({
+                    "full_name": "Untyped Patient",
+                    "date_of_birth": "1985-05-05",
+                    "national_id": "hash-untyped",
+                    "phone": "+27820000000",
+                    "blood_type": "Unknown",
+                    "allergies": [],
+                    "chronic_conditions": [],
+                    "current_medications": [],
+                    "emergency_contact_name": "Kin",
+                    "emergency_contact_phone": "+27820000001",
+                    "emergency_contact_relationship": "Sibling",
+                    "organ_donor": false,
+                    "dnr_status": false,
+                    "languages": ["en"]
+                }))
+                .to_request(),
+        )
+        .await;
+        assert!(resp.status().is_success(), "{}", resp.status());
+        let created: serde_json::Value = test::read_body_json(resp).await;
+        let patient_id = created["patient_id"].as_str().expect("patient_id");
+
+        let retrieved: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/patients/{patient_id}"))
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            retrieved["emergency_info"]["blood_type"], "Unknown",
+            "{retrieved}"
+        );
+    }
+
     // --- Phase 7.2: concurrent clinical endpoint load tests ---
     //
     // These exercise the in-memory `AppState` stores (`RwLock`-backed maps) under

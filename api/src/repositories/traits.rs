@@ -322,7 +322,8 @@ pub struct VitalSignsEntity {
     pub gcs_eye: Option<i32>,
     pub gcs_verbal: Option<i32>,
     pub gcs_motor: Option<i32>,
-    pub blood_glucose: Option<i32>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f64>,
     pub height_cm: Option<f64>,
     pub bmi: Option<f64>,
@@ -351,7 +352,8 @@ pub struct TriageAssessmentEntity {
     pub oxygen_saturation: Option<i32>,
     pub pain_scale: Option<i32>,
     pub gcs_score: Option<i32>,
-    pub blood_glucose: Option<i32>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight: Option<f64>,
     pub is_critical: bool,
     pub requires_isolation: bool,

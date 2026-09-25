@@ -59,7 +59,7 @@ fn compute_lab_statistics(values: &[f64]) -> serde_json::Value {
 struct Series {
     name: String,
     unit: String,
-    /// The lab's own range string for the most recent result ("70-100").
+    /// The lab's own range string for the most recent result ("3.9-5.6").
     reference_range: Option<String>,
     points: Vec<crate::clinical::LabDataPoint>,
 }
@@ -318,8 +318,8 @@ mod lab_trend_source_tests {
             results: vec![LabTestResult {
                 parameter: parameter.to_string(),
                 value: value.to_string(),
-                unit: "mg/dL".to_string(),
-                reference_range: "70-100".to_string(),
+                unit: "mmol/L".to_string(),
+                reference_range: "3.9-5.6".to_string(),
                 flag: flag.map(str::to_string),
             }],
             notes: None,
@@ -340,11 +340,11 @@ mod lab_trend_source_tests {
     /// generated point claimed.
     #[test]
     fn a_labs_flag_is_carried_not_assumed() {
-        let high = submission("Glucose", "180", Some("H"));
+        let high = submission("Glucose", "10.0", Some("H"));
         let parsed: LabResultSubmission = serde_json::from_value(high).expect("round trips");
         assert_eq!(parsed.results[0].flag.as_deref(), Some("H"));
 
-        let unflagged = submission("Glucose", "92", None);
+        let unflagged = submission("Glucose", "5.1", None);
         let parsed: LabResultSubmission = serde_json::from_value(unflagged).expect("round trips");
         assert_eq!(parsed.results[0].flag, None);
     }
@@ -383,8 +383,8 @@ mod lab_trend_read_tests {
             results: vec![LabTestResult {
                 parameter: "Glucose".to_string(),
                 value: value.to_string(),
-                unit: "mg/dL".to_string(),
-                reference_range: "70-100".to_string(),
+                unit: "mmol/L".to_string(),
+                reference_range: "3.9-5.6".to_string(),
                 flag: None,
             }],
             notes: None,
@@ -410,9 +410,9 @@ mod lab_trend_read_tests {
             .unwrap()
             .insert("5Patient".to_string(), patient);
         for submission in [
-            glucose("LR-1", "100", LabResultStatus::Approved, 10),
-            glucose("LR-2", "130", LabResultStatus::Approved, 5),
-            glucose("LR-3", "200", LabResultStatus::Pending, 1),
+            glucose("LR-1", "5.0", LabResultStatus::Approved, 10),
+            glucose("LR-2", "6.5", LabResultStatus::Approved, 5),
+            glucose("LR-3", "11.0", LabResultStatus::Pending, 1),
         ] {
             let now = chrono::Utc::now();
             state
@@ -457,7 +457,7 @@ mod lab_trend_read_tests {
         assert_eq!(trend["trend_analysis"]["direction"], "Increasing");
         assert_eq!(trend["trend_analysis"]["percent_change"], 30.0);
         assert_eq!(trend["trend_analysis"]["statistically_significant"], false);
-        assert_eq!(trend["reference_range"]["high"], 100.0);
+        assert_eq!(trend["reference_range"]["high"], 5.6);
     }
 
     #[actix_rt::test]

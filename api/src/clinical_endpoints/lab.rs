@@ -2945,14 +2945,14 @@ mod critical_value_workflow_tests {
     async fn a_pharmacist_cannot_document_the_call_and_a_cancellation_needs_a_reason() {
         let state = state().await;
         let app = app!(state);
-        let id = file!(&app, "Glucose", 30.0);
+        let id = file!(&app, "Glucose", 1.7);
         let by_pharmacist = test::call_service(
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/critical-value/{id}/acknowledge"))
                 .insert_header(("x-user-id", "pharmacist"))
                 .set_json(serde_json::json!({
-                    "notifiedProvider": "x", "notificationMethod": "phone", "readBackValue": "30"
+                    "notifiedProvider": "x", "notificationMethod": "phone", "readBackValue": "1.7"
                 }))
                 .to_request(),
         )

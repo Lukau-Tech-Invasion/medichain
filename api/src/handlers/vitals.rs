@@ -16,7 +16,8 @@ pub struct AddVitalSignsRequest {
     pub temperature_celsius: Option<f32>,
     pub pain_scale: Option<u8>,
     pub gcs_total: Option<u8>,
-    pub blood_glucose: Option<u16>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f32>,
     pub notes: Option<String>,
 }
@@ -118,6 +119,17 @@ pub async fn add_vital_signs(
         }
     }
 
+    if let Some(glucose) = req.blood_glucose {
+        if crate::clinical_scoring::glucose_looks_like_mg_dl(glucose) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "A blood glucose of {glucose} mmol/L is not plausible; enter it in mmol/L, not mg/dL"
+                ),
+                code: "GLUCOSE_UNIT_SUSPECT".to_string(),
+            });
+        }
+    }
+
     // Generate reading ID
     let reading_id = format!(
         "VS-{}",
@@ -144,7 +156,12 @@ pub async fn add_vital_signs(
     };
 
     let map = reading.calculate_map();
-    let critical_alerts = reading.has_critical_values();
+    let mut critical_alerts = reading.has_critical_values();
+    // Glucose is not part of `VitalSignsReading`, so its band is checked here.
+    // It was checked nowhere: a critical glucose raised no alert at all.
+    if let Some(glucose) = req.blood_glucose {
+        critical_alerts.extend(crate::clinical_scoring::glucose_alerts(glucose));
+    }
     let has_critical = !critical_alerts.is_empty();
 
     // CDS: evaluate the full rules engine (sepsis/qSOFA, shock, hypertensive crisis,
@@ -170,7 +187,7 @@ pub async fn add_vital_signs(
         let mut entity: crate::repositories::traits::VitalSignsEntity =
             (req.patient_id.clone(), reading).into();
         entity.gcs_score = req.gcs_total.map(i32::from);
-        entity.blood_glucose = req.blood_glucose.map(i32::from);
+        entity.blood_glucose = req.blood_glucose;
         entity.weight_kg = req.weight_kg.map(f64::from);
         if let Err(e) = data.repositories.vital_signs.create(entity).await {
             log::error!("Vital signs persistence failed: {}", e);
@@ -412,7 +429,10 @@ pub async fn get_patient_latest_vitals(
                 pain_scale: vitals.pain_scale.map(|val| val as u8),
                 notes: None,
             };
-            let alerts = reading.has_critical_values();
+            let mut alerts = reading.has_critical_values();
+            if let Some(glucose) = vitals.blood_glucose {
+                alerts.extend(crate::clinical_scoring::glucose_alerts(glucose));
+            }
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
                 "reading": reading,
@@ -551,6 +571,56 @@ mod cds_wiring_tests {
             .await
             .unwrap();
         assert!(stored.is_none(), "a refused reading was stored");
+    }
+
+    /// Glucose is in mmol/L. A value typed in mg/dL from habit is refused, and a
+    /// critical one now raises an alert -- it raised none in any unit.
+    #[actix_web::test]
+    async fn glucose_is_mmol_l_a_mg_dl_value_is_refused_and_a_low_one_alerts() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-GLUCOSE";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_wallet".to_string(), test_doctor());
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(add_vital_signs),
+        )
+        .await;
+        let post = |glucose: f64| {
+            test::TestRequest::post()
+                .uri("/api/clinical/vitals")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(serde_json::json!({ "patient_id": patient_id, "blood_glucose": glucose }))
+                .to_request()
+        };
+
+        let refused = test::call_service(&app, post(110.0)).await;
+        assert_eq!(refused.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = test::read_body_json(refused).await;
+        assert_eq!(body["error"]["code"], "GLUCOSE_UNIT_SUSPECT", "{body}");
+
+        let low: serde_json::Value = test::call_and_read_body_json(&app, post(2.1)).await;
+        assert!(
+            low["critical_alerts"].to_string().contains("Hypoglycaemia"),
+            "{low}"
+        );
+
+        let normal: serde_json::Value = test::call_and_read_body_json(&app, post(5.4)).await;
+        assert_eq!(normal["critical_alerts"], serde_json::json!([]), "{normal}");
     }
 
     /// Recording vital signs for a patient with a documented renal condition and an

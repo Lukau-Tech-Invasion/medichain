@@ -686,9 +686,9 @@ pub struct SofaInputs {
     /// Platelets, x10^3/µL.
     #[serde(default)]
     pub platelets: Option<f64>,
-    /// Bilirubin, mg/dL.
+    /// Bilirubin, µmol/L.
     #[serde(default)]
-    pub bilirubin_mg_dl: Option<f64>,
+    pub bilirubin_umol_l: Option<f64>,
     /// Mean arterial pressure, mmHg.
     #[serde(default)]
     pub mean_arterial_pressure: Option<f64>,
@@ -697,9 +697,9 @@ pub struct SofaInputs {
     /// Glasgow Coma Scale, 3-15.
     #[serde(default)]
     pub glasgow_coma_scale: Option<i32>,
-    /// Creatinine, mg/dL.
+    /// Creatinine, µmol/L.
     #[serde(default)]
-    pub creatinine_mg_dl: Option<f64>,
+    pub creatinine_umol_l: Option<f64>,
     /// Urine output over 24 hours, mL. Scores renal alongside creatinine; the
     /// worse of the two is taken, which is what SOFA specifies.
     #[serde(default)]
@@ -757,15 +757,20 @@ fn sofa_coagulation(inputs: &SofaInputs) -> Option<u8> {
     })
 }
 
+/// Liver, by bilirubin in µmol/L.
+///
+/// The SI bands published beside the mg/dL ones in the Sepsis-3 SOFA table
+/// (Singer et al., JAMA 2016;315(8):801-810, Table 1): <20, 20-32, 33-101,
+/// 102-204, >204.
 fn sofa_liver(inputs: &SofaInputs) -> Option<u8> {
-    let bilirubin = inputs.bilirubin_mg_dl?;
-    Some(if bilirubin >= 12.0 {
+    let bilirubin = inputs.bilirubin_umol_l?;
+    Some(if bilirubin > 204.0 {
         4
-    } else if bilirubin >= 6.0 {
+    } else if bilirubin >= 102.0 {
         3
-    } else if bilirubin >= 2.0 {
+    } else if bilirubin >= 33.0 {
         2
-    } else if bilirubin >= 1.2 {
+    } else if bilirubin >= 20.0 {
         1
     } else {
         0
@@ -818,15 +823,18 @@ fn sofa_cns(inputs: &SofaInputs) -> Option<u8> {
 }
 
 /// Renal: the worse of creatinine and urine output, as SOFA specifies.
+///
+/// Creatinine in µmol/L, on the Sepsis-3 table's SI bands (Singer et al.,
+/// 2016, Table 1): <110, 110-170, 171-299, 300-440, >440.
 fn sofa_renal(inputs: &SofaInputs) -> Option<u8> {
-    let by_creatinine = inputs.creatinine_mg_dl.map(|c| {
-        if c >= 5.0 {
+    let by_creatinine = inputs.creatinine_umol_l.map(|c| {
+        if c > 440.0 {
             4
-        } else if c >= 3.5 {
+        } else if c >= 300.0 {
             3
-        } else if c >= 2.0 {
+        } else if c >= 171.0 {
             2
-        } else if c >= 1.2 {
+        } else if c >= 110.0 {
             1
         } else {
             0
@@ -1137,6 +1145,8 @@ pub fn catalog() -> serde_json::Value {
         // What the vitals screens colour as abnormal and critical. The same
         // limits raise the critical alerts on `POST /api/clinical/vitals`.
         "vital_signs": VITAL_BANDS,
+        // The toxicology form's level flags, with their units.
+        "toxicology": { "levels": TOXICOLOGY_LEVELS },
         // The critical-value call list, for the report form's preview. The
         // stored level is computed on the server when the report is filed.
         "critical_values": {
@@ -1225,7 +1235,7 @@ pub fn catalog() -> serde_json::Value {
             "max_per_system": 4,
             "max_total": 24,
             "respiration_top_tiers_need_support": true,
-            "renal_takes_worse_of": ["creatinine_mg_dl", "urine_output_ml_24h"],
+            "renal_takes_worse_of": ["creatinine_umol_l", "urine_output_ml_24h"],
         },
         "family_history": {
             "first_degree": FIRST_DEGREE_RELATIVES,
@@ -1511,9 +1521,11 @@ mod tests {
         assert_eq!(with(|i| i.platelets = Some(149.0)).coagulation, Some(1));
         assert_eq!(with(|i| i.platelets = Some(19.0)).coagulation, Some(4));
 
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.1)).liver, Some(0));
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.2)).liver, Some(1));
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(12.0)).liver, Some(4));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(19.0)).liver, Some(0));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(20.0)).liver, Some(1));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(33.0)).liver, Some(2));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(204.0)).liver, Some(3));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(205.0)).liver, Some(4));
 
         assert_eq!(
             with(|i| i.glasgow_coma_scale = Some(15)).central_nervous_system,
@@ -1533,8 +1545,11 @@ mod tests {
             "a GCS below 3 is not a GCS"
         );
 
-        assert_eq!(with(|i| i.creatinine_mg_dl = Some(1.1)).renal, Some(0));
-        assert_eq!(with(|i| i.creatinine_mg_dl = Some(5.0)).renal, Some(4));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(109.0)).renal, Some(0));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(110.0)).renal, Some(1));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(171.0)).renal, Some(2));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(440.0)).renal, Some(3));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(441.0)).renal, Some(4));
     }
 
     #[test]
@@ -1594,7 +1609,7 @@ mod tests {
     #[test]
     fn sofa_renal_takes_the_worse_of_creatinine_and_urine_output() {
         let both = sofa_score(&SofaInputs {
-            creatinine_mg_dl: Some(1.3),
+            creatinine_umol_l: Some(115.0),
             urine_output_ml_24h: Some(150.0),
             ..Default::default()
         });
@@ -1613,14 +1628,14 @@ mod tests {
             pao2_fio2: Some(50.0),
             respiratory_support: true,
             platelets: Some(10.0),
-            bilirubin_mg_dl: Some(20.0),
+            bilirubin_umol_l: Some(342.0),
             mean_arterial_pressure: Some(50.0),
             vasopressors: VasopressorSupport {
                 noradrenaline_mcg_kg_min: Some(0.5),
                 ..Default::default()
             },
             glasgow_coma_scale: Some(3),
-            creatinine_mg_dl: Some(6.0),
+            creatinine_umol_l: Some(530.0),
             urine_output_ml_24h: Some(100.0),
         });
         assert_eq!(worst.total, 24);
@@ -1973,11 +1988,14 @@ const fn threshold(
 /// in the browser and posted its own conclusion (rule 8). The table is the
 /// same one; the server now decides, and the page previews from the catalogue.
 pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
+    // SI throughout, like the rest of the list. Glucose, calcium and
+    // creatinine were in US units (mg/dL) beside potassium and sodium in
+    // mmol/L; the numbers below are the same limits converted, not new ones.
     threshold(
         "Glucose",
-        "mg/dL",
-        (Some(40.0), Some(500.0)),
-        (Some(20.0), Some(700.0)),
+        "mmol/L",
+        (Some(2.2), Some(27.8)),
+        (Some(1.1), Some(38.9)),
     ),
     threshold(
         "Potassium",
@@ -1993,9 +2011,9 @@ pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
     ),
     threshold(
         "Calcium",
-        "mg/dL",
-        (Some(6.0), Some(13.0)),
-        (Some(5.0), Some(15.0)),
+        "mmol/L",
+        (Some(1.5), Some(3.24)),
+        (Some(1.25), Some(3.74)),
     ),
     threshold("Hemoglobin", "g/dL", (Some(5.0), None), (Some(4.0), None)),
     threshold(
@@ -2012,7 +2030,12 @@ pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
     ),
     threshold("INR", "ratio", (None, Some(5.0)), (None, Some(8.0))),
     threshold("Troponin", "ng/mL", (None, Some(0.5)), (None, Some(10.0))),
-    threshold("Creatinine", "mg/dL", (None, Some(5.0)), (None, Some(10.0))),
+    threshold(
+        "Creatinine",
+        "µmol/L",
+        (None, Some(442.0)),
+        (None, Some(884.0)),
+    ),
     threshold("pH", "", (Some(7.20), Some(7.60)), (Some(7.10), Some(7.70))),
     threshold(
         "pCO2",
@@ -2293,6 +2316,58 @@ pub struct VitalBand {
     pub critical_high: Option<f64>,
 }
 
+/// A drug level the toxicology form flags when a measured value exceeds it.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct DrugLevel {
+    /// The form's field, and the key the level is stored under.
+    pub key: &'static str,
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub flag_above: f64,
+}
+
+/// The toxicology form's levels, in SI units.
+///
+/// These were literals in `ToxicologyPage` (rule 8), in US units: ethanol
+/// 80 mg/dL, paracetamol 150 mcg/mL, salicylate 30 mg/dL, lithium 1.5 mEq/L,
+/// digoxin 2.0 ng/mL. The numbers below are those converted -- not new
+/// clinical choices, and not clinically approved: 80 mg/dL ethanol is a
+/// driving limit rather than a toxic level, and 150 mg/L paracetamol is the
+/// four-hour nomogram line, which means nothing without the time since
+/// ingestion. Recorded for the clinical owner in the debt register.
+pub const TOXICOLOGY_LEVELS: [DrugLevel; 5] = [
+    DrugLevel {
+        key: "ethanol",
+        name: "Ethanol",
+        unit: "mmol/L",
+        flag_above: 17.4,
+    },
+    DrugLevel {
+        key: "acetaminophen",
+        name: "Paracetamol",
+        unit: "\u{00b5}mol/L",
+        flag_above: 993.0,
+    },
+    DrugLevel {
+        key: "salicylate",
+        name: "Salicylate",
+        unit: "mmol/L",
+        flag_above: 2.17,
+    },
+    DrugLevel {
+        key: "lithium",
+        name: "Lithium",
+        unit: "mmol/L",
+        flag_above: 1.5,
+    },
+    DrugLevel {
+        key: "digoxin",
+        name: "Digoxin",
+        unit: "nmol/L",
+        flag_above: 2.56,
+    },
+];
+
 /// The single definition. `VitalSignsPage` used to carry its own copy, and its
 /// critical systolic limit was 70 where this server alerted below 90 -- a
 /// reading the server had flagged Hypotension rendered as merely abnormal.
@@ -2353,12 +2428,15 @@ pub const VITAL_BANDS: [VitalBand; 9] = [
         critical_low: Some(9.0),
         critical_high: None,
     },
+    // mmol/L. Converted from the mg/dL band this used to carry (70-140,
+    // critical below 50 or above 400) at 18.016 mg/dL per mmol/L -- the same
+    // limits, in the unit South African laboratories and meters report.
     VitalBand {
         key: "blood_glucose",
-        normal_low: Some(70.0),
-        normal_high: Some(140.0),
-        critical_low: Some(50.0),
-        critical_high: Some(400.0),
+        normal_low: Some(3.9),
+        normal_high: Some(7.8),
+        critical_low: Some(2.8),
+        critical_high: Some(22.2),
     },
 ];
 
@@ -2377,6 +2455,34 @@ pub fn vital_beyond(key: &str, value: f64) -> (bool, bool) {
         ),
         None => (false, false),
     }
+}
+
+/// Above this a blood glucose "in mmol/L" is almost certainly mg/dL typed
+/// from habit: 110 mg/dL is a normal reading, 110 mmol/L is not survivable.
+///
+/// An engineering plausibility check in the manner of
+/// `blood_pressure_is_transposed`, not a clinical threshold -- genuine
+/// hyperosmolar readings reach the 30s and occasionally the 50s mmol/L, and
+/// point-of-care meters read "HI" above about 33. The clinical owner may move it.
+pub const GLUCOSE_MMOL_L_PLAUSIBLE_MAX: f64 = 60.0;
+
+/// Whether a glucose submitted as mmol/L looks like a mg/dL value.
+pub fn glucose_looks_like_mg_dl(value: f64) -> bool {
+    value > GLUCOSE_MMOL_L_PLAUSIBLE_MAX
+}
+
+/// The critical alerts one blood glucose (mmol/L) raises, from the same band
+/// the vitals screens colour by.
+pub fn glucose_alerts(value: f64) -> Vec<String> {
+    let (low, high) = vital_beyond("blood_glucose", value);
+    let mut alerts = Vec::new();
+    if low {
+        alerts.push(format!("Hypoglycaemia: glucose {value} mmol/L"));
+    }
+    if high {
+        alerts.push(format!("Hyperglycaemia: glucose {value} mmol/L"));
+    }
+    alerts
 }
 
 /// A blood pressure whose systolic is not above its diastolic has almost

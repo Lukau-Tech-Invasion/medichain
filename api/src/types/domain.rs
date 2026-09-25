@@ -224,6 +224,17 @@ pub enum BloodType {
     ABNegative,
     OPositive,
     ONegative,
+    /// Not typed, or not known to whoever recorded it.
+    ///
+    /// A Special Case (Fowler, *Patterns of Enterprise Application
+    /// Architecture*): the same interface as a real group, so every reader
+    /// handles it, instead of a guessed group standing in for "we do not know".
+    /// Registration used to require one of the eight, which forced a guess for
+    /// an unconscious or untyped patient, and the patient loader turned a
+    /// missing group into O+. The emergency views already treat it as
+    /// "compatible donors: O-", the uncrossmatched default. `patients.blood_type`
+    /// has always allowed 'Unknown'.
+    Unknown,
 }
 
 impl serde::Serialize for BloodType {
@@ -250,6 +261,7 @@ impl<'de> serde::Deserialize<'de> for BloodType {
             "AB-" | "ABNegative" => Ok(BloodType::ABNegative),
             "O+" | "OPositive" => Ok(BloodType::OPositive),
             "O-" | "ONegative" => Ok(BloodType::ONegative),
+            "Unknown" | "unknown" => Ok(BloodType::Unknown),
             _ => Err(serde::de::Error::custom(format!(
                 "Invalid blood type: {}",
                 s
@@ -269,6 +281,7 @@ impl std::fmt::Display for BloodType {
             BloodType::ABNegative => write!(f, "AB-"),
             BloodType::OPositive => write!(f, "O+"),
             BloodType::ONegative => write!(f, "O-"),
+            BloodType::Unknown => write!(f, "Unknown"),
         }
     }
 }
