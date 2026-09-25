@@ -1408,7 +1408,10 @@ async function qualifyPatientMutation(
       priority: 'normal',
     },
   });
-  expectStatus('a patient cannot message an unknown recipient', ghost.status, [403, 404], ghost.json);
+  // 400 as well: since 2026-09-22 every recipient is resolved before anything
+  // is stored, and an account that does not exist is a bad request body
+  // (INVALID_RECIPIENT). The property under test is the refusal, not its code.
+  expectStatus('a patient cannot message an unknown recipient', ghost.status, [400, 403, 404], ghost.json);
 }
 
 /**

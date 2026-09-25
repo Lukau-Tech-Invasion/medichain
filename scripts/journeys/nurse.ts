@@ -143,7 +143,14 @@ export async function nurseJourney(
   if (recorded) {
     const fs = await http('GET', `/clinical/vitals/flowsheet/${patient}`, { token: nurse.token });
     const cols = rowsOf(fs.json, 'readings', 'columns', 'entries', 'items');
-    const latest = Array.isArray(cols) ? (cols[cols.length - 1] as any) : undefined;
+    // The newest reading by its own timestamp, not by position. The flowsheet
+    // is newest-first (VitalSignsPage reads readings[0] as the latest); this
+    // took the LAST element, which was right only while each run began on a
+    // patient with no earlier readings.
+    const when = (r: any) => Number(r?.timestamp ?? Date.parse(r?.recorded_at ?? '') ?? 0);
+    const latest = Array.isArray(cols) && cols.length
+      ? (cols.reduce((a: any, b: any) => (when(b) > when(a) ? b : a)) as any)
+      : undefined;
     // The flowsheet is what a clinician actually reads; a value that survives
     // the write but not the flowsheet is invisible in practice.
     const bad = discrepancies(latest, {
