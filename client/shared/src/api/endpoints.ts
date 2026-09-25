@@ -1267,7 +1267,8 @@ export type PatientDocumentKind =
   | 'care-plans'
   | 'blood'
   | 'procedures'
-  | 'ama-discharges';
+  | 'ama-discharges'
+  | 'ems-handoffs';
 
 /**
  * One of a patient's document collections, with its envelope intact.
@@ -1299,6 +1300,7 @@ const PATIENT_DOCUMENT_PATHS: Record<PatientDocumentKind, (id: string) => string
   blood: (id) => `/api/clinical/patient/${id}/blood`,
   procedures: (id) => `/api/clinical/patient/${id}/procedures`,
   'ama-discharges': (id) => `/api/clinical/patient/${id}/ama-discharges`,
+  'ems-handoffs': (id) => `/api/clinical/patient/${id}/ems-handoffs`,
 };
 
 /**
@@ -2922,10 +2924,11 @@ export async function getLabTrends(
   patient_id: string;
   trends: Record<string, unknown>[];
   count: number;
-  statistics: Record<string, unknown>;
   per_test_statistics: Record<string, unknown>;
 }> {
-  const url = testCode ? `/api/lab-trends/patient/${patientId}?test_code=${testCode}` : `/api/lab-trends/patient/${patientId}`;
+  const url = testCode
+    ? `/api/lab-trends/patient/${encodeURIComponent(patientId)}?test_code=${encodeURIComponent(testCode)}`
+    : `/api/lab-trends/patient/${encodeURIComponent(patientId)}`;
   return getApiClient().get(url);
 }
 
@@ -3699,21 +3702,14 @@ export async function listBloodBank(): Promise<{
   };
 }
 
-/**
- * List all autopsy records (requests + reports)
- */
+/** Every autopsy report on the register. */
 export async function listAutopsy(): Promise<{
   success: boolean;
-  requests: { total: number; items: unknown[] };
   reports: { total: number; items: unknown[] };
 }> {
-  const [requests, reports] = await Promise.all([
-    getApiClient().get<unknown[]>('/api/platform/list/autopsy'),
-    getApiClient().get<unknown[]>('/api/platform/list/autopsy-reports'),
-  ]);
+  const reports = await getApiClient().get<unknown[]>('/api/platform/list/autopsy-reports');
   return {
     success: true,
-    requests: { total: (requests || []).length, items: requests || [] },
     reports: { total: (reports || []).length, items: reports || [] },
   };
 }
@@ -4810,5 +4806,83 @@ export async function getPatientPharmacyDecisions(
   patientId: string
 ): Promise<{ success: boolean; decisions: PharmacyDecision[]; count: number }> {
   return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/pharmacy-decisions`);
+}
+
+/**
+ * A QR code a patient scans to join a telehealth session in the patient app.
+ * 503 JOIN_URL_UNCONFIGURED until the deployment sets MEDICHAIN_APP_URL.
+ */
+export async function getTelehealthJoinQr(
+  sessionId: string
+): Promise<{ success: boolean; session_id: string; join_url: string; qr_png_base64: string }> {
+  return getApiClient().get(`/api/telehealth/sessions/${encodeURIComponent(sessionId)}/qr`);
+}
+
+// ============================================================================
+// Ambulance handover
+// ============================================================================
+
+/** One set of observations the crew took; only the readings they took. */
+export interface EmsVitals {
+  taken_at?: string;
+  systolic_bp?: number;
+  diastolic_bp?: number;
+  heart_rate?: number;
+  respiratory_rate?: number;
+  spo2?: number;
+  temperature_c?: number;
+  glucose_mmol?: number;
+}
+
+/** What the receiving clinician records of the crew's handover. */
+export interface CreateEmsHandoffBody {
+  patient_id?: string;
+  ems_agency: string;
+  unit_number?: string;
+  crew?: string[];
+  incident_type?: string;
+  scene_address?: string;
+  dispatch_time?: string;
+  on_scene_time?: string;
+  departed_scene_time?: string;
+  chief_complaint: string;
+  mechanism_of_injury?: string;
+  gcs_on_scene?: number;
+  vital_signs?: EmsVitals[];
+  interventions?: string[];
+  medications_given?: Array<{ name: string; dose?: string; route?: string; given_at?: string }>;
+  sample?: Partial<Record<'signs_symptoms' | 'allergies' | 'medications' | 'past_history' | 'last_intake' | 'events', string>>;
+  trauma_alert?: boolean;
+  stroke_alert?: boolean;
+  stemi_alert?: boolean;
+  sepsis_alert?: boolean;
+  notes?: string;
+}
+
+/** A stored handover: what was recorded, plus who received it and when. */
+export interface EmsHandoff extends CreateEmsHandoffBody {
+  id: string;
+  received_by: string;
+  received_at: string;
+}
+
+/** Record a crew's handover. The server assigns the id and the receiver. */
+export async function createEmsHandoff(body: CreateEmsHandoffBody): Promise<{ success: boolean; id: string }> {
+  return getApiClient().post('/api/emergency/ems-handoff', body);
+}
+
+/** Handovers received in the last `hours` (default 24): the arrivals board. */
+export async function listRecentEmsHandoffs(
+  hours?: number
+): Promise<{ success: boolean; hours: number; count: number; handoffs: EmsHandoff[] }> {
+  const query = hours ? `?hours=${hours}` : '';
+  return getApiClient().get(`/api/emergency/ems-handoffs${query}`);
+}
+
+/** The ambulance handovers recorded about one patient (their team, or themselves). */
+export async function getPatientEmsHandoffs(
+  patientId: string
+): Promise<{ success: boolean; handoffs: EmsHandoff[]; count: number }> {
+  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/ems-handoffs`);
 }
 

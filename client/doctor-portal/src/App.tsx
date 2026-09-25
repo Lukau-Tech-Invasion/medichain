@@ -53,6 +53,7 @@ const EmergencyAccessPage = lazy(() => import('./pages/EmergencyAccessPage'));
 const EmergencyProtocolsPage = lazy(() => import('./pages/EmergencyProtocolsPage'));
 const CodeBluePage = lazy(() => import('./pages/CodeBluePage'));
 const TraumaPage = lazy(() => import('./pages/TraumaPage'));
+const EmsHandoffPage = lazy(() => import('./pages/EmsHandoffPage'));
 const StrokePage = lazy(() => import('./pages/StrokePage'));
 const CardiacPage = lazy(() => import('./pages/CardiacPage'));
 const SepsisPage = lazy(() => import('./pages/SepsisPage'));
@@ -262,6 +263,7 @@ function App() {
         <Route path="emergency-protocols" element={<LazyRoute element={<EmergencyProtocolsPage />} />} />
         <Route path="code-blue" element={<LazyRoute element={<CodeBluePage />} />} />
         <Route path="trauma" element={<LazyRoute element={<TraumaPage />} />} />
+        <Route path="ems-handoff" element={<LazyRoute element={<EmsHandoffPage />} />} />
         <Route path="stroke" element={<LazyRoute element={<StrokePage />} />} />
         <Route path="cardiac" element={<LazyRoute element={<CardiacPage />} />} />
         <Route path="sepsis" element={<LazyRoute element={<SepsisPage />} />} />

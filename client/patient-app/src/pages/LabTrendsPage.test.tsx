@@ -92,6 +92,12 @@ describe('LabTrendsPage (Patient)', () => {
     });
   });
 
+  it('asks for the patient record, not the wallet address', async () => {
+    render(<LabTrendsPage />);
+    await waitFor(() => expect(shared.getLabTrends).toHaveBeenCalledWith('HEALTH123'));
+    expect(shared.getLabTrends).not.toHaveBeenCalledWith(mockPatient.walletAddress);
+  });
+
   it('does not invent a status, reference range, or percent change when the API omits them', async () => {
     vi.mocked(shared.getLabTrends).mockResolvedValue({
       success: true,

@@ -46,6 +46,10 @@ describe('DrugInteractionsPage', () => {
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
+    // A bare vi.fn() resolves undefined, and PatientSelect then calls
+    // `.find` on it -- a crash that only lands when the list request settles
+    // before the test ends, so it failed under full-suite load and passed alone.
+    vi.mocked(shared.getPatients).mockResolvedValue([] as never);
 
     mockFetch.mockImplementation((input: RequestInfo | URL) => {
       const url = String(typeof input === 'object' && 'url' in input ? input.url : input);

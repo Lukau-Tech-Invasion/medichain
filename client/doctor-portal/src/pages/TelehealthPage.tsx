@@ -6,11 +6,12 @@ import {
   getApiErrorMessage,
   getPatientTelehealthSessions,
   joinTelehealthSession,
+  getTelehealthJoinQr,
   listMyTelehealthSessions,
   useTranslation,
   formatTimestamp,
 } from '@medichain/shared';
-import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
+import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { JitsiMeetComponent } from '@medichain/shared';
 
@@ -164,6 +165,19 @@ export default function TelehealthPage() {
    * open the IFrame-API call. Falls back to the raw-iframe URL if the provider
    * doesn't return credentials.
    */
+  // The QR the patient scans to join from their phone. `GET
+  // /api/telehealth/sessions/{id}/qr` had no caller; the patient app already
+  // honours the link it encodes.
+  const [joinQr, setJoinQr] = useState<{ url?: string; png?: string; error?: string } | null>(null);
+  const showJoinQr = async (sessionId: string) => {
+    try {
+      const qr = await getTelehealthJoinQr(sessionId);
+      setJoinQr({ url: qr.join_url, png: qr.qr_png_base64 });
+    } catch (err) {
+      setJoinQr({ error: getApiErrorMessage(err, t('docTelehealth.joinQrFailed')) });
+    }
+  };
+
   const handleJoin = async (session: TelehealthSession) => {
     setError('');
     try {
@@ -363,6 +377,16 @@ export default function TelehealthPage() {
                       {t('docTelehealth.join')}
                     </button>
                   )}
+                  {!isOver(session.status) && (
+                    <button
+                      type="button"
+                      onClick={() => void showJoinQr(session.session_id)}
+                      className="flex items-center gap-1 px-3 py-1.5 border border-border-interactive text-content text-sm rounded"
+                    >
+                      <QrCode size={14} aria-hidden="true" />
+                      {t('docTelehealth.joinQr')}
+                    </button>
+                  )}
                   {(session.status === 'active' || session.status === 'scheduled') && (
                     <button
                       onClick={() => handleEndSession(session.session_id)}
@@ -379,6 +403,32 @@ export default function TelehealthPage() {
           </div>
         )}
       </div>
+
+      {joinQr && (
+        <div className="bg-surface rounded-xl shadow p-6 text-center" data-testid="join-qr">
+          <h2 className="font-semibold text-content mb-1">{t('docTelehealth.joinQr')}</h2>
+          <p className="text-sm text-content-muted mb-3">{t('docTelehealth.joinQrHint')}</p>
+          {joinQr.png ? (
+            <>
+              <img
+                src={`data:image/png;base64,${joinQr.png}`}
+                alt={t('docTelehealth.joinQr')}
+                className="mx-auto w-48 h-48"
+              />
+              <p className="text-xs text-content-muted break-all mt-2">{joinQr.url}</p>
+            </>
+          ) : (
+            <p role="alert" className="text-sm text-critical-subtle-fg">{joinQr.error}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => setJoinQr(null)}
+            className="mt-3 border px-4 py-2 rounded-lg hover:bg-surface-sunken"
+          >
+            {t('docTelehealth.joinQrClose')}
+          </button>
+        </div>
+      )}
 
       {/* Create Form */}
       {showForm && (

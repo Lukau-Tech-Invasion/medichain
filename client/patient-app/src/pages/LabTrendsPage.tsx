@@ -109,9 +109,11 @@ const LabTrendsPage: React.FC = () => {
     setLoading(true);
     
     // Try to load from API first
-    if (patient?.walletAddress) {
+    // The patient's record id, not their wallet address: results are filed
+    // under the record, so a wallet-keyed read found nothing for anybody.
+    if (patient?.healthId) {
       try {
-        const response = await getLabTrends(patient.walletAddress) as { success?: boolean; trends?: unknown[] };
+        const response = await getLabTrends(patient.healthId) as { success?: boolean; trends?: unknown[] };
         // API returns { success: true, trends: [...] }
         if (response?.success && response?.trends && Array.isArray(response.trends) && response.trends.length > 0) {
           // Transform API response to frontend format
@@ -119,7 +121,11 @@ const LabTrendsPage: React.FC = () => {
           const transformed: LabTrend[] = response.trends.flatMap((apiTrend: any) => {
             // Map API data points to LabResult format
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const results: LabResult[] = (apiTrend.data_points || []).map((dp: any, idx: number) => {
+            // Newest first: everything below reads results[0] as the latest.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const points = [...(apiTrend.data_points || [])].sort((a: any, b: any) => b.collected_at - a.collected_at);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const results: LabResult[] = points.map((dp: any, idx: number) => {
               const mapStatus = (status: string): ResultStatus => {
                 switch (status) {
                   case 'CriticalLow': return 'critical-low';
@@ -146,7 +152,9 @@ const LabTrendsPage: React.FC = () => {
             const mapTrend = (direction: string): TrendDirection => {
               if (direction === 'Increasing') return 'up';
               if (direction === 'Decreasing') return 'down';
-              return 'stable';
+              if (direction === 'Stable') return 'stable';
+              // One result, or a first value of zero: no direction to show.
+              return 'unknown';
             };
 
             // Create LabTest from API data
@@ -186,7 +194,7 @@ const LabTrendsPage: React.FC = () => {
     }
     
     setLoading(false);
-  }, [patient?.walletAddress]);
+  }, [patient?.healthId]);
 
   useEffect(() => {
     loadLabTrends();

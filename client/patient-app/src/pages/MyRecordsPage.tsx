@@ -148,6 +148,7 @@ export function MyRecordsPage() {
         procedureData,
         amaData,
         gcsData,
+        emsData,
       ] = await Promise.all([
         settle('lab', getPatientLabSubmissions(patientId), []),
         settle('documents', getPatientRecords(patientId), []),
@@ -209,6 +210,8 @@ export function MyRecordsPage() {
           getPatientGCS(patientId),
           { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientGCS>>,
         ),
+        // What the ambulance crew found and did before the hospital door.
+        documents('ems-handoffs'),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -521,6 +524,20 @@ export function MyRecordsPage() {
         verified: true,
       }));
       allRecords.push(...gcsRecords);
+
+      const emsRecords = (((emsData as { handoffs?: Array<Record<string, unknown>> })
+        .handoffs) || []).map(handoff => ({
+        id: String(handoff.id),
+        type: 'other' as const,
+        title: `Ambulance handover${handoff.ems_agency ? ` (${handoff.ems_agency})` : ''}`,
+        description: String(handoff.chief_complaint || ''),
+        provider: String(handoff.ems_agency || 'Ambulance service'),
+        date: timestampDate(handoff.received_at as string | undefined),
+        contentHash: `ems-${handoff.id}`,
+        metadataHash: String(handoff.id),
+        verified: true,
+      }));
+      allRecords.push(...emsRecords);
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({

@@ -356,6 +356,7 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
       { id: 'trauma', to: '/trauma', label: 'Trauma', icon: AlertTriangle },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
       { id: 'stroke', to: '/stroke', label: 'Stroke', icon: Brain },
       { id: 'cardiac', to: '/cardiac', label: 'Cardiac', icon: Heart },
       { id: 'sepsis', to: '/sepsis', label: 'Sepsis', icon: Thermometer },
@@ -503,6 +504,7 @@ export const NURSE_NAV: NavSection[] = [
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
       // The protocol set itself — what to do, in order, when one of these is
       // called. Reachable only by typing the URL until now, which is the worst
       // possible property for a page nobody opens except in an emergency.
