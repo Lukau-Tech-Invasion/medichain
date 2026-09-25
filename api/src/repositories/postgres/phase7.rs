@@ -14,13 +14,11 @@ use crate::repositories::traits::{JsonRecordEntity, JsonRecordRepository, Reposi
 macro_rules! pg_json_repo {
     ($name:ident, $table:literal) => {
         /// PostgreSQL-backed JSON-record repository (one Phase-7 domain table).
-        #[allow(dead_code)]
         #[derive(Debug, Clone)]
         pub struct $name {
             pool: PgPool,
         }
 
-        #[allow(dead_code)]
         impl $name {
             pub fn new(pool: PgPool) -> Self {
                 Self { pool }
@@ -96,20 +94,47 @@ macro_rules! pg_json_repo {
                     .await?;
                 Ok(())
             }
+
+            async fn replace_if_field_eq(
+                &self,
+                id: &str,
+                field: &str,
+                expected: &str,
+                record: JsonRecordEntity,
+            ) -> RepositoryResult<Option<JsonRecordEntity>> {
+                // One statement, so the guard and the write cannot be
+                // separated by another transaction. `data ->> $4` reads the
+                // *stored* value, not the caller's copy of it — which is what
+                // makes a concurrent second approval find `Approved` and lose.
+                let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
+                    "UPDATE ",
+                    $table,
+                    " SET owner_id = $2, data = $3, updated_at = NOW() \
+                     WHERE id = $1 AND data #>> string_to_array($4, '.') = $5 \
+                     RETURNING *"
+                ))
+                .bind(id)
+                .bind(&record.owner_id)
+                .bind(&record.data)
+                .bind(field)
+                .bind(expected)
+                .fetch_optional(&self.pool)
+                .await?;
+                Ok(result)
+            }
         }
     };
 }
 
 pg_json_repo!(PgLanguagePreferenceRepository, "language_preferences");
+pg_json_repo!(PgProviderScheduleRepository, "provider_schedules");
 pg_json_repo!(PgEligibilityCheckRepository, "eligibility_checks");
 pg_json_repo!(PgSatisfactionSurveyRepository, "satisfaction_surveys");
 pg_json_repo!(PgSymptomSessionRepository, "symptom_sessions");
 pg_json_repo!(PgFamilyGroupRepository, "family_groups");
 pg_json_repo!(PgInsuranceClaimRepository, "insurance_claims");
 pg_json_repo!(PgInsuranceCardRepository, "insurance_cards");
-pg_json_repo!(PgAutopsyRequestRepository, "autopsy_requests");
 pg_json_repo!(PgAutopsyReportRepository, "autopsy_reports");
-pg_json_repo!(PgDeathCertificateRepository, "death_certificates");
 pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
 
 // Round 5: wearables + telehealth legacy shapes (repos existed but entity shapes
@@ -130,7 +155,6 @@ pg_json_repo!(
 // entities). Persisted losslessly as JSON under distinct table names.
 pg_json_repo!(PgEPrescriptionV2Repository, "e_prescription_v2_records");
 pg_json_repo!(PgDrugInteractionCheckRepository, "drug_interaction_checks");
-pg_json_repo!(PgLabTrendResultRepository, "lab_trend_results");
 pg_json_repo!(PgLabResultSubmissionRepository, "lab_result_submissions");
 
 // Round 7: SOAP clinical notes (no prior repository existed).
@@ -148,6 +172,27 @@ pg_json_repo!(PgMessageRepository, "messages");
 pg_json_repo!(PgSymptomEntryRepository, "symptom_entries");
 pg_json_repo!(PgBarcodeScanRepository, "barcode_scans");
 
+// Laboratory calibration runs (migration 20260920000001). These are distinct
+// from measured QC controls and retained by calibrator lot for recall tracing.
+pg_json_repo!(PgLabCalibrationRepository, "lab_calibrations");
+
+// Clinician-authored note templates (migration 20260919000002).
+pg_json_repo!(PgNoteTemplateRepository, "note_templates");
+pg_json_repo!(PgOrderSetRepository, "order_sets");
+pg_json_repo!(PgCdsRuleRepository, "cds_rules");
+pg_json_repo!(PgNotificationReadRepository, "notification_reads");
+// A pharmacist's decision about dispensing against a known allergy, and the
+// queries they raise with a prescriber (migration 20260922000003). Both were
+// buttons on the pharmacist dashboard with nothing behind them.
+pg_json_repo!(PgPharmacyDecisionRepository, "pharmacy_decisions");
+// A clinician's barcode scanner preferences and their history-cleared marker
+// (migration 20260922000006). The five toggles were literals in the JSX.
+pg_json_repo!(PgScannerSettingsRepository, "scanner_settings");
+// Staff profile pictures (migration 20260922000007). Kept out of `users`: an
+// avatar is not an identity attribute, and a column there would be serialised
+// into every user list that returns a User.
+pg_json_repo!(PgUserAvatarRepository, "user_avatars");
+
 // Final durability sweep (migration 20260811000002): the last process-memory
 // clinical maps. The first three are shape-mismatch domains whose typed tables
 // require columns the API types do not carry — see the migration for why.
@@ -159,7 +204,11 @@ pg_json_repo!(
     PgTransfusionEventRecordRepository,
     "transfusion_event_records"
 );
-pg_json_repo!(PgEPrescriptionRecordRepository, "e_prescription_records");
+pg_json_repo!(PgDispenseEventRepository, "dispense_events");
+pg_json_repo!(
+    PgPrescriptionVerificationEventRepository,
+    "prescription_verification_events"
+);
 pg_json_repo!(
     PgDeathCertificateRecordRepository,
     "death_certificate_records"

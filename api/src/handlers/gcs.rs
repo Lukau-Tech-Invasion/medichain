@@ -39,7 +39,6 @@ pub async fn create_gcs_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -50,7 +49,6 @@ pub async fn create_gcs_assessment(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -59,7 +57,6 @@ pub async fn create_gcs_assessment(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot create GCS assessments. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -73,7 +70,6 @@ pub async fn create_gcs_assessment(
         validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e,
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -89,7 +85,6 @@ pub async fn create_gcs_assessment(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -101,7 +96,6 @@ pub async fn create_gcs_assessment(
         Some(e) => e,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Eye response must be 1-4".to_string(),
                 code: "INVALID_EYE_RESPONSE".to_string(),
             });
@@ -112,7 +106,6 @@ pub async fn create_gcs_assessment(
         Some(v) => v,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Verbal response must be 1-5".to_string(),
                 code: "INVALID_VERBAL_RESPONSE".to_string(),
             });
@@ -123,7 +116,6 @@ pub async fn create_gcs_assessment(
         Some(m) => m,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Motor response must be 1-6".to_string(),
                 code: "INVALID_MOTOR_RESPONSE".to_string(),
             });
@@ -144,11 +136,13 @@ pub async fn create_gcs_assessment(
     let gcs = GlasgowComaScale::new(
         assessment_id.clone(),
         req.patient_id.clone(),
-        eye,
-        verbal,
-        motor,
-        req.pupil_assessment.clone(),
-        req.notes.clone(),
+        crate::clinical::GcsObservation {
+            eye,
+            verbal,
+            motor,
+            pupil_assessment: req.pupil_assessment.clone(),
+            notes: req.notes.clone(),
+        },
         current_user_id.clone(),
     );
 
@@ -200,8 +194,8 @@ pub async fn create_gcs_assessment(
         facility_id: None,
     };
 
-    if let Err(e) = data.repositories.access_logs.create(log_entity).await {
-        log::error!("Failed to store access log in repository: {}", e);
+    if let Err(response) = crate::support::require_durable_audit(&data, log_entity).await {
+        return response;
     }
 
     log::info!(
@@ -235,7 +229,6 @@ pub async fn get_gcs_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -246,7 +239,6 @@ pub async fn get_gcs_assessment(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -255,7 +247,6 @@ pub async fn get_gcs_assessment(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can view GCS assessments".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -291,7 +282,6 @@ pub async fn get_gcs_assessment(
             HttpResponse::Ok().json(assessment)
         }
         Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("GCS assessment '{}' not found", assessment_id),
             code: "ASSESSMENT_NOT_FOUND".to_string(),
         }),
@@ -311,7 +301,6 @@ pub async fn get_patient_gcs_assessments(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -322,7 +311,6 @@ pub async fn get_patient_gcs_assessments(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -333,7 +321,6 @@ pub async fn get_patient_gcs_assessments(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });

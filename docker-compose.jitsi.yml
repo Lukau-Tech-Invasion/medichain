@@ -14,6 +14,7 @@
 
 services:
   jitsi-web:
+    container_name: medichain_jitsi_web
     image: jitsi/web:stable
     restart: unless-stopped
     ports:
@@ -37,8 +38,10 @@ services:
       - ENABLE_E2EE=0
     depends_on:
       - jitsi-prosody
-
+    networks:
+      - medichain_network
   jitsi-prosody:
+    container_name: medichain_jitsi_prosody
     image: jitsi/prosody:stable
     restart: unless-stopped
     expose:
@@ -60,9 +63,21 @@ services:
       - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      # Prosody CREATES these two accounts on first start, and jicofo and jvb
+      # sign in with the same values. All three containers must agree: given
+      # only to the components, the accounts would not exist and they would
+      # fail to authenticate rather than fail to start — the harder version of
+      # this to diagnose, because the containers stay up and no call connects.
+      - JICOFO_AUTH_USER=focus
+      - JICOFO_AUTH_PASSWORD=${JICOFO_AUTH_PASSWORD:?set JICOFO_AUTH_PASSWORD in .env}
+      - JICOFO_COMPONENT_SECRET=${JICOFO_COMPONENT_SECRET:?set JICOFO_COMPONENT_SECRET in .env}
+      - JVB_AUTH_USER=jvb
+      - JVB_AUTH_PASSWORD=${JVB_AUTH_PASSWORD:?set JVB_AUTH_PASSWORD in .env}
       - TZ=UTC
-
+    networks:
+      - medichain_network
   jitsi-jicofo:
+    container_name: medichain_jitsi_jicofo
     image: jitsi/jicofo:stable
     restart: unless-stopped
     volumes:
@@ -71,11 +86,21 @@ services:
       - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      # The account prosody created for this component. Without it the
+      # container exits with "Jicofo auth password must be set" and restarts
+      # forever, while web and prosody stay up — so the stack looks two-thirds
+      # healthy and no call can ever be placed.
+      - XMPP_SERVER=jitsi-prosody
+      - JICOFO_AUTH_USER=focus
+      - JICOFO_AUTH_PASSWORD=${JICOFO_AUTH_PASSWORD:?set JICOFO_AUTH_PASSWORD in .env}
+      - JICOFO_COMPONENT_SECRET=${JICOFO_COMPONENT_SECRET:?set JICOFO_COMPONENT_SECRET in .env}
       - TZ=UTC
     depends_on:
       - jitsi-prosody
-
+    networks:
+      - medichain_network
   jitsi-jvb:
+    container_name: medichain_jitsi_jvb
     image: jitsi/jvb:stable
     restart: unless-stopped
     ports:
@@ -86,8 +111,19 @@ services:
       - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_SERVER=jitsi-prosody
+      - JVB_AUTH_USER=jvb
+      - JVB_AUTH_PASSWORD=${JVB_AUTH_PASSWORD:?set JVB_AUTH_PASSWORD in .env}
       # Public IP for NAT traversal; set to the host's reachable address.
       - JVB_ADVERTISE_IPS=${JVB_ADVERTISE_IPS:-}
       - TZ=UTC
     depends_on:
       - jitsi-prosody
+    networks:
+      - medichain_network
+
+networks:
+  # The same network docker-compose.yml creates, so the API and the Jitsi
+  # services are reachable to each other by name.
+  medichain_network:
+    external: true
+    name: medichain_medichain_network

@@ -23,8 +23,20 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS is required}
+      # The API fails closed outside demo mode without this value, but making it
+      # required here prevents a production monitoring deployment that starts
+      # successfully while every Prometheus scrape is rejected with 401.
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN is required}
       NATIONAL_ID_HASH_KEY: ${NATIONAL_ID_HASH_KEY:?NATIONAL_ID_HASH_KEY is required}
+      NATIONAL_ID_VERIFICATION_MODE: "live"
       SMS_INBOUND_WEBHOOK_SECRET: ${SMS_INBOUND_WEBHOOK_SECRET:?SMS_INBOUND_WEBHOOK_SECRET is required}
+      # Disabled until a qualified private provider is configured. If enabled,
+      # startup rejects public Jitsi and missing provider credentials.
+      TELEHEALTH_ENABLED: ${TELEHEALTH_ENABLED:-false}
+      TELEHEALTH_PROVIDER: ${TELEHEALTH_PROVIDER:-jitsi}
+      JITSI_DOMAIN: ${JITSI_DOMAIN:-}
+      JITSI_APP_ID: ${JITSI_APP_ID:-}
+      JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
       BLOCKCHAIN_ENABLED: "true"
       SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:?SUBSTRATE_WS_URL is required}
       SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:?SUBSTRATE_SIGNING_KEY is required}
@@ -95,6 +107,12 @@ services:
     image: prom/prometheus:v2.54.1
     container_name: medichain_prometheus
     restart: always
+    environment:
+      # Shared with the API service; Compose mounts it as a runtime secret
+      # instead of placing it in the scrape configuration.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    secrets:
+      - metrics_token
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -120,8 +138,11 @@ services:
     container_name: medichain_grafana
     restart: always
     environment:
-      # DEV-friendly default; override GF_SECURITY_ADMIN_PASSWORD in .env.
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Compose interpolates profile services during configuration, so this is
+      # required for every production Compose invocation even when the optional
+      # monitoring profile is not started. That prevents an accidental Grafana
+      # administrator with a public default credential.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3001:3000"
@@ -144,3 +165,7 @@ volumes:
     driver: local
   grafana_data:
     driver: local
+
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN

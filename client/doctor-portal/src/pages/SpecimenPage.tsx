@@ -13,9 +13,23 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
+import {
+  getApiClient,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  specimenSchema,
+  createSpecimen,
+  rejectSpecimen,
+  getApiErrorMessage,
+  formatTimestamp,
+} from '@medichain/shared';
+import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
+import StaffName from '../components/StaffName';
 /**
  * SpecimenPage
  * 
@@ -25,13 +39,27 @@ import { useAuthStore } from '../store/authStore';
 
 type SpecimenType = 'blood' | 'urine' | 'stool' | 'swab' | 'tissue' | 'csf' | 'sputum' | 'other';
 type CollectionStatus = 'pending' | 'collected' | 'in-transit' | 'received' | 'processing' | 'completed' | 'rejected';
-type Priority = 'routine' | 'urgent' | 'stat';
+type Priority = 'routine' | 'urgent' | 'stat' | 'unknown';
+
+interface PersistedSpecimen {
+  id: string;
+  patient_id: string;
+  specimen_type: string;
+  collector_id: string;
+  collected_at: string;
+  received_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  data?: {
+    priority?: unknown;
+    tests_ordered?: unknown;
+  } | null;
+}
 
 interface Specimen {
   id: string;
   patientId: string;
-  patientName: string;
-  mrn: string;
+  patientDisplay: string;
   specimenType: SpecimenType;
   testOrdered: string;
   status: CollectionStatus;
@@ -42,6 +70,26 @@ interface Specimen {
   collectedAt?: Date;
   receivedAt?: Date;
   notes?: string;
+}
+
+/** The categories the server's rejection record accepts. */
+const REJECTION_CATEGORIES: SpecimenRejectionCategory[] = [
+  'collection_error',
+  'transport_error',
+  'labeling_error',
+  'specimen_quality',
+  'container_issue',
+  'other',
+];
+
+function persistedPriority(value: unknown): Priority {
+  return value === 'routine' || value === 'urgent' || value === 'stat' ? value : 'unknown';
+}
+
+function persistedSpecimenType(value: string): SpecimenType {
+  return ['blood', 'urine', 'stool', 'swab', 'tissue', 'csf', 'sputum', 'other'].includes(value)
+    ? value as SpecimenType
+    : 'other';
 }
 
 const SpecimenPage: React.FC = () => {
@@ -56,8 +104,18 @@ const SpecimenPage: React.FC = () => {
 
   // The collection tab was markup only: no state, no handler, and a button with
   // no onClick, so nothing a collector entered was ever sent.
-  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  // The roster existed only to fill a patient dropdown; `PatientSelect`
+  // queries the server as the clinician types.
   const [saving, setSaving] = useState(false);
+  // Rejecting the specimen open in the detail view. Nothing is preselected:
+  // a category the technician did not choose would be a finding they did not
+  // make.
+  const [rejectCategory, setRejectCategory] = useState<SpecimenRejectionCategory | ''>('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectNotes, setRejectNotes] = useState('');
+  const [rejectRecollect, setRejectRecollect] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectMessage, setRejectMessage] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const CHECKS = ['verify-id', 'requirements', 'label', 'time'];
   const [form, setForm] = useState({
@@ -71,21 +129,6 @@ const SpecimenPage: React.FC = () => {
   });
   const { user } = useAuthStore();
 
-  // Built from existing specimens before, so a patient with no specimen on file
-  // could never be selected — i.e. a first collection was impossible.
-  useEffect(() => {
-    if (!user?.walletAddress) return;
-    fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
-    })
-      .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(body => {
-        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
-        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
-      })
-      .catch(() => setPatients([]));
-  }, [user?.walletAddress]);
-
   const toggleCheck = (key: string) =>
     setForm(f => ({
       ...f,
@@ -94,33 +137,55 @@ const SpecimenPage: React.FC = () => {
         : [...f.checklist, key],
     }));
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(specimenSchema);
+
+  const submitRejection = async (specimenId: string) => {
+    if (!rejectCategory || !rejectReason.trim()) {
+      setRejectMessage(t('docSpecimen.rejectIncomplete'));
+      return;
+    }
+    setRejecting(true);
+    setRejectMessage(null);
+    try {
+      const notes = rejectNotes.trim();
+      const result = await rejectSpecimen({
+        specimen_id: specimenId,
+        rejection_reason: rejectReason.trim(),
+        rejection_category: rejectCategory,
+        ...(notes ? { detailed_notes: notes } : {}),
+        recollection_required: rejectRecollect,
+      });
+      setRejectMessage(t('docSpecimen.rejectRecorded', { id: result.rejection_id }));
+      setRejectCategory('');
+      setRejectReason('');
+      setRejectNotes('');
+      setRejectRecollect(false);
+    } catch (err) {
+      setRejectMessage(getApiErrorMessage(err, t('docSpecimen.rejectFailed')));
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const recordCollection = async () => {
     if (!user?.walletAddress) return;
-    if (!form.patientId || !form.testsOrdered.trim()) {
-      setSaveMessage(t('docSpecimen.errPatientAndTests'));
+    // Was a banner naming two fields at once. The message now sits on the
+    // control that needs fixing (WCAG 3.3.1).
+    if (!validate(form)) {
       return;
     }
     setSaving(true);
     setSaveMessage(null);
     try {
-      const response = await fetch(apiUrl('/api/clinical/specimen'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role || 'Nurse',
-        },
-        body: JSON.stringify({
-          patient_id: form.patientId,
-          specimen_type: form.specimenType,
-          priority: form.priority,
-          tests_ordered: form.testsOrdered.trim(),
-          collection_site: form.collectionSite.trim() || null,
-          notes: form.notes.trim() || null,
-          checklist: form.checklist,
-        }),
+      await createSpecimen({
+        patient_id: form.patientId,
+        specimen_type: form.specimenType,
+        priority: form.priority,
+        tests_ordered: form.testsOrdered.trim(),
+        collection_site: form.collectionSite.trim() || null,
+        notes: form.notes.trim() || null,
+        checklist: form.checklist,
       });
-      if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docSpecimen.savedOk'));
       setForm({
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
@@ -143,32 +208,36 @@ const SpecimenPage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(apiUrl('/api/clinical/specimens'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'LabTechnician'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(t('docSpecimen.fetchError', { status: response.status }));
-        }
-
-        const data = await response.json();
-        // The endpoint returns a bare array on some paths and an envelope
-        // (`{items}` / `{data}`) on others; calling `.map` on the envelope threw
-        // `data.map is not a function` and left the page stuck on its error
-        // state. Normalise instead of assuming one shape.
-        const rows: Specimen[] = Array.isArray(data)
+        const data = await getApiClient().get<
+        { specimens?: PersistedSpecimen[]; items?: PersistedSpecimen[]; data?: PersistedSpecimen[] } | PersistedSpecimen[]
+      >('/api/clinical/specimens');
+        // The API's canonical envelope is `{ specimens }`. Keep compatibility
+        // with the older envelope variants while treating every item as the
+        // typed repository row that was actually persisted.
+        const rows: PersistedSpecimen[] = Array.isArray(data)
           ? data
-          : (data?.items ?? data?.data ?? []);
-        // Convert date strings to Date objects
-        const specimenData = rows.map((s: Specimen) => ({
-          ...s,
-          orderedAt: new Date(s.orderedAt),
-          collectedAt: s.collectedAt ? new Date(s.collectedAt) : undefined,
-          receivedAt: s.receivedAt ? new Date(s.receivedAt) : undefined
+          : (data?.specimens ?? data?.items ?? data?.data ?? []);
+        const specimenData = rows.map((specimen): Specimen => ({
+          id: specimen.id,
+          patientId: specimen.patient_id,
+          // A collection record does not carry a patient name or MRN. Showing
+          // the persisted ID is less convenient than a name, but never claims
+          // a name that the laboratory register did not return.
+          patientDisplay: specimen.patient_id,
+          specimenType: persistedSpecimenType(specimen.specimen_type),
+          testOrdered: typeof specimen.data?.tests_ordered === 'string'
+            ? specimen.data.tests_ordered
+            : t('docSpecimen.notRecorded'),
+          // The existence of this row is the record that collection occurred;
+          // receipt is the only later timestamp modeled by this endpoint.
+          status: specimen.received_at ? 'received' : 'collected',
+          priority: persistedPriority(specimen.data?.priority),
+          orderedBy: t('docSpecimen.notRecorded'),
+          orderedAt: new Date(specimen.created_at),
+          collectedBy: specimen.collector_id,
+          collectedAt: new Date(specimen.collected_at),
+          receivedAt: specimen.received_at ? new Date(specimen.received_at) : undefined,
+          notes: specimen.notes ?? undefined,
         }));
         setSpecimens(specimenData);
         setError(null);
@@ -185,13 +254,13 @@ const SpecimenPage: React.FC = () => {
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
-      'blood': <Droplet className="w-5 h-5 text-red-500" />,
-      'urine': <TestTube className="w-5 h-5 text-yellow-500" />,
+      'blood': <Droplet className="w-5 h-5 text-critical" />,
+      'urine': <TestTube className="w-5 h-5 text-caution" />,
       'stool': <TestTube className="w-5 h-5 text-caution-subtle-fg" />,
-      'swab': <TestTube className="w-5 h-5 text-blue-500" />,
+      'swab': <TestTube className="w-5 h-5 text-notice-subtle-fg" />,
       'tissue': <FlaskConical className="w-5 h-5 text-pink-500" />,
       'csf': <Droplet className="w-5 h-5 text-purple-500" />,
-      'sputum': <TestTube className="w-5 h-5 text-green-500" />,
+      'sputum': <TestTube className="w-5 h-5 text-ok" />,
       'other': <TestTube className="w-5 h-5 text-content-muted" />
     };
     return icons[type];
@@ -228,12 +297,14 @@ const SpecimenPage: React.FC = () => {
     const colors: Record<Priority, string> = {
       'routine': 'bg-surface-sunken text-content-muted',
       'urgent': 'bg-surface-sunken text-content-secondary',
-      'stat': 'bg-critical-subtle text-critical-subtle-fg'
+      'stat': 'bg-critical-subtle text-critical-subtle-fg',
+      'unknown': 'bg-surface-sunken text-content-muted',
     };
     const labels: Record<Priority, string> = {
       'routine': t('docSpecimen.priRoutine'),
       'urgent': t('docSpecimen.priUrgent'),
       'stat': t('docSpecimen.priStat'),
+      'unknown': t('docSpecimen.priUnknown'),
     };
     return (
       <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${colors[priority]}`}>
@@ -256,8 +327,8 @@ const SpecimenPage: React.FC = () => {
   };
 
   const filteredSpecimens = specimens.filter(s => {
-    const matchesSearch = s.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.mrn.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = s.patientDisplay.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -268,12 +339,12 @@ const SpecimenPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <TestTube className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docSpecimen.title')}</h1>
         </div>
-        <p className="text-teal-100">{t('docSpecimen.subtitle')}</p>
+        <p className="text-white">{t('docSpecimen.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -287,10 +358,10 @@ const SpecimenPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docSpecimen.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docSpecimen.apiHint')}</p>
           </div>
         </div>
       )}
@@ -362,7 +433,10 @@ const SpecimenPage: React.FC = () => {
             {filteredSpecimens.map(specimen => (
               <div
                 key={specimen.id}
-                onClick={() => setSelectedSpecimen(specimen)}
+                {...clickable(() => {
+                  setRejectMessage(null);
+                  setSelectedSpecimen(specimen);
+                })}
                 className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                   specimen.priority === 'stat' ? 'border-l-4 border-l-red-500' : ''
                 }`}
@@ -372,10 +446,10 @@ const SpecimenPage: React.FC = () => {
                     {getSpecimenIcon(specimen.specimenType)}
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">{specimen.patientName}</h3>
+                        <h3 className="font-semibold">{specimen.patientDisplay}</h3>
                         {getPriorityBadge(specimen.priority)}
                       </div>
-                      <p className="text-sm text-content-muted">{t('docSpecimen.mrnId', { mrn: specimen.mrn, id: specimen.id })}</p>
+                      <p className="text-sm text-content-muted">{t('docSpecimen.patientIdWithCollection', { patientId: specimen.patientId, id: specimen.id })}</p>
                     </div>
                   </div>
                   {getStatusBadge(specimen.status)}
@@ -409,16 +483,18 @@ const SpecimenPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.collectTitle')}</h2>
 
             <div className="space-y-4">
-              <div>
-                <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">{t('docSpecimen.patientRequired')}</label>
-                <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2"
-                  value={form.patientId} onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
-                  <option value="">{t('docSpecimen.selectPatient')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
-                  ))}
-                </select>
-              </div>
+              <PatientSelect
+                id="specimen-patient"
+                label={t('docSpecimen.patientRequired')}
+                value={form.patientId}
+                onChange={(selectedPatientId) => {
+                  clearField('patientId');
+                  setForm(f => ({ ...f, patientId: selectedPatientId }));
+                }}
+                onBlur={() => validateField('patientId', form)}
+                error={errors.patientId}
+                required
+              />
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -446,17 +522,28 @@ const SpecimenPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">{t('docSpecimen.testsOrderedRequired')}</label>
-                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.testsPlaceholder')}
-                  value={form.testsOrdered} onChange={(e) => setForm(f => ({ ...f, testsOrdered: e.target.value }))} />
-              </div>
+              <Input
+                id="specimen-tests-ordered"
+                type="text"
+                label={t('docSpecimen.testsOrderedRequired')}
+                placeholder={t('docSpecimen.testsPlaceholder')}
+                value={form.testsOrdered}
+                onChange={(e) => { clearField('testsOrdered'); setForm(f => ({ ...f, testsOrdered: e.target.value })); }}
+                onBlur={() => validateField('testsOrdered', form)}
+                error={errors.testsOrdered}
+                required
+              />
 
-              <div>
-                <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">{t('docSpecimen.collectionSite')}</label>
-                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.sitePlaceholder')}
-                  value={form.collectionSite} onChange={(e) => setForm(f => ({ ...f, collectionSite: e.target.value }))} />
-              </div>
+              <Input
+                id="specimen-collection-site"
+                type="text"
+                label={t('docSpecimen.collectionSite')}
+                placeholder={t('docSpecimen.sitePlaceholder')}
+                value={form.collectionSite}
+                onChange={(e) => { clearField('collectionSite'); setForm(f => ({ ...f, collectionSite: e.target.value })); }}
+                onBlur={() => validateField('collectionSite', form)}
+                error={errors.collectionSite}
+              />
 
               <div>
                 <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">{t('docSpecimen.notes')}</label>
@@ -468,7 +555,7 @@ const SpecimenPage: React.FC = () => {
                 <p className="text-sm text-content-secondary font-medium mb-2">{t('docSpecimen.checklist')}</p>
                 <div className="space-y-1">
                   {[t('docSpecimen.chkVerifyId'), t('docSpecimen.chkRequirements'), t('docSpecimen.chkLabel'), t('docSpecimen.chkTime')].map((item, idx) => (
-                    <label key={idx} className="flex items-center gap-2 text-sm">
+                    <label key={idx} className="flex items-center gap-2 text-sm min-h-[24px] py-1">
                       <input type="checkbox" className="w-4 h-4"
                         checked={form.checklist.includes(CHECKS[idx])} onChange={() => toggleCheck(CHECKS[idx])} />
                       <span>{item}</span>
@@ -483,7 +570,7 @@ const SpecimenPage: React.FC = () => {
               <button
                 onClick={recordCollection}
                 disabled={saving}
-                className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-teal-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docSpecimen.recordCollection')}
               </button>
@@ -505,7 +592,7 @@ const SpecimenPage: React.FC = () => {
                       {getSpecimenIcon(specimen.specimenType)}
                       <div>
                         <p className="font-medium">{specimen.id}</p>
-                        <p className="text-sm text-content-muted">{specimen.patientName}</p>
+                        <p className="text-sm text-content-muted">{specimen.patientDisplay}</p>
                       </div>
                     </div>
                     {getPriorityBadge(specimen.priority)}
@@ -561,31 +648,98 @@ const SpecimenPage: React.FC = () => {
 
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
-                <p><strong>{t('docSpecimen.nameLabel')}</strong> {selectedSpecimen.patientName}</p>
-                <p><strong>{t('docSpecimen.mrnLabelBold')}</strong> {selectedSpecimen.mrn}</p>
+                <p><strong>{t('docSpecimen.patientIdLabel')}</strong> {selectedSpecimen.patientId}</p>
               </div>
 
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.testDetails')}</h3>
                 <p><strong>{t('docSpecimen.testsOrderedLabel')}</strong> {selectedSpecimen.testOrdered}</p>
                 <p><strong>{t('docSpecimen.orderedByLabel')}</strong> {selectedSpecimen.orderedBy}</p>
-                <p><strong>{t('docSpecimen.orderedAtLabel')}</strong> {selectedSpecimen.orderedAt.toLocaleString()}</p>
+                <p><strong>{t('docSpecimen.orderedAtLabel')}</strong> {formatTimestamp(selectedSpecimen.orderedAt)}</p>
               </div>
 
               {selectedSpecimen.collectedBy && (
                 <div className="bg-notice-subtle rounded-lg p-4">
                   <h3 className="font-medium mb-2">{t('docSpecimen.collectionDetails')}</h3>
-                  <p><strong>{t('docSpecimen.collectedByLabel')}</strong> {selectedSpecimen.collectedBy}</p>
-                  <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>
+                  <p><strong>{t('docSpecimen.collectedByLabel')}</strong> <StaffName id={selectedSpecimen.collectedBy} /></p>
+                  <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt ? formatTimestamp(selectedSpecimen.collectedAt) : ''}</p>
                   {selectedSpecimen.notes && <p><strong>{t('docSpecimen.notesLabel')}</strong> {selectedSpecimen.notes}</p>}
                 </div>
               )}
 
-              {selectedSpecimen.status === 'pending' && (
-                <button className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium">
-                  {t('docSpecimen.markCollected')}
-                </button>
+              {selectedSpecimen.status === 'collected' && (
+                <p className="rounded-lg bg-notice-subtle p-3 text-sm text-notice-subtle-fg">
+                  {t('docSpecimen.collectionAlreadyRecorded')}
+                </p>
               )}
+
+              <form
+                className="rounded-lg border border-border p-4 space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitRejection(selectedSpecimen.id);
+                }}
+              >
+                <h3 className="font-medium">{t('docSpecimen.rejectHeading')}</h3>
+                <div>
+                  <label htmlFor="reject-category" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectCategoryLabel')}
+                  </label>
+                  <select
+                    id="reject-category"
+                    value={rejectCategory}
+                    onChange={(e) => setRejectCategory(e.target.value as SpecimenRejectionCategory | '')}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  >
+                    <option value="">{t('docSpecimen.rejectCategoryPlaceholder')}</option>
+                    {REJECTION_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{t(`docSpecimen.rejectCat_${c}`)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="reject-reason" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectReasonLabel')}
+                  </label>
+                  <input
+                    id="reject-reason"
+                    value={rejectReason}
+                    maxLength={128}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="reject-notes" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectNotesLabel')}
+                  </label>
+                  <textarea
+                    id="reject-notes"
+                    value={rejectNotes}
+                    rows={2}
+                    onChange={(e) => setRejectNotes(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={rejectRecollect}
+                    onChange={(e) => setRejectRecollect(e.target.checked)}
+                  />
+                  {t('docSpecimen.rejectRecollectLabel')}
+                </label>
+                {rejectMessage && (
+                  <p className="text-sm text-content-secondary" role="status">{rejectMessage}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={rejecting}
+                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg disabled:opacity-60"
+                >
+                  {rejecting ? t('docSpecimen.rejectSubmitting') : t('docSpecimen.rejectSubmit')}
+                </button>
+              </form>
             </div>
           </div>
         </div>

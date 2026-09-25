@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import EPrescribePage from './EPrescribePage';
@@ -25,7 +25,7 @@ describe('EPrescribePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });

@@ -1,7 +1,10 @@
 # Observability (Phase 8.2)
 
-The API exposes Prometheus metrics at **`GET /api/metrics`** (no auth — firewall
-it to your scraper in production):
+The API exposes Prometheus metrics at **`GET /api/metrics`**. Outside explicit
+demo mode it requires a bearer token, supplied by the `METRICS_TOKEN` production
+secret and mounted into Prometheus as a credentials file. Do not expose this
+endpoint publicly or use a patient, user, or browser identity as the scrape
+credential.
 
 - `http_requests_total{method,path,status}` — request counter.
 - `http_request_duration_seconds{method,path}` — latency histogram (drives the
@@ -42,9 +45,17 @@ Prometheus + Grafana are wired into the production compose under an opt-in
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile monitoring up -d
 ```
 
+`METRICS_TOKEN` is required by the production override. It is passed to the API
+as its bearer-token verifier and mounted in Prometheus at
+`/run/secrets/metrics_token`; it is not written into `prometheus.yml`.
+`GRAFANA_ADMIN_PASSWORD` is also required by the production Compose
+configuration. Compose resolves variables for profile services before deciding
+whether to start them, so set it even when the optional `monitoring` profile is
+not enabled; the configuration has no default Grafana administrator credential.
+
 - **Prometheus** loads `prometheus.yml` + `prometheus-alerts.yml` from this folder
   (mounted read-only) and scrapes `api:8080/api/metrics` on the shared network.
-- **Grafana** (host `:3001`, admin password via `GRAFANA_ADMIN_PASSWORD`) auto-provisions
+- **Grafana** (host `:3001`, administrator password via `GRAFANA_ADMIN_PASSWORD`) auto-provisions
   the Prometheus datasource (`grafana/provisioning/datasources/`) and the bundled
   dashboard (`grafana/provisioning/dashboards/` → mounts `grafana-dashboard.json`).
   The dashboard's `${datasource}` variable resolves to the provisioned Prometheus.
@@ -52,5 +63,6 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile monito
 ## Still open
 
 - A single health dashboard aggregating DB / IPFS / blockchain probes (the raw
-  probes exist at `/api/health` and `/health/ready`).
+  probes exist at `/health`, `/health/ready`, `/health/db`, and
+  `/api/health/detailed`).
 - Alertmanager routing (PagerDuty/Slack/email).

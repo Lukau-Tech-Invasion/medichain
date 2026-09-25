@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listRadiology, createRadiologyOrder, createRadiologyReport, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { listRadiology, createRadiologyReport, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
 
 type ReportStatus = 'pending' | 'in-progress' | 'preliminary' | 'final' | 'addendum';
 
@@ -50,11 +49,24 @@ interface RadiologyReportRow {
   reportedAt: string;
 }
 
+/**
+ * A study date, or an honest admission that there is not one.
+ *
+ * `new Date(undefined).toLocaleString()` renders the literal string
+ * "Invalid Date" -- which is what the study table showed. That is a JavaScript
+ * artefact, not a finding, and a radiologist reading it learns nothing except
+ * that the screen is broken.
+ */
+function formatStudyDate(value: string | number | undefined | null): string {
+  if (value === undefined || value === null || value === '') return '\u2014';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '\u2014' : parsed.toLocaleString();
+}
+
 const RadiologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
-  const [_patients, setPatients] = useState<PatientProfile[]>([]);
+  const { showSuccess, showError } = useToastActions();
   const [studies, setStudies] = useState<RadiologyStudy[]>([]);
   const [reports, setReports] = useState<RadiologyReportRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,11 +91,11 @@ const RadiologyPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [patientData, radiologyData] = await Promise.all([
-        getPatients(),
-        listRadiology()
-      ]);
-      setPatients(patientData);
+      // The patient roster was fetched here, stored in state and never read.
+      // Dropping the call is not only tidier: `GET /api/patients` decrypts and
+      // returns PHI, and every such read is logged against the caller. This
+      // page shows radiology orders, which carry their own patient ids.
+      const radiologyData = await listRadiology();
       
       // Map API response (orders.items) to RadiologyStudy interface
       const orderItems = radiologyData.orders?.items || [];
@@ -183,7 +195,7 @@ const RadiologyPage: React.FC = () => {
   const saveReport = async (asFinal: boolean) => {
     if (!selectedStudy) return;
     if (criticalFindings && !communicatedTo) {
-      showWarning(t('docRadiology.criticalCommunicate'));
+      showError(t('docRadiology.criticalCommunicate'));
       return;
     }
 
@@ -321,14 +333,39 @@ const RadiologyPage: React.FC = () => {
             <Scan className="w-8 h-8 text-blue-400" />
             <div>
               <h1 className="text-xl font-bold">{t('docRadiology.title')}</h1>
-              <p className="text-content-muted text-sm">{t('docRadiology.subtitle')}</p>
+              <p className="text-gray-300 text-sm">{t('docRadiology.subtitle')}</p>
             </div>
           </div>
-          <div className="text-sm text-content-muted">
+          <div className="text-sm text-gray-300">
             {t('docRadiology.radiologistLabel', { name: user?.walletAddress || t('docRadiology.notLoggedIn') })}
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchData()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-gray-300">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-gray-800 border-b border-gray-700">
@@ -341,7 +378,7 @@ const RadiologyPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id as 'worklist' | 'report' | 'search')}
               className={`px-6 py-3 font-medium flex items-center gap-2 ${activeTab === tab.id
                 ? 'text-blue-400 border-b-2 border-notice'
-                : 'text-content-muted hover:text-gray-200'}`}
+                : 'text-gray-300 hover:text-gray-200'}`}
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
@@ -356,19 +393,19 @@ const RadiologyPage: React.FC = () => {
             {/* Filters */}
             <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
-                <Search className="w-5 h-5 text-content-muted" />
+                <Search className="w-5 h-5 text-gray-300" />
                 <input
                   type="text"
                   placeholder={t('docRadiology.searchPlaceholder')}
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="flex-1 bg-gray-800 border border-gray-600 rounded p-2 text-white"
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
                 />
               </div>
               <select
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2"
+                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
               >
                 <option value="all">{t('docRadiology.allStatus')}</option>
                 <option value="pending">{t('docRadiology.filterPending')}</option>
@@ -379,7 +416,7 @@ const RadiologyPage: React.FC = () => {
               <select
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2"
+                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
               >
                 <option value="all">{t('docRadiology.allModalities')}</option>
                 <option value="CT">CT</option>
@@ -405,18 +442,24 @@ const RadiologyPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {filteredStudies.map(s => (
-                    <tr key={s.id} className={`border-b border-gray-700 hover:bg-gray-750 ${s.priority === 'stat' ? 'bg-red-900/20' : ''}`}>
+                    <tr key={s.id} className={`border-b border-gray-700 hover:bg-gray-700 ${s.priority === 'stat' ? 'bg-red-900/20' : ''}`}>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          s.priority === 'stat' ? 'bg-critical' :
-                          s.priority === 'urgent' ? 'bg-orange-500' : 'bg-gray-600'
+                          // Each background carries its own paired foreground.
+                          // The badge used to inherit the page's `text-white`,
+                          // and `--danger` is red-400 in dark mode, so the STAT
+                          // badge -- the one that matters most -- was 2.77:1.
+                          // `bg-orange-500` is raw Tailwind and would have been
+                          // 2.8:1 the first time an urgent study existed.
+                          s.priority === 'stat' ? 'bg-critical text-critical-fg' :
+                          s.priority === 'urgent' ? 'bg-caution text-caution-fg' : 'bg-gray-600 text-white'
                         }`}>
                           {priorityLabel(s.priority)}
                         </span>
                       </td>
                       <td className="p-3">
                         <div>{s.patientName}</div>
-                        <div className="text-xs text-content-muted">{t('docRadiology.mrnDob', { mrn: s.mrn, dob: s.dob })}</div>
+                        <div className="text-xs text-gray-300">{t('docRadiology.mrnDob', { mrn: s.mrn, dob: s.dob })}</div>
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -425,7 +468,7 @@ const RadiologyPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 text-center">{s.numImages}</td>
-                      <td className="p-3 text-content-muted">{new Date(s.studyDate).toLocaleString()}</td>
+                      <td className="p-3 text-gray-300">{formatStudyDate(s.studyDate)}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs ${getStatusBadge(s.status)}`}>
                           {statusLabel(s.status)}
@@ -433,7 +476,16 @@ const RadiologyPage: React.FC = () => {
                       </td>
                       <td className="p-3 text-center">
                         <div className="flex gap-2 justify-center">
-                          <button className="p-2 bg-gray-700 rounded hover:bg-gray-600" title={t('docRadiology.viewImages')}>
+                          {/* No image store exists: a study row carries a count of
+                              images and no reference to any of them. The control
+                              says so instead of answering a click with nothing. */}
+                          <button
+                            type="button"
+                            disabled
+                            className="p-2 bg-gray-700 rounded opacity-60 cursor-not-allowed"
+                            title={t('docRadiology.imagesNotStored')}
+                            aria-label={t('docRadiology.imagesNotStored')}
+                          >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
@@ -463,11 +515,11 @@ const RadiologyPage: React.FC = () => {
                 <p><strong>{t('docRadiology.lblMrn')}</strong> {selectedStudy.mrn} | <strong>{t('docRadiology.lblDob')}</strong> {selectedStudy.dob}</p>
                 <p><strong>{t('docRadiology.lblStudy')}</strong> {selectedStudy.studyDescription}</p>
                 <p><strong>{t('docRadiology.lblAccession')}</strong> {selectedStudy.accessionNumber}</p>
-                <p><strong>{t('docRadiology.lblDate')}</strong> {new Date(selectedStudy.studyDate).toLocaleString()}</p>
+                <p><strong>{t('docRadiology.lblDate')}</strong> {formatStudyDate(selectedStudy.studyDate)}</p>
                 <p><strong>{t('docRadiology.lblReferring')}</strong> {selectedStudy.referringPhysician}</p>
                 <p><strong>{t('docRadiology.lblImages')}</strong> {selectedStudy.numImages}</p>
               </div>
-              <div className="mt-4 p-3 bg-gray-900 rounded text-center text-content-muted">
+              <div className="mt-4 p-3 bg-gray-900 rounded text-center text-gray-300">
                 {t('docRadiology.dicomPlaceholder')}<br />
                 {t('docRadiology.dicomHint')}
               </div>
@@ -477,43 +529,43 @@ const RadiologyPage: React.FC = () => {
             <div className="bg-gray-800 rounded-lg p-4 space-y-4">
               <h2 className="font-semibold text-blue-400">{t('docRadiology.reportTitle')}</h2>
               <div>
-                <label htmlFor="rad-technique" className="text-sm text-content-muted">{t('docRadiology.technique')}</label>
+                <label htmlFor="rad-technique" className="text-sm text-gray-300">{t('docRadiology.technique')}</label>
                 <textarea
                   id="rad-technique"
                   value={technique}
                   onChange={e => setTechnique(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-16"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-16 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.techniquePlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="rad-comparison" className="text-sm text-content-muted">{t('docRadiology.comparison')}</label>
+                <label htmlFor="rad-comparison" className="text-sm text-gray-300">{t('docRadiology.comparison')}</label>
                 <input
                   id="rad-comparison"
                   type="text"
                   value={comparison}
                   onChange={e => setComparison(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.comparisonPlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="rad-findings" className="text-sm text-content-muted">{t('docRadiology.findings')}</label>
+                <label htmlFor="rad-findings" className="text-sm text-gray-300">{t('docRadiology.findings')}</label>
                 <textarea
                   id="rad-findings"
                   value={findings}
                   onChange={e => setFindings(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-32"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-32 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.findingsPlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="rad-impression" className="text-sm text-content-muted">{t('docRadiology.impression')}</label>
+                <label htmlFor="rad-impression" className="text-sm text-gray-300">{t('docRadiology.impression')}</label>
                 <textarea
                   id="rad-impression"
                   value={impression}
                   onChange={e => setImpression(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-20"
+                  className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-20 text-white placeholder:text-gray-400"
                   placeholder={t('docRadiology.impressionPlaceholder')}
                 />
               </div>
@@ -532,13 +584,13 @@ const RadiologyPage: React.FC = () => {
                 </label>
                 {criticalFindings && (
                   <div className="mt-2">
-                    <label htmlFor="rad-communicated-to" className="text-sm text-content-muted">{t('docRadiology.communicatedTo')}</label>
+                    <label htmlFor="rad-communicated-to" className="text-sm text-gray-300">{t('docRadiology.communicatedTo')}</label>
                     <input
                       id="rad-communicated-to"
                       type="text"
                       value={communicatedTo}
                       onChange={e => setCommunicatedTo(e.target.value)}
-                      className="w-full bg-gray-800 border border-red-500 rounded p-2"
+                      className="w-full bg-gray-800 border border-red-500 rounded p-2 text-white placeholder:text-gray-400"
                       placeholder={t('docRadiology.communicatedPlaceholder')}
                     />
                   </div>
@@ -550,14 +602,14 @@ const RadiologyPage: React.FC = () => {
                 <button
                   onClick={() => saveReport(false)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-orange-600 text-white rounded hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.savePreliminary')}
                 </button>
                 <button
                   onClick={() => saveReport(true)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.finalizeReport')}
                 </button>
@@ -567,7 +619,7 @@ const RadiologyPage: React.FC = () => {
         )}
 
         {activeTab === 'report' && !selectedStudy && (
-          <div className="text-center py-12 text-content-muted">
+          <div className="text-center py-12 text-gray-300">
             {t('docRadiology.selectStudy')}
           </div>
         )}
@@ -579,20 +631,20 @@ const RadiologyPage: React.FC = () => {
                 {t('docRadiology.searchPriorsLabel')}
               </label>
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-3 text-content-muted" />
+                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-300" />
                 <input
                   id="rad-prior-search"
                   type="search"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   placeholder={t('docRadiology.searchPriorsPlaceholder')}
-                  className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white"
+                  className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white placeholder:text-gray-400"
                 />
               </div>
             </div>
 
-            {matchingReports.length === 0 ? (
-              <p className="text-content-muted py-6 text-center">
+            {!error && !isLoading && matchingReports.length === 0 ? (
+              <p className="text-gray-300 py-6 text-center">
                 {searchTerm
                   ? t('docRadiology.searchPriorsNoMatch')
                   : t('docRadiology.searchPriorsEmpty')}
@@ -606,7 +658,7 @@ const RadiologyPage: React.FC = () => {
                         <p className="font-medium text-white truncate">
                           {r.bodyPart || r.accessionNumber || r.id}
                         </p>
-                        <p className="text-sm text-content-muted truncate">
+                        <p className="text-sm text-gray-300 truncate">
                           {r.patientId} · {r.accessionNumber}
                         </p>
                       </div>

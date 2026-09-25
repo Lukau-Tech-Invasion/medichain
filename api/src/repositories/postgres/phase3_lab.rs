@@ -193,177 +193,6 @@ impl LabSubmissionRepository for PgLabSubmissionRepository {
 // LAB PANEL REPOSITORY
 // =============================================================================
 
-/// PostgreSQL-backed lab panel repository
-#[derive(Debug, Clone)]
-pub struct PgLabPanelRepository {
-    pool: PgPool,
-}
-
-impl PgLabPanelRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl LabPanelRepository for PgLabPanelRepository {
-    /// Bounded deployment-wide read for the registry views.
-    ///
-    /// Without this the trait's default body ran and returned
-    /// `list_all not implemented`, so the feature worked against the in-memory
-    /// backend and failed only on PostgreSQL.
-    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>> {
-        let rows = sqlx::query_as::<_, LabPanelEntity>(
-            "SELECT * FROM lab_panels ORDER BY collected_at DESC LIMIT 500",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows)
-    }
-
-    async fn create(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO lab_panels (
-                id, submission_id, patient_id, panel_code, panel_name, status,
-                results, reference_ranges, abnormal_flags, performing_lab,
-                technician_id, verified_by, collected_at, resulted_at, verified_at
-            ) ",
-        );
-
-        qb.push_values([&panel], |mut b, p| {
-            b.push_bind(&p.id)
-                .push_bind(&p.submission_id)
-                .push_bind(&p.patient_id)
-                .push_bind(&p.panel_code)
-                .push_bind(&p.panel_name)
-                .push_bind(&p.status)
-                .push_bind(&p.results)
-                .push_bind(&p.reference_ranges)
-                .push_bind(&p.abnormal_flags)
-                .push_bind(&p.performing_lab)
-                .push_bind(&p.technician_id)
-                .push_bind(&p.verified_by)
-                .push_bind(p.collected_at)
-                .push_bind(p.resulted_at)
-                .push_bind(p.verified_at);
-        });
-
-        qb.push(" RETURNING *");
-
-        let result = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(result)
-    }
-
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<LabPanelEntity> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_panels WHERE id = ");
-        qb.push_bind(id);
-
-        let panel = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(panel)
-    }
-
-    async fn get_by_submission(
-        &self,
-        submission_id: &str,
-    ) -> RepositoryResult<Vec<LabPanelEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_panels WHERE submission_id = ");
-        qb.push_bind(submission_id);
-        qb.push(" ORDER BY panel_name");
-
-        let panels = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(panels)
-    }
-
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<LabPanelEntity>> {
-        let mut count_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT COUNT(*) FROM lab_panels WHERE patient_id = ");
-        count_qb.push_bind(patient_id);
-
-        let total = count_qb
-            .build_query_scalar::<i64>()
-            .fetch_one(&self.pool)
-            .await? as u64;
-
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_panels WHERE patient_id = ");
-        qb.push_bind(patient_id);
-        qb.push(" ORDER BY created_at DESC LIMIT ");
-        qb.push_bind(pagination.limit() as i32);
-        qb.push(" OFFSET ");
-        qb.push_bind(pagination.offset() as i32);
-
-        let items = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(PaginatedResult::new(items, total, &pagination))
-    }
-
-    async fn update(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE lab_panels SET ");
-        qb.push("status = ").push_bind(&panel.status);
-        qb.push(", results = ").push_bind(&panel.results);
-        qb.push(", reference_ranges = ")
-            .push_bind(&panel.reference_ranges);
-        qb.push(", abnormal_flags = ")
-            .push_bind(&panel.abnormal_flags);
-        qb.push(", performing_lab = ")
-            .push_bind(&panel.performing_lab);
-        qb.push(", technician_id = ")
-            .push_bind(&panel.technician_id);
-        qb.push(", verified_by = ").push_bind(&panel.verified_by);
-        qb.push(", collected_at = ").push_bind(panel.collected_at);
-        qb.push(", resulted_at = ").push_bind(panel.resulted_at);
-        qb.push(", verified_at = ").push_bind(panel.verified_at);
-        qb.push(", updated_at = NOW() WHERE id = ")
-            .push_bind(&panel.id);
-        qb.push(" RETURNING *");
-
-        let result = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(result)
-    }
-
-    async fn get_abnormal_results(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<LabPanelEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_panels WHERE patient_id = ");
-        qb.push_bind(patient_id);
-        qb.push(" AND abnormal_flags IS NOT NULL ORDER BY created_at DESC");
-
-        let panels = qb
-            .build_query_as::<LabPanelEntity>()
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(panels)
-    }
-}
-
 // =============================================================================
 // LAB QC RECORD REPOSITORY
 // =============================================================================
@@ -405,7 +234,7 @@ impl LabQcRecordRepository for PgLabQcRecordRepository {
                 expected_value, measured_value, unit, acceptable_range_low,
                 acceptable_range_high, passed, deviation_percent, corrective_action,
                 performed_by, reviewed_by, performed_at, reviewed_at, lot_number,
-                expiration_date
+                expiration_date, data
             ) ",
         );
 
@@ -429,7 +258,12 @@ impl LabQcRecordRepository for PgLabQcRecordRepository {
                 .push_bind(r.performed_at)
                 .push_bind(r.reviewed_at)
                 .push_bind(&r.lot_number)
-                .push_bind(r.expiration_date);
+                .push_bind(r.expiration_date)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -582,7 +416,8 @@ impl CriticalValueRepository for PgCriticalValueRepository {
                 id, patient_id, lab_panel_id, test_code, test_name, value, unit,
                 reference_low, reference_high, critical_low, critical_high,
                 severity, notified_provider_id, notification_method, notified_at,
-                acknowledged_at, acknowledged_by, action_taken, reported_by
+                acknowledged_at, acknowledged_by, action_taken, reported_by,
+                data
             ) ",
         );
 
@@ -605,7 +440,8 @@ impl CriticalValueRepository for PgCriticalValueRepository {
                 .push_bind(v.acknowledged_at)
                 .push_bind(&v.acknowledged_by)
                 .push_bind(&v.action_taken)
-                .push_bind(&v.reported_by);
+                .push_bind(&v.reported_by)
+                .push_bind(&v.data);
         });
 
         qb.push(" RETURNING *");
@@ -681,26 +517,39 @@ impl CriticalValueRepository for PgCriticalValueRepository {
         Ok(items)
     }
 
-    async fn acknowledge(
+    async fn close(
         &self,
         id: &str,
-        acknowledged_by: &str,
-        action_taken: &str,
-    ) -> RepositoryResult<CriticalValueEntity> {
+        closure: CriticalValueClosure,
+    ) -> RepositoryResult<Option<CriticalValueEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "UPDATE critical_values SET acknowledged_at = NOW(), acknowledged_by = ",
         );
-        qb.push_bind(acknowledged_by);
-        qb.push(", action_taken = ").push_bind(action_taken);
+        qb.push_bind(&closure.closed_by);
+        qb.push(", action_taken = ")
+            .push_bind(&closure.action_taken);
+        qb.push(", notified_provider_id = COALESCE(")
+            .push_bind(&closure.notified_provider_id)
+            .push(", notified_provider_id)");
+        qb.push(", notification_method = COALESCE(")
+            .push_bind(&closure.notification_method)
+            .push(", notification_method)");
+        qb.push(", notified_at = COALESCE(")
+            .push_bind(closure.notified_at)
+            .push(", notified_at)");
+        qb.push(", data = ").push_bind(&closure.data);
         qb.push(" WHERE id = ").push_bind(id);
-        qb.push(" RETURNING *");
+        qb.push(" AND acknowledged_at IS NULL RETURNING *");
 
-        let result = qb
+        let closed = qb
             .build_query_as::<CriticalValueEntity>()
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
-
-        Ok(result)
+        if closed.is_none() {
+            // Distinguish "already closed" from "no such notification".
+            self.get_by_id(id).await?;
+        }
+        Ok(closed)
     }
 }
 
@@ -742,7 +591,7 @@ impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
                 id, patient_id, submission_id, specimen_type, collection_site,
                 collection_method, collector_id, collected_at, received_at,
                 received_by, container_type, volume_ml, temperature_c, condition,
-                barcode, storage_location, chain_of_custody, notes
+                barcode, storage_location, chain_of_custody, notes, data
             ) ",
         );
 
@@ -764,7 +613,12 @@ impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
                 .push_bind(&s.barcode)
                 .push_bind(&s.storage_location)
                 .push_bind(&s.chain_of_custody)
-                .push_bind(&s.notes);
+                .push_bind(&s.notes)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&s.data);
         });
 
         qb.push(" RETURNING *");
@@ -891,7 +745,8 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
             "INSERT INTO specimen_rejections (
                 id, specimen_id, patient_id, rejection_reason, rejection_category,
                 detailed_notes, rejected_by, rejected_at, recollection_required,
-                recollection_scheduled, notified_ordering_provider, notification_sent_at
+                recollection_scheduled, notified_ordering_provider, notification_sent_at,
+                data
             ) ",
         );
 
@@ -907,7 +762,8 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
                 .push_bind(r.recollection_required)
                 .push_bind(r.recollection_scheduled)
                 .push_bind(r.notified_ordering_provider)
-                .push_bind(r.notification_sent_at);
+                .push_bind(r.notification_sent_at)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -950,6 +806,30 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
         Ok(rejections)
     }
 
+    async fn mark_provider_notified(
+        &self,
+        id: &str,
+        notified_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRejectionEntity>> {
+        // One statement, so the "have they been told already" test and the
+        // write cannot be separated by another request.
+        let row = sqlx::query_as::<_, SpecimenRejectionEntity>(
+            r#"
+            UPDATE specimen_rejections
+               SET notified_ordering_provider = true,
+                   notification_sent_at = $2
+             WHERE id = $1
+               AND notified_ordering_provider = false
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(notified_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
         let items = sqlx::query_as::<_, SpecimenRejectionEntity>(
             r#"
@@ -969,134 +849,153 @@ impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
 // LAB TREND REPOSITORY
 // =============================================================================
 
-/// PostgreSQL-backed lab trend repository
-#[derive(Debug, Clone)]
-pub struct PgLabTrendRepository {
+/// Recollection requests raised against rejected specimens (SCR-009b).
+#[derive(Debug)]
+pub struct PgSpecimenRecollectionRepository {
     pool: PgPool,
 }
 
-impl PgLabTrendRepository {
+impl PgSpecimenRecollectionRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
-impl LabTrendRepository for PgLabTrendRepository {
-    /// Bounded deployment-wide read for the registry views.
+impl SpecimenRecollectionRepository for PgSpecimenRecollectionRepository {
+    /// Opens a request, relying on the database to refuse a second open one.
     ///
-    /// Without this the trait's default body ran and returned
-    /// `list_all not implemented`, so the feature worked against the in-memory
-    /// backend and failed only on PostgreSQL.
-    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>> {
-        let rows = sqlx::query_as::<_, LabTrendEntity>(
-            "SELECT * FROM lab_trends ORDER BY created_at DESC LIMIT 500",
+    /// `idx_recollection_one_open_per_rejection` is a partial unique index on
+    /// `rejection_id WHERE status = 'requested'`. Two technicians pressing
+    /// Recollect on the same rejected specimen is the ordinary case, not the
+    /// exotic one, and a SELECT-then-INSERT would let both through and send the
+    /// patient two appointments. `ON CONFLICT DO NOTHING` turns the second into
+    /// `Ok(None)` so the caller can say a recollection is already open.
+    async fn open(
+        &self,
+        request: SpecimenRecollectionRequestEntity,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            INSERT INTO specimen_recollection_requests
+                (id, rejection_id, original_specimen_id, patient_id,
+                 ordering_provider_id, requested_by, reason, status, requested_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'requested', $8)
+            ON CONFLICT (rejection_id) WHERE status = 'requested' DO NOTHING
+            RETURNING *
+            "#,
+        )
+        .bind(&request.id)
+        .bind(&request.rejection_id)
+        .bind(&request.original_specimen_id)
+        .bind(&request.patient_id)
+        .bind(&request.ordering_provider_id)
+        .bind(&request.requested_by)
+        .bind(&request.reason)
+        .bind(request.requested_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn get_by_id(
+        &self,
+        id: &str,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Every request ever raised for this rejection, newest first.
+    ///
+    /// Includes cancelled and completed ones deliberately: the point of the
+    /// lineage is that the whole history stays visible.
+    async fn list_for_rejection(
+        &self,
+        rejection_id: &str,
+    ) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests
+              WHERE rejection_id = $1
+              ORDER BY requested_at DESC",
+        )
+        .bind(rejection_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn list_open(&self) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            "SELECT * FROM specimen_recollection_requests
+              WHERE status = 'requested'
+              ORDER BY requested_at ASC
+              LIMIT 500",
         )
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
     }
 
-    async fn create(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO lab_trends (
-                id, patient_id, test_code, test_name, values_json, unit,
-                reference_low, reference_high, trend_direction, percent_change,
-                first_value_date, last_value_date, data_points_count
-            ) ",
-        );
-
-        qb.push_values([&trend], |mut b, t| {
-            b.push_bind(&t.id)
-                .push_bind(&t.patient_id)
-                .push_bind(&t.test_code)
-                .push_bind(&t.test_name)
-                .push_bind(&t.values_json)
-                .push_bind(&t.unit)
-                .push_bind(t.reference_low)
-                .push_bind(t.reference_high)
-                .push_bind(&t.trend_direction)
-                .push_bind(t.percent_change)
-                .push_bind(t.first_value_date)
-                .push_bind(t.last_value_date)
-                .push_bind(t.data_points_count);
-        });
-
-        qb.push(" RETURNING *");
-
-        let result = qb
-            .build_query_as::<LabTrendEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(result)
-    }
-
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<LabTrendEntity> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_trends WHERE id = ");
-        qb.push_bind(id);
-
-        let trend = qb
-            .build_query_as::<LabTrendEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(trend)
-    }
-
-    async fn get_by_patient_test(
+    /// Completion guarded inside the write.
+    ///
+    /// `AND status = 'requested'` is what makes a retry safe: a second call
+    /// matches no row and returns `Ok(None)` rather than overwriting the first
+    /// replacement or reviving a cancelled request.
+    async fn complete(
         &self,
-        patient_id: &str,
-        test_code: &str,
-    ) -> RepositoryResult<Option<LabTrendEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_trends WHERE patient_id = ");
-        qb.push_bind(patient_id);
-        qb.push(" AND test_code = ").push_bind(test_code);
-
-        let trend = qb
-            .build_query_as::<LabTrendEntity>()
-            .fetch_optional(&self.pool)
-            .await?;
-
-        Ok(trend)
+        id: &str,
+        replacement_specimen_id: &str,
+        completed_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            UPDATE specimen_recollection_requests
+               SET status = 'collected',
+                   replacement_specimen_id = $2,
+                   completed_at = $3,
+                   updated_at = NOW()
+             WHERE id = $1
+               AND status = 'requested'
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(replacement_specimen_id)
+        .bind(completed_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
-    async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<LabTrendEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM lab_trends WHERE patient_id = ");
-        qb.push_bind(patient_id);
-        qb.push(" ORDER BY test_name");
-
-        let trends = qb
-            .build_query_as::<LabTrendEntity>()
-            .fetch_all(&self.pool)
-            .await?;
-
-        Ok(trends)
-    }
-
-    async fn update(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE lab_trends SET ");
-        qb.push("values_json = ").push_bind(&trend.values_json);
-        qb.push(", trend_direction = ")
-            .push_bind(&trend.trend_direction);
-        qb.push(", percent_change = ")
-            .push_bind(trend.percent_change);
-        qb.push(", last_value_date = ")
-            .push_bind(trend.last_value_date);
-        qb.push(", data_points_count = ")
-            .push_bind(trend.data_points_count);
-        qb.push(", updated_at = NOW() WHERE id = ")
-            .push_bind(&trend.id);
-        qb.push(" RETURNING *");
-
-        let result = qb
-            .build_query_as::<LabTrendEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(result)
+    async fn cancel(
+        &self,
+        id: &str,
+        reason: &str,
+        cancelled_at: chrono::DateTime<chrono::Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>> {
+        let row = sqlx::query_as::<_, SpecimenRecollectionRequestEntity>(
+            r#"
+            UPDATE specimen_recollection_requests
+               SET status = 'cancelled',
+                   cancellation_reason = $2,
+                   cancelled_at = $3,
+                   updated_at = NOW()
+             WHERE id = $1
+               AND status = 'requested'
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(reason)
+        .bind(cancelled_at)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 }

@@ -1,6 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import {
+  getNotifications,
+  getPatientCdsAlerts,
+  markNotificationsRead,
+  useTranslation,
+} from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Bell,
@@ -18,12 +23,12 @@ interface Notification {
   notification_id?: string;
   id?: string;
   title?: string;
-  message: string;
+  message?: string;
   type?: string;
   is_read?: boolean;
   read?: boolean;
-  created_at?: string;
-  timestamp?: string;
+  created_at?: string | number;
+  timestamp?: string | number;
 }
 
 interface CdsAlert {
@@ -34,7 +39,7 @@ interface CdsAlert {
   message?: string;
   severity?: 'high' | 'medium' | 'low' | string;
   alert_type?: string;
-  created_at?: string;
+  created_at?: string | number;
   is_acknowledged?: boolean;
 }
 
@@ -57,6 +62,15 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'alerts'>('notifications');
+  /**
+   * When this patient last read their notifications, in Unix seconds.
+   *
+   * The unread count used to filter on `is_read` / `read`, two fields the
+   * notification endpoint has never sent, so every entry counted as unread for
+   * ever and nothing could clear the number. The server keeps a per-user read
+   * marker; an entry is unread when it is newer than that.
+   */
+  const [readAt, setReadAt] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated || !patient) {
@@ -64,46 +78,38 @@ export function NotificationsPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  useEffect(() => {
-    if (patient) {
-      loadAll();
-    }
-  }, [patient]);
-
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     if (!patient) return;
     setLoading(true);
-    const headers = {
-      'X-User-Id': patient.walletAddress,
-      'X-Health-Id': patient.healthId,
-    };
     try {
-      const [notifRes, alertsRes] = await Promise.all([
-        fetch(apiUrl('/api/notifications'), { headers }),
-        fetch(apiUrl(`/api/cds/patient/${patient.healthId}/alerts`), { headers }),
+      const [notificationResponse, alertResponse] = await Promise.all([
+        getNotifications(),
+        getPatientCdsAlerts(patient.healthId),
       ]);
-
-      if (notifRes.ok) {
-        const d = await notifRes.json();
-        setNotifications(d.notifications || []);
-        setApiConnected(true);
-      }
-      if (alertsRes.ok) {
-        const d = await alertsRes.json();
-        setAlerts(d.alerts || d.cds_alerts || []);
-        setApiConnected(true);
-      }
+      setNotifications(notificationResponse.notifications);
+      setReadAt(notificationResponse.read_at || 0);
+      setAlerts(alertResponse.alerts);
+      setApiConnected(true);
     } catch (err) {
       console.error('Failed to load notifications:', err);
       setApiConnected(false);
     } finally {
       setLoading(false);
     }
-  };
+  }, [patient]);
 
-  const formatTime = (dateStr?: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
+  useEffect(() => {
+    if (patient) {
+      loadAll();
+    }
+  }, [patient, loadAll]);
+
+  const formatTime = (value?: string | number) => {
+    if (value === undefined) return '';
+    // API timestamps are Unix seconds. Treating them as JavaScript milliseconds
+    // displayed recent clinical alerts as dates in January 1970.
+    const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
     const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 60) return t('notifications.minsAgoShort', { count: mins });
@@ -140,13 +146,24 @@ export function NotificationsPage() {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read && !n.read).length;
+  const isUnread = (entry: Notification) => Number(entry.timestamp ?? 0) > readAt;
+  const unreadCount = notifications.filter(isUnread).length;
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markNotificationsRead();
+    } catch (err) {
+      console.error('Failed to mark notifications read:', err);
+      return;
+    }
+    await loadAll();
+  };
   const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high').length;
 
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -163,11 +180,19 @@ export function NotificationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="px-3 py-1.5 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-xs font-semibold"
+            >
+              {t('notifications.markAllRead')}
+            </button>
+          )}
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
           <button
             onClick={loadAll}
@@ -205,7 +230,7 @@ export function NotificationsPage() {
         >
           {t('notifications.tabNotifications', { count: notifications.length })}
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {unreadCount}
             </span>
           )}
@@ -220,7 +245,7 @@ export function NotificationsPage() {
         >
           {t('notifications.tabAlerts', { count: alerts.length })}
           {highAlerts > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {highAlerts}
             </span>
           )}
@@ -232,7 +257,7 @@ export function NotificationsPage() {
         <div className="space-y-3">
           {notifications.length === 0 ? (
             <div className="text-center py-12">
-              <Bell className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Bell className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('notifications.noNotifications')}</p>
             </div>
           ) : (
@@ -251,7 +276,7 @@ export function NotificationsPage() {
                     {n.title && (
                       <p className="font-medium text-content">{n.title}</p>
                     )}
-                    <p className="text-sm text-content-secondary">{n.message}</p>
+                    {n.message && <p className="text-sm text-content-secondary">{n.message}</p>}
                     {(n.created_at || n.timestamp) && (
                       <p className="text-xs text-content-muted mt-1 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
@@ -260,7 +285,7 @@ export function NotificationsPage() {
                     )}
                   </div>
                   {(n.is_read || n.read) && (
-                    <CheckCircle className="w-4 h-4 text-neutral-300 flex-shrink-0 mt-0.5" />
+                    <CheckCircle className="w-4 h-4 text-content-muted flex-shrink-0 mt-0.5" />
                   )}
                 </div>
               </div>
@@ -274,7 +299,7 @@ export function NotificationsPage() {
         <div className="space-y-3">
           {alerts.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <CheckCircle className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('notifications.noAlerts')}</p>
             </div>
           ) : (

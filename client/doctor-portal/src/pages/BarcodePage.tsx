@@ -14,10 +14,20 @@ import {
   FlashlightOff,
   History,
   Barcode,
-  Activity,
-  Loader2
+  Activity
 } from 'lucide-react';
-import { apiUrl, EmptyState, useTranslation } from '@medichain/shared';
+import {
+  getMyBarcodeScans,
+  EmptyState,
+  scanBarcode,
+  useTranslation,
+  LoadingSpinner,
+  getScannerSettings,
+  updateScannerSettings,
+  clearScanHistory,
+  getApiErrorMessage,
+  type ScannerSettings,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -50,31 +60,133 @@ interface Patient {
   allergies: string[];
 }
 
-interface _Medication {
-  id: string;
-  name: string;
-  dose: string;
-  route: string;
-  frequency: string;
-  ndc: string;
-  expirationDate: string;
+interface PersistedBarcodeScan {
+  scan_id: string;
+  barcode_value: string;
+  entity_type?: string;
+  scanned_at?: number;
+  scanned_at_iso?: string;
+  location?: string | null;
+}
+
+interface BarcodeDetectionResult {
+  rawValue: string;
+}
+
+interface BarcodeDetectorInstance {
+  detect(source: HTMLVideoElement): Promise<BarcodeDetectionResult[]>;
+}
+
+interface BarcodeDetectorConstructor {
+  new (): BarcodeDetectorInstance;
+}
+
+function mapPersistedScan(scan: PersistedBarcodeScan): ScannedItem {
+  const resolved = scan.entity_type === 'specimen';
+  const timestamp = scan.scanned_at_iso
+    ? new Date(scan.scanned_at_iso)
+    : new Date((scan.scanned_at ?? 0) * 1000);
+
+  return {
+    id: scan.scan_id,
+    type: resolved ? 'specimen' : 'equipment',
+    barcode: scan.barcode_value,
+    name: resolved ? 'Registered specimen' : 'Unresolved barcode',
+    details: scan.location ? `Location: ${scan.location}` : 'No registered specimen matches this barcode.',
+    timestamp: Number.isNaN(timestamp.getTime()) ? new Date(0) : timestamp,
+    result: resolved ? 'success' : 'warning',
+    message: resolved ? undefined : 'The scan was recorded, but its clinical entity was not resolved.',
+  };
 }
 
 const BarcodePage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'settings'>('scan');
+  // The five toggles used to be literals in this file's JSX: nothing read
+  // them and the scan path honoured none of them, including `saveHistory`,
+  // which governs whether a durable record is written at all.
+  const [scannerSettings, setScannerSettings] = useState<ScannerSettings>({
+    autoScan: true,
+    vibrate: true,
+    sound: true,
+    continuous: false,
+    saveHistory: true,
+  });
+  const [settingsNotice, setSettingsNotice] = useState('');
   const [scanMode, setScanMode] = useState<ScanMode>('patient');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [scanHistory, setScanHistory] = useState<ScannedItem[]>([]);
-  const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
+  // The barcode API resolves registered specimens only. Keep the patient
+  // context absent until there is an authenticated patient-wristband lookup
+  // contract, rather than showing details inferred from a barcode string.
+  const [currentPatient] = useState<Patient | null>(null);
   const [lastScan, setLastScan] = useState<ScannedItem | null>(null);
   const [manualEntry, setManualEntry] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { user } = useAuthStore();
+
+  /** Re-read this clinician's scan list from the server. */
+  const loadScanHistory = async () => {
+    const user = useAuthStore.getState().user;
+    if (!user?.walletAddress) return;
+    try {
+      const history = await getMyBarcodeScans();
+      setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
+    } catch (error) {
+      console.error('Barcode scan history could not be loaded:', error);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    getScannerSettings()
+      .then((res) => {
+        if (!cancelled && res.settings) setScannerSettings(res.settings);
+      })
+      // No stored settings is the normal first visit, not an error: the
+      // defaults above are the ones the panel always drew.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Flip one toggle and save the set. */
+  const toggleSetting = async (key: keyof ScannerSettings) => {
+    const next = { ...scannerSettings, [key]: !scannerSettings[key] };
+    setScannerSettings(next);
+    setSettingsNotice('');
+    try {
+      await updateScannerSettings(next);
+    } catch (err) {
+      // Put it back: a toggle that looks saved and is not is the defect this
+      // whole change exists to remove.
+      setScannerSettings(scannerSettings);
+      setSettingsNotice(getApiErrorMessage(err, t('docBarcode.settingsFailed')));
+    }
+  };
+
+  /**
+   * Clear this clinician's scan list.
+   *
+   * Deletes nothing. A scan is the record of somebody handling a specimen, and
+   * ADR-0005 defers irreversible deletion here; the list starts again from now
+   * and the scans stay for anyone asking who handled what.
+   */
+  const handleClearHistory = async () => {
+    setSettingsNotice('');
+    try {
+      const res = await clearScanHistory();
+      setSettingsNotice(res.message);
+      await loadScanHistory();
+    } catch (err) {
+      setSettingsNotice(getApiErrorMessage(err, t('docBarcode.clearFailed')));
+    }
+  };
 
   useEffect(() => {
     // Fetch scan history from API - start with empty state
@@ -85,27 +197,7 @@ const BarcodePage: React.FC = () => {
       }
       
       try {
-        const response = await fetch(apiUrl('/api/barcode/scans/my'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setScanHistory(data.map((item: { id: string; type: ScanMode; barcode: string; name: string; details: string; timestamp: string; result: ScanResult; message?: string }) => ({
-              ...item,
-              timestamp: new Date(item.timestamp)
-            })));
-          }
-        }
-        // If endpoint doesn't exist yet, just start with empty history
-      } catch {
-        // API not available - start with empty history
-        console.log('Barcode scan history API not available');
+        await loadScanHistory();
       } finally {
         setLoading(false);
       }
@@ -137,7 +229,7 @@ const BarcodePage: React.FC = () => {
     setIsCameraActive(false);
   };
 
-  const simulateScan = async () => {
+  const submitScan = async (barcode: string) => {
     if (!user?.walletAddress) {
       console.error('User not authenticated');
       return;
@@ -146,56 +238,25 @@ const BarcodePage: React.FC = () => {
     setIsScanning(true);
     
     try {
-      // Call the barcode scan API endpoint
-      const response = await fetch(apiUrl('/api/barcode/scan'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role || 'Doctor',
-        },
-        body: JSON.stringify({
-          barcode: manualEntry || `SCAN-${Date.now()}`,
-          scanMode,
-          currentPatientId: currentPatient?.id || null,
-        }),
-      });
-      
-      if (response.ok) {
-        const scanResult = await response.json();
-        const newScan: ScannedItem = {
-          id: scanResult.id || `scan-${Date.now()}`,
-          type: scanMode,
-          barcode: scanResult.barcode || manualEntry,
-          name: scanResult.name || t('docBarcode.unknown'),
-          details: scanResult.details || '',
-          timestamp: new Date(scanResult.timestamp || Date.now()),
-          result: scanResult.result || 'success',
-          message: scanResult.message,
-        };
-        
-        setLastScan(newScan);
-        setScanHistory(prev => [newScan, ...prev]);
-        
-        // If scanning a patient, set as current patient
-        if (scanMode === 'patient' && scanResult.patient) {
-          setCurrentPatient(scanResult.patient);
-        }
-      } else {
-        // Handle API error - show error in UI
-        const errorScan: ScannedItem = {
-          id: `scan-${Date.now()}`,
-          type: scanMode,
-          barcode: manualEntry || 'N/A',
-          name: t('docBarcode.scanFailed'),
-          details: t('docBarcode.unableToProcess'),
-          timestamp: new Date(),
-          result: 'error',
-          message: t('docBarcode.apiRequestFailed'),
-        };
-        setLastScan(errorScan);
-        setScanHistory(prev => [errorScan, ...prev]);
-      }
+      const scanResult = await scanBarcode({ barcode, scan_mode: scanMode });
+      const entity = scanResult.entity_info;
+      const resolved = entity.type === 'specimen' && entity.resolved === true;
+      const newScan: ScannedItem = {
+        id: `scan-${scanResult.scanned_at}`,
+        type: resolved ? 'specimen' : 'equipment',
+        barcode: scanResult.barcode_value,
+        name: resolved ? 'Registered specimen' : t('docBarcode.unknown'),
+        details: resolved
+          ? `Patient: ${typeof entity.patient_id === 'string' ? entity.patient_id : '-'}`
+          : 'No registered specimen matches this barcode.',
+        timestamp: new Date(scanResult.scanned_at * 1000),
+        result: resolved ? 'success' : 'warning',
+        message: resolved ? undefined : 'The scan was recorded, but its clinical entity was not resolved.',
+      };
+
+      setLastScan(newScan);
+      // Re-read the persisted record rather than adding a browser-only row.
+      await loadScanHistory();
     } catch (err) {
       console.error('Barcode scan error:', err);
       const errorScan: ScannedItem = {
@@ -209,7 +270,43 @@ const BarcodePage: React.FC = () => {
         message: t('docBarcode.couldNotConnect'),
       };
       setLastScan(errorScan);
-      setScanHistory(prev => [errorScan, ...prev]);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const scanCamera = async () => {
+    if (!videoRef.current) return;
+    const detector = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+    if (!detector) {
+      setLastScan({
+        id: `scan-${Date.now()}`,
+        type: scanMode,
+        barcode: '',
+        name: t('docBarcode.scanFailed'),
+        details: 'This browser does not support camera barcode detection. Enter the barcode manually.',
+        timestamp: new Date(),
+        result: 'error',
+      });
+      return;
+    }
+    setIsScanning(true);
+    try {
+      const result = await new detector().detect(videoRef.current);
+      const barcode = result[0]?.rawValue?.trim();
+      if (!barcode) {
+        setLastScan({
+          id: `scan-${Date.now()}`,
+          type: scanMode,
+          barcode: '',
+          name: t('docBarcode.scanFailed'),
+          details: 'No barcode was detected. Position a barcode inside the frame and try again.',
+          timestamp: new Date(),
+          result: 'error',
+        });
+        return;
+      }
+      await submitScan(barcode);
     } finally {
       setIsScanning(false);
     }
@@ -217,7 +314,7 @@ const BarcodePage: React.FC = () => {
 
   const handleManualEntry = () => {
     if (!manualEntry.trim()) return;
-    simulateScan();
+    void submitScan(manualEntry.trim());
     setManualEntry('');
   };
 
@@ -232,9 +329,9 @@ const BarcodePage: React.FC = () => {
 
   const getResultIcon = (result: ScanResult) => {
     switch (result) {
-      case 'success': return <CheckCircle className="w-6 h-6 text-green-500" />;
-      case 'warning': return <AlertTriangle className="w-6 h-6 text-yellow-500" />;
-      case 'error': return <XCircle className="w-6 h-6 text-red-500" />;
+      case 'success': return <CheckCircle className="w-6 h-6 text-ok" />;
+      case 'warning': return <AlertTriangle className="w-6 h-6 text-caution" />;
+      case 'error': return <XCircle className="w-6 h-6 text-critical" />;
       case 'pending': return <Clock className="w-6 h-6 text-content-muted" />;
     }
   };
@@ -275,6 +372,13 @@ const BarcodePage: React.FC = () => {
         </div>
       </div>
 
+      {loading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
+
       {/* Mode Selector */}
       <div className="bg-gray-800 px-4 py-3">
         <div className="flex gap-2 overflow-x-auto">
@@ -305,7 +409,7 @@ const BarcodePage: React.FC = () => {
               className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
                 activeTab === tab
                   ? 'text-blue-400 border-b-2 border-notice'
-                  : 'text-content-muted hover:text-gray-300'
+                  : 'text-gray-300 hover:text-white'
               }`}
             >
               {tabLabel(tab)}
@@ -340,7 +444,7 @@ const BarcodePage: React.FC = () => {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-content-muted">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300">
                 <CameraOff className="w-16 h-16 mb-4" />
                 <p>{t('docBarcode.cameraNotActive')}</p>
                 <button
@@ -380,11 +484,11 @@ const BarcodePage: React.FC = () => {
                     {flashOn ? <Flashlight className="w-6 h-6" /> : <FlashlightOff className="w-6 h-6" />}
                   </button>
                   <button
-                    onClick={simulateScan}
+                    onClick={() => void scanCamera()}
                     disabled={isScanning}
                     className={`px-8 py-3 rounded-full font-semibold ${
                       isScanning
-                        ? 'bg-blue-400 text-white'
+                        ? 'bg-blue-700 text-white'
                         : 'bg-blue-600 text-white'
                     }`}
                   >
@@ -422,7 +526,7 @@ const BarcodePage: React.FC = () => {
                   value={manualEntry}
                   onChange={(e) => setManualEntry(e.target.value)}
                   placeholder={t('docBarcode.manualPlaceholder')}
-                  className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
+                  className="w-full bg-gray-700 text-white placeholder:text-gray-300 border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
                 />
                 <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               </div>
@@ -531,28 +635,38 @@ const BarcodePage: React.FC = () => {
             <div className="p-4">
               <h3 className="font-semibold text-content">{t('docBarcode.scannerSettings')}</h3>
             </div>
-            {[
-              { label: t('docBarcode.setAutoScan'), enabled: true },
-              { label: t('docBarcode.setVibrate'), enabled: true },
-              { label: t('docBarcode.setSound'), enabled: true },
-              { label: t('docBarcode.setContinuous'), enabled: false },
-              { label: t('docBarcode.setSaveHistory'), enabled: true }
-            ].map((setting, idx) => (
-              <div key={idx} className="p-4 flex items-center justify-between">
-                <span className="text-content-secondary">{setting.label}</span>
-                <button
-                  className={`w-12 h-6 rounded-full transition-colors ${
-                    setting.enabled ? 'bg-blue-600' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
-                      setting.enabled ? 'translate-x-6' : 'translate-x-0.5'
+            {([
+              { key: 'autoScan', label: t('docBarcode.setAutoScan') },
+              { key: 'vibrate', label: t('docBarcode.setVibrate') },
+              { key: 'sound', label: t('docBarcode.setSound') },
+              { key: 'continuous', label: t('docBarcode.setContinuous') },
+              { key: 'saveHistory', label: t('docBarcode.setSaveHistory') },
+            ] as Array<{ key: keyof ScannerSettings; label: string }>).map((setting) => {
+              const enabled = scannerSettings[setting.key];
+              return (
+                <div key={setting.key} className="p-4 flex items-center justify-between">
+                  <span id={`scanner-${setting.key}-label`} className="text-content-secondary">
+                    {setting.label}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-labelledby={`scanner-${setting.key}-label`}
+                    onClick={() => toggleSetting(setting.key)}
+                    className={`w-12 h-6 rounded-full transition-colors ${
+                      enabled ? 'bg-brand' : 'bg-disabled'
                     }`}
-                  />
-                </button>
-              </div>
-            ))}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
+                        enabled ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           <div className="bg-surface rounded-lg shadow divide-y">
@@ -571,10 +685,22 @@ const BarcodePage: React.FC = () => {
           </div>
 
           <div className="bg-surface rounded-lg shadow p-4">
-            <button className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium">
+            <button
+              type="button"
+              onClick={handleClearHistory}
+              className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium"
+            >
               <History className="w-5 h-5" />
               {t('docBarcode.clearHistory')}
             </button>
+            <p className="mt-2 text-xs text-content-muted">
+              {t('docBarcode.clearHistoryNote')}
+            </p>
+            {settingsNotice && (
+              <p role="status" className="mt-2 text-xs text-content-muted">
+                {settingsNotice}
+              </p>
+            )}
           </div>
         </div>
       )}

@@ -845,7 +845,8 @@ impl IntubationRecordRepository for PgIntubationRecordRepository {
                 paralytic_agent, paralytic_dose, laryngoscope_type, blade_size,
                 ett_size, ett_depth_cm, cuff_pressure_cmh2o, attempts, view_grade,
                 adjuncts_used, difficult_airway, difficult_airway_features,
-                complications, verification_methods, post_intubation_vitals, performed_at
+                complications, verification_methods, post_intubation_vitals, performed_at,
+                data
             ) ",
         );
 
@@ -874,7 +875,8 @@ impl IntubationRecordRepository for PgIntubationRecordRepository {
                 .push_bind(&r.complications)
                 .push_bind(&r.verification_methods)
                 .push_bind(&r.post_intubation_vitals)
-                .push_bind(r.performed_at);
+                .push_bind(r.performed_at)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -1018,7 +1020,8 @@ impl LacerationRepairRepository for PgLacerationRepairRepository {
                 closure_technique, suture_material, suture_size, number_of_sutures,
                 deep_sutures_placed, skin_adhesive_used, steri_strips_applied,
                 dressing_applied, complications, aftercare_instructions,
-                follow_up_date, suture_removal_date, performed_by, performed_at
+                follow_up_date, suture_removal_date, performed_by, performed_at,
+                data
             ) ",
         );
 
@@ -1053,7 +1056,8 @@ impl LacerationRepairRepository for PgLacerationRepairRepository {
                 .push_bind(r.follow_up_date)
                 .push_bind(r.suture_removal_date)
                 .push_bind(&r.performed_by)
-                .push_bind(r.performed_at);
+                .push_bind(r.performed_at)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -1171,6 +1175,15 @@ impl PgSplintCastRecordRepository {
 
 #[async_trait]
 impl SplintCastRecordRepository for PgSplintCastRecordRepository {
+    async fn list_all(&self) -> RepositoryResult<Vec<SplintCastRecordEntity>> {
+        let rows = sqlx::query_as::<_, SplintCastRecordEntity>(
+            "SELECT * FROM splint_cast_records ORDER BY applied_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: SplintCastRecordEntity,
@@ -1182,7 +1195,8 @@ impl SplintCastRecordRepository for PgSplintCastRecordRepository {
                 neurovascular_check_pre, neurovascular_check_post, xray_pre, xray_post,
                 reduction_performed, reduction_technique, anesthesia_type, complications,
                 weight_bearing_status, elevation_instructions, ice_instructions,
-                follow_up_date, follow_up_provider, removal_date, applied_by, applied_at
+                follow_up_date, follow_up_provider, removal_date, applied_by, applied_at,
+                data
             ) ",
         );
 
@@ -1212,7 +1226,8 @@ impl SplintCastRecordRepository for PgSplintCastRecordRepository {
                 .push_bind(&r.follow_up_provider)
                 .push_bind(r.removal_date)
                 .push_bind(&r.applied_by)
-                .push_bind(r.applied_at);
+                .push_bind(r.applied_at)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

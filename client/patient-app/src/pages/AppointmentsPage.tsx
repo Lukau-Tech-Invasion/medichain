@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  apiUrl,
   useTranslation,
   setAppointmentStatus,
+  checkInAppointment,
   createAppointment,
   getProviders,
   getAvailableSlots,
+  getPatientAppointmentSummaries,
+  promptDialog,
+  formatTimestamp,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -97,7 +100,7 @@ function normalizeAppointmentType(value?: string, isTelehealth?: boolean): Appoi
 function displayTime(startTime?: string, scheduledTime?: number | string): string {
   if (startTime) return startTime;
   if (typeof scheduledTime === 'number') {
-    return new Date(scheduledTime * 1000).toLocaleTimeString([], {
+    return formatTimestamp(scheduledTime * 1000, {
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -147,11 +150,51 @@ export function AppointmentsPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
+  const loadAppointments = useCallback(async () => {
+    if (!patient) return;
+    
+    setLoading(true);
+    try {
+      const patientId = patient.healthId;
+      
+      const data = await getPatientAppointmentSummaries(patientId);
+      setApiConnected(true);
+
+      const appts: Appointment[] = data.appointments.map((a) => ({
+          id: a.appointment_id,
+          type: normalizeAppointmentType(a.appointment_type || a.type, a.is_telehealth),
+          status: normalizeStatus(a.status),
+          awaitingConfirmationFrom: a.awaiting_confirmation_from ?? null,
+          provider: a.provider_name,
+          specialty: a.specialty ?? '',
+          date: a.scheduled_date,
+          time: displayTime(a.start_time, a.scheduled_time ?? undefined),
+          duration: a.duration_minutes || 30,
+          location: typeof a.location === 'string' ? a.location : undefined,
+          reason: a.visit_reason || a.reason || 'No reason provided',
+          notes: a.notes,
+          // Only a provisioned session yields a link. Without one the card
+          // shows the waiting state rather than a Join button, because there
+          // is genuinely no meeting to join yet.
+          videoLink:
+            a.telehealth_session_id && typeof a.location === 'object'
+              ? a.location?.telehealth_link ?? undefined
+              : undefined,
+      }));
+
+      setAppointments(appts);
+    } catch {
+      setApiConnected(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [patient]);
+
   useEffect(() => {
     if (patient) {
       loadAppointments();
     }
-  }, [patient]);
+  }, [patient, loadAppointments]);
 
   /**
    * Move an appointment through the lifecycle.
@@ -167,10 +210,36 @@ export function AppointmentsPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = window.prompt(t('appointments.cancelReasonPrompt')) ?? '';
+        reason = (await promptDialog({ message: t('appointments.cancelReasonPrompt'), required: true })) ?? '';
         if (!reason.trim()) return;
       }
       await setAppointmentStatus(id, to, reason);
+      await loadAppointments();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('appointments.actionFailed'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /**
+   * Tell the clinic you have arrived.
+   *
+   * `POST /api/appointments/{id}/check-in` has always permitted the patient --
+   * the handler resolves the caller through `linked_patient_id` precisely so a
+   * patient can check themselves in -- and no patient screen has ever called
+   * it. Reception did it for them or nobody did.
+   *
+   * Offered only from `confirmed`, because that is the only transition the
+   * server's own state machine allows: "a booking is a proposal until the party
+   * who did not make it agrees", so `scheduled -> checked_in` is refused. A
+   * button that is always a 400 is worse than no button.
+   */
+  const checkIn = async (id: string) => {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      await checkInAppointment(id);
       await loadAppointments();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t('appointments.actionFailed'));
@@ -188,6 +257,8 @@ export function AppointmentsPage() {
   const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  // Whether the slots above are this provider's hours or a default grid.
+  const [slotsAreDefaultHours, setSlotsAreDefaultHours] = useState(false);
   const [booking, setBooking] = useState({
     providerId: '',
     date: '',
@@ -233,6 +304,14 @@ export function AppointmentsPage() {
     try {
       const result = await getAvailableSlots(providerId, date);
       setSlots(result.available_slots ?? []);
+      // `default_clinic_hours` means nobody stored this provider's working
+      // hours, so these are standard hours rather than their diary. Real
+      // bookings are excluded either way, so a slot shown here is never
+      // double-booked -- but it may be a time this provider does not work,
+      // and a patient reading "available" assumes otherwise.
+      setSlotsAreDefaultHours(
+        (result as { slots_source?: string }).slots_source === 'default_clinic_hours'
+      );
     } catch {
       setSlots([]);
       setBookingError(t('appointments.bookLoadSlotsFailed'));
@@ -272,75 +351,6 @@ export function AppointmentsPage() {
     booking.date !== '' &&
     booking.time !== '' &&
     booking.reason.trim() !== '';
-
-  const loadAppointments = async () => {
-    if (!patient) return;
-    
-    setLoading(true);
-    try {
-      const patientId = patient.healthId;
-      
-      const response = await fetch(apiUrl(`/api/appointments/patient/${patientId}`), {
-        headers: { 
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        
-        const appts: Appointment[] = (data.appointments || []).map((a: {
-          appointment_id: string;
-          type?: string;
-          appointment_type?: string;
-          status: string;
-          provider_name: string;
-          specialty: string;
-          scheduled_date: string;
-          start_time?: string;
-          scheduled_time?: number | string;
-          duration_minutes: number;
-          location?: string | { telehealth_link?: string | null };
-          reason?: string;
-          visit_reason?: string;
-          notes?: string;
-          is_telehealth?: boolean;
-          telehealth_session_id?: string;
-          awaiting_confirmation_from?: 'patient' | 'provider' | null;
-        }) => ({
-          id: a.appointment_id,
-          type: normalizeAppointmentType(a.appointment_type || a.type, a.is_telehealth),
-          status: normalizeStatus(a.status),
-          awaitingConfirmationFrom: a.awaiting_confirmation_from ?? null,
-          provider: a.provider_name,
-          specialty: a.specialty,
-          date: a.scheduled_date,
-          time: displayTime(a.start_time, a.scheduled_time),
-          duration: a.duration_minutes || 30,
-          location: typeof a.location === 'string' ? a.location : undefined,
-          reason: a.visit_reason || a.reason || 'No reason provided',
-          notes: a.notes,
-          // Only a provisioned session yields a link. Without one the card
-          // shows the waiting state rather than a Join button, because there
-          // is genuinely no meeting to join yet.
-          videoLink:
-            a.telehealth_session_id && typeof a.location === 'object'
-              ? a.location?.telehealth_link ?? undefined
-              : undefined,
-        }));
-        
-        setAppointments(appts);
-      } else {
-        setApiConnected(false);
-      }
-    } catch {
-      setApiConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const now = new Date();
 
@@ -391,7 +401,7 @@ export function AppointmentsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -402,7 +412,7 @@ export function AppointmentsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -420,7 +430,7 @@ export function AppointmentsPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.offline')}
           </span>
         </div>
       </div>
@@ -490,11 +500,11 @@ export function AppointmentsPage() {
                 setBooking(prev => ({ ...prev, providerId }));
                 void refreshSlots(providerId, booking.date);
               }}
-              className="mt-1 w-full px-3 py-2 border border-border-strong rounded-lg"
+              className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
             >
               <option value="">{t('appointments.bookSelectProvider')}</option>
-              {providers.map(provider => (
-                <option key={provider.wallet_address} value={provider.wallet_address}>
+              {providers.map((provider, index) => (
+                <option key={`${provider.wallet_address}-${index}`} value={provider.wallet_address}>
                   {provider.specialty
                     ? `${provider.name} - ${provider.specialty}`
                     : provider.name}
@@ -514,7 +524,7 @@ export function AppointmentsPage() {
                 setBooking(prev => ({ ...prev, date }));
                 void refreshSlots(booking.providerId, date);
               }}
-              className="mt-1 w-full px-3 py-2 border border-border-strong rounded-lg"
+              className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
             />
           </label>
 
@@ -531,7 +541,13 @@ export function AppointmentsPage() {
             ) : slots.length === 0 ? (
               <p className="mt-1 text-sm text-content-muted">{t('appointments.bookNoSlots')}</p>
             ) : (
-              <div className="mt-1 flex flex-wrap gap-2">
+              <div className="mt-1">
+                {slotsAreDefaultHours && (
+                  <p className="text-xs text-content-muted mb-2">
+                    {t('appointments.bookSlotsAreDefaultHours')}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
                 {slots.map(slot => (
                   <button
                     key={slot}
@@ -540,13 +556,14 @@ export function AppointmentsPage() {
                     aria-pressed={booking.time === slot}
                     className={`px-3 py-1.5 rounded-lg text-sm border ${
                       booking.time === slot
-                        ? 'bg-primary-500 text-white border-brand'
+                        ? 'bg-primary-500 text-brand-fg border-brand'
                         : 'border-border-strong text-content-secondary hover:bg-surface-sunken'
                     }`}
                   >
                     {slot}
                   </button>
                 ))}
+                </div>
               </div>
             )}
           </div>
@@ -556,7 +573,7 @@ export function AppointmentsPage() {
             <select
               value={booking.type}
               onChange={e => setBooking(prev => ({ ...prev, type: e.target.value }))}
-              className="mt-1 w-full px-3 py-2 border border-border-strong rounded-lg"
+              className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
             >
               {/* Only types the server's `parse_appointment_type` accepts; an
                   unrecognised one is refused with a 400, not defaulted. */}
@@ -573,13 +590,13 @@ export function AppointmentsPage() {
               value={booking.reason}
               onChange={e => setBooking(prev => ({ ...prev, reason: e.target.value }))}
               rows={2}
-              className="mt-1 w-full px-3 py-2 border border-border-strong rounded-lg"
+              className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
               placeholder={t('appointments.bookReasonPlaceholder')}
             />
           </label>
 
           {bookingError && (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-sm text-critical">
               {bookingError}
             </p>
           )}
@@ -588,7 +605,7 @@ export function AppointmentsPage() {
             type="button"
             onClick={() => void submitBooking()}
             disabled={!bookingReady || bookingBusy}
-            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50"
+            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             {bookingBusy ? t('appointments.bookSubmitting') : t('appointments.bookSubmit')}
           </button>
@@ -597,7 +614,7 @@ export function AppointmentsPage() {
 
       {/* Upcoming Summary */}
       {upcomingAppointments.length > 0 && (
-        <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
           <h2 className="text-lg font-semibold mb-2">{t('appointments.nextAppointment')}</h2>
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-surface/20 rounded-xl flex items-center justify-center">
@@ -609,8 +626,8 @@ export function AppointmentsPage() {
             </div>
             <div>
               <p className="font-medium">{upcomingAppointments[0].provider}</p>
-              <p className="text-white/80 text-sm">{upcomingAppointments[0].specialty}</p>
-              <p className="text-white/80 text-sm">
+              <p className="text-white text-sm">{upcomingAppointments[0].specialty}</p>
+              <p className="text-white text-sm">
                 {formatDate(upcomingAppointments[0].date)} {t('appointments.at')} {upcomingAppointments[0].time}
               </p>
             </div>
@@ -718,7 +735,7 @@ export function AppointmentsPage() {
                       type="button"
                       onClick={() => void changeStatus(appointment.id, 'confirmed')}
                       disabled={busyId === appointment.id}
-                      className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:opacity-50"
+                      className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {t('appointments.confirm')}
                     </button>
@@ -726,7 +743,7 @@ export function AppointmentsPage() {
                       type="button"
                       onClick={() => void changeStatus(appointment.id, 'declined')}
                       disabled={busyId === appointment.id}
-                      className="flex-1 py-2 border border-danger text-danger rounded-lg font-medium hover:bg-critical-subtle transition-colors text-sm disabled:opacity-50"
+                      className="flex-1 py-2 border border-critical text-critical rounded-lg font-medium hover:bg-critical-subtle transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {t('appointments.decline')}
                     </button>
@@ -741,7 +758,28 @@ export function AppointmentsPage() {
                   type="button"
                   onClick={() => void changeStatus(appointment.id, 'cancelled')}
                   disabled={busyId === appointment.id}
-                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:opacity-50"
+                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                >
+                  {t('appointments.cancelAppointment')}
+                </button>
+              </div>
+            )}
+
+            {appointment.status === 'confirmed' && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => void checkIn(appointment.id)}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                >
+                  {t('appointments.checkIn')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(appointment.id, 'cancelled')}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {t('appointments.cancelAppointment')}
                 </button>
@@ -758,7 +796,7 @@ export function AppointmentsPage() {
                 {appointment.videoLink ? (
                   <a
                     href={appointment.videoLink}
-                    className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm flex items-center justify-center gap-2"
+                    className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors text-sm flex items-center justify-center gap-2"
                   >
                     <Video className="w-4 h-4" aria-hidden="true" />
                     {t('appointments.joinVideo')}
@@ -770,9 +808,13 @@ export function AppointmentsPage() {
                   </p>
                 )}
                 {appointment.phoneNumber && (
-                  <button className="py-2 px-4 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm flex items-center gap-2" aria-label={`Call ${appointment.provider}`}>
+                  <a
+                    href={`tel:${appointment.phoneNumber.replace(/[^+\d]/g, '')}`}
+                    className="py-2 px-4 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken transition-colors text-sm flex items-center gap-2"
+                    aria-label={`Call ${appointment.provider}`}
+                  >
                     <Phone className="w-4 h-4" />
-                  </button>
+                  </a>
                 )}
               </div>
             )}
@@ -782,12 +824,16 @@ export function AppointmentsPage() {
         {((activeTab === 'upcoming' && upcomingAppointments.length === 0) || 
           (activeTab === 'past' && pastAppointments.length === 0)) && (
           <div className="text-center py-12">
-            <Calendar className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <Calendar className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">
               {activeTab === 'upcoming' ? t('appointments.noUpcoming') : t('appointments.noPast')}
             </p>
             {activeTab === 'upcoming' && (
-              <button className="mt-4 px-6 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors">
+              <button
+                type="button"
+                onClick={() => void openBooking()}
+                className="mt-4 px-6 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors"
+              >
                 {t('appointments.bookAppointment')}
               </button>
             )}

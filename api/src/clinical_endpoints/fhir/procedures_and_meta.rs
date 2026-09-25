@@ -427,7 +427,7 @@ pub async fn fhir_capability_statement() -> impl Responder {
         .json(serde_json::json!({
             "resourceType": "CapabilityStatement",
             "status": "active",
-            "date": "2026-01-06",
+            "date": "2026-09-17",
             "publisher": "Lukau Invasion - MediChain",
             "kind": "instance",
             "software": {
@@ -444,7 +444,7 @@ pub async fn fhir_capability_statement() -> impl Responder {
                 "resource": [
                     {
                         "type": "Patient",
-                        "interaction": [{"code": "read"}, {"code": "search-type"}],
+                        "interaction": [{"code": "read"}, {"code": "search-type"}, {"code": "create"}],
                         "searchParam": [{"name": "_id", "type": "token"}]
                     },
                     {
@@ -490,7 +490,11 @@ pub async fn fhir_capability_statement() -> impl Responder {
                         "interaction": [{"code": "search-type"}],
                         "searchParam": [{"name": "patient", "type": "reference"}]
                     }
-                ]
+                ],
+                "interaction": [{
+                    "code": "transaction",
+                    "documentation": "POST /api/fhir/r4/Bundle accepts one Patient POST entry using MediChain's published Patient profile. Other resource types and multi-entry transactions are rejected before any write."
+                }]
             }]
         }))
 }

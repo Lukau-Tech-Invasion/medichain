@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Video, Loader2, AlertTriangle, Users, ShieldCheck, Disc, StopCircle, Radio } from 'lucide-react';
 import { telehealthEvent, telehealthRecording } from '../api/endpoints';
 import { useSSE } from '../hooks';
+import { confirmDialog } from './Dialog';
 
 /**
  * Shared Jitsi IFrame-API video call component (Telehealth Phase 2).
@@ -211,10 +212,13 @@ export function JitsiMeetComponent({
     if (recordBusy) return;
     const starting = !recording;
     if (starting) {
-      const consented = window.confirm(
-        'This consultation will be recorded. All participants will be notified. ' +
-          'Continue only with the patient’s consent.'
-      );
+      const consented = await confirmDialog({
+        title: 'Record this consultation?',
+        message:
+          'This consultation will be recorded. All participants will be notified. ' +
+          'Continue only with the patient’s consent.',
+        confirmLabel: 'Start recording',
+      });
       if (!consented) return;
     }
     setRecordBusy(true);
@@ -267,7 +271,7 @@ export function JitsiMeetComponent({
             <button
               onClick={toggleRecording}
               disabled={recordBusy}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:opacity-50 ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                 recording ? 'bg-gray-700 hover:bg-gray-600' : 'bg-critical hover:bg-critical'
               }`}
             >

@@ -8,167 +8,6 @@
 
 use super::*;
 
-/// Create a new CDS alert
-#[post("/api/cds/alerts")]
-pub async fn create_cds_alert(
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    req: web::Json<CreateCDSAlertRequest>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let current_user = match require_known_user(&data, &current_user_id) {
-        Ok(u) => u,
-        Err(resp) => return resp,
-    };
-
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Only healthcare providers can create CDS alerts".to_string(),
-            code: "FORBIDDEN".to_string(),
-        });
-    }
-
-    let alert_type = match req.alert_type.as_str() {
-        "drug_interaction" => crate::clinical::CDSAlertType::DrugInteraction,
-        "drug_allergy" => crate::clinical::CDSAlertType::DrugAllergy,
-        "duplicate_therapy" => crate::clinical::CDSAlertType::DuplicateTherapy,
-        "dose_range" => crate::clinical::CDSAlertType::DoseRangeCheck,
-        "preventive_care" => crate::clinical::CDSAlertType::PreventiveCare,
-        "diagnostic_gap" => crate::clinical::CDSAlertType::DiagnosticGap,
-        "lab_abnormal" => crate::clinical::CDSAlertType::LaboratoryAbnormal,
-        "vital_abnormal" => crate::clinical::CDSAlertType::VitalSignAbnormal,
-        "care_plan_deviation" => crate::clinical::CDSAlertType::CarePlanDeviation,
-        "quality_measure" => crate::clinical::CDSAlertType::QualityMeasure,
-        "cost_saving" => crate::clinical::CDSAlertType::CostSavingOpportunity,
-        "best_practice" => crate::clinical::CDSAlertType::BestPracticeAdvisory,
-        "order_set" => crate::clinical::CDSAlertType::OrderSet,
-        _ => crate::clinical::CDSAlertType::BestPracticeAdvisory,
-    };
-
-    let severity = match req.severity.as_str() {
-        "informational" => crate::clinical::CDSSeverity::Informational,
-        "low" => crate::clinical::CDSSeverity::Low,
-        "medium" => crate::clinical::CDSSeverity::Medium,
-        "high" => crate::clinical::CDSSeverity::High,
-        "critical" => crate::clinical::CDSSeverity::Critical,
-        _ => crate::clinical::CDSSeverity::Medium,
-    };
-
-    let alert_id = format!("CDS-{}", uuid::Uuid::new_v4());
-    let now = chrono::Utc::now().timestamp();
-
-    let alert = crate::clinical::CDSAlert {
-        alert_id: alert_id.clone(),
-        patient_id: req.patient_id.clone(),
-        provider_id: current_user_id.clone(),
-        alert_type,
-        severity,
-        title: req.title.clone(),
-        description: req.description.clone(),
-        clinical_context: req.clinical_context.clone(),
-        triggering_data: serde_json::json!({}),
-        recommended_actions: Vec::new(),
-        evidence: Vec::new(),
-        guideline_reference: req.guideline_reference.clone(),
-        created_at: now,
-        expires_at: req.expires_at,
-        status: crate::clinical::CDSAlertStatus::Active,
-        response: None,
-    };
-
-    let entity: crate::repositories::traits::CdsAlertEntity = alert.into();
-    if let Err(e) = data.repositories.cds_alerts.create(entity).await {
-        log::error!("CDS alert persistence failed: {}", e);
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: "Failed to persist CDS alert".to_string(),
-            code: "PERSISTENCE_ERROR".to_string(),
-        });
-    }
-
-    HttpResponse::Created().json(serde_json::json!({
-        "success": true,
-        "alert_id": alert_id,
-        "message": "CDS alert created successfully"
-    }))
-}
-
-/// Get CDS alerts for provider
-#[get("/api/cds/alerts")]
-pub async fn get_cds_alerts(
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    query: web::Query<std::collections::HashMap<String, String>>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let current_user = match require_known_user(&data, &current_user_id) {
-        Ok(u) => u,
-        Err(resp) => return resp,
-    };
-
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Only healthcare providers can view CDS alerts".to_string(),
-            code: "FORBIDDEN".to_string(),
-        });
-    }
-
-    let patient_id = query.get("patient_id").cloned();
-    let status_filter = query.get("status").cloned();
-
-    // Repository can filter by patient; provider + status filtered in-memory.
-    let entities = match patient_id.as_deref() {
-        Some(pid) => match data
-            .repositories
-            .cds_alerts
-            .get_by_patient(pid, false)
-            .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("Failed to fetch CDS alerts by patient: {}", e);
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Failed to fetch alerts".to_string(),
-                    code: "REPOSITORY_ERROR".to_string(),
-                });
-            }
-        },
-        None => data
-            .repositories
-            .cds_alerts
-            .get_unacknowledged(None)
-            .await
-            .unwrap_or_default(),
-    };
-    let filtered_alerts: Vec<crate::clinical::CDSAlert> = entities
-        .into_iter()
-        .map(crate::clinical::CDSAlert::from)
-        .filter(|a| a.provider_id == current_user_id)
-        .filter(|a| {
-            status_filter
-                .as_ref()
-                .is_none_or(|s| format!("{:?}", a.status).to_lowercase() == s.to_lowercase())
-        })
-        .collect();
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "alerts": filtered_alerts,
-        "count": filtered_alerts.len()
-    }))
-}
-
 /// Get single CDS alert
 #[get("/api/cds/alerts/{alert_id}")]
 pub async fn get_cds_alert(
@@ -187,7 +26,6 @@ pub async fn get_cds_alert(
         Ok(e) => crate::clinical::CDSAlert::from(e),
         Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Alert not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -195,7 +33,6 @@ pub async fn get_cds_alert(
         Err(e) => {
             log::error!("Failed to fetch CDS alert: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to fetch alert".to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             });
@@ -204,7 +41,6 @@ pub async fn get_cds_alert(
 
     if alert.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -222,6 +58,19 @@ pub struct RespondCDSAlertRequest {
     pub action_taken: String,
     pub override_reason: Option<String>,
     pub notes: Option<String>,
+}
+
+fn parse_cds_action(action: &str) -> Option<crate::clinical::CDSActionTaken> {
+    match action {
+        "accepted" => Some(crate::clinical::CDSActionTaken::Accepted),
+        "accepted_modified" => Some(crate::clinical::CDSActionTaken::AcceptedWithModification),
+        "overridden" => Some(crate::clinical::CDSActionTaken::Overridden),
+        "deferred" => Some(crate::clinical::CDSActionTaken::Deferred),
+        "escalated" => Some(crate::clinical::CDSActionTaken::EscalatedToPharmacy),
+        "patient_refused" => Some(crate::clinical::CDSActionTaken::PatientRefused),
+        "not_applicable" => Some(crate::clinical::CDSActionTaken::NotApplicable),
+        _ => None,
+    }
 }
 
 /// Respond to CDS alert
@@ -244,7 +93,6 @@ pub async fn respond_to_cds_alert(
             Ok(e) => e.into(),
             Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
                 return HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: "Alert not found".to_string(),
                     code: "NOT_FOUND".to_string(),
                 })
@@ -252,7 +100,6 @@ pub async fn respond_to_cds_alert(
             Err(e) => {
                 log::error!("Failed to fetch CDS alert: {}", e);
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Failed to fetch alert".to_string(),
                     code: "REPOSITORY_ERROR".to_string(),
                 });
@@ -261,21 +108,19 @@ pub async fn respond_to_cds_alert(
 
     if alert.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the assigned provider can respond".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
 
-    let action_taken = match req.action_taken.as_str() {
-        "accepted" => crate::clinical::CDSActionTaken::Accepted,
-        "accepted_modified" => crate::clinical::CDSActionTaken::AcceptedWithModification,
-        "overridden" => crate::clinical::CDSActionTaken::Overridden,
-        "deferred" => crate::clinical::CDSActionTaken::Deferred,
-        "escalated" => crate::clinical::CDSActionTaken::EscalatedToPharmacy,
-        "patient_refused" => crate::clinical::CDSActionTaken::PatientRefused,
-        "not_applicable" => crate::clinical::CDSActionTaken::NotApplicable,
-        _ => crate::clinical::CDSActionTaken::NotApplicable,
+    let action_taken = match parse_cds_action(&req.action_taken) {
+        Some(action) => action,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "action_taken is invalid".to_string(),
+                code: "INVALID_ACTION".to_string(),
+            })
+        }
     };
 
     let now = chrono::Utc::now().timestamp();
@@ -305,7 +150,6 @@ pub async fn respond_to_cds_alert(
     if let Err(e) = data.repositories.cds_alerts.update(entity).await {
         log::error!("Failed to persist CDS alert response: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to record response".to_string(),
             code: "PERSISTENCE_ERROR".to_string(),
         });
@@ -317,6 +161,31 @@ pub async fn respond_to_cds_alert(
         "status": format!("{:?}", alert.status),
         "message": "CDS alert response recorded"
     }))
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::parse_cds_action;
+    use crate::clinical::CDSActionTaken;
+
+    #[test]
+    fn accepts_only_documented_response_actions() {
+        assert_eq!(parse_cds_action("accepted"), Some(CDSActionTaken::Accepted));
+        assert_eq!(
+            parse_cds_action("accepted_modified"),
+            Some(CDSActionTaken::AcceptedWithModification)
+        );
+        assert_eq!(
+            parse_cds_action("not_applicable"),
+            Some(CDSActionTaken::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_response_action_instead_of_inventing_one() {
+        assert_eq!(parse_cds_action("looks_fine"), None);
+        assert_eq!(parse_cds_action(""), None);
+    }
 }
 
 /// Get patient's CDS alert history
@@ -356,7 +225,6 @@ pub async fn get_patient_cds_alerts(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_provider && !is_own {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers or the patient themselves can view these CDS alerts"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
@@ -376,7 +244,6 @@ pub async fn get_patient_cds_alerts(
         Err(e) => {
             log::error!("Failed to fetch patient CDS alerts: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to fetch alerts".to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             });

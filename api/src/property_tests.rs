@@ -1,58 +1,38 @@
 //! Property-based tests (Phase 12.2) using `proptest`.
 //!
 //! These assert *invariants* over randomized inputs rather than fixed examples:
-//! the blood-type compatibility matrix obeys transfusion rules, NFC hashing is
-//! deterministic and collision-resistant to separator ambiguity, and MAP
-//! arithmetic is bounded.
+//! NFC hashing is deterministic and collision-resistant to separator ambiguity,
+//! and the MAP the vitals endpoint returns is bounded.
 //!
 //! Lives inside the binary crate (not `tests/`) because it exercises crate-
 //! internal functions; run with `cargo test --bin medichain-api property`.
+//!
+//! The blood-type compatibility properties were removed on 2026-09-24 with the
+//! function they tested: nothing in the product ever called it, and a
+//! compatibility check with no donor unit to check against is not a control.
 
-use crate::clinical::{blood_type_compatible, mean_arterial_pressure};
+use crate::clinical::VitalSignsReading;
 use crate::nfc_simulator::card_hash;
 use proptest::prelude::*;
 
-/// Strategy producing a valid ABO/Rh blood-type string.
-fn blood_type_strategy() -> impl Strategy<Value = String> {
-    let abo = prop_oneof![Just("O"), Just("A"), Just("B"), Just("AB")];
-    let rh = prop_oneof![Just("+"), Just("-")];
-    (abo, rh).prop_map(|(a, r)| format!("{a}{r}"))
+/// A reading carrying only a blood pressure: what `calculate_map` reads.
+fn pressure(systolic: u16, diastolic: u16) -> VitalSignsReading {
+    VitalSignsReading {
+        reading_id: String::new(),
+        timestamp: 0,
+        heart_rate: None,
+        systolic_bp: Some(systolic),
+        diastolic_bp: Some(diastolic),
+        respiratory_rate: None,
+        oxygen_saturation: None,
+        temperature_celsius: None,
+        pain_scale: None,
+        recorded_by: String::new(),
+        notes: None,
+    }
 }
 
 proptest! {
-    // ---- Blood type compatibility matrix -----------------------------------
-
-    #[test]
-    fn o_negative_is_universal_donor(recipient in blood_type_strategy()) {
-        prop_assert!(blood_type_compatible("O-", &recipient));
-    }
-
-    #[test]
-    fn ab_positive_is_universal_recipient(donor in blood_type_strategy()) {
-        prop_assert!(blood_type_compatible(&donor, "AB+"));
-    }
-
-    #[test]
-    fn same_type_is_self_compatible(bt in blood_type_strategy()) {
-        prop_assert!(blood_type_compatible(&bt, &bt));
-    }
-
-    #[test]
-    fn rh_positive_donor_incompatible_with_rh_negative_recipient(
-        abo_d in prop_oneof![Just("O"), Just("A"), Just("B"), Just("AB")],
-        abo_r in prop_oneof![Just("O"), Just("A"), Just("B"), Just("AB")],
-    ) {
-        let donor = format!("{abo_d}+");
-        let recipient = format!("{abo_r}-");
-        prop_assert!(!blood_type_compatible(&donor, &recipient));
-    }
-
-    #[test]
-    fn unparseable_blood_types_are_incompatible(s in "[^OAB+-]{1,5}") {
-        prop_assert!(!blood_type_compatible(&s, "AB+"));
-        prop_assert!(!blood_type_compatible("O-", &s));
-    }
-
     // ---- NFC card hash generation ------------------------------------------
 
     #[test]
@@ -77,15 +57,15 @@ proptest! {
     // ---- MAP arithmetic (bounded, overflow-free) ---------------------------
 
     #[test]
-    fn map_is_overflow_free_for_all_u16(sbp in any::<u16>(), dbp in any::<u16>()) {
-        // Must not panic; widened arithmetic guarantees this for all u16.
-        let _ = mean_arterial_pressure(sbp, dbp);
+    fn map_is_computed_for_every_u16_pair(sbp in any::<u16>(), dbp in any::<u16>()) {
+        // Must not panic, and always produces a value when both are present.
+        prop_assert!(pressure(sbp, dbp).calculate_map().is_some());
     }
 
     #[test]
     fn map_is_between_diastolic_and_systolic(dbp in 0u16..300, delta in 0u16..300) {
         let sbp = dbp + delta; // ensure sbp >= dbp
-        let map = mean_arterial_pressure(sbp, dbp);
+        let map = pressure(sbp, dbp).calculate_map().unwrap();
         prop_assert!(map >= dbp && map <= sbp);
     }
 }

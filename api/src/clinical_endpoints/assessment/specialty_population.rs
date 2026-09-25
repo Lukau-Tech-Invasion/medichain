@@ -22,7 +22,6 @@ pub async fn create_peds(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -31,13 +30,23 @@ pub async fn create_peds(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("PED-{}", uuid::Uuid::new_v4().simple());
@@ -190,12 +199,10 @@ pub async fn create_peds(
             "assessment_id": assessment_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -214,7 +221,6 @@ pub async fn get_peds(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -223,7 +229,6 @@ pub async fn get_peds(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -235,14 +240,18 @@ pub async fn get_peds(
         .get_by_id(&assessment_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        Ok(entity) => {
+            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
+            // on every one of these entities, so on PostgreSQL it is always
+            // `Value::Null` — this endpoint returned a literal `null` with a
+            // 200 for every record ever saved. The typed columns are the record.
+            HttpResponse::Ok().json(entity)
+        }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Pediatric assessment not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -260,7 +269,6 @@ pub async fn create_ob(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -269,13 +277,23 @@ pub async fn create_ob(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
-    let body = req.into_inner();
+    let body = normalise_body_keys(req.into_inner());
+    // The page posts camelCase and every lookup below is snake_case.
+    // Without this the typed columns were written from nothing: an empty
+    // patient id, zeroed counts and every flag false, returned as a 201.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if let Err(resp) = require_known_patient(&data, &patient_id).await {
+        return resp;
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("OBE-{}", uuid::Uuid::new_v4().simple());
@@ -330,7 +348,11 @@ pub async fn create_ob(
             .get("prenatal_care_provider")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        pregnancy_complications: body.get("pregnancy_complications").cloned(),
+        pregnancy_complications: body
+            .get("pregnancy_complications")
+            // The page calls the list simply `complications`; losing it drops eclampsia, abruption and cord prolapse from the record.
+            .or_else(|| body.get("complications"))
+            .cloned(),
         chief_complaint: body
             .get("chief_complaint")
             .and_then(|v| v.as_str())
@@ -488,12 +510,10 @@ pub async fn create_ob(
             "assessment_id": assessment_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -512,7 +532,6 @@ pub async fn get_ob(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -521,7 +540,6 @@ pub async fn get_ob(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -533,14 +551,18 @@ pub async fn get_ob(
         .get_by_id(&assessment_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        Ok(entity) => {
+            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
+            // on every one of these entities, so on PostgreSQL it is always
+            // `Value::Null` — this endpoint returned a literal `null` with a
+            // 200 for every record ever saved. The typed columns are the record.
+            HttpResponse::Ok().json(entity)
+        }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Obstetric emergency not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

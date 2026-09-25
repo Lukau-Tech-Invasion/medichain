@@ -54,14 +54,18 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         assessment.updated_at = now;
 
         // Calculate total score and risk level
-        assessment.total_score = assessment.history_of_falling.unwrap_or(0)
-            + assessment.secondary_diagnosis.unwrap_or(0)
-            + assessment.ambulatory_aid.unwrap_or(0)
-            + assessment.iv_therapy.unwrap_or(0)
-            + assessment.gait_status.unwrap_or(0)
-            + assessment.mental_status.unwrap_or(0);
+        assessment.total_score = Some(
+            assessment.history_of_falling.unwrap_or(0)
+                + assessment.secondary_diagnosis.unwrap_or(0)
+                + assessment.ambulatory_aid.unwrap_or(0)
+                + assessment.iv_therapy.unwrap_or(0)
+                + assessment.gait_status.unwrap_or(0)
+                + assessment.mental_status.unwrap_or(0),
+        );
 
-        assessment.risk_level = Self::calculate_risk_level(assessment.total_score);
+        assessment.risk_level = Some(Self::calculate_risk_level(
+            assessment.total_score.unwrap_or(0),
+        ));
 
         storage.insert(assessment.id.clone(), assessment.clone());
         Ok(assessment)
@@ -126,14 +130,18 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         }
 
         // Recalculate total score and risk level
-        assessment.total_score = assessment.history_of_falling.unwrap_or(0)
-            + assessment.secondary_diagnosis.unwrap_or(0)
-            + assessment.ambulatory_aid.unwrap_or(0)
-            + assessment.iv_therapy.unwrap_or(0)
-            + assessment.gait_status.unwrap_or(0)
-            + assessment.mental_status.unwrap_or(0);
+        assessment.total_score = Some(
+            assessment.history_of_falling.unwrap_or(0)
+                + assessment.secondary_diagnosis.unwrap_or(0)
+                + assessment.ambulatory_aid.unwrap_or(0)
+                + assessment.iv_therapy.unwrap_or(0)
+                + assessment.gait_status.unwrap_or(0)
+                + assessment.mental_status.unwrap_or(0),
+        );
 
-        assessment.risk_level = Self::calculate_risk_level(assessment.total_score);
+        assessment.risk_level = Some(Self::calculate_risk_level(
+            assessment.total_score.unwrap_or(0),
+        ));
         assessment.updated_at = Utc::now();
 
         storage.insert(assessment.id.clone(), assessment.clone());
@@ -145,7 +153,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
 
         let high_risk_assessments: Vec<FallRiskAssessmentEntity> = storage
             .values()
-            .filter(|a| a.risk_level == "moderate" || a.risk_level == "high")
+            .filter(|a| matches!(a.risk_level.as_deref(), Some("moderate") | Some("high")))
             .cloned()
             .collect();
 

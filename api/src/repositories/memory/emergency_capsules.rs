@@ -160,6 +160,9 @@ impl EmergencyCapsuleRepository for MemoryEmergencyCapsuleRepository {
             .accesses
             .write()
             .map_err(|e| RepositoryError::Database(e.to_string()))?;
+        if accesses.iter().any(|existing| existing.id == access.id) {
+            return Err(RepositoryError::Duplicate(access.id));
+        }
         accesses.push(access.clone());
         Ok(access)
     }

@@ -18,6 +18,7 @@ const ha_NG: TranslationRecord = {
     search: 'Bincike',
     filter: 'Tace',
     loading: 'Ana lodawa...',
+    saveFailed: 'An kasa ajiyewa. Ba a adana bayanan ba — da fatan za a sake gwadawa.',
     error: 'Kuskure',
     success: 'Nasara',
     warning: 'Gargaɗi',

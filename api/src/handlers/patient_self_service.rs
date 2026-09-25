@@ -65,7 +65,6 @@ type LoadedPatient = (PatientProfile, crate::repositories::traits::PatientEntity
 
 fn patient_not_found() -> HttpResponse {
     HttpResponse::NotFound().json(ErrorResponse {
-        success: false,
         error: "Patient not found".to_string(),
         code: "PATIENT_NOT_FOUND".to_string(),
     })
@@ -79,14 +78,12 @@ async fn authorize_and_load(
 ) -> Result<LoadedPatient, HttpResponse> {
     let caller_id = get_current_user_id(http_req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Missing X-User-Id header".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
     let caller = get_user(data, &caller_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
@@ -95,7 +92,6 @@ async fn authorize_and_load(
     let owns = crate::support::caller_owns_patient_record(data, &caller_id, patient_id);
     if !owns && !caller.role.can_edit_medical_records() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You can only edit your own profile".to_string(),
             code: "FORBIDDEN".to_string(),
         }));
@@ -133,7 +129,6 @@ async fn save_profile(
         .map_err(|e| {
             log::error!("patient profile persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save profile".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -159,7 +154,6 @@ fn apply_demographics(
     if let Some(address) = &req.address {
         if address.city.trim().is_empty() || address.country.trim().is_empty() {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Address requires at least a city and a country".to_string(),
                 code: "INVALID_INPUT".to_string(),
             }));
@@ -169,12 +163,25 @@ fn apply_demographics(
     if let Some(insurance) = &req.insurance {
         if insurance.provider.trim().is_empty() || insurance.policy_number.trim().is_empty() {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Insurance requires a provider and a policy number".to_string(),
                 code: "INVALID_INPUT".to_string(),
             }));
         }
-        profile.insurance = Some(insurance.clone());
+        // A blank date is an absent one. The form marks both optional, so a
+        // patient who does not know their cover dates leaves them empty, and
+        // storing `""` would record a policy "valid from ''" — which reads as
+        // a value rather than as the absence it is.
+        let blank_to_none = |value: &Option<String>| -> Option<String> {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
+        let mut stored = insurance.clone();
+        stored.valid_from = blank_to_none(&insurance.valid_from);
+        stored.valid_to = blank_to_none(&insurance.valid_to);
+        profile.insurance = Some(stored);
     }
     if let Some(languages) = &req.languages {
         profile.emergency_info.languages = languages
@@ -206,7 +213,7 @@ pub async fn update_demographics(
     if let Err(response) = save_profile(&data, &profile, &entity).await {
         return response;
     }
-    log::info!("demographics updated for patient {patient_id}");
+    log::info!("patient demographics updated");
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "patient_id": patient_id,
@@ -219,7 +226,6 @@ pub async fn update_demographics(
 fn validate_contacts(contacts: &[EmergencyContactInput]) -> Result<(), HttpResponse> {
     if contacts.len() > MAX_EMERGENCY_CONTACTS {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("At most {MAX_EMERGENCY_CONTACTS} emergency contacts are supported"),
             code: "TOO_MANY_CONTACTS".to_string(),
         }));
@@ -229,7 +235,6 @@ fn validate_contacts(contacts: &[EmergencyContactInput]) -> Result<(), HttpRespo
     });
     if blank {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Every contact needs a name, phone and relationship".to_string(),
             code: "INVALID_INPUT".to_string(),
         }));

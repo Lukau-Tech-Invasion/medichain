@@ -8,17 +8,27 @@
 //! See [`crate::patient_access`] for the store and the state machine.
 
 use super::*;
-use crate::patient_access::{AccessType, RequestingProvider, STORE_UNAVAILABLE};
+use crate::patient_access::{
+    AccessType, RequestingProvider, PENDING_REQUEST_EXISTS, STORE_UNAVAILABLE,
+};
 use crate::repositories::traits::GuardianPermission;
+
+const MAX_ACCESS_GRANT_DAYS: i64 = 30;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateAccessRequestBody {
     pub reason: String,
 }
 
+/// A patient/guardian approval must name a finite access window. Standing,
+/// indefinite grants are prohibited by the release policy.
+#[derive(Debug, Deserialize)]
+pub struct ApproveAccessRequestBody {
+    pub expires_at: chrono::DateTime<Utc>,
+}
+
 fn unauthorized(error: &str, code: &str) -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: code.to_string(),
     })
@@ -26,7 +36,6 @@ fn unauthorized(error: &str, code: &str) -> HttpResponse {
 
 fn forbidden(error: &str) -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "ACCESS_FORBIDDEN".to_string(),
     })
@@ -34,7 +43,6 @@ fn forbidden(error: &str) -> HttpResponse {
 
 fn not_found(error: &str) -> HttpResponse {
     HttpResponse::NotFound().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "NOT_FOUND".to_string(),
     })
@@ -42,7 +50,6 @@ fn not_found(error: &str) -> HttpResponse {
 
 fn bad_request(error: &str) -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
-        success: false,
         error: error.to_string(),
         code: "ACCESS_REQUEST_REJECTED".to_string(),
     })
@@ -50,7 +57,6 @@ fn bad_request(error: &str) -> HttpResponse {
 
 fn unavailable() -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: STORE_UNAVAILABLE.to_string(),
         code: "PATIENT_ACCESS_UNAVAILABLE".to_string(),
     })
@@ -61,6 +67,11 @@ fn unavailable() -> HttpResponse {
 fn transition_error(error: &'static str) -> HttpResponse {
     if error == STORE_UNAVAILABLE {
         unavailable()
+    } else if error == PENDING_REQUEST_EXISTS {
+        HttpResponse::Conflict().json(ErrorResponse {
+            error: error.to_string(),
+            code: "ACCESS_REQUEST_ALREADY_PENDING".to_string(),
+        })
     } else {
         bad_request(error)
     }
@@ -154,25 +165,26 @@ pub async fn create_patient_access_request(
             .unwrap_or_else(|| "Unaffiliated".to_string()),
         reason: body.reason.clone(),
     };
+    let now = Utc::now();
+    let request_id = format!("REQ-{}", uuid::Uuid::new_v4());
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_created".into(),
+        "access_request".into(),
+        request_id,
+        serde_json::json!({"provider_id": provider.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .create_request(patient_id, provider, Utc::now())
+        .create_request_with_audit(patient_id, provider, event.clone(), now)
         .await
     {
         Ok(request) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_created".into(),
-                    "access_request".into(),
-                    request.id.clone(),
-                    serde_json::json!({"provider_id": request.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Created().json(serde_json::json!({ "request": request }))
         }
@@ -186,6 +198,7 @@ pub async fn approve_access_request(
     data: web::Data<AppState>,
     req: HttpRequest,
     path: web::Path<String>,
+    body: web::Json<ApproveAccessRequestBody>,
 ) -> impl Responder {
     let user = match authed_user(&data, &req) {
         Ok(u) => u,
@@ -197,6 +210,16 @@ pub async fn approve_access_request(
         Ok(None) => return not_found("Access request not found"),
         Err(_) => return unavailable(),
     };
+    if existing.provider_id == user.wallet_address {
+        return forbidden("A requester may not approve their own access request");
+    }
+    let now = Utc::now();
+    if body.expires_at <= now {
+        return bad_request("Access-grant expiry must be in the future");
+    }
+    if body.expires_at > now + chrono::Duration::days(MAX_ACCESS_GRANT_DAYS) {
+        return bad_request("Access-grant expiry exceeds the 30-day maximum");
+    }
     let access = resolve_patient_access(
         &data,
         &user,
@@ -207,25 +230,31 @@ pub async fn approve_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
+    let grant_id = format!("GRANT-{}", uuid::Uuid::new_v4());
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_approved".into(),
+        "access_grant".into(),
+        grant_id,
+        serde_json::json!({"request_id": existing.id, "provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .approve_request(&request_id, AccessType::Limited, None, Utc::now())
+        .approve_request_with_audit(
+            &request_id,
+            AccessType::Limited,
+            Some(body.expires_at),
+            event.clone(),
+            now,
+        )
         .await
     {
         Ok((request, grant)) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_approved".into(),
-                    "access_grant".into(),
-                    grant.id.clone(),
-                    serde_json::json!({"request_id": request.id, "provider_id": grant.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "request": request, "grant": grant }))
         }
@@ -260,21 +289,25 @@ pub async fn deny_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
-    match data.patient_access.deny_request(&request_id).await {
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_denied".into(),
+        "access_request".into(),
+        existing.id,
+        serde_json::json!({"provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
+    match data
+        .patient_access
+        .deny_request_with_audit(&request_id, event.clone())
+        .await
+    {
         Ok(request) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_denied".into(),
-                    "access_request".into(),
-                    request.id.clone(),
-                    serde_json::json!({"provider_id": request.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "request": request }))
         }
@@ -309,25 +342,25 @@ pub async fn revoke_access_grant(
     if !access.is_permitted() {
         return forbidden("Only the patient may revoke this grant");
     }
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_grant_revoked".into(),
+        "access_grant".into(),
+        existing.id,
+        serde_json::json!({"provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .revoke_grant(&grant_id, Utc::now())
+        .revoke_grant_with_audit(&grant_id, now, event.clone())
         .await
     {
         Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_grant_revoked".into(),
-                    "access_grant".into(),
-                    grant.id.clone(),
-                    serde_json::json!({"provider_id": grant.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "grant": grant }))
         }

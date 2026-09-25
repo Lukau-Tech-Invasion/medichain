@@ -39,6 +39,10 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
         "SMS_INBOUND_WEBHOOK_SECRET",
         "medichain-dev-sms-webhook-secret-change-in-production",
     ),
+    (
+        "PATIENT_SEARCH_INDEX_KEY",
+        "medichain-dev-patient-search-index-key-change-in-production",
+    ),
 ];
 
 /// Reject contradictory runtime posture before authentication middleware is built.
@@ -65,6 +69,43 @@ pub fn validate_runtime_posture(
     Ok(())
 }
 
+/// Refuse to start in production with an SMTP transport that would send a
+/// breach notification in clear text.
+///
+/// `SMTP_ALLOW_PLAINTEXT` exists for a local capture server or a trusted
+/// in-cluster relay. A breach notification names the breach, so sending one
+/// unencrypted across an untrusted network is its own disclosure -- the
+/// notification about the incident becomes a second incident.
+fn validate_smtp_configuration(app_env: &str) -> Result<(), String> {
+    if app_env != "production" {
+        return Ok(());
+    }
+    let plaintext = std::env::var("SMTP_ALLOW_PLAINTEXT")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if plaintext {
+        return Err(
+            "SMTP_ALLOW_PLAINTEXT=true is refused in production: a breach notification names              the breach, and sending it without TLS is its own disclosure. Use STARTTLS (the              default) or SMTP_IMPLICIT_TLS=true."
+                .to_string(),
+        );
+    }
+    // A host without a from-address cannot send at all, and discovering that
+    // while declaring a breach is the worst possible moment.
+    let host = std::env::var("SMTP_HOST")
+        .ok()
+        .filter(|h| !h.trim().is_empty());
+    let from = std::env::var("SMTP_FROM")
+        .ok()
+        .filter(|f| !f.trim().is_empty());
+    if host.is_some() && from.is_none() {
+        return Err(
+            "SMTP_HOST is set but SMTP_FROM is not, so no email can be sent. A regulator              notification would fail at the moment it is needed."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Validate that the running configuration is not using demo/default secrets.
 ///
 /// Secure by default: `IS_DEMO` is treated as `false` (production) when unset, so a
@@ -86,6 +127,9 @@ pub fn validate_production_secrets() -> Result<(), String> {
     let app_env = std::env::var("APP_ENV")
         .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
     validate_runtime_posture(&app_env, is_demo, require_signatures)?;
+    validate_telehealth_configuration(&app_env)?;
+    validate_identity_verification_configuration(&app_env)?;
+    validate_smtp_configuration(&app_env)?;
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -131,13 +175,95 @@ pub fn validate_production_secrets() -> Result<(), String> {
     Ok(())
 }
 
+/// Production telehealth must use a private, authenticated provider. Provider
+/// failure may not be handled by silently offering a public meeting room.
+pub fn validate_telehealth_configuration(app_env: &str) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production || std::env::var("TELEHEALTH_ENABLED").as_deref() == Ok("false") {
+        return Ok(());
+    }
+
+    let provider = std::env::var("TELEHEALTH_PROVIDER")
+        .unwrap_or_else(|_| "jitsi".to_string())
+        .to_ascii_lowercase();
+    match provider.as_str() {
+        "jitsi" => {
+            let domain = std::env::var("JITSI_DOMAIN").unwrap_or_default();
+            let app_id = std::env::var("JITSI_APP_ID").unwrap_or_default();
+            let secret = std::env::var("JITSI_APP_SECRET").unwrap_or_default();
+            if domain.is_empty()
+                || domain == "meet.jit.si"
+                || app_id.is_empty()
+                || secret.is_empty()
+            {
+                return Err(
+                    "Refusing production startup: Jitsi must use a non-public self-hosted domain \
+                     with JITSI_APP_ID and JITSI_APP_SECRET token authentication"
+                        .to_string(),
+                );
+            }
+        }
+        "daily" if std::env::var("DAILY_API_KEY").is_err() => {
+            return Err(
+                "Refusing production startup: DAILY_API_KEY is required for telehealth".into(),
+            );
+        }
+        "twilio"
+            if std::env::var("TWILIO_ACCOUNT_SID").is_err()
+                || std::env::var("TWILIO_AUTH_TOKEN").is_err() =>
+        {
+            return Err(
+                "Refusing production startup: Twilio telehealth requires account and auth token"
+                    .into(),
+            );
+        }
+        "internal" => {
+            return Err(
+                "Refusing production startup: the internal telehealth provider is not externally qualified"
+                    .into(),
+            );
+        }
+        "daily" | "twilio" => {}
+        _ => return Err("Refusing production startup: unknown telehealth provider".into()),
+    }
+    Ok(())
+}
+
+/// A production deployment must explicitly opt into live ID verification.
+pub fn validate_identity_verification_configuration(app_env: &str) -> Result<(), String> {
+    let mode = std::env::var("NATIONAL_ID_VERIFICATION_MODE").ok();
+    validate_identity_verification_mode(app_env, mode.as_deref())
+}
+
+fn validate_identity_verification_mode(
+    app_env: &str,
+    verification_mode: Option<&str>,
+) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production {
+        return Ok(());
+    }
+    match verification_mode {
+        Some(mode) if mode.eq_ignore_ascii_case("live") => Ok(()),
+        _ => Err(
+            "Refusing production startup: NATIONAL_ID_VERIFICATION_MODE=live is required; \
+             live authority verification is required"
+                .into(),
+        ),
+    }
+}
+
 /// Env vars for the 5 national-ID verifiers (Horizon HZ-004). Unlike
 /// `DEMO_SECRET_MARKERS`, an unset key here is not necessarily wrong — a soft
 /// launch may legitimately not have every country's key yet — so this warns
-/// loudly rather than refusing to boot. Before this check existed, a missing key
-/// silently degraded that country's identity verification to "any non-empty
-/// string is verified" (see `national_id::StubVerifier`) with only an
-/// invisible-by-default `log::debug!` line.
+/// loudly rather than refusing to boot. A missing key leaves that country's
+/// identities explicitly unverified and awaiting manual review.
 pub const NATIONAL_ID_API_KEY_VARS: &[&str] = &[
     "FAYDA_API_KEY",
     "GHANA_CARD_API_KEY",
@@ -149,9 +275,8 @@ pub const NATIONAL_ID_API_KEY_VARS: &[&str] = &[
 /// Warn at startup for every national-ID API key that is unset in non-demo mode.
 ///
 /// Deliberately warn-only (not `validate_production_secrets`'s fail-closed
-/// behavior): identity verification degrading to the stub for one missing
-/// country is a real gap, but it should not take down verification for every
-/// other country by refusing to boot.
+/// behavior): a missing key creates manual-review cases for one country but
+/// should not take down live verification for every other country.
 pub fn warn_missing_national_id_keys() {
     let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
     if is_demo {
@@ -166,10 +291,9 @@ pub fn warn_missing_national_id_keys() {
 
     if !missing.is_empty() {
         log::warn!(
-            "National-ID verification will silently use the deterministic stub for {} \
-             country/countries whose API key is unset: {}. Any non-empty ID string will be \
-             reported as verified for these countries until the key is configured. Set the \
-             corresponding key or accept this explicitly for now.",
+            "National-ID verification requires manual review for {} country/countries whose \
+             API key is unset: {}. No identifier will be marked verified until the \
+             corresponding live verifier is configured.",
             missing.len(),
             missing.join(", ")
         );
@@ -204,8 +328,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!();
     println!("  NFC Simulation Endpoints:");
     println!("     POST /api/nfc/generate        - Generate NFC card for patient");
-    println!("     POST /api/nfc/tap             - Simulate NFC card tap");
-    println!("     POST /api/nfc/verify-qr       - Verify QR code for emergency");
     println!("     GET  /api/nfc/card/{{patient}} - Get card info by patient");
     println!("     POST /api/nfc/suspend         - Suspend a card (Admin)");
     println!("     GET  /api/nfc/cards           - List all cards (Admin)");
@@ -226,7 +348,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     GET  /api/clinical/patient/{{id}}/emergency - All emergency records");
     println!();
     println!("  Dashboard & Workflow Endpoints:");
-    println!("     GET  /api/dashboard/patient   - Patient home dashboard");
     println!("     GET  /api/dashboard/doctor    - Doctor dashboard (patients, labs)");
     println!("     GET  /api/dashboard/nurse     - Nurse dashboard (tasks, vitals)");
     println!("     GET  /api/dashboard/lab       - Lab tech dashboard (queue, QC)");
@@ -251,7 +372,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     GET  /api/consent/patient/{{id}} - Patient's consents");
     println!();
     println!("  Barcode/Sample Tracking Endpoints:");
-    println!("     POST /api/barcode/generate    - Generate barcode");
     println!("     POST /api/barcode/scan        - Scan barcode");
     println!("     GET  /api/barcode/track/{{bc}} - Track barcode history");
     println!();
@@ -295,6 +415,20 @@ pub fn dev_account_addresses() -> Vec<String> {
         .collect()
 }
 
+fn privileged_dev_account_error(offenders: &[(String, String)]) -> String {
+    let mut roles: Vec<&str> = offenders.iter().map(|(_, role)| role.as_str()).collect();
+    roles.sort_unstable();
+    roles.dedup();
+    format!(
+        "Refusing to start: {} well-known Substrate development account(s) hold privileged role(s) \
+         in this deployment ({}). Their private keys are published, so anyone could authenticate \
+         as them. Deactivate or delete these users, or set IS_DEMO=true if this is a demonstration \
+         instance. The affected wallet addresses are intentionally omitted from operational output.",
+        offenders.len(),
+        roles.join(", ")
+    )
+}
+
 /// Refuse to start a production instance where a well-known dev key holds a
 /// privileged role.
 ///
@@ -336,17 +470,7 @@ pub async fn validate_no_privileged_dev_accounts(
         return Ok(());
     }
 
-    let listed = offenders
-        .iter()
-        .map(|(wallet, role)| format!("{role} {wallet}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(format!(
-        "Refusing to start: well-known Substrate development account(s) hold privileged roles \
-         in this deployment ({listed}). Their private keys are published, so anyone could \
-         authenticate as them. Deactivate or delete these users, or set IS_DEMO=true if this \
-         is a demonstration instance."
-    ))
+    Err(privileged_dev_account_error(&offenders))
 }
 
 /// Refuse to serve two organisations from one instance (ADR-0007).
@@ -362,19 +486,20 @@ pub async fn validate_no_privileged_dev_accounts(
 /// boundary is load-bearing, so it is checked rather than assumed.
 ///
 /// Returns `Err` with an operator-readable message when more than one active
-/// organisation is present. A database without the federation tables — or one
-/// where the query cannot run — is not treated as a violation: the check exists
-/// to catch a misconfiguration, not to block startup on its own failure.
+/// organisation is present. An unverifiable boundary also refuses startup:
+/// production migrations make this table mandatory, and continuing after a
+/// query failure would silently restore the cross-organisation disclosure risk.
 pub async fn validate_single_organisation(pool: &sqlx::PgPool) -> Result<(), String> {
-    let count: Option<i64> = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM organizations WHERE COALESCE(is_active, true) = true",
-    )
-    .fetch_one(pool)
-    .await
-    .ok();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE status = 'active'")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| {
+                "Refusing to start: unable to verify the single-organisation boundary".to_string()
+            })?;
 
     match count {
-        Some(n) if n > 1 => Err(format!(
+        n if n > 1 => Err(format!(
             "Refusing to start: this database holds {n} active organisations, but a MediChain \
              instance serves exactly one (ADR-0006, ADR-0007). Clinician worklists and the \
              /api/platform/list/* registries are deployment-wide, so a second organisation here \
@@ -385,25 +510,162 @@ pub async fn validate_single_organisation(pool: &sqlx::PgPool) -> Result<(), Str
     }
 }
 
-/// Warn when the facility timezone offset is unset.
+/// The facility timezones this build supports, and their fixed UTC offsets in
+/// minutes.
+///
+/// Facility times use a **fixed** offset with no daylight-saving rules. That is
+/// correct, and needs no timezone database, precisely because none of these
+/// observe DST. Naming the zone rather than typing an offset is what keeps that
+/// true: a DST region is not expressible here, so it cannot be configured by
+/// accident.
+///
+/// An offset allow-list was tried first and abandoned — `-300` is US Eastern
+/// standard time *and* Peru, which has no DST, so almost every offset is
+/// legitimate somewhere and the check had no power.
+pub const SUPPORTED_CLINIC_ZONES: &[(&str, i64)] = &[
+    ("UTC", 0),
+    ("Africa/Accra", 0),           // Ghana, GMT
+    ("Africa/Abidjan", 0),         // Côte d'Ivoire, GMT
+    ("Africa/Lagos", 60),          // Nigeria, WAT
+    ("Africa/Kinshasa", 60),       // DRC (west), WAT
+    ("Africa/Johannesburg", 120),  // South Africa, SAST
+    ("Africa/Harare", 120),        // Zimbabwe, CAT
+    ("Africa/Lusaka", 120),        // Zambia, CAT
+    ("Africa/Maputo", 120),        // Mozambique, CAT
+    ("Africa/Nairobi", 180),       // Kenya, EAT
+    ("Africa/Addis_Ababa", 180),   // Ethiopia, EAT
+    ("Africa/Dar_es_Salaam", 180), // Tanzania, EAT
+    ("Africa/Kampala", 180),       // Uganda, EAT
+    ("Africa/Kigali", 120),        // Rwanda, CAT
+];
+
+/// The offset for a named zone, if this build supports it.
+pub fn clinic_zone_offset_minutes(zone: &str) -> Option<i64> {
+    let wanted = zone.trim();
+    SUPPORTED_CLINIC_ZONES
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+        .map(|(_, minutes)| *minutes)
+}
+
+/// Check the facility timezone configuration at startup.
 ///
 /// Appointment dates and times are stored as facility wall-clock. Without an
 /// offset they are interpreted as UTC, which shifts every scheduled instant —
 /// and therefore the telehealth join window and appointment reminders — by the
 /// facility's real offset.
+///
+/// `CLINIC_TIMEZONE` is the supported way to say where a facility is.
+/// `CLINIC_UTC_OFFSET_MINUTES` still works, because deployments use it, but it
+/// cannot express whether the region observes DST and so is reported as the
+/// weaker option it is.
 pub fn warn_if_clinic_offset_unset() {
-    if std::env::var("CLINIC_UTC_OFFSET_MINUTES").is_err() {
+    if let Ok(zone) = std::env::var("CLINIC_TIMEZONE") {
+        match clinic_zone_offset_minutes(&zone) {
+            Some(minutes) => {
+                log::info!("Facility timezone: {zone} (UTC{minutes:+} minutes, no DST)");
+            }
+            None => {
+                log::error!(
+                    "CLINIC_TIMEZONE is {zone:?}, which this build does not support. Facility \
+                     times use a fixed offset with no daylight-saving rules, so only zones \
+                     without DST can be honoured: {}. Appointment times are being treated as \
+                     UTC until this is corrected.",
+                    SUPPORTED_CLINIC_ZONES
+                        .iter()
+                        .map(|(name, _)| *name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        return;
+    }
+
+    let Ok(raw) = std::env::var("CLINIC_UTC_OFFSET_MINUTES") else {
         log::warn!(
-            "CLINIC_UTC_OFFSET_MINUTES is not set - appointment times are being treated as UTC. \
-             Set it to the facility's offset in minutes (e.g. 120 for SAST) or telehealth join \
-             windows and reminders will be wrong by that offset."
+            "Neither CLINIC_TIMEZONE nor CLINIC_UTC_OFFSET_MINUTES is set - appointment times \
+             are being treated as UTC. Set CLINIC_TIMEZONE to the facility's zone (e.g. \
+             Africa/Johannesburg) or telehealth join windows and reminders will be wrong by the \
+             facility's real offset."
         );
+        return;
+    };
+
+    if raw.trim().parse::<i64>().is_err() {
+        log::warn!(
+            "CLINIC_UTC_OFFSET_MINUTES is {raw:?}, which is not a number of minutes. It is being \
+             ignored and appointment times are being treated as UTC."
+        );
+        return;
+    }
+
+    log::warn!(
+        "CLINIC_UTC_OFFSET_MINUTES is set without CLINIC_TIMEZONE. A bare offset cannot say \
+         whether the region observes daylight saving, and this build applies it unchanged all \
+         year - so in a DST region it is right for part of the year and an hour wrong for the \
+         rest, silently, in every reminder and join window. Prefer CLINIC_TIMEZONE."
+    );
+}
+
+#[cfg(test)]
+mod clinic_offset_tests {
+    use super::{clinic_zone_offset_minutes, SUPPORTED_CLINIC_ZONES};
+
+    #[test]
+    fn every_deployment_target_resolves() {
+        // The five named in the design rationale.
+        assert_eq!(clinic_zone_offset_minutes("Africa/Johannesburg"), Some(120));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Lagos"), Some(60));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Nairobi"), Some(180));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Accra"), Some(0));
+        assert_eq!(clinic_zone_offset_minutes("Africa/Addis_Ababa"), Some(180));
+    }
+
+    #[test]
+    fn a_dst_zone_cannot_be_configured() {
+        // This is the whole point of naming the zone instead of typing an
+        // offset. `-300` as a number is US Eastern *and* Peru, so no offset
+        // check could tell them apart; the zone name can, and these are simply
+        // absent.
+        assert_eq!(clinic_zone_offset_minutes("America/New_York"), None);
+        assert_eq!(clinic_zone_offset_minutes("Europe/London"), None);
+        assert_eq!(clinic_zone_offset_minutes("Europe/Berlin"), None);
+        assert_eq!(clinic_zone_offset_minutes("Australia/Sydney"), None);
+    }
+
+    #[test]
+    fn zone_names_are_matched_forgivingly_but_not_loosely() {
+        assert_eq!(
+            clinic_zone_offset_minutes("  africa/johannesburg  "),
+            Some(120)
+        );
+        assert_eq!(clinic_zone_offset_minutes("Africa/Johannesburg/"), None);
+        assert_eq!(clinic_zone_offset_minutes(""), None);
+    }
+
+    #[test]
+    fn no_supported_zone_observes_daylight_saving() {
+        // A guard on the table itself: every entry here has to be a zone with
+        // no DST, because the offset is applied unchanged all year.
+        for (name, minutes) in SUPPORTED_CLINIC_ZONES {
+            assert!(
+                !name.starts_with("America/")
+                    && !name.starts_with("Europe/")
+                    && !name.starts_with("Australia/"),
+                "{name} is in a region that observes DST; a fixed offset cannot serve it"
+            );
+            assert!(
+                (-14 * 60..=14 * 60).contains(minutes),
+                "{name} has an impossible offset"
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod runtime_posture_tests {
-    use super::validate_runtime_posture;
+    use super::{validate_identity_verification_mode, validate_runtime_posture};
 
     #[test]
     fn production_rejects_demo_mode() {
@@ -425,6 +687,24 @@ mod runtime_posture_tests {
     #[test]
     fn explicit_development_demo_is_allowed() {
         assert!(validate_runtime_posture("development", true, false).is_ok());
+    }
+
+    #[test]
+    fn production_rejects_missing_or_stub_identity_verification() {
+        assert!(validate_identity_verification_mode("production", None).is_err());
+        assert!(validate_identity_verification_mode("production", Some("stub")).is_err());
+    }
+
+    #[test]
+    fn production_accepts_only_live_identity_verification() {
+        assert!(validate_identity_verification_mode("prod", Some("live")).is_ok());
+        assert!(validate_identity_verification_mode("production", Some("LIVE")).is_ok());
+    }
+
+    #[test]
+    fn non_production_allows_identity_verification_test_modes() {
+        assert!(validate_identity_verification_mode("development", None).is_ok());
+        assert!(validate_identity_verification_mode("test", Some("stub")).is_ok());
     }
 }
 
@@ -450,6 +730,103 @@ mod dev_account_tests {
         assert!(
             addresses.contains(&"5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string()),
             "//Bob must derive to his published address, got: {addresses:?}"
+        );
+    }
+
+    #[test]
+    fn privileged_dev_account_error_omits_wallet_addresses() {
+        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+        let error = privileged_dev_account_error(&[
+            (wallet.to_string(), "Admin".to_string()),
+            ("another-wallet".to_string(), "Doctor".to_string()),
+        ]);
+
+        assert!(!error.contains(wallet));
+        assert!(!error.contains("another-wallet"));
+        assert!(error.contains("2 well-known"));
+        assert!(error.contains("Admin, Doctor"));
+    }
+}
+
+#[cfg(test)]
+mod smtp_posture_tests {
+    use super::validate_smtp_configuration;
+
+    /// Serialised by hand: these read process-global environment variables and
+    /// Rust runs tests in parallel.
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_env<T>(pairs: &[(&str, Option<&str>)], body: impl FnOnce() -> T) -> T {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous: Vec<_> = pairs
+            .iter()
+            .map(|(key, _)| (*key, std::env::var(key).ok()))
+            .collect();
+        for (key, value) in pairs {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+        let outcome = body();
+        for (key, value) in previous {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+        outcome
+    }
+
+    #[test]
+    fn production_refuses_plaintext_smtp() {
+        with_env(&[("SMTP_ALLOW_PLAINTEXT", Some("true"))], || {
+            assert!(validate_smtp_configuration("production").is_err());
+        });
+    }
+
+    #[test]
+    fn development_permits_plaintext_for_a_local_capture() {
+        with_env(&[("SMTP_ALLOW_PLAINTEXT", Some("true"))], || {
+            assert!(validate_smtp_configuration("development").is_ok());
+        });
+    }
+
+    #[test]
+    fn a_host_without_a_from_address_is_refused_in_production() {
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", Some("mail.example.test")),
+                ("SMTP_FROM", None),
+            ],
+            || assert!(validate_smtp_configuration("production").is_err()),
+        );
+    }
+
+    #[test]
+    fn a_complete_tls_configuration_is_accepted() {
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", Some("mail.example.test")),
+                ("SMTP_FROM", Some("breach@example.test")),
+            ],
+            || assert!(validate_smtp_configuration("production").is_ok()),
+        );
+    }
+
+    #[test]
+    fn no_smtp_at_all_is_accepted() {
+        // Not every deployment sends email; the breach path reports the zero it
+        // actually achieved rather than being blocked from starting.
+        with_env(
+            &[
+                ("SMTP_ALLOW_PLAINTEXT", None),
+                ("SMTP_HOST", None),
+                ("SMTP_FROM", None),
+            ],
+            || assert!(validate_smtp_configuration("production").is_ok()),
         );
     }
 }

@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiErrorMessage, joinTelehealthSession, useTranslation } from '@medichain/shared';
-import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
+import {
+  createTelehealthSession,
+  endTelehealthSession,
+  getApiErrorMessage,
+  getPatientTelehealthSessions,
+  joinTelehealthSession,
+  getTelehealthJoinQr,
+  listMyTelehealthSessions,
+  useTranslation,
+  formatTimestamp,
+} from '@medichain/shared';
+import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { JitsiMeetComponent } from '@medichain/shared';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
@@ -50,19 +61,38 @@ export default function TelehealthPage() {
 
   const [formData, setFormData] = useState({
     patient_id: '',
-    session_type: 'video_consultation',
+    session_type: 'VideoVisit',
     scheduled_start_date: '',
     scheduled_start_time: '',
     duration_minutes: 30,
   });
 
-  useEffect(() => {
-    if (patientId) {
-      fetchSessions(patientId);
-    } else {
+  // No patient filter means "my sessions", not "no sessions". This screen
+  // used to render an empty list until a patient id was typed in, so a
+  // clinician opening their own telehealth list saw nothing and had no way to
+  // discover what they were seeing today.
+  const fetchSessions = useCallback(async (pid: string) => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const data = pid
+        ? await getPatientTelehealthSessions(pid)
+        : await listMyTelehealthSessions();
+      setSessions(data.sessions ?? []);
+      setError('');
+    } catch (e) {
+      console.error(e);
+      // Said out loud. A failed fetch used to leave the previous list on
+      // screen with no indication it was stale.
+      setError(getApiErrorMessage(e, t('docTelehealth.errLoad')));
+    } finally {
       setLoading(false);
     }
-  }, [patientId]);
+  }, [user, t]);
+
+  useEffect(() => {
+    void fetchSessions(patientId);
+  }, [patientId, fetchSessions]);
 
   /**
    * Deep-link auto-join (Phase 4): when the page is opened via the in-app QR /
@@ -78,27 +108,6 @@ export default function TelehealthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchSessions = async (pid: string) => {
-    if (!user || !pid) return;
-    setLoading(true);
-    try {
-      const res = await fetch(apiUrl(`/api/telehealth/patient/${pid}/sessions`), {
-        headers: {
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data.sessions || data || []);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -108,34 +117,25 @@ export default function TelehealthPage() {
         ? Math.floor(new Date(`${formData.scheduled_start_date}T${formData.scheduled_start_time}`).getTime() / 1000)
         : Math.floor(Date.now() / 1000);
 
-      const res = await fetch(apiUrl('/api/telehealth/sessions'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          patient_id: formData.patient_id,
-          provider_id: user.walletAddress,
-          scheduled_start: scheduledStart,
-          duration_minutes: formData.duration_minutes,
-          session_type: formData.session_type,
-        }),
+      // Through the typed client rather than a hand-rolled fetch: the client
+      // is what attaches the session headers and the Idempotency-Key the
+      // middleware refuses an authenticated mutation without, and duplicating
+      // that here is how a header gets forgotten.
+      await createTelehealthSession({
+        patient_id: formData.patient_id,
+        scheduled_start: scheduledStart,
+        duration_minutes: formData.duration_minutes,
+        session_type: formData.session_type,
       });
 
-      if (res.ok) {
-        setSuccess(t('docTelehealth.created'));
-        setShowForm(false);
-        setFormData({ patient_id: '', session_type: 'video_consultation', scheduled_start_date: '', scheduled_start_time: '', duration_minutes: 30 });
-        if (formData.patient_id) {
-          fetchSessions(formData.patient_id);
-        }
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        const data = await res.json();
-        setError(getApiErrorMessage(data, t('docTelehealth.errCreate')));
-      }
+      setSuccess(t('docTelehealth.created'));
+      setShowForm(false);
+      setFormData({ patient_id: '', session_type: 'VideoVisit', scheduled_start_date: '', scheduled_start_time: '', duration_minutes: 30 });
+      // Re-read whichever list is on screen. Re-reading only when a patient
+      // filter was set meant a session booked from the unfiltered list did not
+      // appear until the page was reloaded.
+      await fetchSessions(patientId);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
       setError(t('docTelehealth.errConnect'));
     }
@@ -145,22 +145,16 @@ export default function TelehealthPage() {
     if (!user) return;
     setActionLoading(sessionId);
     try {
-      const res = await fetch(apiUrl(`/api/telehealth/sessions/${sessionId}/end`), {
-        method: 'POST',
-        headers: {
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-      });
-      if (res.ok) {
-        setSuccess(t('docTelehealth.sessionEnded'));
-        setSessions(prev => prev.map(s => s.session_id === sessionId ? { ...s, status: 'ended' } : s));
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        setError(t('docTelehealth.errEnd'));
-      }
+      await endTelehealthSession(sessionId);
+      setSuccess(t('docTelehealth.sessionEnded'));
+      // Re-read instead of stamping `status: 'ended'` locally. That string is
+      // not a status this API has -- it serializes `Completed` -- so the badge
+      // the clinician was left looking at was a value no backend would ever
+      // send, and the recorded end time was invisible until a reload.
+      await fetchSessions(patientId);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      setError(t('docTelehealth.errEnding'));
+      setError(getApiErrorMessage(e, t('docTelehealth.errEnd')));
     } finally {
       setActionLoading(null);
     }
@@ -171,6 +165,19 @@ export default function TelehealthPage() {
    * open the IFrame-API call. Falls back to the raw-iframe URL if the provider
    * doesn't return credentials.
    */
+  // The QR the patient scans to join from their phone. `GET
+  // /api/telehealth/sessions/{id}/qr` had no caller; the patient app already
+  // honours the link it encodes.
+  const [joinQr, setJoinQr] = useState<{ url?: string; png?: string; error?: string } | null>(null);
+  const showJoinQr = async (sessionId: string) => {
+    try {
+      const qr = await getTelehealthJoinQr(sessionId);
+      setJoinQr({ url: qr.join_url, png: qr.qr_png_base64 });
+    } catch (err) {
+      setJoinQr({ error: getApiErrorMessage(err, t('docTelehealth.joinQrFailed')) });
+    }
+  };
+
   const handleJoin = async (session: TelehealthSession) => {
     setError('');
     try {
@@ -213,32 +220,57 @@ export default function TelehealthPage() {
     }
   };
 
+  // `TelehealthStatus` serializes as `Scheduled`, `InProgress`, `Completed`
+  // and so on. Every case here was lowercase, so no session ever matched: the
+  // badge fell to the default grey and the label rendered the raw enum name.
   const statusColor = (status: string) => {
     switch (status) {
-      case 'scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
-      case 'active': return 'bg-ok-subtle text-ok-subtle-fg';
-      case 'ended': return 'bg-surface-sunken text-content-secondary';
-      case 'cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'Scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
+      case 'WaitingRoom': return 'bg-notice-subtle text-notice-subtle-fg';
+      case 'InProgress': return 'bg-ok-subtle text-ok-subtle-fg';
+      case 'OnHold': return 'bg-caution-subtle text-caution-subtle-fg';
+      case 'Completed': return 'bg-surface-sunken text-content-secondary';
+      case 'Cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'NoShow': return 'bg-critical-subtle text-critical-subtle-fg';
+      case 'TechnicalIssue': return 'bg-critical-subtle text-critical-subtle-fg';
       default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const statusLabel = (status: string): string => {
     const map: Record<string, string> = {
-      scheduled: t('docTelehealth.statusScheduled'),
-      active: t('docTelehealth.statusActive'),
-      ended: t('docTelehealth.statusEnded'),
-      cancelled: t('docTelehealth.statusCancelled'),
+      Scheduled: t('docTelehealth.statusScheduled'),
+      WaitingRoom: t('docTelehealth.statusWaitingRoom'),
+      InProgress: t('docTelehealth.statusActive'),
+      OnHold: t('docTelehealth.statusOnHold'),
+      Completed: t('docTelehealth.statusEnded'),
+      Cancelled: t('docTelehealth.statusCancelled'),
+      NoShow: t('docTelehealth.statusNoShow'),
+      TechnicalIssue: t('docTelehealth.statusTechnicalIssue'),
     };
     return map[status] ?? status;
   };
 
+  // A session is over when the API says it is over. Compared against the same
+  // spellings the badge uses, so the Join button and the badge cannot disagree
+  // -- which they did: `'ended'` never matched `Completed`, so every finished
+  // session still offered a Join button.
+  const isOver = (status: string): boolean =>
+    ['Completed', 'Cancelled', 'NoShow'].includes(status);
+
+  // Keyed on the spellings the API stores and returns, not on a vocabulary
+  // this page invented. The four it used to offer -- video_consultation,
+  // follow_up, mental_health, urgent_care -- were in no backend match arm, so
+  // every one of them fell through to a video visit, and the list then rendered
+  // the stored `VideoVisit` as a raw enum name because that was in no map here.
   const sessionTypeLabel = (type: string): string => {
     const map: Record<string, string> = {
-      video_consultation: t('docTelehealth.typeVideo'),
-      follow_up: t('docTelehealth.typeFollowUp'),
-      mental_health: t('docTelehealth.typeMentalHealth'),
-      urgent_care: t('docTelehealth.typeUrgentCare'),
+      VideoVisit: t('docTelehealth.typeVideo'),
+      PhoneCall: t('docTelehealth.typePhone'),
+      SecureMessage: t('docTelehealth.typeMessage'),
+      AsyncVideo: t('docTelehealth.typeAsyncVideo'),
+      RemoteMonitoring: t('docTelehealth.typeMonitoring'),
+      VirtualGroupVisit: t('docTelehealth.typeGroup'),
     };
     return map[type] ?? type;
   };
@@ -248,7 +280,7 @@ export default function TelehealthPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-2">
-            <Video className="text-blue-500" size={24} />
+            <Video className="text-notice-subtle-fg" size={24} />
             {t('docTelehealth.title')}
           </h1>
           <p className="text-content-muted text-sm mt-1">{t('docTelehealth.subtitle')}</p>
@@ -271,18 +303,16 @@ export default function TelehealthPage() {
 
       {/* Patient Selector */}
       <div className="bg-surface rounded-xl shadow p-4 mb-6">
-        <label htmlFor="telehealth-patient-id" className="block text-sm font-medium text-content-secondary mb-1">
-          {t('docTelehealth.viewForPatient')}
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="telehealth-patient-id"
-            type="text"
-            value={patientId}
-            onChange={e => setPatientId(e.target.value)}
-            placeholder={t('docTelehealth.patientIdPlaceholder')}
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-          />
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            {/* A remembered patient id is not something anyone has; search by name. */}
+            <PatientSelect
+              id="telehealth-patient-id"
+              label={t('docTelehealth.viewForPatient')}
+              value={patientId}
+              onChange={(selectedPatientId) => setPatientId(selectedPatientId)}
+            />
+          </div>
           <button
             onClick={() => fetchSessions(patientId)}
             className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken text-sm"
@@ -302,12 +332,12 @@ export default function TelehealthPage() {
         </div>
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
+            <Loader2 className="mx-auto animate-spin text-notice-subtle-fg mb-2" size={32} />
             <p className="text-content-muted">{t('docTelehealth.loading')}</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="p-8 text-center text-content-muted">
-            <Video className="mx-auto mb-2 text-gray-300" size={40} />
+            <Video className="mx-auto mb-2 text-content-muted" size={40} />
             <p>{t('docTelehealth.noSessions')}</p>
             {!patientId && <p className="text-sm mt-1">{t('docTelehealth.enterPatientHint')}</p>}
           </div>
@@ -322,23 +352,23 @@ export default function TelehealthPage() {
                       {statusLabel(session.status)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-content-muted">
+                  <div className="flex items-center gap-3 text-sm text-content-muted min-h-[24px] py-1">
                     <span className="flex items-center gap-1">
                       <User size={13} />
                       {t('docTelehealth.patientLabel', { id: session.patient_id })}
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar size={13} />
-                      {new Date(session.scheduled_start * 1000).toLocaleString()}
+                      {formatTimestamp(session.scheduled_start * 1000)}
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock size={13} />
-                      {(session.duration_minutes ?? 30)} min
+                      {t('docTelehealth.durationMinutes', { minutes: session.duration_minutes })}
                     </span>
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
-                  {session.status !== 'ended' && session.status !== 'cancelled' && (
+                  {!isOver(session.status) && (
                     <button
                       onClick={() => handleJoin(session)}
                       className="flex items-center gap-1 px-3 py-1.5 bg-ok text-ok-fg text-sm rounded hover:bg-ok"
@@ -347,11 +377,21 @@ export default function TelehealthPage() {
                       {t('docTelehealth.join')}
                     </button>
                   )}
+                  {!isOver(session.status) && (
+                    <button
+                      type="button"
+                      onClick={() => void showJoinQr(session.session_id)}
+                      className="flex items-center gap-1 px-3 py-1.5 border border-border-interactive text-content text-sm rounded"
+                    >
+                      <QrCode size={14} aria-hidden="true" />
+                      {t('docTelehealth.joinQr')}
+                    </button>
+                  )}
                   {(session.status === 'active' || session.status === 'scheduled') && (
                     <button
                       onClick={() => handleEndSession(session.session_id)}
                       disabled={actionLoading === session.session_id}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg text-sm rounded hover:bg-red-200 disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg text-sm rounded hover:bg-red-200 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                     >
                       {actionLoading === session.session_id ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />}
                       {t('docTelehealth.end')}
@@ -364,19 +404,43 @@ export default function TelehealthPage() {
         )}
       </div>
 
+      {joinQr && (
+        <div className="bg-surface rounded-xl shadow p-6 text-center" data-testid="join-qr">
+          <h2 className="font-semibold text-content mb-1">{t('docTelehealth.joinQr')}</h2>
+          <p className="text-sm text-content-muted mb-3">{t('docTelehealth.joinQrHint')}</p>
+          {joinQr.png ? (
+            <>
+              <img
+                src={`data:image/png;base64,${joinQr.png}`}
+                alt={t('docTelehealth.joinQr')}
+                className="mx-auto w-48 h-48"
+              />
+              <p className="text-xs text-content-muted break-all mt-2">{joinQr.url}</p>
+            </>
+          ) : (
+            <p role="alert" className="text-sm text-critical-subtle-fg">{joinQr.error}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => setJoinQr(null)}
+            className="mt-3 border px-4 py-2 rounded-lg hover:bg-surface-sunken"
+          >
+            {t('docTelehealth.joinQrClose')}
+          </button>
+        </div>
+      )}
+
       {/* Create Form */}
       {showForm && (
         <div className="bg-surface rounded-xl shadow p-6">
           <h2 className="font-semibold text-content mb-4">{t('docTelehealth.scheduleNew')}</h2>
           <form onSubmit={handleCreate} className="max-w-lg space-y-4">
             <div>
-              <label htmlFor="telehealth-form-patient" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.patientId')}</label>
-              <input
+              <PatientSelect
                 id="telehealth-form-patient"
-                type="text"
+                label={t('docTelehealth.patientId')}
                 value={formData.patient_id}
-                onChange={e => setFormData({ ...formData, patient_id: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2"
+                onChange={(selectedPatientId) => setFormData({ ...formData, patient_id: selectedPatientId })}
                 required
               />
             </div>
@@ -388,10 +452,12 @@ export default function TelehealthPage() {
                 onChange={e => setFormData({ ...formData, session_type: e.target.value })}
                 className="w-full border rounded-lg px-3 py-2"
               >
-                <option value="video_consultation">{t('docTelehealth.typeVideo')}</option>
-                <option value="follow_up">{t('docTelehealth.typeFollowUp')}</option>
-                <option value="mental_health">{t('docTelehealth.typeMentalHealth')}</option>
-                <option value="urgent_care">{t('docTelehealth.typeUrgentCare')}</option>
+                <option value="VideoVisit">{t('docTelehealth.typeVideo')}</option>
+                <option value="PhoneCall">{t('docTelehealth.typePhone')}</option>
+                <option value="SecureMessage">{t('docTelehealth.typeMessage')}</option>
+                <option value="AsyncVideo">{t('docTelehealth.typeAsyncVideo')}</option>
+                <option value="RemoteMonitoring">{t('docTelehealth.typeMonitoring')}</option>
+                <option value="VirtualGroupVisit">{t('docTelehealth.typeGroup')}</option>
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">

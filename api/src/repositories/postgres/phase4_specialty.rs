@@ -39,7 +39,10 @@ impl BurnAssessmentRepository for PgBurnAssessmentRepository {
                 circumferential_locations, escharotomy_needed, escharotomy_performed,
                 fluid_resuscitation_started, parkland_formula_volume, urine_output_goal,
                 pain_score, tetanus_status, transfer_to_burn_center, burn_center_notified,
-                photos_taken, notes
+                photos_taken, notes,
+                weight_kg, severity, parkland_first_8h_ml, parkland_next_16h_ml,
+                associated_injuries, interventions, fluid_start_time, urine_output_ml_hr,
+                data
             ) ",
         );
 
@@ -69,7 +72,16 @@ impl BurnAssessmentRepository for PgBurnAssessmentRepository {
                 .push_bind(a.transfer_to_burn_center)
                 .push_bind(a.burn_center_notified)
                 .push_bind(a.photos_taken)
-                .push_bind(&a.notes);
+                .push_bind(&a.notes)
+                .push_bind(a.weight_kg)
+                .push_bind(&a.severity)
+                .push_bind(a.parkland_first_8h_ml)
+                .push_bind(a.parkland_next_16h_ml)
+                .push_bind(&a.associated_injuries)
+                .push_bind(&a.interventions)
+                .push_bind(a.fluid_start_time)
+                .push_bind(a.urine_output_ml_hr)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -224,7 +236,8 @@ impl PsychiatricAssessmentRepository for PgPsychiatricAssessmentRepository {
                 safety_plan, mental_status_exam, appearance, behavior, speech, mood,
                 affect, thought_process, thought_content, perceptions, cognition,
                 insight, judgment, risk_level, disposition, involuntary_hold, hold_type,
-                sitter_required, one_to_one_observation, psychiatry_consulted, psychiatrist_id, notes
+                sitter_required, one_to_one_observation, psychiatry_consulted, psychiatrist_id, notes,
+                data
             ) "
         );
 
@@ -266,7 +279,8 @@ impl PsychiatricAssessmentRepository for PgPsychiatricAssessmentRepository {
                 .push_bind(a.one_to_one_observation)
                 .push_bind(a.psychiatry_consulted)
                 .push_bind(&a.psychiatrist_id)
-                .push_bind(&a.notes);
+                .push_bind(&a.notes)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -434,7 +448,8 @@ impl ToxicologyAssessmentRepository for PgToxicologyAssessmentRepository {
                 antidote_name, antidote_dose, activated_charcoal, whole_bowel_irrigation,
                 enhanced_elimination, elimination_method, poison_control_called,
                 poison_control_case_number, lab_results, drug_screen_results,
-                serum_levels, disposition, icu_admission, notes
+                serum_levels, disposition, icu_admission, notes,
+                data
             ) ",
         );
 
@@ -472,7 +487,8 @@ impl ToxicologyAssessmentRepository for PgToxicologyAssessmentRepository {
                 .push_bind(&a.serum_levels)
                 .push_bind(&a.disposition)
                 .push_bind(a.icu_admission)
-                .push_bind(&a.notes);
+                .push_bind(&a.notes)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -624,7 +640,8 @@ impl PediatricAssessmentRepository for PgPediatricAssessmentRepository {
                 circulation_to_skin, pain_scale_type, pain_score, fontanelle_status,
                 capillary_refill_seconds, skin_turgor, mucous_membranes,
                 parent_guardian_present, parent_guardian_name, parent_guardian_relationship,
-                child_protective_concerns, cps_notified, notes
+                child_protective_concerns, cps_notified, notes,
+                data
             ) ",
         );
 
@@ -665,7 +682,8 @@ impl PediatricAssessmentRepository for PgPediatricAssessmentRepository {
                 .push_bind(&a.parent_guardian_relationship)
                 .push_bind(a.child_protective_concerns)
                 .push_bind(a.cps_notified)
-                .push_bind(&a.notes);
+                .push_bind(&a.notes)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -811,7 +829,8 @@ impl ObstetricEmergencyRepository for PgObstetricEmergencyRepository {
                 placenta_previa, placental_abruption, cord_prolapse, eclampsia,
                 preeclampsia_severe, blood_pressure_systolic, blood_pressure_diastolic,
                 proteinuria, magnesium_sulfate_given, delivery_imminent, ob_notified,
-                ob_physician_id, nicu_notified, or_notified, notes
+                ob_physician_id, nicu_notified, or_notified, notes,
+                data
             ) ",
         );
 
@@ -866,7 +885,8 @@ impl ObstetricEmergencyRepository for PgObstetricEmergencyRepository {
                 .push_bind(&e.ob_physician_id)
                 .push_bind(e.nicu_notified)
                 .push_bind(e.or_notified)
-                .push_bind(&e.notes);
+                .push_bind(&e.notes)
+                .push_bind(&e.data);
         });
 
         qb.push(" RETURNING *");

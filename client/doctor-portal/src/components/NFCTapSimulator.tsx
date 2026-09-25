@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import type { EmergencyInfo } from '../store/patientStore';
+import { Link, useNavigate } from 'react-router-dom';
 import { usePatientStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
-import { enterWorkContext, grantBoundEmergencyAccess } from '@medichain/shared';
+import { enterWorkContext, grantBoundEmergencyAccess, listUsableDevices } from '@medichain/shared';
+import type { UsableDevice } from '@medichain/shared';
 
 /**
  * NFC tap simulation states
@@ -13,7 +15,7 @@ type TapState = 'idle' | 'waiting' | 'success' | 'error';
  * Props for NFCTapSimulator component
  */
 interface NFCTapSimulatorProps {
-  onEmergencyAccess?: (data: { patientId: string; emergencyInfo: any }) => void;
+  onEmergencyAccess?: (data: { patientId: string; emergencyInfo: EmergencyInfo }) => void;
 }
 
 /**
@@ -28,8 +30,30 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const [nfcTagId, setNfcTagId] = useState('');
   const [qrInput, setQrInput] = useState('');
   const [deviceId, setDeviceId] = useState('');
+  // The approved device used to be a free-text UUID box. Nothing in either
+  // client could list devices, so the only way to fill it was to have issued
+  // the enrolment call yourself and kept the response -- which meant emergency
+  // access was, in practice, unusable. `/api/devices/available` returns only
+  // devices that pass the same check the grant will apply.
+  const [usableDevices, setUsableDevices] = useState<UsableDevice[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'nfc' | 'qr' | 'manual'>('nfc');
+
+  useEffect(() => {
+    listUsableDevices()
+      .then((body) => {
+        const list = body.devices ?? [];
+        setUsableDevices(list);
+        if (list.length === 1) setDeviceId(list[0].id);
+      })
+      .catch(() => {
+        // A failed lookup is not "no devices". The field stays usable so a
+        // clinician who knows the id is not blocked by our read failing.
+        setUsableDevices([]);
+      })
+      .finally(() => setDevicesLoaded(true));
+  }, []);
 
   /**
    * Simulate NFC tap
@@ -138,16 +162,37 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <label htmlFor="approved-device" className="block text-sm font-medium text-content-secondary mb-1">
           Approved hospital device ID
         </label>
-        <input
-          id="approved-device"
-          type="text"
-          value={deviceId}
-          onChange={(event) => setDeviceId(event.target.value)}
-          placeholder="Registered device UUID"
-          className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
-          disabled={tapState === 'waiting'}
-        />
-        <p className="mt-1 text-xs text-content-muted">Emergency access is bound to this enrolled device and a new professional work context.</p>
+        {usableDevices.length > 0 ? (
+          <select
+            id="approved-device"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand min-h-[44px]"
+            disabled={tapState === 'waiting'}
+          >
+            <option value="">Select the device you are using</option>
+            {usableDevices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.device_name} ({device.device_type})
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="approved-device"
+            type="text"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            placeholder="Registered device UUID"
+            className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
+            disabled={tapState === 'waiting'}
+          />
+        )}
+        <p className="mt-1 text-xs text-content-muted">
+          {devicesLoaded && usableDevices.length === 0
+            ? 'No approved device is available to this account. An administrator must enrol one and provision its credential before emergency access will work.'
+            : 'Emergency access is bound to this enrolled device and a new professional work context.'}
+        </p>
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -200,7 +245,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
                 value={nfcTagId}
                 onChange={(e) => setNfcTagId(e.target.value)}
                 placeholder="NFC-XXXX-XXXX"
-                className="flex-1 px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
+                className="flex-1 px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
                 disabled={tapState === 'waiting'}
               />
               <button
@@ -214,7 +259,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           <button
             onClick={() => simulateTap(nfcTagId)}
             disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors disabled:opacity-50 disabled:cursor-not-allowed emergency-pulse"
+            className="w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed emergency-pulse"
           >
             {tapState === 'waiting' ? 'Scanning...' : (
               <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Simulate NFC Tap</span>
@@ -234,7 +279,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               value={qrInput}
               onChange={(e) => setQrInput(e.target.value)}
               placeholder='{"tag_id": "NFC-DEMO-001", ...}'
-              className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
+              className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
               disabled={tapState === 'waiting'}
             />
           </div>
@@ -249,7 +294,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               }
             }}
             disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             Verify QR Code
           </button>
@@ -260,9 +305,9 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <div className="space-y-4">
           <p className="text-sm text-content-muted">
             For manual patient lookup, use the{' '}
-            <a href="/patients" className="text-brand hover:underline">
+            <Link to="/patients" className="text-brand hover:underline">
               Patient Search
-            </a>{' '}
+            </Link>{' '}
             page.
           </p>
         </div>

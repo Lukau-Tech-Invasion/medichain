@@ -1,7 +1,13 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { useSidebarData, useSSE, useApiStatus } from '@medichain/shared';
+import {
+  useSidebarData,
+  useSSE,
+  useApiStatus,
+  useTranslation,
+  RestrictedSection,
+} from '@medichain/shared';
 import {
   LogOut,
   Shield,
@@ -22,10 +28,32 @@ import {
   getThemeForRole,
   getDefaultExpandedSections,
   getQuickActionsForRole,
+  rolesOwningRoute,
   type NavSection,
   type NavItem,
   type Role,
 } from '../config/navigation';
+
+/**
+ * The plural, lower-case form of each role, for use mid-sentence.
+ *
+ * `docRoles.*` holds the singular badge label — "Nurse", "Lab Technician" — which
+ * is right on a chip and wrong in "This screen is restricted to Nurse".
+ */
+const ROLE_PLURAL: Record<Role, string> = {
+  Admin: 'administrators',
+  Doctor: 'doctors',
+  Nurse: 'nurses',
+  LabTechnician: 'laboratory technicians',
+  Pharmacist: 'pharmacists',
+  Patient: 'patients',
+};
+
+/** "nurses", or "doctors and nurses" — never "doctors, nurses". */
+function formatRoleList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? 'another role';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 // =============================================================================
 // Types
@@ -132,7 +160,7 @@ function NavItemComponent({
             ${isCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}
             min-w-[20px] h-5 px-1.5 flex items-center justify-center
             text-xs font-medium rounded-full
-            ${item.priority === 'high' ? 'bg-red-500 text-white' : 'bg-surface-sunken text-content-secondary'}
+            ${item.priority === 'high' ? 'bg-red-700 text-white' : 'bg-surface-sunken text-content-secondary'}
           `}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
@@ -204,7 +232,7 @@ function NavSectionComponent({
           
           {/* Section badge total */}
           {sectionBadgeTotal > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-xs font-medium rounded-full bg-red-500 text-white">
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-xs font-medium rounded-full bg-red-700 text-white">
               {sectionBadgeTotal > 99 ? '99+' : sectionBadgeTotal}
             </span>
           )}
@@ -272,6 +300,7 @@ function NavSectionComponent({
 function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const { user, logout } = useAuthStore();
   
   // Sidebar state
@@ -281,16 +310,37 @@ function Layout() {
   
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
-  const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  const { showInfo, showWarning, showSuccess } = useToastActions();
   // Connectivity status (offline banner + pending-write count)
   const { isOnline, queueSize, checkConnection } = useApiStatus();
   const lastProcessedEventRef = useRef<number>(0);
 
-  const userRole = (user?.role as Role) || 'Doctor';
+  // Rendering still needs a stable navigation shape while auth initializes,
+  // but data polling must not invent a clinician role. The old shared Doctor
+  // fallback was passed straight to the poller and produced 401s on login.
+  const userRole = (user?.role as Role | undefined) ?? 'Doctor';
+  const sidebarRole = user ? userRole : null;
 
-  // Fetch real-time sidebar data from API
-  const { badges, recentPatients, isLoading: isBadgesLoading, refetch: refetchBadges } = useSidebarData(
-    userRole,
+  // Fetch real-time sidebar data from API.
+  //
+  // This hook also returns `recentPatients` and `isLoading`. They are not
+  // destructured because nothing here renders them, and the register's note
+  // that they are "the exact two props of <RecentPatientsList/>" was wrong on
+  // both counts: that component takes `{patientId, fullName, healthId,
+  // lastAccessed}` against this hook's `{id, name, healthId, lastSeen}`, so
+  // wiring it up as described would have rendered a column of blanks — and the
+  // panel it draws (p-8, 48px icons) is dashboard furniture, not a sidebar
+  // strip.
+  //
+  // `DashboardPage` already renders a "Recent Patients" panel inline from the
+  // same dashboard response, so the list is not missing from the product; the
+  // component is a superseded duplicate of it. Left in place rather than
+  // removed, per the project rule on deleting code.
+  //
+  // `recentPatients` costs no extra request either way: it is derived from the
+  // dashboard payload the badges already need.
+  const { badges, refetch: refetchBadges } = useSidebarData(
+    sidebarRole,
     30000 // Refresh every 30 seconds
   );
 
@@ -305,7 +355,12 @@ function Layout() {
           case 'cds_alert':
             showWarning(
               latestEvent.payload.title || 'Clinical Alert',
-              `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+              // An absent severity used to interpolate as the literal string
+              // "undefined severity" into a clinical alert. Say nothing about
+              // the severity rather than say that.
+              latestEvent.payload.severity
+                ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                : `Patient ${latestEvent.patient_id}`
             );
             break;
           case 'lab_result':
@@ -331,11 +386,30 @@ function Layout() {
         refetchBadges();
       }
     }
-  }, [events, showInfo, showWarning, showSuccess, showInfo, refetchBadges]);
+  }, [events, showInfo, showWarning, showSuccess, refetchBadges]);
 
   // Get role-specific configuration
   const theme = useMemo(() => getThemeForRole(userRole), [userRole]);
   const navigation = useMemo(() => getNavForRole(userRole), [userRole]);
+
+  /**
+   * Does the route on screen belong to a different role?
+   *
+   * The navigation and the router disagreed: `ADMIN_NAV` deliberately omits the
+   * bedside clinical screens, and an administrator could still type `/mar` and
+   * get a working medication administration record. Nothing refused it — not the
+   * router, and not the API, whose `can_edit_medical_records` then included
+   * `Admin`. It no longer does; this guard is the half that keeps the control
+   * from being offered at all.
+   *
+   * The shell stays rendered, so a reader can see where they are and navigate
+   * away, rather than being bounced somewhere they did not ask for. A redirect
+   * would also hide the fact that the link they followed was for somebody else.
+   */
+  const routeOwners = useMemo(
+    () => rolesOwningRoute(userRole, location.pathname),
+    [userRole, location.pathname]
+  );
   const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
   
   const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
@@ -455,7 +529,7 @@ function Layout() {
                 (WCAG 2.2 SC 1.3.1). The page heading is now the only h1.
               */}
               <span className="block font-bold text-lg text-white">MediChain</span>
-              <span className="text-xs text-white/80">{portalTitle}</span>
+              <span className="text-xs text-white">{portalTitle}</span>
             </div>
           )}
           {/* Mobile close button */}
@@ -544,6 +618,39 @@ function Layout() {
                 <p className="text-xs text-content-muted">{user?.role}</p>
               </div>
             </div>
+            {/* Notifications, reachable at every width.
+                The bell lived only in the mobile header (`lg:hidden`), so on a
+                full-screen portal -- which is how every clinician runs this --
+                there was no control for notifications anywhere on the page.
+                The badge counted them and nothing could open them. */}
+            <button
+              onClick={() => navigate('/notifications')}
+              className="w-full flex items-center justify-between gap-2 px-4 py-2 mb-1 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
+              // The tooltip names what the control does. It used to report the
+              // SSE connection state, so hovering "Notifications" said "Live
+              // Connection Active" -- which describes the bell's colour, not
+              // the button, and is the only thing a screen reader would read.
+              // The live state stays on the icon, where it belongs.
+              title={
+                totalUnread > 0
+                  ? `Notifications (${totalUnread} unread)`
+                  : 'Notifications'
+              }
+            >
+              <span className="flex items-center gap-2">
+                <Bell
+                  size={18}
+                  className={isSSEConnected ? 'text-notice-subtle-fg' : ''}
+                  aria-label={isSSEConnected ? 'Live updates connected' : 'Connecting to live updates'}
+                />
+                <span>Notifications</span>
+              </span>
+              {totalUnread > 0 && (
+                <span className="min-w-[20px] h-5 px-1 bg-critical text-critical-fg text-xs font-semibold rounded-full flex items-center justify-center">
+                  {totalUnread > 9 ? '9+' : totalUnread}
+                </span>
+              )}
+            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
@@ -553,6 +660,22 @@ function Layout() {
             </button>
           </>
         ) : (
+          <>
+          <button
+            onClick={() => navigate('/notifications')}
+            className="w-full flex items-center justify-center p-3 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors group relative"
+            title="Notifications"
+          >
+            <Bell size={18} className={isSSEConnected ? 'text-notice-subtle-fg' : ''} />
+            {totalUnread > 0 && (
+              <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-critical text-critical-fg text-[10px] font-semibold rounded-full flex items-center justify-center">
+                {totalUnread > 9 ? '9+' : totalUnread}
+              </span>
+            )}
+            <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
+              Notifications
+            </div>
+          </button>
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center p-3 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors group relative"
@@ -563,13 +686,14 @@ function Layout() {
               Logout
             </div>
           </button>
+          </>
         )}
       </div>
     </>
   );
 
   return (
-    <div className="flex h-screen bg-surface-sunken dark:bg-gray-900">
+    <div className="flex h-screen bg-surface-sunken">
       {/*
         The skip link is the FIRST focusable element in the document, and that
         placement is the whole feature. It previously lived inside the sidebar,
@@ -588,29 +712,29 @@ function Layout() {
         Skip to main content
       </a>
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 h-14 bg-surface dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
+      <div className="fixed top-0 left-0 right-0 h-14 bg-surface shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button
           onClick={() => setIsMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors"
+          className="p-2 rounded-lg hover:bg-surface-sunken transition-colors"
           aria-label="Open menu"
         >
-          <Menu size={24} className="text-content-secondary dark:text-gray-200" />
+          <Menu size={24} className="text-content-secondary" />
         </button>
         
         <div className="flex items-center gap-2">
           <Shield className={theme.textLight} size={24} />
-          <span className="font-bold text-content dark:text-white">MediChain</span>
+          <span className="font-bold text-content">MediChain</span>
         </div>
         
         <button
           onClick={() => navigate('/notifications')}
-          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors relative"
+          className="p-2 rounded-lg hover:bg-surface-sunken transition-colors relative"
           aria-label="Notifications"
           title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
         >
           <Bell size={24} className={isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-secondary'} />
           {totalUnread > 0 && (
-            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute top-1 right-1 w-4 h-4 bg-critical text-critical-fg text-xs rounded-full flex items-center justify-center">
               {totalUnread > 9 ? '9+' : totalUnread}
             </span>
           )}
@@ -629,7 +753,7 @@ function Layout() {
       {/* Mobile Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 w-72 bg-surface dark:bg-gray-800 shadow-xl z-50 flex flex-col
+          fixed inset-y-0 left-0 w-72 bg-surface shadow-xl z-50 flex flex-col
           transform transition-transform duration-300 ease-in-out lg:hidden
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -640,7 +764,7 @@ function Layout() {
       {/* Desktop Sidebar */}
       <aside
         className={`
-          hidden lg:flex flex-col bg-surface dark:bg-gray-800 shadow-lg overflow-hidden
+          hidden lg:flex flex-col bg-surface shadow-lg overflow-hidden
           transition-all duration-300 ease-in-out
           ${isCollapsed ? 'w-16' : 'w-64'}
         `}
@@ -649,7 +773,7 @@ function Layout() {
       </aside>
 
       {/* Main content */}
-      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken dark:bg-gray-900">
+      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken">
         {/* Offline indicator — writes are queued locally and synced on reconnect */}
         {!isOnline && (
           <div className="flex items-center gap-2 bg-caution text-caution-fg text-sm px-4 py-2">
@@ -662,13 +786,27 @@ function Layout() {
             )}
             <button
               onClick={() => checkConnection()}
-              className="ml-auto underline hover:no-underline"
+              className="ml-auto inline-flex items-center gap-1.5 min-h-[24px] underline hover:no-underline"
             >
+              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
               Retry
             </button>
           </div>
         )}
-        <Outlet />
+        {routeOwners.length > 0 ? (
+          <RestrictedSection
+            title="This screen"
+            audience={formatRoleList(routeOwners.map((r) => ROLE_PLURAL[r]))}
+            currentRole={t(`docRoles.${userRole}`)}
+            guidance={
+              userRole === 'Admin'
+                ? 'It is not part of the administrator workspace.'
+                : 'Ask an administrator if you need access.'
+            }
+          />
+        ) : (
+          <Outlet />
+        )}
       </main>
       <CommandPalette open={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
     </div>

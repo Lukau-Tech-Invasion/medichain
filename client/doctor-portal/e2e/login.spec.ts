@@ -1,12 +1,31 @@
 import { test, expect } from '@playwright/test';
+import { skipFirstVisitReload } from './support';
 
 test.describe('Login Flow', () => {
   test('should login successfully with a demo doctor wallet', async ({ page }) => {
-    // Navigate to login page
+    // See `skipFirstVisitReload`: index.html reloads itself 100ms into a fresh
+    // profile's first visit, which detaches whatever this test is mid-way
+    // through doing.
+    await skipFirstVisitReload(page);
     await page.goto('/login');
 
-    // Click on a demo doctor button (Dr. Thandi Mbeki)
-    const demoDoctor = page.locator('button:has-text("Mbeki")');
+    // Click on a demo doctor button (Dr. Thandi Mbeki).
+    //
+    // These are populated from GET /api/auth/demo-credentials, which answers
+    // only when the API runs with MEDICHAIN_DEV_MODE. Without the guard this
+    // clicked a button that did not exist and reported a bare 30-second
+    // timeout, which says nothing about the missing environment variable.
+    const demoDoctor = page.locator('button').filter({ hasText: /doctor/i });
+    const available = await demoDoctor
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    expect(
+      available,
+      'No demo sign-in buttons. Start the API with MEDICHAIN_DEV_MODE=1 — the compose ' +
+        'file deliberately does not set it, since the endpoint exposes credentials.'
+    ).toBe(true);
     await demoDoctor.click();
 
     // Should redirect to dashboard
@@ -19,10 +38,14 @@ test.describe('Login Flow', () => {
     // the *page* heading.
     const heading = page.locator('main h1');
     await expect(heading).toContainText(/Welcome back/);
-    await expect(heading).toContainText(/Mbeki/i);
+    // The signed-in clinician's name, whoever the seed provides. Asserting a
+    // specific person ("Mbeki") tied this test to a fixture that has since been
+    // replaced twice; what matters is that the greeting is personalised at all.
+    await expect(heading).not.toHaveText(/^Welcome back,?\s*$/);
   });
 
   test('should show error for invalid credentials', async ({ page }) => {
+    await skipFirstVisitReload(page);
     await page.goto('/login');
 
     // The form takes an employee identifier and a password. It used to take a
@@ -39,7 +62,12 @@ test.describe('Login Flow', () => {
     // alert carries a dark tint in dark mode instead of a glaring pale patch.
     // Asserting on a palette class would have quietly stopped matching.
     const errorAlert = page.locator('.bg-critical-subtle');
-    await expect(errorAlert).toBeVisible();
+    // Longer than the 5s default, because the thing being waited on is an
+    // Argon2id verification that is slow *on purpose*. Under the full suite the
+    // form was still showing "Signing in..." at 5s and this failed; run alone it
+    // finishes in under nine seconds. A password check fast enough to assert in
+    // five would be the actual defect.
+    await expect(errorAlert).toBeVisible({ timeout: 20_000 });
     // Deliberately NOT asserting which of identifier/password was wrong: the
     // server answers both identically so the form cannot be used to enumerate
     // valid accounts.

@@ -11,13 +11,15 @@ import {
   Activity,
   AlertTriangle,
   Droplets,
+  HeartPulse,
   Pill,
   ClipboardList,
-  Thermometer,
-  Clock,
   FileText,
 } from 'lucide-react';
-import { getNurseDashboard, useTranslation } from '@medichain/shared';
+import { getNurseDashboard, getNurseTasks, useTranslation,
+  type NurseDashboardResponse,
+  type NursingOrderTask,
+} from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -28,30 +30,15 @@ import {
 } from '../components/dashboard';
 import type { PatientListItem } from '../components/dashboard/PatientListPanel';
 
-interface NurseDashboardData {
-  role: string;
-  patients: { total: number; list: any[] };
-  care_plans: any[];
-  vitals_needing_attention: any[];
-  medication_records: any[];
-  io_records: any[];
-  wound_assessments: any[];
-  iv_assessments: any[];
-  fall_risk_patients: any[];
-  recent_incidents: any[];
-  tasks: {
-    vitals_due: number;
-    meds_due: number;
-    wounds_to_assess: number;
-    ivs_to_check: number;
-  };
-}
-
 export default function NurseDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [data, setData] = useState<NurseDashboardData | null>(null);
+  const [data, setData] = useState<NurseDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // Outstanding nursing orders. `null` while unknown, so a failed read is not
+  // shown as "nothing outstanding".
+  const [orderTasks, setOrderTasks] = useState<NursingOrderTask[] | null>(null);
+  const [orderTasksUnknown, setOrderTasksUnknown] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -60,8 +47,16 @@ export default function NurseDashboardPage() {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-      const response = await getNurseDashboard();
-      setData(response as NurseDashboardData);
+      const [response, tasks] = await Promise.allSettled([getNurseDashboard(), getNurseTasks()]);
+      if (response.status === 'fulfilled') setData(response.value);
+      else console.error('Failed to load nurse dashboard:', response.reason);
+      if (tasks.status === 'fulfilled') {
+        setOrderTasks(tasks.value.tasks ?? []);
+        setOrderTasksUnknown(false);
+      } else {
+        setOrderTasks(null);
+        setOrderTasksUnknown(true);
+      }
     } catch (error) {
       console.error('Failed to load nurse dashboard:', error);
     } finally {
@@ -69,13 +64,23 @@ export default function NurseDashboardPage() {
     }
   };
 
-  const medicationsDue = data?.medication_records?.slice(0, 5).map((med: any) => ({
+  // The ward drug round, from the medication administration record.
+  //
+  // `/api/dashboard/nurse` used to serve `medication_reminders` here — the
+  // patient-adherence feed, which has no route, no scheduled time and no
+  // patient name. The `||` fallbacks hid that, and one was actively dangerous:
+  // `route: med.route || 'PO'` told a nurse every drug on the ward was oral,
+  // including the ones given IV or IM.
+  //
+  // The MAR carries all three. Where a MAR entry genuinely omits one, it still
+  // shows as unknown — a question rather than a wrong answer.
+  const medicationsDue = data?.medication_records?.slice(0, 5).map((med) => ({
     id: med.record_id,
     patient_name: med.patient_name || t('docNurseDashboard.unknown'),
-    medication: med.medication_name || med.medication,
-    time_due: med.scheduled_time || t('docNurseDashboard.now'),
-    route: med.route || 'PO',
-    dose: med.dosage || med.dose,
+    medication: med.medication_name || t('docNurseDashboard.unknown'),
+    time_due: med.scheduled_time || t('docNurseDashboard.unknown'),
+    route: med.route || t('docNurseDashboard.unknown'),
+    dose: med.dosage || '',
   })) || [];
 
   const quickActions: QuickAction[] = [
@@ -85,10 +90,20 @@ export default function NurseDashboardPage() {
     { id: 'care-plan', label: t('docNurseDashboard.qaUpdateCarePlan'), icon: ClipboardList, href: '/care-plan', color: 'purple' },
   ];
 
-  const patients: PatientListItem[] = data?.patients?.list?.map((p: any) => ({
+  // `/api/dashboard/nurse` returns these now: the bed and acuity from the
+  // patient's latest triage assessment, the fall-risk band from their latest
+  // Morse assessment, the live cannula from the IV records, and whether a wound
+  // is overdue for reassessment.
+  //
+  // They are still optional, and still passed through undefined rather than
+  // defaulted. A patient with no triage assessment has no bed; one never
+  // assessed for falls has no band. Absent means "not recorded", which is not
+  // low risk — `room` used to fall back to "Pending" for every bed on the ward,
+  // which is the failure this shape exists to prevent.
+  const patients: PatientListItem[] = data?.patients?.list?.map((p) => ({
     patient_id: p.patient_id,
     full_name: p.full_name,
-    room: p.room || t('docNurseDashboard.pending'),
+    room: p.room,
     esi_level: p.esi_level,
     flags: {
       fall_risk: p.fall_risk,
@@ -97,7 +112,7 @@ export default function NurseDashboardPage() {
     },
   })) || [];
 
-  const criticalAlerts: CriticalAlert[] = data?.vitals_needing_attention?.map((v: any) => ({
+  const criticalAlerts: CriticalAlert[] = data?.vitals_needing_attention?.map((v) => ({
     id: v.flowsheet_id || String(Math.random()),
     type: 'critical_value' as const,
     title: t('docNurseDashboard.abnormalVitals'),
@@ -107,11 +122,38 @@ export default function NurseDashboardPage() {
     severity: 'high' as const,
   })) || [];
 
+  // Derived from what the API actually reports, which is
+  // `vitals_needing_attention` — patients whose recorded observations are
+  // outside range. Everything else on this panel used to be invented:
+  //
+  //   08:30  Dressing change    Room 403
+  //   09:00  IV site assessment ICU-2
+  //
+  // Those times, those locations and those two tasks exist nowhere in the
+  // backend; `/api/dashboard/nurse` returns only `tasks.vitals_due` and a
+  // hardcoded `ivs_to_check: 0`. The remaining two rows interpolated the real
+  // `vitals_due` count into fixed 08:00 and 09:00 slots, so a nurse saw
+  // "Vitals x0" and "Blood sugar x0" listed as scheduled work.
+  //
+  // A task list is a work instruction. Four fabricated rows — one naming a
+  // specific room — are worse than an empty panel: a nurse either acts on
+  // them or stops believing the panel, and both outcomes are caused by the
+  // screen rather than by the ward.
   const tasksData = [
-    { time: '08:00', task: t('docNurseDashboard.taskVitals', { count: data?.tasks?.vitals_due || 0 }), patient: t('docNurseDashboard.taskMultiplePatients') },
-    { time: '08:30', task: t('docNurseDashboard.taskDressingChange'), patient: 'Room 403' },
-    { time: '09:00', task: t('docNurseDashboard.taskBloodSugar', { count: data?.tasks?.vitals_due || 0 }), patient: t('docNurseDashboard.taskMultiplePatients') },
-    { time: '09:00', task: t('docNurseDashboard.taskIvAssessment'), patient: 'ICU-2' },
+    ...(data?.vitals_needing_attention ?? []).map((v) => ({
+      id: v.flowsheet_id ?? v.patient_id ?? v.patient_name,
+      task: t('docNurseDashboard.taskVitalsFor'),
+      patient: v.patient_name ?? v.patient_id ?? '',
+      detail: v.abnormal_values?.join(', ') ?? '',
+    })),
+    // What the physicians ordered the nurses to do, still outstanding
+    // (`GET /api/nurse/tasks`, which had no screen).
+    ...(orderTasks ?? []).map((task) => ({
+      id: task.id,
+      task: t(`docNurseDashboard.taskKind_${task.type}`),
+      patient: task.patient_id,
+      detail: [task.frequency, task.instructions].filter(Boolean).join(' — '),
+    })),
   ];
 
   return (
@@ -125,8 +167,7 @@ export default function NurseDashboardPage() {
       {/* Critical Alerts */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onAcknowledge={(id) => console.log('Acknowledge', id)}
-        onViewAll={() => navigate('/critical-alerts')}
+        onViewAll={() => navigate('/critical-value')}
       />
 
       {/* Medications Due Banner */}
@@ -147,7 +188,7 @@ export default function NurseDashboardPage() {
             </button>
           </div>
           <div className="space-y-2">
-            {medicationsDue.map((med: any) => (
+            {medicationsDue.map((med) => (
               <div
                 key={med.id}
                 className="flex items-center justify-between p-3 bg-surface rounded border border-ok"
@@ -160,7 +201,11 @@ export default function NurseDashboardPage() {
                     {med.route} - {t('docNurseDashboard.due')}: {med.time_due}
                   </p>
                 </div>
-                <button className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok">
+                <button
+                  type="button"
+                  onClick={() => navigate('/mar')}
+                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
+                >
                   {t('docNurseDashboard.administer')}
                 </button>
               </div>
@@ -199,6 +244,17 @@ export default function NurseDashboardPage() {
           value={data?.tasks?.ivs_to_check || 0}
           icon={<Droplets className="text-notice-subtle-fg" size={24} />}
           color="bg-notice-subtle"
+          onClick={() => navigate('/iv-site')}
+          loading={loading}
+        />
+        {/* Wounds overdue for reassessment. The API counts this now; the badge
+            was left off the panel entirely while nobody computed it. */}
+        <StatCard
+          label={t('docNurseDashboard.statWoundsToAssess')}
+          value={data?.tasks?.wounds_to_assess || 0}
+          icon={<HeartPulse className="text-caution-subtle-fg" size={24} />}
+          color="bg-caution-subtle"
+          onClick={() => navigate('/wound-care')}
           loading={loading}
         />
       </div>
@@ -214,17 +270,33 @@ export default function NurseDashboardPage() {
 
         {/* Tasks Due Timeline */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
             <ClipboardList size={16} aria-hidden="true" /> {t('docNurseDashboard.tasksDue')}
           </h3>
           <div className="space-y-2">
-            {tasksData.map((task, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken">
-                <span className="text-sm font-medium text-content-muted w-12">{task.time}</span>
-                <span className="flex-1 text-sm text-content">{task.task}</span>
-                <span className="text-sm text-content-muted">{task.patient}</span>
-              </div>
-            ))}
+            {orderTasksUnknown && (
+              <p className="text-xs text-content-muted p-2" role="status">
+                {t('docNurseDashboard.orderTasksUnknown')}
+              </p>
+            )}
+            {tasksData.length === 0 ? (
+              <p className="text-sm text-content-muted p-2">
+                {t('docNurseDashboard.tasksNone')}
+              </p>
+            ) : (
+              tasksData.map((task: { id: string; task: string; patient: string; detail: string }) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken"
+                >
+                  <span className="flex-1 text-sm text-content">{task.task}</span>
+                  <span className="text-sm text-content-muted">{task.patient}</span>
+                  {task.detail && (
+                    <span className="text-sm text-content-muted">{task.detail}</span>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -236,7 +308,7 @@ export default function NurseDashboardPage() {
 
         {/* I/O Summary */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
             <FileText size={16} aria-hidden="true" /> {t('docNurseDashboard.ioSummaryToday')}
           </h3>
           {data?.io_records && data.io_records.length > 0 ? (
@@ -251,7 +323,7 @@ export default function NurseDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.io_records.slice(0, 5).map((io: any, idx: number) => (
+                  {data.io_records.slice(0, 5).map((io, idx) => (
                     <tr key={idx} className="border-b">
                       <td className="py-2">{io.patient_name || t('docNurseDashboard.unknown')}</td>
                       <td className="py-2">{io.total_intake || 0} mL</td>

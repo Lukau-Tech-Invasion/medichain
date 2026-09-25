@@ -46,6 +46,7 @@ AUTH_MARKERS = [
 # justified — every addition is a decision to expose an endpoint unauthenticated.
 PUBLIC_ROUTES = {
     '/health': 'liveness probe, no data',
+    '/api/health': 'the same liveness probe on the prefix a browser can reach, no data',
     '/health/ready': 'readiness probe, no data',
     '/health/db': 'DB liveness, no patient data',
     '/api/health/detailed': 'aggregate health, no patient data',
@@ -53,7 +54,6 @@ PUBLIC_ROUTES = {
     '/api/ipfs/health': 'IPFS liveness, no data',
     '/api/demo': 'demo-mode banner, no data',
     '/api/fhir/r4/metadata': 'FHIR CapabilityStatement — spec requires it be public',
-    '/api/platform/languages': 'static list of supported languages, no data',
     '/api/drugs': 'public drug reference data, not patient-specific',
     '/api/interactions': 'public drug-interaction reference, not patient-specific',
     '/api/wearables/supported': 'static list of supported device types',
@@ -65,7 +65,6 @@ PUBLIC_ROUTES = {
     '/api/emergency/nfc-token': 'break-glass: validates the NFC card hash as its credential',
     '/api/emergency/grants': 'break-glass grant issuance; validates work context internally',
     '/api/simulate-nfc-tap': 'demo-only, gated by require_demo_mode (HZ-019)',
-    '/api/national-id/verify': 'identity verification utility; no stored data returned',
     '/api/notifications/sms/inbound': 'inbound SMS webhook, authenticated by provider signature',
     '/api/appointments/slots/{provider_id}/{date}': 'public availability lookup, no patient data',
     '/api/telehealth/join/{session_id}': 'redirect to the telehealth app; session validated there',
@@ -149,7 +148,14 @@ PRESENCE_MARKERS = ['X-User-Id', 'get_current_user_id', 'require_x_user_id_heade
                     'require_auth(']
 # Resolves the caller against the user store — proves they are registered.
 KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser',
-                 'require_registered_caller']
+                 'require_registered_caller',
+                 # Verified-JWT extractors (ADR-0008). `get_current_claims`
+                 # checks the token signature and expiry and returns None
+                 # otherwise, so branching on it resolves a real caller -- more
+                 # than `X-User-Id`, which is only a header and sits in
+                 # PRESENCE_MARKERS for exactly that reason.
+                 # `authenticated_session` additionally requires a live `sid`.
+                 'get_current_claims', 'authenticated_session']
 # Checks what the caller is allowed to do at all.
 ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
                 'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',
@@ -199,6 +205,41 @@ def classify(scope: str) -> int:
     return T_NONE
 
 
+# Routes that must never become reachable again.
+#
+# `GET /api/auth/wallet/{address}` returned name, role, username and
+# linked_patient_id for ANY wallet address with no authentication -- identity
+# enumeration plus a wallet-to-patient-record link. It was unregistered on
+# purpose, but its handler still exists, so re-adding one `.service(...)` line
+# would quietly restore the disclosure. Two clients kept calling it for months
+# after it was pulled, which is exactly how such a line gets added "to fix a
+# 404". Authentication should prove identity, not enumerate identities first.
+FORBIDDEN_ROUTES = {
+    '/api/auth/wallet/{address}':
+        'unauthenticated wallet-to-identity lookup; discloses name, role, '
+        'username and linked_patient_id for any address',
+}
+
+
+def check_forbidden_routes(root):
+    """Report any forbidden route that has been registered again."""
+    routes_file = root / 'routes.rs'
+    if not routes_file.exists():
+        return []
+    registered = routes_file.read_text(encoding='utf-8', errors='replace')
+    violations = []
+    for path in sorted(root.rglob('*.rs')):
+        text = path.read_text(encoding='utf-8', errors='replace')
+        for m in ROUTE_ATTR.finditer(text):
+            route = m.group(2)
+            if route not in FORBIDDEN_ROUTES:
+                continue
+            fm = FN_SIG.search(text, m.end())
+            if fm and '.service(' + fm.group(1) + ')' in registered:
+                violations.append(route + ' -> ' + fm.group(1) + ': ' + FORBIDDEN_ROUTES[route])
+    return violations
+
+
 def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent / 'api' / 'src'
     unclassified, weak, bulk = [], [], []
@@ -230,6 +271,13 @@ def main() -> int:
                 weak.append(entry)
             if any(k in scope for k in BULK_MARKERS) and tier < T_RESOURCE:
                 bulk.append(entry)
+
+    forbidden = check_forbidden_routes(root)
+    if forbidden:
+        print('\nFAIL - a route that must stay unreachable has been registered:\n')
+        for entry in forbidden:
+            print(f'  {entry}')
+        return 1
 
     print(f'endpoint-auth gate: {total} handlers scanned, '
           f'{len(PUBLIC_ROUTES)} allowlisted public, {len(DELEGATED_AUTH)} delegated')

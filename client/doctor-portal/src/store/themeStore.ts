@@ -1,5 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  readThemePreference,
+  resolveTheme,
+  setThemePreference,
+  startThemeSync,
+  systemTheme as getSharedSystemTheme,
+} from '@medichain/shared';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -7,30 +14,24 @@ interface ThemeState {
   theme: Theme;
   effectiveTheme: 'light' | 'dark';
   setTheme: (theme: Theme) => void;
-  initializeTheme: () => void;
+  initializeTheme: () => (() => void);
 }
 
-function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return 'light';
-}
+// Both delegate to the shared module, which is also what the patient app and
+// the pre-paint script in index.html use. Three implementations of "is it
+// dark" is how the two applications came to disagree: this one toggled the
+// class correctly while the patient app never applied anything at all.
+const getSystemTheme = getSharedSystemTheme;
 
-function applyTheme(theme: 'light' | 'dark') {
-  if (typeof document !== 'undefined') {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-  }
-}
+// `applySharedTheme` is reached through `setThemePreference` and
+// `startThemeSync` rather than called directly here. It sets `color-scheme`
+// as well as the class, without which the browser keeps painting form
+// controls, scrollbars and autofill from the light palette -- a white input
+// with white text on a dark page.
 
 export const useThemeStore = create<ThemeState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       // Follows the operating system again, as of 2026-08-20.
       //
       // This was pinned to 'light' for one release, and the reason is worth
@@ -58,29 +59,28 @@ export const useThemeStore = create<ThemeState>()(
       effectiveTheme: getSystemTheme(),
       
       setTheme: (theme: Theme) => {
-        const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
-        applyTheme(effectiveTheme);
+        // Writes the shared key as well as this store's, so the pre-paint
+        // script in index.html reads the same preference on the next load.
+        // Without that the class is applied after first render and the user
+        // sees a flash of the other theme -- or, when the store rehydrated
+        // late, no change at all.
+        const effectiveTheme = setThemePreference(theme);
         set({ theme, effectiveTheme });
       },
       
       initializeTheme: () => {
-        const { theme } = get();
-        const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
-        applyTheme(effectiveTheme);
-        set({ effectiveTheme });
-        
-        // Listen for system theme changes
-        if (typeof window !== 'undefined' && window.matchMedia) {
-          const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-          mediaQuery.addEventListener('change', (e) => {
-            const currentTheme = get().theme;
-            if (currentTheme === 'system') {
-              const newEffectiveTheme = e.matches ? 'dark' : 'light';
-              applyTheme(newEffectiveTheme);
-              set({ effectiveTheme: newEffectiveTheme });
-            }
-          });
-        }
+        // The shared preference is the authority, because it is what the
+        // pre-paint script already acted on. Reading this store's own
+        // persisted value here instead would re-apply a stale theme whenever
+        // the two disagreed.
+        const preference = readThemePreference();
+        const effectiveTheme = resolveTheme(preference);
+        set({ theme: preference, effectiveTheme });
+
+        // Returns a teardown, and following the system is handled inside.
+        // The previous version added a media-query listener on every call
+        // with no way to remove one.
+        return startThemeSync((next) => set({ effectiveTheme: next }));
       },
     }),
     {

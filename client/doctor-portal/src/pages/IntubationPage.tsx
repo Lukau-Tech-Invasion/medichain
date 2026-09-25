@@ -1,7 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createIntubation, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  createIntubation,
+  fromStoredRecord,
+  getApiClient,
+  rowsOfResponse,
+  useTranslation,
+  formatTimestamp,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -96,9 +105,40 @@ const COMPLICATION_KEYS: Record<string, string> = {
 const IntubationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
+
+  /**
+   * Read the ward's records back from the API.
+   *
+   * This screen had no read path at all: it posted, then did
+   * `setRecords([...])` with its own local object. What it displayed was
+   * this session's typing, and a reload emptied it -- while every record was
+   * safely in the database, reachable only by an id the screen never showed.
+   *
+   * The stored rows carry the whole submission in `data`, so they come back
+   * in this screen's own shape; `fromStoredRecord` overlays the
+   * server-assigned id and the column the server stamped rather than
+   * accepted.
+   */
+  const loadIntubationRecords = useCallback(async () => {
+    try {
+      const body = await getApiClient().get<unknown>('/api/clinical/intubation-records');
+      setRecords(
+        rowsOfResponse(body).map((row) =>
+          fromStoredRecord<IntubationRecord>(row, { performedBy: 'intubator_id' })
+        )
+      );
+    } catch (err) {
+      // A failed read must not look like an empty ward.
+      console.error('Failed to load records:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadIntubationRecords();
+  }, [loadIntubationRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
 
@@ -168,7 +208,7 @@ const IntubationPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient || !formData.indication) {
-      showWarning(t('docIntubation.warningSelectPatientIndication'));
+      showError(t('docIntubation.errorSelectPatientIndication'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -199,20 +239,28 @@ const IntubationPage: React.FC = () => {
       await createIntubation(newRecord);
     } catch (err) {
       console.error('Failed to save intubation record:', err);
+      // Stop here. Falling through added the record to the local list
+      // and toasted success for a write that never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
-    setRecords([newRecord, ...records]);
+    // Re-read through the endpoint rather than pushing the local object.
+    // A row assembled from what this screen just typed proves nothing about
+    // what was stored -- and it vanished on reload, because nothing here
+    // ever read the record back.
+    await loadIntubationRecords();
     showSuccess(t('docIntubation.successDocumented'));
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-600 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Wind className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docIntubation.title')}</h1>
-            <p className="text-cyan-100">{t('docIntubation.subtitle')}</p>
+            <p className="text-white">{t('docIntubation.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -242,16 +290,11 @@ const IntubationPage: React.FC = () => {
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
-              <select
+              <PatientSelect
+                id="intub-patient"
                 value={selectedPatient}
-                onChange={e => setSelectedPatient(e.target.value)}
-                className="w-full border rounded p-2"
-              >
-                <option value="">{t('docIntubation.selectPatientPh')}</option>
-                {patients.map(p => (
-                  <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+              />
             </div>
 
             {/* Airway Assessment */}
@@ -511,7 +554,7 @@ const IntubationPage: React.FC = () => {
                   <div className="border rounded p-2">
                     <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
                     {medications.map((med, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm">
+                      <div key={i} className="flex items-center gap-2 text-sm min-h-[24px] py-1">
                         <Clock className="w-4 h-4 text-content-muted" />
                         <span>{med.time}</span>
                         <span className="font-medium">{med.name}</span>
@@ -585,7 +628,7 @@ const IntubationPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
@@ -600,7 +643,7 @@ const IntubationPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(r.performedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{r.performedAt ? formatTimestamp(r.performedAt) : ""}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${r.successful ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                       {r.successful ? t('docIntubation.successfulBadge') : t('docIntubation.unsuccessfulBadge')}
@@ -612,7 +655,7 @@ const IntubationPage: React.FC = () => {
                     <div><span className="text-content-muted">{t('docIntubation.ettSizeColLabel')}</span> {r.tubeSize}mm</div>
                     <div><span className="text-content-muted">{t('docIntubation.attemptsColLabel')}</span> {r.attempts}</div>
                   </div>
-                  {r.complications.length > 0 && (
+                  {(r.complications?.length ?? 0) > 0 && (
                     <div className="mt-2 text-sm text-critical-subtle-fg">
                       {t('docIntubation.complicationsLine', { list: r.complications.map(c => COMPLICATION_KEYS[c] ? t(`docIntubation.complication_${COMPLICATION_KEYS[c]}`) : c).join(', ') })}
                     </div>

@@ -38,17 +38,13 @@ pub struct IpfsClient {
     client: reqwest::Client,
 }
 
-/// Response from IPFS add operation
+/// Response from IPFS add operation. Kubo also sends `Name` and `Size`;
+/// only the content identifier is used.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
 pub struct IpfsAddResponse {
     /// Content identifier (hash)
     pub hash: String,
-    /// Original filename
-    pub name: String,
-    /// File size in bytes
-    pub size: String,
 }
 
 /// Metadata stored alongside encrypted content
@@ -342,10 +338,95 @@ impl IpfsClient {
         Ok(add_response.hash)
     }
 
-    /// Download raw bytes from IPFS (internal)
+    /// Download raw bytes from IPFS (internal).
+    ///
+    /// # The RPC API first, the gateway only as a fallback
+    ///
+    /// This read used to go straight to `{gateway}/ipfs/{cid}`, and that fails
+    /// against a **default** kubo node. Kubo ships `Gateway.PublicGateways`
+    /// with `localhost` set to `UseSubdomains: true`, so a path request is
+    /// answered `301` to `http://<cidv1>.ipfs.localhost:8080/`. No server-side
+    /// HTTP client can follow that — `*.ipfs.localhost` resolves nowhere
+    /// outside a browser with the right resolver — so `reqwest` reports a
+    /// connection error and every encrypted record download 500s. Found
+    /// 2026-09-16 when three synthetic e2e assertions failed this way:
+    ///
+    /// ```text
+    /// IPFS download failed: error sending request for url
+    ///   (http://localhost:8080/ipfs/QmSRVmB3Edp9WVdJXJcnWCfve23GoH4i8RrBeVQZgXCQNy)
+    /// ```
+    ///
+    /// The gateway is the *browser* interface. `POST /api/v0/cat` on the RPC
+    /// API is the server-to-server one — the same endpoint the upload already
+    /// uses — and it never redirects. The gateway stays as a fallback for a
+    /// deployment that exposes only one of the two.
     async fn download_raw(&self, hash: &str) -> Result<Vec<u8>, IpfsError> {
-        let url = format!("{}/ipfs/{}", self.gateway_url, hash);
+        let rpc_error = match self.download_via_rpc(hash).await {
+            Ok(bytes) => return Ok(bytes),
+            // A CID the node genuinely does not have is not worth a second
+            // request to a gateway backed by the same node.
+            Err(IpfsError::NotFound(missing)) => return Err(IpfsError::NotFound(missing)),
+            Err(error) => error,
+        };
 
+        match self.download_via_gateway(hash).await {
+            Ok(bytes) => Ok(bytes),
+            // The RPC failure is the more informative of the two: the gateway
+            // error is usually the redirect that cannot be followed.
+            Err(IpfsError::NotFound(missing)) => Err(IpfsError::NotFound(missing)),
+            Err(_) => Err(rpc_error),
+        }
+    }
+
+    /// `POST {api}/api/v0/cat?arg={cid}` — the local node, no redirects.
+    async fn download_via_rpc(&self, hash: &str) -> Result<Vec<u8>, IpfsError> {
+        let url = format!("{}/api/v0/cat?arg={}", self.api_url, hash);
+        let response = self.client.post(&url).send().await?;
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::classify_rpc_failure(status.as_u16(), &body, hash));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| IpfsError::IoError(e.to_string()))?;
+        Ok(bytes.to_vec())
+    }
+
+    /// Turn a failed `api/v0/cat` into the right error.
+    ///
+    /// Kubo answers **500 with a JSON body** for a CID it cannot resolve rather
+    /// than 404, so the body is the only thing separating "no such content"
+    /// from "the node is unwell". Getting it backwards matters in both
+    /// directions: a retriable outage reported as a permanently missing record
+    /// sends a clinician looking for a document that exists, and a missing
+    /// record reported as an outage invites a retry loop that can never
+    /// succeed.
+    ///
+    /// Split out from the request so it can be tested without a node.
+    fn classify_rpc_failure(status: u16, body: &str, hash: &str) -> IpfsError {
+        if status == 404 {
+            return IpfsError::NotFound(hash.to_string());
+        }
+        let lowered = body.to_ascii_lowercase();
+        // The three phrasings kubo uses. Matched on substrings because the
+        // exact wording has changed between kubo releases and a version bump
+        // must not silently reclassify every missing record as an outage.
+        if lowered.contains("no link named")
+            || lowered.contains("not found")
+            || lowered.contains("could not resolve")
+        {
+            return IpfsError::NotFound(hash.to_string());
+        }
+        IpfsError::RequestFailed(format!("HTTP {status}"))
+    }
+
+    /// `GET {gateway}/ipfs/{cid}` — the browser interface, kept as a fallback.
+    async fn download_via_gateway(&self, hash: &str) -> Result<Vec<u8>, IpfsError> {
+        let url = format!("{}/ipfs/{}", self.gateway_url, hash);
         let response = self.client.get(&url).send().await?;
 
         if response.status().as_u16() == 404 {
@@ -532,5 +613,61 @@ mod tests {
 
         let json = serde_json::to_string(&reference).unwrap();
         assert!(json.contains("imaging"));
+    }
+}
+
+#[cfg(test)]
+mod ipfs_download_route_tests {
+    use super::*;
+
+    /// A CID the node does not have must read as missing, not as an outage.
+    /// Kubo says so with a 500 and a body, not a 404.
+    #[test]
+    fn a_missing_cid_is_not_found_even_behind_a_500() {
+        let error = IpfsClient::classify_rpc_failure(
+            500,
+            r#"{"Message":"merkledag: not found","Code":0,"Type":"error"}"#,
+            "QmMissing",
+        );
+        assert!(matches!(error, IpfsError::NotFound(_)), "{error}");
+    }
+
+    #[test]
+    fn a_resolve_failure_is_also_not_found() {
+        let error = IpfsClient::classify_rpc_failure(
+            500,
+            r#"{"Message":"could not resolve name"}"#,
+            "QmMissing",
+        );
+        assert!(matches!(error, IpfsError::NotFound(_)), "{error}");
+    }
+
+    /// An unwell node must NOT be reported as a missing record: a clinician
+    /// told the document is gone stops looking for it.
+    #[test]
+    fn an_unwell_node_is_a_request_failure_not_a_missing_record() {
+        let error = IpfsClient::classify_rpc_failure(503, "upstream connect error", "QmPresent");
+        assert!(matches!(error, IpfsError::RequestFailed(_)), "{error}");
+    }
+
+    #[test]
+    fn a_plain_404_is_not_found_without_reading_the_body() {
+        let error = IpfsClient::classify_rpc_failure(404, "", "QmMissing");
+        assert!(matches!(error, IpfsError::NotFound(_)), "{error}");
+    }
+
+    /// The defect this whole route change exists for: a default kubo node
+    /// answers a gateway path request with a 301 to
+    /// `http://<cidv1>.ipfs.localhost:8080/`, which no server-side client can
+    /// resolve. The RPC API must therefore be built from `api_url`, never from
+    /// `gateway_url`.
+    #[test]
+    fn the_rpc_read_is_built_from_the_api_url_not_the_gateway() {
+        let client = IpfsClient::new(
+            "http://ipfs-rpc:5001".to_string(),
+            "http://ipfs-gateway:8080".to_string(),
+        );
+        assert_eq!(client.api_url(), "http://ipfs-rpc:5001");
+        assert_eq!(client.gateway_url(), "http://ipfs-gateway:8080");
     }
 }

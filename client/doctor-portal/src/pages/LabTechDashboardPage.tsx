@@ -14,7 +14,17 @@ import {
   Activity,
   BarChart3,
 } from 'lucide-react';
-import { getLabDashboard, useTranslation } from '@medichain/shared';
+import {
+  getLabDashboard,
+  notifyRejectionOrderingProvider,
+  requestSpecimenRecollection,
+  completeSpecimenRecollection,
+  cancelSpecimenRecollection,
+  useTranslation,
+  getApiErrorCode,
+  type LabDashboardResponse,
+  promptDialog,
+} from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -23,31 +33,18 @@ import {
   type QuickAction,
 } from '../components/dashboard';
 
-interface LabDashboardData {
-  role: string;
-  test_queue: {
-    pending: any[];
-    approved_today: any[];
-    pending_count: number;
-    approved_count: number;
-  };
-  specimens: any[];
-  rejections: any[];
-  qc_records: any[];
-  critical_notifications: any[];
-  chain_of_custody: any[];
-  available_panels: any[];
-  alerts: {
-    pending_tests: number;
-    critical_values: number;
-    rejections_today: number;
-  };
-}
-
 export default function LabTechDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [data, setData] = useState<LabDashboardData | null>(null);
+  const [data, setData] = useState<LabDashboardResponse | null>(null);
+  /** Which rejection is mid-request, so its button can be disabled. */
+  const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  const [notifyResult, setNotifyResult] = useState<Record<string, string>>({});
+  /** Which rejection has a recollection in flight, so its button can be disabled. */
+  const [recollectingId, setRecollectingId] = useState<string | null>(null);
+  const [recollectResult, setRecollectResult] = useState<Record<string, string>>({});
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [completionResult, setCompletionResult] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,7 +55,7 @@ export default function LabTechDashboardPage() {
     try {
       setLoading(true);
       const response = await getLabDashboard();
-      setData(response as LabDashboardData);
+      setData(response);
     } catch (error) {
       console.error('Failed to load lab dashboard:', error);
     } finally {
@@ -66,8 +63,8 @@ export default function LabTechDashboardPage() {
     }
   };
 
-  const criticalAlerts: CriticalAlert[] = data?.critical_notifications?.map((c: any) => ({
-    id: c.critical_value_id || String(Math.random()),
+  const criticalAlerts: CriticalAlert[] = data?.critical_notifications?.map((c) => ({
+    id: c.id,
     type: 'critical_value' as const,
     title: `${c.test_name}: ${c.value} ${c.unit}`,
     description: t('docLabDashboard.criticalDesc'),
@@ -83,20 +80,132 @@ export default function LabTechDashboardPage() {
     { id: 'call-critical', label: t('docLabDashboard.qaCallCritical'), icon: AlertTriangle, href: '/critical-value', color: 'emergency' },
   ];
 
-  const statQueue = data?.test_queue?.pending?.filter((q: any) => q.priority === 'STAT').map((q: any) => ({
+  const statQueue = data?.test_queue?.pending?.filter((q) => q.priority === 'STAT').map((q) => ({
     test_name: q.test_name || t('docLabDashboard.unknownTest'),
     patient_name: q.patient_name || t('docLabDashboard.unknown'),
     time_in_lab: q.time_in_lab || t('docLabDashboard.justArrived'),
     priority: q.priority || 'STAT',
   })) || [];
 
-  const pendingQueue = data?.test_queue?.pending?.map((q: any) => ({
+  const pendingQueue = data?.test_queue?.pending?.map((q) => ({
     accession: q.accession_number || q.id,
     patient_name: q.patient_name || t('docLabDashboard.unknown'),
     test_name: q.test_name || t('docLabDashboard.unknownTest'),
     priority: q.priority || 'Routine',
     time_in_lab: q.time_in_lab || t('docLabDashboard.pending'),
   })) || [];
+
+  /**
+   * Tell the ordering provider their specimen was rejected.
+   *
+   * Re-reads the dashboard afterwards rather than flipping local state: the
+   * server decides whether the provider had already been told, and a second
+   * clinician may have pressed Notify in the meantime.
+   */
+  /**
+   * Ask for another sample.
+   *
+   * 409 RECOLLECTION_ALREADY_OPEN is the expected outcome when a colleague got
+   * there first, and is reported as information rather than as an error: the
+   * request they want already exists. Anything else is surfaced verbatim, so a
+   * technician is never told a recollection was raised when it was not.
+   */
+  const handleRecollect = async (rejectionId: string) => {
+    const reason = await promptDialog({ message: t('docLabDashboard.recollectionReasonPrompt'), required: true });
+    // Cancelled prompt, or an empty reason: do nothing. The API requires a
+    // reason and would refuse, and a silent refusal reads like a dead button.
+    if (reason === null || reason.trim() === '') return;
+    setRecollectingId(rejectionId);
+    setRecollectResult((p) => ({ ...p, [rejectionId]: '' }));
+    try {
+      await requestSpecimenRecollection(rejectionId, reason.trim());
+      setRecollectResult((p) => ({ ...p, [rejectionId]: t('docLabDashboard.recollectionRequested') }));
+    } catch (error) {
+      const code = getApiErrorCode(error);
+      const friendly =
+        code === 'RECOLLECTION_ALREADY_OPEN'
+          ? t('docLabDashboard.recollectionAlreadyOpen')
+          : (error instanceof Error ? error.message : t('docLabDashboard.recollectionFailed'));
+      setRecollectResult((p) => ({ ...p, [rejectionId]: friendly }));
+    } finally {
+      setRecollectingId(null);
+    }
+  };
+
+  const handleNotify = async (rejectionId: string) => {
+    setNotifyingId(rejectionId);
+    setNotifyResult((p) => ({ ...p, [rejectionId]: '' }));
+    try {
+      await notifyRejectionOrderingProvider(rejectionId);
+      setNotifyResult((p) => ({ ...p, [rejectionId]: t('docLabDashboard.notified') }));
+      const fresh = await getLabDashboard();
+      setData(fresh);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // The two refusals worth naming rather than showing raw: one means
+      // somebody already did it, the other that there is nobody to tell.
+      const friendly = /ALREADY_NOTIFIED/.test(message)
+        ? t('docLabDashboard.alreadyNotified')
+        : /NO_ORDERING_PROVIDER/.test(message)
+          ? t('docLabDashboard.noOrderingProvider')
+          : `${t('docLabDashboard.notifyFailed')} — ${message}`;
+      setNotifyResult((p) => ({ ...p, [rejectionId]: friendly }));
+    } finally {
+      setNotifyingId(null);
+    }
+  };
+
+  /**
+   * Stop asking for another sample -- the order was withdrawn, or the patient
+   * was discharged. The server keeps the request and records why; it needs a
+   * reason, so the prompt requires one.
+   */
+  const handleCancelRecollection = async (recollectionId: string) => {
+    const reason = await promptDialog({ message: t('docLabDashboard.cancelRecollectionPrompt'), required: true });
+    if (reason === null || reason.trim() === '') return;
+    setCompletingId(recollectionId);
+    setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));
+    try {
+      await cancelSpecimenRecollection(recollectionId, reason.trim());
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: t('docLabDashboard.recollectionCancelled'),
+      }));
+      await loadDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: `${t('docLabDashboard.recollectionCancelFailed')} — ${message}`,
+      }));
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
+  /** Link a newly collected specimen as the immutable successor. */
+  const handleCompleteRecollection = async (recollectionId: string) => {
+    const replacementId = await promptDialog({ message: t('docLabDashboard.replacementSpecimenPrompt'), required: true });
+    if (replacementId === null || replacementId.trim() === '') return;
+    setCompletingId(recollectionId);
+    setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));
+    try {
+      await completeSpecimenRecollection(recollectionId, replacementId.trim());
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: t('docLabDashboard.recollectionCompleted'),
+      }));
+      await loadDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: `${t('docLabDashboard.recollectionCompletionFailed')} — ${message}`,
+      }));
+    } finally {
+      setCompletingId(null);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
@@ -109,15 +218,14 @@ export default function LabTechDashboardPage() {
       {/* Critical Values Banner */}
       <CriticalAlertsBanner
         alerts={criticalAlerts}
-        onAcknowledge={(id) => console.log('Call provider for:', id)}
-        onViewAll={() => navigate('/lab/critical-values')}
+        onViewAll={() => navigate('/critical-value')}
       />
 
       {/* Stat Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label={t('docLabDashboard.statSpecimens')}
-          value={data?.test_queue?.pending?.filter((t: any) => t.priority === 'STAT').length || 0}
+          value={data?.test_queue?.pending?.filter((t) => t.priority === 'STAT').length || 0}
           icon={<AlertTriangle className="text-critical-subtle-fg" size={24} />}
           color="bg-critical-subtle"
           onClick={() => navigate('/specimen')}
@@ -152,7 +260,7 @@ export default function LabTechDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* STAT Queue */}
         <div className="bg-surface rounded-lg shadow p-4 border border-critical">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-critical-subtle-fg mb-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-critical-subtle-fg mb-3 min-h-[24px] py-1">
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" aria-hidden="true" /> {t('docLabDashboard.statQueue')}
           </h3>
           {statQueue.length > 0 ? (
@@ -187,30 +295,26 @@ export default function LabTechDashboardPage() {
 
         {/* QC Status */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
             <AlertTriangle size={16} aria-hidden="true" /> {t('docLabDashboard.qcStatus')}
           </h3>
           {data?.qc_records && data.qc_records.length > 0 ? (
             <div className="space-y-2">
-              {data.qc_records.slice(0, 4).map((qc: any, idx: number) => (
+              {data.qc_records.slice(0, 4).map((qc, idx) => (
                 <div key={idx} className="flex items-center justify-between p-2 border rounded">
                   <div>
-                    <p className="text-sm font-medium">{qc.analyzer_name || t('docLabDashboard.unknownAnalyzer')}</p>
-                    <p className="text-xs text-content-muted">{t('docLabDashboard.lastQc', { time: qc.last_qc_time || t('docLabDashboard.pending') })}</p>
+                    <p className="text-sm font-medium">{qc.instrument_name || t('docLabDashboard.unknownAnalyzer')}</p>
+                    <p className="text-xs text-content-muted">{t('docLabDashboard.lastQc', { time: qc.performed_at || t('docLabDashboard.pending') })}</p>
                   </div>
                   <span
                     className={`px-2 py-1 text-xs font-medium rounded ${
-                      qc.status === 'passed'
+                      qc.passed
                         ? 'bg-ok-subtle text-ok-subtle-fg'
-                        : qc.status === 'due'
-                        ? 'bg-caution-subtle text-caution-subtle-fg'
                         : 'bg-critical-subtle text-critical-subtle-fg'
                     }`}
                   >
-                    {qc.status === 'passed' ? (
+                    {qc.passed ? (
                       <span className="inline-flex items-center gap-1"><CheckCircle size={12} aria-hidden="true" /> {t('docLabDashboard.qcPassed')}</span>
-                    ) : qc.status === 'due' ? (
-                      <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> {t('docLabDashboard.qcDue')}</span>
                     ) : (
                       <span className="inline-flex items-center gap-1"><XCircle size={12} aria-hidden="true" /> {t('docLabDashboard.qcFailed')}</span>
                     )}
@@ -222,7 +326,7 @@ export default function LabTechDashboardPage() {
             <p className="text-sm text-content-muted">{t('docLabDashboard.noQc')}</p>
           )}
           <button
-            onClick={() => navigate('/lab/qc')}
+            onClick={() => navigate('/lab-qc')}
             className="mt-3 w-full py-2 text-sm bg-notice-subtle text-notice-subtle-fg rounded hover:bg-notice-subtle"
           >
             {t('docLabDashboard.runQc')}
@@ -233,12 +337,12 @@ export default function LabTechDashboardPage() {
       {/* Pending Specimens Queue Table */}
       <div className="bg-surface rounded-lg shadow p-4 border border-border">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary min-h-[24px] py-1">
             <BarChart3 size={16} aria-hidden="true" /> {t('docLabDashboard.pendingSpecimens')}
           </h3>
           <button
             onClick={() => navigate('/lab-results')}
-            className="text-xs text-notice-subtle-fg hover:text-notice-subtle-fg"
+            className="inline-flex items-center min-h-[24px] py-1 text-xs text-notice-subtle-fg hover:text-notice-subtle-fg"
           >
             {t('docLabDashboard.viewAll')}
           </button>
@@ -281,6 +385,48 @@ export default function LabTechDashboardPage() {
         )}
       </div>
 
+      {data?.open_recollections && data.open_recollections.length > 0 && (
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="text-sm font-semibold text-content-secondary mb-3">
+            {t('docLabDashboard.openRecollections')}
+          </h3>
+          <div className="space-y-2">
+            {data.open_recollections.map((request) => (
+              <div key={request.id} className="p-3 border border-caution rounded bg-caution-subtle">
+                <p className="text-sm font-medium text-content">
+                  {request.original_specimen_id} — {request.reason}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleCompleteRecollection(request.id)}
+                  disabled={completingId === request.id}
+                  className="mt-2 text-xs font-medium underline text-notice-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                >
+                  {completingId === request.id
+                    ? t('docLabDashboard.completingRecollection')
+                    : t('docLabDashboard.completeRecollection')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCancelRecollection(request.id)}
+                  disabled={completingId === request.id}
+                  className="mt-2 ml-4 text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                >
+                  {completingId === request.id
+                    ? t('docLabDashboard.cancellingRecollection')
+                    : t('docLabDashboard.cancelRecollection')}
+                </button>
+                {completionResult[request.id] && (
+                  <p role="status" className="mt-1 text-xs text-content-muted">
+                    {completionResult[request.id]}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Quick Actions */}
@@ -288,20 +434,57 @@ export default function LabTechDashboardPage() {
 
         {/* Rejected Specimens */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
             <XCircle size={16} aria-hidden="true" /> {t('docLabDashboard.rejectedSpecimens')}
           </h3>
           {data?.rejections && data.rejections.length > 0 ? (
             <div className="space-y-2">
-              {data.rejections.map((rej: any, idx: number) => (
+              {data.rejections.map((rej, idx) => (
                 <div key={idx} className="p-3 bg-critical-subtle border border-critical rounded">
                   <p className="text-sm font-medium text-critical-subtle-fg">
                     {rej.accession_number || t('docLabDashboard.unknown')} - {rej.rejection_reason || t('docLabDashboard.unknownReason')}
                   </p>
                   <p className="text-xs text-critical-subtle-fg mt-1">{t('docLabDashboard.patientLabel', { name: rej.patient_name || t('docLabDashboard.unknown') })}</p>
-                  <button className="mt-2 text-xs text-critical-subtle-fg hover:text-critical-subtle-fg font-medium">
-                    {t('docLabDashboard.notifyRecollect')}
-                  </button>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handleNotify(rej.id)}
+                      disabled={notifyingId === rej.id || rej.notified_ordering_provider}
+                      className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                    >
+                      {rej.notified_ordering_provider
+                        ? t('docLabDashboard.notified')
+                        : notifyingId === rej.id
+                          ? t('docLabDashboard.notifying')
+                          : t('docLabDashboard.notifyProvider')}
+                    </button>
+                    {/*
+                      Recollect is a separate act from Notify, and the button
+                      says which. Telling the ordering provider their specimen
+                      failed does not obtain another sample, and obtaining one
+                      does not tell them it failed.
+                    */}
+                    <button
+                      type="button"
+                      onClick={() => void handleRecollect(rej.id)}
+                      disabled={recollectingId === rej.id}
+                      className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                    >
+                      {recollectingId === rej.id
+                        ? t('docLabDashboard.requestingRecollection')
+                        : t('docLabDashboard.requestRecollection')}
+                    </button>
+                  </div>
+                  {notifyResult[rej.id] && (
+                    <p role="status" className="mt-1 text-xs text-critical-subtle-fg">
+                      {notifyResult[rej.id]}
+                    </p>
+                  )}
+                  {recollectResult[rej.id] && (
+                    <p role="status" className="mt-1 text-xs text-critical-subtle-fg">
+                      {recollectResult[rej.id]}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

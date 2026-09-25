@@ -1,10 +1,10 @@
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { I18nProvider } from '@medichain/shared';
+import { I18nProvider, DialogHost } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
 function PageLoader() {
@@ -28,9 +28,15 @@ const PatientSearchPage = lazy(() => import('./pages/PatientSearchPage'));
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'));
 const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
+const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
+const RetentionPage = lazy(() => import('./pages/RetentionPage'));
+const SecurityIncidentsPage = lazy(() => import('./pages/SecurityIncidentsPage'));
+const NationalIdReviewsPage = lazy(() => import('./pages/NationalIdReviewsPage'));
+const LabReviewPage = lazy(() => import('./pages/LabReviewPage'));
 
 // Settings
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 
 // Clinical Documentation
 const TriagePage = lazy(() => import('./pages/TriagePage'));
@@ -47,6 +53,7 @@ const EmergencyAccessPage = lazy(() => import('./pages/EmergencyAccessPage'));
 const EmergencyProtocolsPage = lazy(() => import('./pages/EmergencyProtocolsPage'));
 const CodeBluePage = lazy(() => import('./pages/CodeBluePage'));
 const TraumaPage = lazy(() => import('./pages/TraumaPage'));
+const EmsHandoffPage = lazy(() => import('./pages/EmsHandoffPage'));
 const StrokePage = lazy(() => import('./pages/StrokePage'));
 const CardiacPage = lazy(() => import('./pages/CardiacPage'));
 const SepsisPage = lazy(() => import('./pages/SepsisPage'));
@@ -55,7 +62,6 @@ const MCIPage = lazy(() => import('./pages/MCIPage'));
 // Nursing
 const NursingPage = lazy(() => import('./pages/NursingPage'));
 const NursingCarePlanPage = lazy(() => import('./pages/NursingCarePlanPage'));
-const MARPage = lazy(() => import('./pages/MARPage'));
 const CarePlanPage = lazy(() => import('./pages/CarePlanPage'));
 const IntakeOutputPage = lazy(() => import('./pages/IntakeOutputPage'));
 const WoundCarePage = lazy(() => import('./pages/WoundCarePage'));
@@ -108,6 +114,7 @@ const FamilyHistoryPage = lazy(() => import('./pages/FamilyHistoryPage'));
 
 // Administrative & Morgue
 const DeathCertificatePage = lazy(() => import('./pages/DeathCertificatePage'));
+const HealthIdCardsPage = lazy(() => import('./pages/HealthIdCardsPage'));
 const AutopsyPage = lazy(() => import('./pages/AutopsyPage'));
 
 // Admin Portal
@@ -121,6 +128,7 @@ const CDSAlertsPage = lazy(() => import('./pages/CDSAlertsPage'));
 
 // Scheduling
 const AppointmentSchedulerPage = lazy(() => import('./pages/AppointmentSchedulerPage'));
+const ProviderSchedulePage = lazy(() => import('./pages/ProviderSchedulePage'));
 
 // Telehealth & Messaging
 const TelehealthPage = lazy(() => import('./pages/TelehealthPage'));
@@ -217,6 +225,10 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<SmartDashboardRouter />} />
         <Route path="settings" element={<LazyRoute element={<SettingsPage />} />} />
+        {/* The header bell has always navigated here. Until now no route
+            served it, so the catch-all redirected every click to the
+            dashboard -- the badge was visible and its list was not. */}
+        <Route path="notifications" element={<LazyRoute element={<NotificationsPage />} />} />
 
         {/* Role-Specific Dashboards (direct access) */}
         <Route path="dashboard/doctor" element={<DashboardPage />} />
@@ -230,6 +242,11 @@ function App() {
         <Route path="patients/:patientId" element={<LazyRoute element={<PatientDetailPage />} />} />
         <Route path="register" element={<LazyRoute element={<RegisterPatientPage />} />} />
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
+        <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />
+        <Route path="retention" element={<LazyRoute element={<RetentionPage />} />} />
+        <Route path="security-incidents" element={<LazyRoute element={<SecurityIncidentsPage />} />} />
+        <Route path="national-id-reviews" element={<LazyRoute element={<NationalIdReviewsPage />} />} />
+        <Route path="lab-review" element={<LazyRoute element={<LabReviewPage />} />} />
 
         {/* Clinical Documentation */}
         <Route path="triage" element={<LazyRoute element={<TriagePage />} />} />
@@ -246,6 +263,7 @@ function App() {
         <Route path="emergency-protocols" element={<LazyRoute element={<EmergencyProtocolsPage />} />} />
         <Route path="code-blue" element={<LazyRoute element={<CodeBluePage />} />} />
         <Route path="trauma" element={<LazyRoute element={<TraumaPage />} />} />
+        <Route path="ems-handoff" element={<LazyRoute element={<EmsHandoffPage />} />} />
         <Route path="stroke" element={<LazyRoute element={<StrokePage />} />} />
         <Route path="cardiac" element={<LazyRoute element={<CardiacPage />} />} />
         <Route path="sepsis" element={<LazyRoute element={<SepsisPage />} />} />
@@ -254,7 +272,11 @@ function App() {
         {/* Nursing */}
         <Route path="nursing" element={<LazyRoute element={<NursingPage />} />} />
         <Route path="nursing-care-plan" element={<LazyRoute element={<NursingCarePlanPage />} />} />
-        <Route path="mar" element={<LazyRoute element={<MARPage />} />} />
+        {/* The nurse's MAR. MARPage, which this used to render, read a response
+            shape the API never sent and so never listed a prescribed medicine;
+            it also invented an 08:00 dose for any free-text frequency. This is
+            the page that records doses against real prescriptions. */}
+        <Route path="mar" element={<LazyRoute element={<MedicationAdminPage />} />} />
         <Route path="care-plan" element={<LazyRoute element={<CarePlanPage />} />} />
         <Route path="intake-output" element={<LazyRoute element={<IntakeOutputPage />} />} />
         <Route path="wound-care" element={<LazyRoute element={<WoundCarePage />} />} />
@@ -307,6 +329,7 @@ function App() {
 
         {/* Administrative & Morgue */}
         <Route path="death-certificate" element={<LazyRoute element={<DeathCertificatePage />} />} />
+        <Route path="health-id-cards" element={<LazyRoute element={<HealthIdCardsPage />} />} />
         <Route path="autopsy" element={<LazyRoute element={<AutopsyPage />} />} />
 
         {/* Admin Portal */}
@@ -320,6 +343,7 @@ function App() {
 
         {/* Scheduling */}
         <Route path="appointments" element={<LazyRoute element={<AppointmentSchedulerPage />} />} />
+        <Route path="working-hours" element={<LazyRoute element={<ProviderSchedulePage />} />} />
 
         {/* Telehealth & Messaging */}
         <Route path="telehealth" element={<LazyRoute element={<TelehealthPage />} />} />
@@ -348,6 +372,7 @@ function AppWithErrorBoundary() {
     >
       <I18nProvider>
         <App />
+        <DialogHost />
       </I18nProvider>
     </ErrorBoundary>
   );

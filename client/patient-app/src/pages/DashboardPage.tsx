@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { getAccessLogs, getPatient, useTranslation, formatTimestamp } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -76,89 +76,57 @@ export function DashboardPage() {
       }
 
       try {
-        // Use health ID from authenticated patient
         const patientId = patient.healthId;
-        
-        const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
-          headers: {
-            'X-User-Id': patient.walletAddress,
-            'X-Health-Id': patient.healthId,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+        try {
+          const data = await getPatient(patientId);
           const emergencyInfo = data.emergency_info || {};
           setApiConnected(true);
           
           setPatientData({
             patientId: data.patient_id,
             name: data.full_name || patient.fullName,
-            healthId: data.health_id || patient.healthId,
+            healthId: patient.healthId,
             bloodType: formatBloodType(emergencyInfo.blood_type) || patient.bloodType || 'Unknown',
             allergies: (emergencyInfo.allergies || []).map((allergy: string | { name: string }) =>
               typeof allergy === 'string' ? allergy : allergy.name
             ),
             medications: emergencyInfo.current_medications || [],
             conditions: emergencyInfo.chronic_conditions || [],
-            lastVisit: data.last_visit || new Date().toISOString().split('T')[0],
-            upcomingAppointments: data.upcoming_appointments || 0,
-            unreadMessages: data.unread_messages || 0,
+            // This profile endpoint has no visit, appointment, or message
+            // counters. Keep those fields empty rather than inventing values
+            // from a client clock or an undocumented response shape.
+            lastVisit: '',
+            upcomingAppointments: 0,
+            unreadMessages: 0,
           });
 
           // Fetch access logs for recent activity
-          const logsResponse = await fetch(apiUrl(`/api/access-logs/${patientId}`), {
-            headers: { 
-              'X-User-Id': patient.walletAddress,
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          
-          if (logsResponse.ok) {
-            const logsData = await logsResponse.json();
-            const activities: RecentActivity[] = (logsData.logs || []).slice(0, 5).map((log: {
-              log_id: string;
-              action_type: string;
-              accessor_name: string;
-              accessed_at: string;
-            }) => ({
-              id: log.log_id,
-              type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
-              description: `${log.accessor_name} ${log.action_type === 'view' ? t('dashboard.accessedYourRecords') : log.action_type}`,
-              timestamp: log.accessed_at,
-              accessor: log.accessor_name,
-            }));
-            setRecentActivity(activities);
-          }
-        } else {
-          // API returned error - use local data from wallet
+          const logsData = await getAccessLogs(patientId);
+          const activities: RecentActivity[] = (logsData.access_logs || []).slice(0, 5).map((log) => ({
+            id: log.access_id,
+            type: log.access_type === 'view' ? 'access' : log.access_type === 'consent' ? 'consent' : 'update',
+            // The clinician's name, falling back to the wallet only when the
+            // server could not resolve it. A patient reading "5GnPcTux4PX1F8..."
+            // learns nothing about who opened their record.
+            description: `${log.accessor_name || log.accessor_id} ${log.access_type === 'view' ? t('dashboard.accessedYourRecords') : log.access_type}`,
+            timestamp: log.timestamp,
+            accessor: log.accessor_name || log.accessor_id,
+          }));
+          setRecentActivity(activities);
+        } catch {
+          // An unavailable profile must not be replaced by a plausible clinical
+          // summary. Identity from the authenticated session is safe to show;
+          // clinical fields stay explicitly empty until the record loads.
           setApiConnected(false);
           setPatientData({
             patientId: patient.healthId,
             name: patient.fullName,
             healthId: patient.healthId,
-            bloodType: patient.bloodType || 'Unknown',
+            bloodType: 'Unknown',
             allergies: [],
             medications: [],
             conditions: [],
-            lastVisit: new Date().toISOString().split('T')[0],
-            upcomingAppointments: 0,
-            unreadMessages: 0,
-          });
-        }
-      } catch {
-        // API not available - use local data
-        setApiConnected(false);
-        if (patient) {
-          setPatientData({
-            patientId: patient.healthId,
-            name: patient.fullName,
-            healthId: patient.healthId,
-            bloodType: patient.bloodType || 'Unknown',
-            allergies: [],
-            medications: [],
-            conditions: [],
-            lastVisit: new Date().toISOString().split('T')[0],
+            lastVisit: '',
             upcomingAppointments: 0,
             unreadMessages: 0,
           });
@@ -171,7 +139,7 @@ export function DashboardPage() {
     if (patient) {
       loadData();
     }
-  }, [patient]);
+  }, [patient, t]);
 
   const handleLogout = () => {
     logout();
@@ -190,7 +158,7 @@ export function DashboardPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -198,7 +166,7 @@ export function DashboardPage() {
   };
 
   const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -239,12 +207,17 @@ export function DashboardPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('dashboard.live') : t('dashboard.demo')}
+            {apiConnected ? t('dashboard.live') : t('dashboard.dataUnavailable')}
           </div>
-          <button className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors" aria-label="Notifications">
+          <button
+            type="button"
+            onClick={() => navigate('/notifications')}
+            className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
+            aria-label="Notifications"
+          >
             <Bell className="w-6 h-6" />
             {(patientData?.unreadMessages || 0) > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-400 text-white text-xs rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-700 text-white text-xs rounded-full flex items-center justify-center">
                 {patientData?.unreadMessages}
               </span>
             )}
@@ -260,7 +233,7 @@ export function DashboardPage() {
       </div>
 
       {/* Health Status Card */}
-      <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-surface/20 rounded-xl flex items-center justify-center">
@@ -268,7 +241,7 @@ export function DashboardPage() {
             </div>
             <div>
               <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
-              <p className="text-white/80 text-sm">{patientData?.healthId}</p>
+              <p className="text-white text-sm">{patientData?.healthId}</p>
             </div>
           </div>
           <div className="health-indicator !bg-surface" />
@@ -278,17 +251,17 @@ export function DashboardPage() {
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <Droplets className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.bloodType}</div>
-            <div className="text-xs text-white/70">{t('dashboard.bloodType')}</div>
+            <div className="text-xs text-white">{t('dashboard.bloodType')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.allergies.length}</div>
-            <div className="text-xs text-white/70">{t('dashboard.allergies')}</div>
+            <div className="text-xs text-white">{t('dashboard.allergies')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <Pill className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.medications.length}</div>
-            <div className="text-xs text-white/70">{t('dashboard.medications')}</div>
+            <div className="text-xs text-white">{t('dashboard.medications')}</div>
           </div>
         </div>
       </div>
@@ -299,7 +272,7 @@ export function DashboardPage() {
           to="/emergency-card"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-emergency-50 rounded-2xl flex items-center justify-center">
+          <div className="w-14 h-14 bg-critical-subtle rounded-2xl flex items-center justify-center">
             <QrCode className="w-7 h-7 text-critical-subtle-fg" />
           </div>
           <div className="text-center">
@@ -313,7 +286,7 @@ export function DashboardPage() {
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center">
-            <FileText className="w-7 h-7 text-primary-500" />
+            <FileText className="w-7 h-7 text-brand-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.myRecords')}</div>
@@ -325,8 +298,8 @@ export function DashboardPage() {
           to="/consent"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-success-50 rounded-2xl flex items-center justify-center">
-            <Shield className="w-7 h-7 text-success-500" />
+          <div className="w-14 h-14 bg-ok-subtle rounded-2xl flex items-center justify-center">
+            <Shield className="w-7 h-7 text-ok-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.accessControl')}</div>
@@ -338,8 +311,8 @@ export function DashboardPage() {
           to="/profile"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-info-light rounded-2xl flex items-center justify-center">
-            <Activity className="w-7 h-7 text-info" />
+          <div className="w-14 h-14 bg-notice-subtle rounded-2xl flex items-center justify-center">
+            <Activity className="w-7 h-7 text-notice-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.myProfile')}</div>
@@ -350,16 +323,19 @@ export function DashboardPage() {
 
       {/* Critical Alerts */}
       {patientData?.allergies && patientData.allergies.length > 0 && (
-        <div className="warning-card">
+        <div className="critical-card">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle className="w-5 h-5 text-critical-subtle-fg" />
             <span className="font-medium text-critical-subtle-fg">{t('dashboard.criticalAllergies')}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {patientData.allergies.map((allergy, idx) => (
+              // Solid, not subtle: the card behind these is already the subtle
+              // tint, so a subtle chip on it is the same colour as the card and
+              // the allergy stops looking like a discrete item.
               <span
                 key={idx}
-                className="px-3 py-1 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
+                className="px-3 py-1 bg-critical text-critical-fg rounded-full text-sm font-medium"
               >
                 {allergy}
               </span>
@@ -375,12 +351,13 @@ export function DashboardPage() {
             <Clock className="w-5 h-5 text-content-muted" />
             {t('dashboard.recentActivity')}
           </h3>
-          <Link to="/consent" className="text-sm text-primary-500 hover:text-brand font-medium">
+          <Link to="/consent" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
             {t('dashboard.viewAll')}
           </Link>
         </div>
 
         <div className="space-y-3">
+          {recentActivity.length === 0 && <p className="text-sm text-content-muted">{t('dashboard.noRecentActivity')}</p>}
           {recentActivity.map((activity) => (
             <div
               key={activity.id}
@@ -388,8 +365,8 @@ export function DashboardPage() {
             >
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                 activity.type === 'access' ? 'bg-brand-subtle text-brand-subtle-fg' :
-                activity.type === 'update' ? 'bg-success-100 text-success-600' :
-                'bg-info-light text-info'
+                activity.type === 'update' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                'bg-notice-subtle text-notice-subtle-fg'
               }`}>
                 {activity.type === 'access' ? <Shield className="w-5 h-5" /> :
                  activity.type === 'update' ? <FileText className="w-5 h-5" /> :
@@ -412,12 +389,12 @@ export function DashboardPage() {
       {/* Last Visit Info */}
       <div className="info-card flex items-center justify-between">
         <div>
-          <p className="text-sm text-info-dark font-medium">{t('dashboard.lastVisit')}</p>
-          <p className="text-info">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
+          <p className="text-sm text-notice-subtle-fg font-medium inline-flex items-center min-h-[24px] py-1">{t('dashboard.lastVisit')}</p>
+          <p className="text-notice-subtle-fg">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
         </div>
         <Link
           to="/records"
-          className="text-sm text-info font-medium hover:underline flex items-center gap-1"
+          className="text-sm text-notice-subtle-fg font-medium hover:underline flex items-center gap-1 inline-flex items-center min-h-[24px] py-1"
         >
           {t('dashboard.viewDetails')} <ChevronRight className="w-4 h-4" />
         </Link>

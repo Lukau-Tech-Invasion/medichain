@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getNoteTemplates, useTranslation } from '@medichain/shared';
-import { FileText, Plus, Search, Edit, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw, AlertCircle } from 'lucide-react';
+import {
+  createNoteTemplate,
+  deactivateNoteTemplate,
+  getApiErrorMessage,
+  getNoteTemplates,
+  useNoteTemplate,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  confirmDialog,
+  formatTimestamp,
+} from '@medichain/shared';
+import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
 type TemplateCategory = 'general' | 'emergency' | 'surgery' | 'medicine' | 'pediatrics' | 'psychiatry';
@@ -28,8 +40,54 @@ interface NoteTemplate {
   lastModified: string;
   usageCount: number;
   isActive: boolean;
+  /** Server-owned and read-only; only clinician-authored templates can be retired. */
+  builtIn: boolean;
   tags: string[];
 }
+
+type NoteTemplateApiRecord = Record<string, unknown>;
+
+const typeForCategory = (category: string): TemplateType => {
+  const normalized = category.toLowerCase();
+  if (normalized === 'soap') return 'soap';
+  if (normalized === 'h&p') return 'history-physical';
+  if (normalized === 'discharge') return 'discharge-summary';
+  if (normalized === 'procedure') return 'procedure';
+  return 'progress-note';
+};
+
+/** Accept both the current server template registry and legacy portal rows. */
+export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => {
+  const content = record.content && typeof record.content === 'object'
+    ? record.content as Record<string, unknown>
+    : {};
+  const legacySections = Array.isArray(record.sections) ? record.sections as TemplateSection[] : [];
+  const categoryText = typeof record.category === 'string' ? record.category : 'general';
+  const sections = legacySections.length > 0 ? legacySections : Object.entries(content).map(([title, value], index) => ({
+    sectionId: `${String(record.template_id ?? 'template')}-${title}`,
+    title,
+    content: typeof value === 'string' ? value : JSON.stringify(value),
+    required: false,
+    order: index + 1,
+  }));
+  return {
+    templateId: String(record.template_id ?? record.templateId ?? ''),
+    name: String(record.name ?? ''),
+    type: typeof record.type === 'string' ? record.type as TemplateType : typeForCategory(categoryText),
+    category: typeof record.category === 'string' && ['general', 'emergency', 'surgery', 'medicine', 'pediatrics', 'psychiatry'].includes(record.category)
+      ? record.category as TemplateCategory : 'general',
+    description: typeof record.description === 'string' ? record.description : categoryText,
+    sections,
+    macros: Array.isArray(record.macros) ? record.macros.filter((item): item is string => typeof item === 'string') : [],
+    createdBy: typeof record.created_by === 'string' ? record.created_by : String(record.createdBy ?? 'Built-in'),
+    createdAt: typeof record.created_at === 'string' ? record.created_at : String(record.createdAt ?? ''),
+    lastModified: typeof record.updated_at === 'string' ? record.updated_at : String(record.lastModified ?? ''),
+    usageCount: typeof record.usage_count === 'number' ? record.usage_count : Number(record.usageCount ?? 0),
+    isActive: record.is_active !== false && record.isActive !== false,
+    builtIn: record.built_in === true,
+    tags: Array.isArray(record.tags) ? record.tags.filter((item): item is string => typeof item === 'string') : [],
+  };
+};
 
 /**
  * NoteTemplatesPage
@@ -38,16 +96,17 @@ interface NoteTemplate {
  */
 const NoteTemplatesPage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'macros'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TemplateType | 'all'>('all');
-  const [_selectedTemplate, setSelectedTemplate] = useState<NoteTemplate | null>(null);
-  const [_showEditModal, _setShowEditModal] = useState(false);
+  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; sections: { title: string; content: string }[] } | null>(null);
   const [newTemplate, setNewTemplate] = useState<Partial<NoteTemplate>>({
     name: '',
     type: 'soap',
@@ -70,46 +129,55 @@ const NoteTemplatesPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       const response = await getNoteTemplates();
-      if (response && Array.isArray(response)) {
-        setTemplates(response as NoteTemplate[]);
-      } else if (response && typeof response === 'object' && 'items' in response) {
-        setTemplates((response as { items: NoteTemplate[] }).items);
-      }
+      // The endpoint answers `{ success, templates }`, and `templates` is not one of
+      // the keys ApiClient unwraps. This checked for a bare array and then for
+      // `items`, so neither branch ever matched and the setter was never called
+      // — the list stayed empty however many rows the server held. The test
+      // mocked a bare array, so it passed against a shape the API never sends.
+      const rows = Array.isArray(response) ? response : (response?.templates ?? []);
+      setTemplates(rows.map(mapNoteTemplate));
     } catch (err) {
       console.error('Error fetching note templates:', err);
       setError(t('docNoteTemplates.errorLoad'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
 
-  const handleCreateTemplate = () => {
+  // Create, Duplicate and Deactivate used to change only this list and
+  // announce success, so every template vanished on reload and "Use" was
+  // refused as unknown. Each now saves on the server and reloads the list from
+  // it; success is shown only after the server has confirmed.
+  const saveTemplate = async (template: Partial<NoteTemplate>): Promise<boolean> => {
+    try {
+      await createNoteTemplate({
+        name: template.name ?? '',
+        type: template.type ?? 'soap',
+        category: template.category ?? 'general',
+        description: template.description ?? '',
+        sections: (template.sections ?? []).map(({ title, content, required }) => ({ title, content, required })),
+        macros: template.macros ?? [],
+        tags: template.tags ?? [],
+      });
+      await fetchTemplates();
+      return true;
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docNoteTemplates.createFailed')));
+      return false;
+    }
+  };
+
+  const handleCreateTemplate = async () => {
     if (!newTemplate.name || !newTemplate.description || !newTemplate.sections?.length) {
-      showWarning(t('docNoteTemplates.warningCreateFields'));
+      showError(t('docNoteTemplates.errorCreateFields'));
       return;
     }
+    if (!(await saveTemplate(newTemplate))) return;
 
-    const template: NoteTemplate = {
-      templateId: `TMP-${String(templates.length + 1).padStart(3, '0')}`,
-      name: newTemplate.name!,
-      type: newTemplate.type!,
-      category: newTemplate.category!,
-      description: newTemplate.description!,
-      sections: newTemplate.sections!,
-      macros: newTemplate.macros || [],
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-      isActive: true,
-      tags: newTemplate.tags || [],
-    };
-
-    setTemplates([...templates, template]);
     setNewTemplate({
       name: '',
       type: 'soap',
@@ -126,7 +194,7 @@ const NoteTemplatesPage: React.FC = () => {
 
   const handleAddSectionToTemplate = () => {
     if (!newSection.title || !newSection.content) {
-      showWarning(t('docNoteTemplates.warningSectionFields'));
+      showError(t('docNoteTemplates.errorSectionFields'));
       return;
     }
 
@@ -158,24 +226,41 @@ const NoteTemplatesPage: React.FC = () => {
     });
   };
 
-  const handleDuplicateTemplate = (template: NoteTemplate) => {
-    const duplicated: NoteTemplate = {
+  const handleDuplicateTemplate = async (template: NoteTemplate) => {
+    const saved = await saveTemplate({
       ...template,
-      templateId: `TMP-${String(templates.length + 1).padStart(3, '0')}`,
       name: `${template.name}${t('docNoteTemplates.copySuffix')}`,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-    };
-
-    setTemplates([...templates, duplicated]);
-    showSuccess(t('docNoteTemplates.duplicatedSuccess'));
+    });
+    if (saved) showSuccess(t('docNoteTemplates.duplicatedSuccess'));
   };
 
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm(t('docNoteTemplates.confirmDelete'))) {
-      setTemplates(templates.filter((t) => t.templateId !== templateId));
+  /** Doctors and nurses write templates; an administrator only retires them. */
+  const canCreate = user?.role === 'Doctor' || user?.role === 'Nurse';
+
+  /** Its author or an administrator may retire a clinician-authored template. */
+  const canDeactivate = (template: NoteTemplate) =>
+    !template.builtIn && (template.createdBy === user?.walletAddress || user?.role === 'Admin');
+
+  const handleDeactivateTemplate = async (templateId: string) => {
+    if (!(await confirmDialog({ message: t('docNoteTemplates.confirmDelete'), destructive: true }))) return;
+    try {
+      await deactivateNoteTemplate(templateId);
+      await fetchTemplates();
+      showSuccess(t('docNoteTemplates.deactivatedSuccess'));
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docNoteTemplates.deactivateFailed')));
+    }
+  };
+
+  const handleUseTemplate = async (template: NoteTemplate) => {
+    try {
+      const result = await useNoteTemplate({ template_id: template.templateId, variables: {} });
+      const sections = result.rendered_sections
+        ?? Object.entries(result.rendered_content).map(([title, content]) => ({ title, content: String(content) }));
+      setRenderedTemplate({ name: template.name, sections });
+    } catch (err) {
+      console.error('Failed to render note template:', err);
+      showError(t('docNoteTemplates.renderFailed'));
     }
   };
 
@@ -227,20 +312,45 @@ const NoteTemplatesPage: React.FC = () => {
   });
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-indigo-600 to-blue-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-blue-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3">
           <FileCheck className="w-10 h-10" />
           <div>
             <h1 className="text-3xl font-bold">{t('docNoteTemplates.title')}</h1>
-            <p className="text-indigo-50 mt-1">{t('docNoteTemplates.subtitle')}</p>
+            <p className="text-white mt-1">{t('docNoteTemplates.subtitle')}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchTemplates()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b border-border-strong">
         <button
@@ -253,16 +363,18 @@ const NoteTemplatesPage: React.FC = () => {
         >
           {t('docNoteTemplates.tabAllTemplates', { count: templates.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('new')}
-          className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new'
-              ? 'border-b-2 border-indigo-600 text-content-secondary'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docNoteTemplates.tabNewTemplate')}
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setActiveTab('new')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'new'
+                ? 'border-b-2 border-indigo-600 text-content-secondary'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docNoteTemplates.tabNewTemplate')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('macros')}
           className={`px-6 py-3 font-semibold transition-colors ${
@@ -289,7 +401,7 @@ const NoteTemplatesPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docNoteTemplates.searchTemplatesPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -299,7 +411,7 @@ const NoteTemplatesPage: React.FC = () => {
                   id="notetmpl-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as TemplateType | 'all')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="all">{t('docNoteTemplates.allTypes')}</option>
                   <option value="soap">{t('docNoteTemplates.type_soap')}</option>
@@ -316,8 +428,8 @@ const NoteTemplatesPage: React.FC = () => {
 
           {filteredTemplates.length > 0 ? (
             <div className="space-y-4">
-              {filteredTemplates.map((template) => (
-                <div key={template.templateId} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
+              {filteredTemplates.map((template, index) => (
+                <div key={`${template.templateId}-${index}`} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-start gap-3">
                       <FileText className="w-6 h-6 text-content-secondary mt-1" />
@@ -330,6 +442,11 @@ const NoteTemplatesPage: React.FC = () => {
                           <span className={`px-2 py-1 rounded-md text-xs font-medium ${getCategoryBadge(template.category)}`}>
                             {t(`docNoteTemplates.category_${template.category}`).toUpperCase()}
                           </span>
+                          {template.builtIn && (
+                            <span className="px-2 py-1 rounded-md text-xs font-medium bg-surface-sunken text-content-muted">
+                              {t('docNoteTemplates.builtInBadge')}
+                            </span>
+                          )}
                           {!template.isActive && (
                             <span className="px-2 py-1 rounded-md text-xs font-medium bg-surface-sunken text-content-muted">
                               {t('docNoteTemplates.inactiveBadge')}
@@ -340,39 +457,58 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleDuplicateTemplate(template)}
-                        className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm"
+                        type="button"
+                        onClick={() => void handleUseTemplate(template)}
+                        className="px-3 py-2 bg-brand text-brand-fg rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 text-sm"
                       >
-                        <Copy className="w-4 h-4" />
-                        {t('docNoteTemplates.duplicateButton')}
+                        <FileText className="w-4 h-4" />
+                        {t('docNoteTemplates.useTemplate')}
                       </button>
-                      <button
-                        onClick={() => setSelectedTemplate(template)}
-                        className="px-3 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors flex items-center gap-2 text-sm"
-                      >
-                        <Edit className="w-4 h-4" />
-                        {t('docNoteTemplates.editButton')}
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTemplate(template.templateId)}
-                        className="px-3 py-2 bg-red-500 text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2 text-sm"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        {t('docNoteTemplates.deleteButton')}
-                      </button>
+                      {canCreate && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDuplicateTemplate(template)}
+                          className="px-3 py-2 bg-surface-sunken text-content border border-border rounded-lg hover:bg-surface transition-colors flex items-center gap-2 text-sm"
+                        >
+                          <Copy className="w-4 h-4" />
+                          {t('docNoteTemplates.duplicateButton')}
+                        </button>
+                      )}
+                      {canDeactivate(template) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeactivateTemplate(template.templateId)}
+                          className="px-3 py-2 bg-critical text-critical-fg rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 text-sm"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {t('docNoteTemplates.deleteButton')}
+                        </button>
+                      )}
                     </div>
                   </div>
 
+                  {renderedTemplate?.name === template.name && (
+                    <div className="mt-4 border border-border rounded-lg p-3 bg-surface-sunken">
+                      <p className="text-sm font-medium text-content mb-2">{t('docNoteTemplates.renderedDraft')}</p>
+                      {renderedTemplate.sections.map((section) => (
+                        <div key={section.title} className="mb-2">
+                          <p className="text-xs font-semibold uppercase text-content-secondary">{section.title}</p>
+                          <pre className="text-sm text-content-muted whitespace-pre-wrap font-sans">{section.content}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <p className="text-content-muted mb-4">{template.description}</p>
 
-                  <div className="flex items-center gap-4 text-sm text-content-muted mb-4">
+                  <div className="flex items-center gap-4 text-sm text-content-muted mb-4 min-h-[24px] py-1">
                     <div className="flex items-center gap-1">
                       <Clipboard className="w-4 h-4" />
                       <span>{t('docNoteTemplates.sectionsCount', { count: template.sections.length })}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <User className="w-4 h-4" />
-                      <span>{t('docNoteTemplates.createdByLine', { name: template.createdBy })}</span>
+                      <span>{t('docNoteTemplates.createdByLine', { name: staffName(template.createdBy) })}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <FileCheck className="w-4 h-4" />
@@ -396,8 +532,8 @@ const NoteTemplatesPage: React.FC = () => {
                   <div className="border-t border-border pt-4">
                     <div className="font-medium text-content-secondary mb-3">{t('docNoteTemplates.templateSectionsCount', { count: template.sections.length })}</div>
                     <div className="space-y-2">
-                      {template.sections.map((section) => (
-                        <div key={section.sectionId} className="bg-surface-sunken rounded p-3 border border-border">
+                      {template.sections.map((section, index) => (
+                        <div key={`${section.sectionId ?? 'section'}-${index}`} className="bg-surface-sunken rounded p-3 border border-border">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="font-medium text-content">{section.order}. {section.title}</span>
                             {section.required && (
@@ -425,6 +561,9 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Built-ins ship with the product and have no creation record;
+                      showing their dates rendered "Invalid Date" twice per card. */}
+                  {!template.builtIn && (
                   <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4 text-sm">
                     <div className="bg-notice-subtle rounded p-2">
                       <div className="flex items-center gap-1 text-notice-subtle-fg">
@@ -441,6 +580,7 @@ const NoteTemplatesPage: React.FC = () => {
                       <div className="text-ok-subtle-fg ml-5">{formatDate(template.lastModified)}</div>
                     </div>
                   </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -454,7 +594,7 @@ const NoteTemplatesPage: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'new' && (
+      {activeTab === 'new' && canCreate && (
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold text-content mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
 
@@ -470,7 +610,7 @@ const NoteTemplatesPage: React.FC = () => {
                   value={newTemplate.name}
                   onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
                   placeholder={t('docNoteTemplates.templateNamePh')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -481,7 +621,7 @@ const NoteTemplatesPage: React.FC = () => {
                   id="notetmpl-type"
                   value={newTemplate.type}
                   onChange={(e) => setNewTemplate({ ...newTemplate, type: e.target.value as TemplateType })}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="soap">{t('docNoteTemplates.type_soap')}</option>
                   <option value="history-physical">{t('docNoteTemplates.type_history-physical')}</option>
@@ -503,7 +643,7 @@ const NoteTemplatesPage: React.FC = () => {
                   id="notetmpl-category"
                   value={newTemplate.category}
                   onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value as TemplateCategory })}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="general">{t('docNoteTemplates.category_general')}</option>
                   <option value="emergency">{t('docNoteTemplates.category_emergency')}</option>
@@ -521,7 +661,7 @@ const NoteTemplatesPage: React.FC = () => {
                   value={newTemplate.tags?.join(', ')}
                   onChange={(e) => setNewTemplate({ ...newTemplate, tags: e.target.value.split(',').map(t => t.trim()) })}
                   placeholder={t('docNoteTemplates.tagsFieldPh')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -536,7 +676,7 @@ const NoteTemplatesPage: React.FC = () => {
                 onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
                 placeholder={t('docNoteTemplates.descriptionPh')}
                 rows={3}
-                className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
 
@@ -583,7 +723,7 @@ const NoteTemplatesPage: React.FC = () => {
                         value={newSection.title}
                         onChange={(e) => setNewSection({ ...newSection, title: e.target.value })}
                         placeholder={t('docNoteTemplates.sectionTitlePh')}
-                        className="w-full px-3 py-2 border border-border-strong rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-border-interactive rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
                     </div>
                     <div className="flex items-end">
@@ -607,7 +747,7 @@ const NoteTemplatesPage: React.FC = () => {
                       onChange={(e) => setNewSection({ ...newSection, content: e.target.value })}
                       placeholder={t('docNoteTemplates.sectionContentPh')}
                       rows={4}
-                      className="w-full px-3 py-2 border border-border-strong rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
+                      className="w-full px-3 py-2 border border-border-interactive rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
                     />
                   </div>
                   <button

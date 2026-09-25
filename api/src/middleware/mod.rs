@@ -12,18 +12,16 @@ pub mod authorized_user;
 pub mod encryption_policy;
 pub mod error_handling;
 pub mod idempotency;
+pub mod jwt_identity;
 pub mod metrics;
 pub mod rate_limit;
 pub mod security_headers;
+pub mod session_state;
 pub mod signature_auth;
 pub mod versioning;
 
-// Re-exports for convenience - allow unused as these are public API ready for use
-#[allow(unused_imports)]
-pub use authorized_user::{AuthorizedUser, AuthorizedUserError};
-#[allow(unused_imports)]
+// Re-exports the handlers use through `crate::middleware::...`. The two
+// middleware types are reached by their module paths in `main.rs`, so they are
+// not re-exported here.
+pub use authorized_user::AuthorizedUser;
 pub use error_handling::*;
-#[allow(unused_imports)]
-pub use rate_limit::RateLimitMiddleware;
-#[allow(unused_imports)]
-pub use signature_auth::{generate_auth_challenge, AuthChallenge, SignatureAuthMiddleware};

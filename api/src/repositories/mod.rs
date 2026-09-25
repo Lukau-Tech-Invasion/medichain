@@ -14,7 +14,7 @@
 //!                               ▼
 //! ┌─────────────────────────────────────────────────────────────┐
 //! │                   Repository Traits                         │
-//! │  (PatientRepository, AllergyRepository, etc.)              │
+//! │  (PatientRepository, MedicalRecordRepository, etc.)        │
 //! └─────────────────────────────┬───────────────────────────────┘
 //!                               │
 //!            ┌──────────────────┴──────────────────┐
@@ -37,6 +37,7 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod patient_search;
 pub mod traits;
 
 #[cfg(feature = "postgres")]
@@ -44,10 +45,28 @@ pub mod postgres;
 
 pub mod memory;
 
+#[cfg(test)]
+mod parity_contract;
+
 // Re-export commonly used items
 pub use traits::*;
 
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy)]
+pub enum PrescriptionEventTarget {
+    Dispense,
+    Verification,
+}
+
+pub struct PrescriptionMutation {
+    pub prescription_id: String,
+    pub guard_field: String,
+    pub expected_value: String,
+    pub record: JsonRecordEntity,
+    pub events: Vec<(PrescriptionEventTarget, JsonRecordEntity)>,
+    pub audit: AccessLogEntity,
+}
 
 /// Storage backend type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -80,9 +99,9 @@ pub struct RepositoryContainer {
     /// Connection pool, present only for the PostgreSQL backend. Used to run
     /// multi-step writes inside a single transaction (see `create_patient_with_nfc`).
     pub pool: Option<sqlx::PgPool>,
+    prescription_workflow_lock: Arc<tokio::sync::Mutex<()>>,
     // Phase 1 repositories
     pub patients: Arc<dyn PatientRepository>,
-    pub allergies: Arc<dyn AllergyRepository>,
     pub medical_records: Arc<dyn MedicalRecordRepository>,
     pub nfc_tags: Arc<dyn NfcTagRepository>,
     pub vital_signs: Arc<dyn VitalSignsRepository>,
@@ -109,7 +128,6 @@ pub struct RepositoryContainer {
     pub sepsis_assessments_repo: Arc<dyn SepsisAssessmentRepository>,
 
     // Phase 2: Clinical Documentation repositories
-    pub sample_history: Arc<dyn SampleHistoryRepository>,
     pub gcs_assessments: Arc<dyn GcsAssessmentRepository>,
     pub progress_notes: Arc<dyn ProgressNoteRepository>,
     pub history_physicals: Arc<dyn HistoryPhysicalRepository>,
@@ -124,9 +142,9 @@ pub struct RepositoryContainer {
     // Phase 3: Lab & Diagnostics repositories
     pub specimen_collections: Arc<dyn SpecimenCollectionRepository>,
     pub specimen_rejections: Arc<dyn SpecimenRejectionRepository>,
+    /// Recollection requests raised against rejected specimens (SCR-009b).
+    pub specimen_recollections: Arc<dyn SpecimenRecollectionRepository>,
     pub lab_submissions: Arc<dyn LabSubmissionRepository>,
-    pub lab_panels: Arc<dyn LabPanelRepository>,
-    pub lab_trends: Arc<dyn LabTrendRepository>,
     pub lab_qc_records: Arc<dyn LabQcRecordRepository>,
     pub critical_values: Arc<dyn CriticalValueRepository>,
 
@@ -145,13 +163,8 @@ pub struct RepositoryContainer {
     pub pathology_reports: Arc<dyn PathologyReportRepository>,
 
     // Phase 3: Blood Bank repositories
-    pub blood_type_screens: Arc<dyn BloodTypeScreenRepository>,
-    pub crossmatch_records: Arc<dyn CrossmatchRecordRepository>,
-    pub transfusion_records: Arc<dyn TransfusionRecordRepository>,
 
     // Phase 3: Pharmacy repositories
-    pub e_prescriptions: Arc<dyn EPrescriptionRepository>,
-    pub drug_interactions: Arc<dyn DrugInteractionRepository>,
     pub medication_reminders: Arc<dyn MedicationReminderRepository>,
     pub adherence_logs: Arc<dyn AdherenceLogRepository>,
 
@@ -178,58 +191,36 @@ pub struct RepositoryContainer {
     pub mci_records: Arc<dyn MciRecordRepository>,
     pub chain_of_custody: Arc<dyn ChainOfCustodyRepository>,
 
-    // Phase 7: Wearables & IoT repositories
-    pub wearable_devices: Arc<dyn WearableDeviceRepository>,
-    pub wearable_data: Arc<dyn WearableDataRepository>,
-    pub wearable_alerts: Arc<dyn WearableAlertRepository>,
-    pub wearable_integration_logs: Arc<dyn WearableIntegrationLogRepository>,
-
-    // Phase 8: Telehealth repositories
-    pub telehealth_sessions: Arc<dyn TelehealthSessionRepository>,
-    pub telehealth_notes: Arc<dyn TelehealthNoteRepository>,
-    pub remote_patient_monitoring: Arc<dyn RemotePatientMonitoringRepository>,
-    pub rpm_readings: Arc<dyn RpmReadingRepository>,
-
     // Phase 9: Clinical Decision Support repositories
     pub cds_alerts: Arc<dyn CdsAlertRepository>,
 
     // Phase 10: Insurance & Billing repositories
     pub insurance_records: Arc<dyn InsuranceRecordRepository>,
-    pub billing_codes: Arc<dyn BillingCodeRepository>,
-
-    // Phase 11: Family & Genetics repositories
-    pub family_medical_histories: Arc<dyn FamilyMedicalHistoryRepository>,
-    pub genetic_test_results: Arc<dyn GeneticTestResultRepository>,
 
     // Phase 12: Immunization repositories
     pub immunization_records: Arc<dyn ImmunizationRecordRepository>,
-    pub immunization_schedules: Arc<dyn ImmunizationScheduleRepository>,
-    pub vaccine_inventory: Arc<dyn VaccineInventoryRepository>,
-
-    // Phase 13: Death Records repositories
-    pub death_records: Arc<dyn DeathRecordRepository>,
-    pub organ_donation_records: Arc<dyn OrganDonationRecordRepository>,
 
     // Phase 14: Sync & Integration repositories
-    pub sync_operations: Arc<dyn SyncOperationRepository>,
     pub sync_conflicts: Arc<dyn SyncConflictRepository>,
-    pub external_id_mappings: Arc<dyn ExternalIdMappingRepository>,
 
     // Phase 15: Audit & Compliance repositories
-    pub compliance_reports: Arc<dyn ComplianceReportRepository>,
     pub data_retention_policies: Arc<dyn DataRetentionPolicyRepository>,
     pub retention_job_runs: Arc<dyn RetentionJobRunRepository>,
     pub consent_records: Arc<dyn ConsentRecordRepository>,
 
     // Phase 7 (Round 4): generic JSON-record feature domains
     pub language_preferences: Arc<dyn JsonRecordRepository>,
+    /// A provider's weekly working pattern and dated exceptions. Absent for a
+    /// provider means the default clinic grid, which the slots endpoint
+    /// reports as `slots_source: default_clinic_hours` rather than passing off
+    /// as a diary.
+    pub provider_schedules: Arc<dyn JsonRecordRepository>,
     pub eligibility_checks: Arc<dyn JsonRecordRepository>,
     pub satisfaction_surveys: Arc<dyn JsonRecordRepository>,
     pub symptom_sessions: Arc<dyn JsonRecordRepository>,
     pub family_groups: Arc<dyn JsonRecordRepository>,
     pub insurance_claims: Arc<dyn JsonRecordRepository>,
     pub insurance_cards: Arc<dyn JsonRecordRepository>,
-    pub autopsy_requests: Arc<dyn JsonRecordRepository>,
     pub autopsy_reports: Arc<dyn JsonRecordRepository>,
     pub sync_queue_items: Arc<dyn JsonRecordRepository>,
 
@@ -243,7 +234,6 @@ pub struct RepositoryContainer {
     // Round 6: shape-mismatch domains (JSON-record backed)
     pub e_prescriptions_v2: Arc<dyn JsonRecordRepository>,
     pub drug_interaction_checks: Arc<dyn JsonRecordRepository>,
-    pub lab_trend_results: Arc<dyn JsonRecordRepository>,
     pub lab_result_submissions: Arc<dyn JsonRecordRepository>,
 
     // Round 7: SOAP clinical notes (JSON-record backed)
@@ -264,13 +254,36 @@ pub struct RepositoryContainer {
     pub symptom_entries: Arc<dyn JsonRecordRepository>,
     pub barcode_scans: Arc<dyn JsonRecordRepository>,
 
+    /// Append-only laboratory instrument calibration runs. Calibration is not a
+    /// QC measurement: it establishes the instrument's measurement curve and
+    /// must remain traceable by calibrator lot after a restart.
+    pub lab_calibrations: Arc<dyn JsonRecordRepository>,
+
+    /// Clinician-authored note templates, shared across the facility and owned
+    /// by their author (`owner_id`). Deactivated, never deleted.
+    pub note_templates: Arc<dyn JsonRecordRepository>,
+    pub order_sets: Arc<dyn JsonRecordRepository>,
+    pub cds_rules: Arc<dyn JsonRecordRepository>,
+    /// Pharmacist allergy-dispensing decisions and prescriber queries.
+    pub pharmacy_decisions: Arc<dyn JsonRecordRepository>,
+    /// One clinician's barcode scanner preferences.
+    pub scanner_settings: Arc<dyn JsonRecordRepository>,
+    /// Staff profile pictures, keyed by wallet.
+    pub user_avatars: Arc<dyn JsonRecordRepository>,
+    /// When each user last read their notifications. One row per user.
+    pub notification_reads: Arc<dyn JsonRecordRepository>,
+
     // Final durability sweep (migration 20260811000002): the last of the
     // process-memory clinical maps. `used_emergency_tokens` is the spent-token
     // set behind one-time emergency access — losing it makes a redeemed token
     // replayable, so its durability is a security property.
     pub blood_type_screen_records: Arc<dyn JsonRecordRepository>,
     pub transfusion_event_records: Arc<dyn JsonRecordRepository>,
-    pub e_prescription_records: Arc<dyn JsonRecordRepository>,
+    /// Pharmacy dispensing events, including corrections (SCR-013).
+    /// Append-only by convention: a reversal adds an entry, never removes one.
+    pub dispense_events: Arc<dyn JsonRecordRepository>,
+    /// Append-only request/decision history for secondary dispensing checks.
+    pub prescription_verification_events: Arc<dyn JsonRecordRepository>,
     pub death_certificate_records: Arc<dyn JsonRecordRepository>,
     pub family_history_records: Arc<dyn JsonRecordRepository>,
     pub user_setting_records: Arc<dyn JsonRecordRepository>,
@@ -320,14 +333,101 @@ fn booking_conflict_error(provider_id: &str) -> RepositoryError {
     ))
 }
 
+async fn insert_prescription_event(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    target: PrescriptionEventTarget,
+    event: &JsonRecordEntity,
+) -> RepositoryResult<()> {
+    let sql = match target {
+        PrescriptionEventTarget::Dispense => {
+            "INSERT INTO dispense_events (id, owner_id, data, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at"
+        }
+        PrescriptionEventTarget::Verification => {
+            "INSERT INTO prescription_verification_events
+             (id, owner_id, data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at"
+        }
+    };
+    sqlx::query(sql)
+        .bind(&event.id)
+        .bind(&event.owner_id)
+        .bind(&event.data)
+        .bind(event.created_at)
+        .bind(event.updated_at)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn insert_access_log(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    log: &AccessLogEntity,
+) -> RepositoryResult<()> {
+    sqlx::query(
+        "INSERT INTO access_logs (
+            id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
+            action, access_reason, is_emergency_access, ip_address, user_agent,
+            blockchain_tx_hash, accessed_at, facility_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+    )
+    .bind(&log.id)
+    .bind(&log.accessor_id)
+    .bind(&log.accessor_role)
+    .bind(&log.patient_id)
+    .bind(&log.resource_type)
+    .bind(&log.resource_id)
+    .bind(&log.action)
+    .bind(&log.access_reason)
+    .bind(log.is_emergency_access)
+    .bind(&log.ip_address)
+    .bind(&log.user_agent)
+    .bind(&log.blockchain_tx_hash)
+    .bind(log.accessed_at)
+    .bind(&log.facility_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn apply_prescription_postgres(
+    pool: &sqlx::PgPool,
+    mutation: PrescriptionMutation,
+) -> RepositoryResult<Option<JsonRecordEntity>> {
+    let mut tx = pool.begin().await?;
+    let changed = sqlx::query_as::<_, JsonRecordEntity>(
+        "UPDATE e_prescription_v2_records
+         SET owner_id = $2, data = $3, updated_at = NOW()
+         WHERE id = $1 AND data #>> string_to_array($4, '.') = $5
+         RETURNING *",
+    )
+    .bind(&mutation.prescription_id)
+    .bind(&mutation.record.owner_id)
+    .bind(&mutation.record.data)
+    .bind(&mutation.guard_field)
+    .bind(&mutation.expected_value)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if changed.is_none() {
+        return Ok(None);
+    }
+    for (target, event) in &mutation.events {
+        insert_prescription_event(&mut tx, *target, event).await?;
+    }
+    insert_access_log(&mut tx, &mutation.audit).await?;
+    tx.commit().await?;
+    Ok(changed)
+}
+
 impl RepositoryContainer {
     /// Create a new repository container with memory backend
     pub fn new_memory() -> Self {
         Self {
             backend: StorageBackend::Memory,
             pool: None,
+            prescription_workflow_lock: Arc::new(tokio::sync::Mutex::new(())),
             patients: Arc::new(memory::MemoryPatientRepository::new()),
-            allergies: Arc::new(memory::MemoryAllergyRepository::new()),
             medical_records: Arc::new(memory::MemoryMedicalRecordRepository::new()),
             nfc_tags: Arc::new(memory::MemoryNfcTagRepository::new()),
             vital_signs: Arc::new(memory::MemoryVitalSignsRepository::new()),
@@ -347,7 +447,6 @@ impl RepositoryContainer {
             sepsis_assessments_repo: Arc::new(memory::MemorySepsisAssessmentRepository::new()),
 
             // Phase 2: Clinical Documentation repositories (memory)
-            sample_history: Arc::new(memory::MemorySampleHistoryRepository::new()),
             gcs_assessments: Arc::new(memory::MemoryGcsAssessmentRepository::new()),
             progress_notes: Arc::new(memory::MemoryProgressNoteRepository::new()),
             history_physicals: Arc::new(memory::MemoryHistoryPhysicalRepository::new()),
@@ -362,9 +461,8 @@ impl RepositoryContainer {
             // Phase 3: Lab & Diagnostics repositories (memory)
             specimen_collections: Arc::new(memory::MemorySpecimenCollectionRepository::new()),
             specimen_rejections: Arc::new(memory::MemorySpecimenRejectionRepository::new()),
+            specimen_recollections: Arc::new(memory::MemorySpecimenRecollectionRepository::new()),
             lab_submissions: Arc::new(memory::MemoryLabSubmissionRepository::new()),
-            lab_panels: Arc::new(memory::MemoryLabPanelRepository::new()),
-            lab_trends: Arc::new(memory::MemoryLabTrendRepository::new()),
             lab_qc_records: Arc::new(memory::MemoryLabQcRecordRepository::new()),
             critical_values: Arc::new(memory::MemoryCriticalValueRepository::new()),
 
@@ -383,13 +481,8 @@ impl RepositoryContainer {
             pathology_reports: Arc::new(memory::MemoryPathologyReportRepository::new()),
 
             // Phase 3: Blood Bank repositories (memory)
-            blood_type_screens: Arc::new(memory::MemoryBloodTypeScreenRepository::new()),
-            crossmatch_records: Arc::new(memory::MemoryCrossmatchRecordRepository::new()),
-            transfusion_records: Arc::new(memory::MemoryTransfusionRecordRepository::new()),
 
             // Phase 3: Pharmacy repositories (memory)
-            e_prescriptions: Arc::new(memory::MemoryEPrescriptionRepository::new()),
-            drug_interactions: Arc::new(memory::MemoryDrugInteractionRepository::new()),
             medication_reminders: Arc::new(memory::MemoryMedicationReminderRepository::new()),
             adherence_logs: Arc::new(memory::MemoryAdherenceLogRepository::new()),
 
@@ -416,62 +509,32 @@ impl RepositoryContainer {
             mci_records: Arc::new(memory::MemoryMciRecordRepository::new()),
             chain_of_custody: Arc::new(memory::MemoryChainOfCustodyRepository::new()),
 
-            // Phase 7: Wearables & IoT repositories (memory)
-            wearable_devices: Arc::new(memory::MemoryWearableDeviceRepository::new()),
-            wearable_data: Arc::new(memory::MemoryWearableDataRepository::new()),
-            wearable_alerts: Arc::new(memory::MemoryWearableAlertRepository::new()),
-            wearable_integration_logs: Arc::new(
-                memory::MemoryWearableIntegrationLogRepository::new(),
-            ),
-
-            // Phase 8: Telehealth repositories (memory)
-            telehealth_sessions: Arc::new(memory::MemoryTelehealthSessionRepository::new()),
-            telehealth_notes: Arc::new(memory::MemoryTelehealthNoteRepository::new()),
-            remote_patient_monitoring: Arc::new(
-                memory::MemoryRemotePatientMonitoringRepository::new(),
-            ),
-            rpm_readings: Arc::new(memory::MemoryRpmReadingRepository::new()),
-
             // Phase 9: Clinical Decision Support repositories (memory)
             cds_alerts: Arc::new(memory::MemoryCdsAlertRepository::new()),
 
             // Phase 10: Insurance & Billing repositories (memory)
             insurance_records: Arc::new(memory::MemoryInsuranceRecordRepository::new()),
-            billing_codes: Arc::new(memory::MemoryBillingCodeRepository::new()),
-
-            // Phase 11: Family & Genetics repositories (memory)
-            family_medical_histories: Arc::new(memory::MemoryFamilyMedicalHistoryRepository::new()),
-            genetic_test_results: Arc::new(memory::MemoryGeneticTestResultRepository::new()),
 
             // Phase 12: Immunization repositories (memory)
             immunization_records: Arc::new(memory::MemoryImmunizationRecordRepository::new()),
-            immunization_schedules: Arc::new(memory::MemoryImmunizationScheduleRepository::new()),
-            vaccine_inventory: Arc::new(memory::MemoryVaccineInventoryRepository::new()),
-
-            // Phase 13: Death Records repositories (memory)
-            death_records: Arc::new(memory::MemoryDeathRecordRepository::new()),
-            organ_donation_records: Arc::new(memory::MemoryOrganDonationRecordRepository::new()),
 
             // Phase 14: Sync & Integration repositories (memory)
-            sync_operations: Arc::new(memory::MemorySyncOperationRepository::new()),
             sync_conflicts: Arc::new(memory::MemorySyncConflictRepository::new()),
-            external_id_mappings: Arc::new(memory::MemoryExternalIdMappingRepository::new()),
 
             // Phase 15: Audit & Compliance repositories (memory)
-            compliance_reports: Arc::new(memory::MemoryComplianceReportRepository::new()),
             data_retention_policies: Arc::new(memory::MemoryDataRetentionPolicyRepository::new()),
             retention_job_runs: Arc::new(memory::MemoryRetentionJobRunRepository::new()),
             consent_records: Arc::new(memory::MemoryConsentRecordRepository::new()),
 
             // Phase 7 (Round 4): generic JSON-record feature domains (memory)
             language_preferences: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            provider_schedules: Arc::new(memory::MemoryJsonRecordRepository::new()),
             eligibility_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
             satisfaction_surveys: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_sessions: Arc::new(memory::MemoryJsonRecordRepository::new()),
             family_groups: Arc::new(memory::MemoryJsonRecordRepository::new()),
             insurance_claims: Arc::new(memory::MemoryJsonRecordRepository::new()),
             insurance_cards: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            autopsy_requests: Arc::new(memory::MemoryJsonRecordRepository::new()),
             autopsy_reports: Arc::new(memory::MemoryJsonRecordRepository::new()),
             sync_queue_items: Arc::new(memory::MemoryJsonRecordRepository::new()),
 
@@ -485,7 +548,6 @@ impl RepositoryContainer {
             // Round 6: shape-mismatch domains (memory)
             e_prescriptions_v2: Arc::new(memory::MemoryJsonRecordRepository::new()),
             drug_interaction_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            lab_trend_results: Arc::new(memory::MemoryJsonRecordRepository::new()),
             lab_result_submissions: Arc::new(memory::MemoryJsonRecordRepository::new()),
 
             // Round 7: SOAP clinical notes (memory)
@@ -502,13 +564,59 @@ impl RepositoryContainer {
             messages: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
             barcode_scans: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            lab_calibrations: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            note_templates: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            order_sets: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            cds_rules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            pharmacy_decisions: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            scanner_settings: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            user_avatars: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            notification_reads: Arc::new(memory::MemoryJsonRecordRepository::new()),
             blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            e_prescription_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            dispense_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            prescription_verification_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             death_certificate_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             family_history_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             user_setting_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             used_emergency_tokens: Arc::new(memory::MemoryJsonRecordRepository::new()),
+        }
+    }
+
+    /// Guard a prescription transition and persist its history/audit as one unit.
+    pub async fn apply_prescription_mutation(
+        &self,
+        mutation: PrescriptionMutation,
+    ) -> RepositoryResult<Option<JsonRecordEntity>> {
+        match &self.pool {
+            Some(pool) => apply_prescription_postgres(pool, mutation).await,
+            None => {
+                let _guard = self.prescription_workflow_lock.lock().await;
+                let changed = self
+                    .e_prescriptions_v2
+                    .replace_if_field_eq(
+                        &mutation.prescription_id,
+                        &mutation.guard_field,
+                        &mutation.expected_value,
+                        mutation.record,
+                    )
+                    .await?;
+                if changed.is_none() {
+                    return Ok(None);
+                }
+                for (target, event) in mutation.events {
+                    match target {
+                        PrescriptionEventTarget::Dispense => {
+                            self.dispense_events.create(event).await?;
+                        }
+                        PrescriptionEventTarget::Verification => {
+                            self.prescription_verification_events.create(event).await?;
+                        }
+                    }
+                }
+                self.access_logs.create(mutation.audit).await?;
+                Ok(changed)
+            }
         }
     }
 
@@ -542,7 +650,8 @@ impl RepositoryContainer {
              blood_type, phone_encrypted, email_encrypted, address_encrypted, \
              emergency_contact_name_encrypted, emergency_contact_phone_encrypted, \
              emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, \
-             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) ",
+             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, \
+             name_search_tokens, key_version) ",
         );
         patient_q.push_values([&patient], |mut b, p| {
             b.push_bind(&p.id)
@@ -567,13 +676,15 @@ impl RepositoryContainer {
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)
-                .push_bind(&p.profile_extras_encrypted);
+                .push_bind(&p.profile_extras_encrypted)
+                .push_bind(&p.name_search_tokens)
+                .push_bind(p.key_version);
         });
         patient_q.build().execute(&mut *tx).await?;
 
         let mut nfc_q: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
             "INSERT INTO nfc_tags (id, tag_uid, patient_id, tag_type, is_active, pin_hash, \
-             issued_at, expires_at, last_used_at, use_count, issued_by) ",
+             issued_at, expires_at, last_used_at, use_count, issued_by, status) ",
         );
         nfc_q.push_values([&nfc], |mut b, t| {
             b.push_bind(&t.id)
@@ -586,7 +697,8 @@ impl RepositoryContainer {
                 .push_bind(t.expires_at)
                 .push_bind(t.last_used_at)
                 .push_bind(t.use_count)
-                .push_bind(&t.issued_by);
+                .push_bind(&t.issued_by)
+                .push_bind(&t.status);
         });
         nfc_q.build().execute(&mut *tx).await?;
 
@@ -806,8 +918,8 @@ impl RepositoryContainer {
         Ok(Self {
             backend: StorageBackend::Postgres,
             pool: Some(pool.clone()),
+            prescription_workflow_lock: Arc::new(tokio::sync::Mutex::new(())),
             patients: Arc::new(postgres::PgPatientRepository::new(pool.clone())),
-            allergies: Arc::new(postgres::PgAllergyRepository::new(pool.clone())),
             medical_records: Arc::new(postgres::PgMedicalRecordRepository::new(pool.clone())),
             nfc_tags: Arc::new(postgres::PgNfcTagRepository::new(pool.clone())),
             vital_signs: Arc::new(postgres::PgVitalSignsRepository::new(pool.clone())),
@@ -837,7 +949,6 @@ impl RepositoryContainer {
             )),
 
             // Phase 2: Clinical Documentation repositories (PostgreSQL)
-            sample_history: Arc::new(postgres::PgSampleHistoryRepository::new(pool.clone())),
             gcs_assessments: Arc::new(postgres::PgGcsAssessmentRepository::new(pool.clone())),
             progress_notes: Arc::new(postgres::PgProgressNoteRepository::new(pool.clone())),
             history_physicals: Arc::new(postgres::PgHistoryPhysicalRepository::new(pool.clone())),
@@ -858,9 +969,10 @@ impl RepositoryContainer {
             specimen_rejections: Arc::new(postgres::PgSpecimenRejectionRepository::new(
                 pool.clone(),
             )),
+            specimen_recollections: Arc::new(postgres::PgSpecimenRecollectionRepository::new(
+                pool.clone(),
+            )),
             lab_submissions: Arc::new(postgres::PgLabSubmissionRepository::new(pool.clone())),
-            lab_panels: Arc::new(postgres::PgLabPanelRepository::new(pool.clone())),
-            lab_trends: Arc::new(postgres::PgLabTrendRepository::new(pool.clone())),
             lab_qc_records: Arc::new(postgres::PgLabQcRecordRepository::new(pool.clone())),
             critical_values: Arc::new(postgres::PgCriticalValueRepository::new(pool.clone())),
 
@@ -881,15 +993,8 @@ impl RepositoryContainer {
             pathology_reports: Arc::new(postgres::PgPathologyReportRepository::new(pool.clone())),
 
             // Phase 3: Blood Bank repositories (PostgreSQL)
-            blood_type_screens: Arc::new(postgres::PgBloodTypeScreenRepository::new(pool.clone())),
-            crossmatch_records: Arc::new(postgres::PgCrossmatchRecordRepository::new(pool.clone())),
-            transfusion_records: Arc::new(postgres::PgTransfusionRecordRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 3: Pharmacy repositories (PostgreSQL)
-            e_prescriptions: Arc::new(postgres::PgEPrescriptionRepository::new(pool.clone())),
-            drug_interactions: Arc::new(postgres::PgDrugInteractionRepository::new(pool.clone())),
             medication_reminders: Arc::new(postgres::PgMedicationReminderRepository::new(
                 pool.clone(),
             )),
@@ -930,69 +1035,28 @@ impl RepositoryContainer {
             mci_records: Arc::new(postgres::PgMciRecordRepository::new(pool.clone())),
             chain_of_custody: Arc::new(postgres::PgChainOfCustodyRepository::new(pool.clone())),
 
-            // Phase 7: Wearables & IoT repositories (PostgreSQL)
-            wearable_devices: Arc::new(postgres::PgWearableDeviceRepository::new(pool.clone())),
-            wearable_data: Arc::new(postgres::PgWearableDataRepository::new(pool.clone())),
-            wearable_alerts: Arc::new(postgres::PgWearableAlertRepository::new(pool.clone())),
-            wearable_integration_logs: Arc::new(postgres::PgWearableIntegrationLogRepository::new(
-                pool.clone(),
-            )),
-
-            // Phase 8: Telehealth repositories (PostgreSQL)
-            telehealth_sessions: Arc::new(postgres::PgTelehealthSessionRepository::new(
-                pool.clone(),
-            )),
-            telehealth_notes: Arc::new(postgres::PgTelehealthNoteRepository::new(pool.clone())),
-            remote_patient_monitoring: Arc::new(
-                postgres::PgRemotePatientMonitoringRepository::new(pool.clone()),
-            ),
-            rpm_readings: Arc::new(postgres::PgRpmReadingRepository::new(pool.clone())),
-
             // Phase 9: Clinical Decision Support repositories (PostgreSQL)
             cds_alerts: Arc::new(postgres::PgCdsAlertRepository::new(pool.clone())),
 
             // Phase 10: Insurance & Billing repositories (PostgreSQL)
             insurance_records: Arc::new(postgres::PgInsuranceRecordRepository::new(pool.clone())),
-            billing_codes: Arc::new(postgres::PgBillingCodeRepository::new(pool.clone())),
-
-            // Phase 11: Family & Genetics repositories (PostgreSQL)
-            family_medical_histories: Arc::new(postgres::PgFamilyMedicalHistoryRepository::new(
-                pool.clone(),
-            )),
-            genetic_test_results: Arc::new(postgres::PgGeneticTestResultRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 12: Immunization repositories (PostgreSQL)
             immunization_records: Arc::new(postgres::PgImmunizationRecordRepository::new(
                 pool.clone(),
             )),
-            immunization_schedules: Arc::new(postgres::PgImmunizationScheduleRepository::new(
-                pool.clone(),
-            )),
-            vaccine_inventory: Arc::new(postgres::PgVaccineInventoryRepository::new(pool.clone())),
-
-            // Phase 13: Death Records repositories (PostgreSQL)
-            death_records: Arc::new(postgres::PgDeathRecordRepository::new(pool.clone())),
-            organ_donation_records: Arc::new(postgres::PgOrganDonationRecordRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 14: Sync & Integration repositories (PostgreSQL)
-            sync_operations: Arc::new(postgres::PgSyncOperationRepository::new(pool.clone())),
             sync_conflicts: Arc::new(postgres::PgSyncConflictRepository::new(pool.clone())),
-            external_id_mappings: Arc::new(postgres::PgExternalIdMappingRepository::new(
-                pool.clone(),
-            )),
 
             // Phase 15: Audit & Compliance repositories (PostgreSQL)
-            compliance_reports: Arc::new(postgres::PgComplianceReportRepository::new(pool.clone())),
             data_retention_policies: Arc::new(postgres::PgDataRetentionPolicyRepository::new(
                 pool.clone(),
             )),
             retention_job_runs: Arc::new(postgres::PgRetentionJobRunRepository::new(pool.clone())),
 
             // Phase 7 (Round 4): generic JSON-record feature domains (PostgreSQL)
+            provider_schedules: Arc::new(postgres::PgProviderScheduleRepository::new(pool.clone())),
             language_preferences: Arc::new(postgres::PgLanguagePreferenceRepository::new(
                 pool.clone(),
             )),
@@ -1004,7 +1068,6 @@ impl RepositoryContainer {
             family_groups: Arc::new(postgres::PgFamilyGroupRepository::new(pool.clone())),
             insurance_claims: Arc::new(postgres::PgInsuranceClaimRepository::new(pool.clone())),
             insurance_cards: Arc::new(postgres::PgInsuranceCardRepository::new(pool.clone())),
-            autopsy_requests: Arc::new(postgres::PgAutopsyRequestRepository::new(pool.clone())),
             autopsy_reports: Arc::new(postgres::PgAutopsyReportRepository::new(pool.clone())),
             sync_queue_items: Arc::new(postgres::PgSyncQueueItemRepository::new(pool.clone())),
 
@@ -1030,7 +1093,6 @@ impl RepositoryContainer {
             drug_interaction_checks: Arc::new(postgres::PgDrugInteractionCheckRepository::new(
                 pool.clone(),
             )),
-            lab_trend_results: Arc::new(postgres::PgLabTrendResultRepository::new(pool.clone())),
             lab_result_submissions: Arc::new(postgres::PgLabResultSubmissionRepository::new(
                 pool.clone(),
             )),
@@ -1051,15 +1113,24 @@ impl RepositoryContainer {
             messages: Arc::new(postgres::PgMessageRepository::new(pool.clone())),
             symptom_entries: Arc::new(postgres::PgSymptomEntryRepository::new(pool.clone())),
             barcode_scans: Arc::new(postgres::PgBarcodeScanRepository::new(pool.clone())),
+            lab_calibrations: Arc::new(postgres::PgLabCalibrationRepository::new(pool.clone())),
+            note_templates: Arc::new(postgres::PgNoteTemplateRepository::new(pool.clone())),
+            order_sets: Arc::new(postgres::PgOrderSetRepository::new(pool.clone())),
+            cds_rules: Arc::new(postgres::PgCdsRuleRepository::new(pool.clone())),
+            pharmacy_decisions: Arc::new(postgres::PgPharmacyDecisionRepository::new(pool.clone())),
+            scanner_settings: Arc::new(postgres::PgScannerSettingsRepository::new(pool.clone())),
+            user_avatars: Arc::new(postgres::PgUserAvatarRepository::new(pool.clone())),
+            notification_reads: Arc::new(postgres::PgNotificationReadRepository::new(pool.clone())),
             blood_type_screen_records: Arc::new(postgres::PgBloodTypeScreenRecordRepository::new(
                 pool.clone(),
             )),
             transfusion_event_records: Arc::new(postgres::PgTransfusionEventRecordRepository::new(
                 pool.clone(),
             )),
-            e_prescription_records: Arc::new(postgres::PgEPrescriptionRecordRepository::new(
-                pool.clone(),
-            )),
+            dispense_events: Arc::new(postgres::PgDispenseEventRepository::new(pool.clone())),
+            prescription_verification_events: Arc::new(
+                postgres::PgPrescriptionVerificationEventRepository::new(pool.clone()),
+            ),
             death_certificate_records: Arc::new(postgres::PgDeathCertificateRecordRepository::new(
                 pool.clone(),
             )),

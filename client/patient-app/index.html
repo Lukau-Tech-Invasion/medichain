@@ -2,8 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/medichain-icon.svg" />
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%medichain-icon.svg" />
+    <link rel="manifest" href="%BASE_URL%manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="MediChain Patient Portal - Access your medical records securely" />
     <meta name="theme-color" content="#10b981" />
@@ -17,6 +17,34 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     
     <title>MediChain Patient Portal</title>
+    <script>
+      // Applied before first paint, deliberately inline and blocking.
+      //
+      // React cannot do this: by the time a store has rehydrated and an effect
+      // has run, the light theme has already been painted. That is the flash of
+      // white every dark-mode user sees, and worse, it is why the theme
+      // sometimes appeared not to apply at all -- zustand's `persist` restores
+      // the preference AFTER the first render, so an initializer that ran early
+      // applied the default and nothing re-applied the restored value.
+      //
+      // `color-scheme` matters as much as the class: without it the browser
+      // paints form controls, scrollbars and autofill from the light palette,
+      // so a dark page still shows a white input with white text in it.
+      (function () {
+        try {
+          var stored = localStorage.getItem('medichain-theme-preference');
+          var dark =
+            stored === 'dark' ||
+            ((!stored || stored === 'system') &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        } catch (e) {
+          /* A blocked storage API must not stop the page rendering. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
@@ -25,7 +53,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          navigator.serviceWorker.register('%BASE_URL%sw.js?v=v3')
             .then(reg => console.log('SW registered:', reg.scope))
             .catch(err => console.log('SW failed:', err));
         });

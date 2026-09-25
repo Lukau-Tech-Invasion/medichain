@@ -14,11 +14,19 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
-  listIntakeOutput,
   createIntakeOutput,
+  getApiClient,
+  listIntakeOutput,
   useTranslation,
+  clickable,
+  useScoringCatalog,
+  fluidBalanceBand,
+  Input,
+  useValidatedForm,
+  intakeOutputSchema,
+  getPatients,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -46,6 +54,13 @@ interface IOEntry {
   recordedBy: string;
 }
 
+/** A stored intake/output entry: `timestamp` may be the write time or the
+ *  time the nurse recorded it, depending on which writer produced the row. */
+type RawIOEntry = Omit<IOEntry, 'timestamp'> & {
+  timestamp?: string | number | Date;
+  recorded_at?: string;
+};
+
 interface PatientIO {
   patientId: string;
   patientName: string;
@@ -57,6 +72,15 @@ interface PatientIO {
   netBalance: number;
   alerts: string[];
 }
+
+/** Build the exact trend table the clinician sees; CSV values are quoted. */
+export const intakeOutputTrendCsv = (date: string, rows: PatientIO[]) => {
+  const quote = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  return [
+    ['Date', 'Patient', 'Patient ID', 'Room', 'Intake (mL)', 'Output (mL)', 'Balance (mL)'],
+    ...rows.map(row => [date, row.patientName, row.patientId, row.room, row.totalIntake24h, row.totalOutput24h, row.netBalance]),
+  ].map(row => row.map(quote).join(',')).join('\r\n');
+};
 
 /** One stored intake/output record, as the API returns it. */
 interface IoRecordRow {
@@ -112,20 +136,32 @@ function toPatientIO(
   };
 }
 
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type IoPayload = { entries?: Record<string, unknown>[]; intake?: unknown; output?: unknown };
+
 const IntakeOutputPage: React.FC = () => {
   const { t } = useTranslation();
+  const { catalog } = useScoringCatalog();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
   const [patients, setPatients] = useState<PatientIO[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientIO | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [_showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState<'intake' | 'output'>('intake');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
 
   const [newEntry, setNewEntry] = useState({
     type: 'intake' as 'intake' | 'output',
@@ -135,6 +171,16 @@ const IntakeOutputPage: React.FC = () => {
     source: '',
     notes: ''
   });
+
+  const exportTrendCsv = () => {
+    const blob = new Blob([intakeOutputTrendCsv(selectedDate, patients)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `intake-output-${selectedDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     const fetchIntakeOutput = async () => {
@@ -147,15 +193,12 @@ const IntakeOutputPage: React.FC = () => {
         // The ward list is the patient roster with each patient's fluid record
         // folded in — not the raw io_records rows, which carry no patient name
         // and left every card rendering the untranslated `{{mrn}}` placeholder.
-        const [rosterResponse, records] = await Promise.all([
-          fetch(apiUrl('/api/patients?limit=100'), {
-            headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
-          }).then(r => (r.ok ? r.json() : { data: [] })),
+        const [roster, records] = await Promise.all([
+          getPatients({ limit: 100 }),
           listIntakeOutput().catch(() => []),
         ]);
 
         const rows = (Array.isArray(records) ? records : []) as unknown as IoRecordRow[];
-        const roster = (rosterResponse.data || []) as Array<{ patient_id: string; full_name: string }>;
         setPatients(roster.map(person => toPatientIO(person, rows)));
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
@@ -166,7 +209,7 @@ const IntakeOutputPage: React.FC = () => {
     };
     
     fetchIntakeOutput();
-  }, [user]);
+  }, [user, t]);
 
   // Fetch detailed I/O for selected patient/date
   useEffect(() => {
@@ -179,35 +222,27 @@ const IntakeOutputPage: React.FC = () => {
         // 3rd segments (`IO-{patient_id}-{date}`) and ignores the middle, so the
         // shift goes in the middle slot and the date must be last — sending
         // (patient, date, shift) put the shift where the date belongs.
-        const response = await fetch(apiUrl(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && (data.entries || data.intake || data.output)) {
-            // Update the selected patient's entries with fresh data
-            const rawEntries = Array.isArray(data.entries)
-              ? data.entries
-              : [
-                  ...(Array.isArray(data.intake) ? data.intake : []),
-                  ...(Array.isArray(data.output) ? data.output : []),
-                ];
-            const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
-              ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-            }));
-            setSelectedPatient(prev => prev ? { ...prev, entries } : null);
-          }
+        const data = await getApiClient().get<IoPayload>(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`);
+        if (data && (data.entries || data.intake || data.output)) {
+          // Update the selected patient's entries with fresh data
+          const rawEntries = Array.isArray(data.entries)
+            ? data.entries
+            : [
+                ...(Array.isArray(data.intake) ? data.intake : []),
+                ...(Array.isArray(data.output) ? data.output : []),
+              ];
+          const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
+            ...e,
+            timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
+          }));
+          setSelectedPatient(prev => prev ? { ...prev, entries } : null);
         }
       } catch (err) {
         console.error('Failed to fetch I/O detail:', err);
       }
     };
     fetchDetailedIO();
-  }, [selectedPatient?.patientId, selectedDate, user]);
+  }, [selectedPatient?.patientId, selectedDate, user, selectedPatient]);
 
   const getIntakeCategories = (): IntakeType[] => ['oral', 'iv', 'tube-feeding', 'blood-products', 'other-intake'];
   const getOutputCategories = (): OutputType[] => ['urine', 'stool', 'emesis', 'drainage', 'blood-loss', 'other-output'];
@@ -244,11 +279,37 @@ const IntakeOutputPage: React.FC = () => {
     return colors[cat] || 'bg-surface-sunken text-content-secondary';
   };
 
-  const getBalanceStatus = (balance: number): { color: string; icon: React.ReactNode; label: string } => {
-    if (balance > 1000) return { color: 'text-critical-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
-    if (balance > 500) return { color: 'text-caution-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
-    if (balance < -500) return { color: 'text-notice-subtle-fg', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
-    return { color: 'text-ok-subtle-fg', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
+  // The band comes from `GET /api/clinical/scoring/catalog`, not from literals
+  // here. `> 1000`, `> 500` and `< -500` are ward policy — a patient running a
+  // litre positive is a patient being fluid-overloaded — and policy in a
+  // component cannot be changed without a front-end deploy.
+  //
+  // `surface` travels with `color` because the two have to name the same band.
+  // The cards used to pick their background from their own `> 500` / `< -500`
+  // literals while the text came from the catalog — a second copy of the ward
+  // policy this comment says must not live in a component, and one that
+  // disagreed with the first whenever the catalog had not loaded. The visible
+  // result was a green "balanced" card carrying grey placeholder text at 3.59:1
+  // against it, which is both below WCAG AA and a claim the page had no band to
+  // make.
+  const getBalanceStatus = (
+    balance: number
+  ): { color: string; surface: string; icon: React.ReactNode; label: string } => {
+    switch (fluidBalanceBand(balance, catalog)) {
+      case 'positive_high':
+        return { color: 'text-critical-subtle-fg', surface: 'bg-critical-subtle', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
+      case 'positive':
+        return { color: 'text-caution-subtle-fg', surface: 'bg-caution-subtle', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
+      case 'negative':
+        return { color: 'text-notice-subtle-fg', surface: 'bg-notice-subtle', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
+      case 'balanced':
+        return { color: 'text-ok-subtle-fg', surface: 'bg-ok-subtle', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
+      default:
+        // Catalog not loaded: no band, so no colour, no background and no claim
+        // about it. A neutral surface is the honest one — a green card is a
+        // statement that this patient's fluid balance is fine.
+        return { color: 'text-content-muted', surface: 'bg-surface-sunken', icon: <CheckCircle className="w-4 h-4" />, label: '—' };
+    }
   };
 
   // `patientName`, `mrn` and `room` are all optional in practice — a patient
@@ -262,9 +323,19 @@ const IntakeOutputPage: React.FC = () => {
     (p.room ?? '').toLowerCase().includes(q)
   );
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(intakeOutputSchema);
+
   const handleAddEntry = async () => {
-    if (!selectedPatient || newEntry.amount <= 0) {
-      showWarning(t('docIntakeOutput.warningValidAmount'));
+    // Selecting a patient is a precondition for the chart, not a field error.
+    if (!selectedPatient) {
+      showError(t('docIntakeOutput.errorValidAmount'));
+      return;
+    }
+    // The amount was checked as `<= 0` and reported in a toast. It now carries
+    // an upper bound too: a stray zero turning 250 into 2500 moves a running
+    // fluid balance by two litres, and that total drives resuscitation and
+    // diuresis decisions.
+    if (!validate(newEntry)) {
       return;
     }
 
@@ -284,28 +355,29 @@ const IntakeOutputPage: React.FC = () => {
       // Refresh list
       const data = await listIntakeOutput();
       if (Array.isArray(data)) {
-        setPatients(data.map((p: any) => ({
-          ...p,
-          entries: (p.entries || []).map((e: any) => ({
+        setPatients(data.map((p) => ({
+          ...(p as unknown as PatientIO),
+          // `timestamp` on a stored entry may be the write time or the time the
+          // nurse recorded it; the row carries whichever the writer set.
+          entries: (((p.entries ?? []) as RawIOEntry[])).map((e) => ({
             ...e,
-            timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-          }))
-        })));
+            timestamp: new Date(e.timestamp || e.recorded_at || Date.now()),
+          })),
+        })) as unknown as PatientIO[]);
         
         // Update selected patient too
         const updatedSelected = (data as unknown as NonNullable<typeof selectedPatient>[]).find(p => p.patientId === selectedPatient.patientId);
         if (updatedSelected) {
           setSelectedPatient({
             ...updatedSelected,
-            entries: (updatedSelected.entries || []).map((e: any) => ({
+            entries: ((updatedSelected.entries || []) as unknown as RawIOEntry[]).map((e) => ({
               ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-            }))
+              timestamp: new Date(e.timestamp || e.recorded_at || Date.now()),
+            })) as typeof updatedSelected.entries
           });
         }
       }
 
-      setShowEntryModal(false);
       setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
     } catch (err) {
       console.error('Error recording I/O:', err);
@@ -318,12 +390,12 @@ const IntakeOutputPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Droplets className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docIntakeOutput.title')}</h1>
         </div>
-        <p className="text-cyan-100">{t('docIntakeOutput.subtitle')}</p>
+        <p className="text-white">{t('docIntakeOutput.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -337,10 +409,10 @@ const IntakeOutputPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -388,7 +460,7 @@ const IntakeOutputPage: React.FC = () => {
                     <div
                       key={patient.patientId ?? `p-${pIdx}`}
                       className="bg-surface rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => setSelectedPatient(patient)}
+                      {...clickable(() => setSelectedPatient(patient))}
                     >
                       <div className="p-6">
                         <div className="flex items-start justify-between mb-4">
@@ -411,7 +483,7 @@ const IntakeOutputPage: React.FC = () => {
                           <span className="text-xs font-medium">{t('docIntakeOutput.intakeLabel')}</span>
                         </div>
                         <p className="text-xl font-bold text-notice-subtle-fg">{patient.totalIntake24h}</p>
-                        <p className="text-xs text-blue-500">{t('docIntakeOutput.mlPer24h')}</p>
+                        <p className="text-xs text-notice-subtle-fg">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
                       <div className="bg-caution-subtle rounded-lg p-3 text-center">
                         <div className="flex items-center justify-center gap-1 text-caution-subtle-fg mb-1">
@@ -419,9 +491,9 @@ const IntakeOutputPage: React.FC = () => {
                           <span className="text-xs font-medium">{t('docIntakeOutput.outputLabel')}</span>
                         </div>
                         <p className="text-xl font-bold text-caution-subtle-fg">{patient.totalOutput24h}</p>
-                        <p className="text-xs text-amber-500">{t('docIntakeOutput.mlPer24h')}</p>
+                        <p className="text-xs text-caution-subtle-fg">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
-                      <div className={`rounded-lg p-3 text-center ${patient.netBalance > 500 ? 'bg-critical-subtle' : patient.netBalance < -500 ? 'bg-notice-subtle' : 'bg-ok-subtle'}`}>
+                      <div className={`rounded-lg p-3 text-center ${balanceStatus.surface}`}>
                         <div className={`flex items-center justify-center gap-1 mb-1 ${balanceStatus.color}`}>
                           {balanceStatus.icon}
                           <span className="text-xs font-medium">{t('docIntakeOutput.balanceLabel')}</span>
@@ -461,15 +533,13 @@ const IntakeOutputPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="io-patient" className="block text-sm font-medium mb-1">{t('docIntakeOutput.patientRequired')} *</label>
-                <select id="io-patient" className="w-full border rounded-lg px-3 py-2"
+                <PatientSelect
+                  id="io-patient"
+                  label={t('docIntakeOutput.patientRequired')}
+                  required
                   value={selectedPatient?.patientId || ''}
-                  onChange={(e) => setSelectedPatient(patients.find(p => p.patientId === e.target.value) || null)}>
-                  <option value="">{t('docIntakeOutput.selectPatientPh')}</option>
-                  {patients.map(p => (
-                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.patientId}</option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setSelectedPatient(patients.find(p => p.patientId === selectedPatientId) || null)}
+                />
               </div>
 
               <div>
@@ -511,17 +581,20 @@ const IntakeOutputPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="io-amount" className="block text-sm font-medium mb-1">{t('docIntakeOutput.amountRequired')} *</label>
-                  <input
-                    id="io-amount"
-                    type="number"
-                    value={newEntry.amount || ''}
-                    onChange={(e) => setNewEntry({ ...newEntry, amount: parseInt(e.target.value) || 0 })}
-                    className="w-full border rounded-lg px-3 py-2"
-                    placeholder="0"
-                  />
-                </div>
+                <Input
+                  id="io-amount"
+                  type="number"
+                  label={t('docIntakeOutput.amountRequired')}
+                  value={newEntry.amount || ''}
+                  onChange={(e) => {
+                    clearField('amount');
+                    setNewEntry({ ...newEntry, amount: parseInt(e.target.value) || 0 });
+                  }}
+                  onBlur={() => validateField('amount', newEntry)}
+                  error={errors.amount}
+                  placeholder="0"
+                  required
+                />
                 <div>
                   <label htmlFor="io-unit" className="block text-sm font-medium mb-1">{t('docIntakeOutput.unitLabel')}</label>
                   <select
@@ -567,7 +640,7 @@ const IntakeOutputPage: React.FC = () => {
                 onClick={handleAddEntry}
                 disabled={isSubmitting}
                 className={`w-full py-3 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
-                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'
+                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-700 hover:bg-cyan-800'
                 }`}
               >
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
@@ -586,8 +659,8 @@ const IntakeOutputPage: React.FC = () => {
               <h2 className="text-lg font-semibold">{t('docIntakeOutput.ioTrendsHeading')}</h2>
               <div className="flex gap-2">
                 <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
-                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
-                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={exportTrendCsv} aria-label={t('docIntakeOutput.exportTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
+                <button type="button" onClick={() => window.print()} aria-label={t('docIntakeOutput.printTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
               </div>
             </div>
 
@@ -641,12 +714,6 @@ const IntakeOutputPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setShowEntryModal(true); }}
-                  className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-sm font-medium flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" /> {t('docIntakeOutput.addEntryButton')}
-                </button>
                 <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
@@ -662,12 +729,17 @@ const IntakeOutputPage: React.FC = () => {
                   <p className="text-2xl font-bold text-caution-subtle-fg">{selectedPatient.totalOutput24h}</p>
                   <p className="text-sm text-caution-subtle-fg">{t('docIntakeOutput.totalOutput24h')}</p>
                 </div>
-                <div className={`rounded-lg p-4 text-center ${selectedPatient.netBalance > 500 ? 'bg-critical-subtle' : 'bg-ok-subtle'}`}>
-                  <p className={`text-2xl font-bold ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
-                  </p>
-                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
-                </div>
+                {(() => {
+                  const detail = getBalanceStatus(selectedPatient.netBalance);
+                  return (
+                    <div className={`rounded-lg p-4 text-center ${detail.surface}`}>
+                      <p className={`text-2xl font-bold ${detail.color}`}>
+                        {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
+                      </p>
+                      <p className={`text-sm ${detail.color}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Entries Table */}

@@ -348,6 +348,13 @@ export async function getAllCachedItems(): Promise<CachedDataItem[]> {
   return getAllItems<CachedDataItem>(STORES.CACHED_DATA);
 }
 
+/** Remove cached data for one displayed category without touching other records. */
+export async function clearCachedDataByCategory(category: string): Promise<number> {
+  const items = await getByIndex<CachedDataItem>(STORES.CACHED_DATA, 'category', category);
+  await Promise.all(items.map((item) => deleteItem(STORES.CACHED_DATA, item.id)));
+  return items.length;
+}
+
 /**
  * Clear expired cache entries
  */
@@ -412,13 +419,3 @@ export async function getStorageInfo(): Promise<{
   };
 }
 
-/**
- * Close database connection
- */
-export function closeDatabase(): void {
-  if (dbInstance) {
-    dbInstance.close();
-    dbInstance = null;
-    console.log('[IndexedDB] Database closed');
-  }
-}

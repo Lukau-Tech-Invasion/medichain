@@ -8,7 +8,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres};
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::repositories::traits::{
     AccessGrantEntity, AccessRequestEntity, PatientAccessRepository, RepositoryResult,
@@ -31,6 +31,35 @@ const REQUEST_COLUMNS: &str = "id, patient_id, provider_id, provider_name, provi
 const GRANT_COLUMNS: &str = "id, patient_id, provider_id, provider_name, provider_role, \
     organization, access_type, granted_at, expires_at, status, last_accessed, access_count, \
     source_request_id";
+
+async fn insert_audit_event(
+    tx: &mut Transaction<'_, Postgres>,
+    event: &crate::audit_outbox::AuditOutboxEvent,
+) -> RepositoryResult<()> {
+    sqlx::query(
+        "INSERT INTO audit_outbox_events (
+            id, event_type, aggregate_type, aggregate_id, payload_hash,
+            payload, occurred_at, delivered_at, delivery_attempts, last_error
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(&event.id)
+    .bind(&event.event_type)
+    .bind(&event.aggregate_type)
+    .bind(&event.aggregate_id)
+    .bind(&event.payload_hash)
+    .bind(&event.payload)
+    .bind(event.occurred_at)
+    .bind(event.delivered_at)
+    .bind(i32::try_from(event.delivery_attempts).map_err(|_| {
+        crate::repositories::traits::RepositoryError::Validation(
+            "delivery attempt count exceeds PostgreSQL INTEGER".into(),
+        )
+    })?)
+    .bind(&event.last_error)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
 
 #[async_trait]
 impl PatientAccessRepository for PgPatientAccessRepository {
@@ -57,6 +86,36 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         .fetch_one(&self.pool)
         .await?;
 
+        Ok(result)
+    }
+
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
+            "INSERT INTO patient_access_requests
+                (id, patient_id, provider_id, provider_name, provider_role, organization,
+                 requested_at, reason, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING {REQUEST_COLUMNS}"
+        ))
+        .bind(&request.id)
+        .bind(&request.patient_id)
+        .bind(&request.provider_id)
+        .bind(&request.provider_name)
+        .bind(&request.provider_role)
+        .bind(&request.organization)
+        .bind(request.requested_at)
+        .bind(&request.reason)
+        .bind(&request.status)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(result)
     }
 
@@ -138,6 +197,51 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         Ok(Some((decided, stored)))
     }
 
+    async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>> {
+        let mut tx = self.pool.begin().await?;
+        let decided = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
+            "UPDATE patient_access_requests SET status = 'approved'
+             WHERE id = $1 AND status = 'pending' RETURNING {REQUEST_COLUMNS}"
+        ))
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(decided) = decided else {
+            return Ok(None);
+        };
+        let stored = sqlx::query_as::<Postgres, AccessGrantEntity>(&format!(
+            "INSERT INTO patient_access_grants
+                (id, patient_id, provider_id, provider_name, provider_role, organization,
+                 access_type, granted_at, expires_at, status, last_accessed, access_count,
+                 source_request_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             RETURNING {GRANT_COLUMNS}"
+        ))
+        .bind(&grant.id)
+        .bind(&grant.patient_id)
+        .bind(&grant.provider_id)
+        .bind(&grant.provider_name)
+        .bind(&grant.provider_role)
+        .bind(&grant.organization)
+        .bind(&grant.access_type)
+        .bind(grant.granted_at)
+        .bind(grant.expires_at)
+        .bind(&grant.status)
+        .bind(grant.last_accessed)
+        .bind(grant.access_count)
+        .bind(&grant.source_request_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
+        Ok(Some((decided, stored)))
+    }
+
     async fn deny_request(
         &self,
         request_id: &str,
@@ -153,6 +257,27 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         .await?;
 
         Ok(result)
+    }
+
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
+            "UPDATE patient_access_requests SET status = 'denied'
+             WHERE id = $1 AND status = 'pending' RETURNING {REQUEST_COLUMNS}"
+        ))
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(request) = result else {
+            return Ok(None);
+        };
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
+        Ok(Some(request))
     }
 
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>> {
@@ -220,5 +345,30 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         .await?;
 
         Ok(result)
+    }
+
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessGrantEntity>> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessGrantEntity>(&format!(
+            "UPDATE patient_access_grants SET status = 'revoked'
+             WHERE id = $1 AND status = 'active'
+               AND (expires_at IS NULL OR expires_at > $2)
+             RETURNING {GRANT_COLUMNS}"
+        ))
+        .bind(grant_id)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(grant) = result else {
+            return Ok(None);
+        };
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
+        Ok(Some(grant))
     }
 }

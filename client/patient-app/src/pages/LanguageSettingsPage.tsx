@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { usePatientAuthStore } from '../store/authStore';
-import { setLanguagePreference, LOCALE_CONFIGS, useTranslation } from '@medichain/shared';
+import React, { useEffect, useState } from 'react';
+import {
+  getApiErrorMessage,
+  getUserSettings,
+  LOCALE_CONFIGS,
+  saveUserSettings,
+  setLanguagePreference,
+  useTranslation,
+} from '@medichain/shared';
 import type { SupportedLocale } from '@medichain/shared';
 import {
   Globe,
@@ -9,11 +15,8 @@ import {
   ChevronRight,
   Calendar,
   Clock,
-  DollarSign,
   Thermometer,
   Ruler,
-  Scale,
-  MapPin,
   Settings,
   RefreshCw,
   Info
@@ -46,6 +49,46 @@ interface RegionalSettings {
   numberFormat: 'comma-period' | 'period-comma' | 'space-comma';
 }
 
+const DEFAULT_REGIONAL_SETTINGS: RegionalSettings = {
+  dateFormat: 'MM/DD/YYYY',
+  timeFormat: '12h',
+  firstDayOfWeek: 'sunday',
+  temperatureUnit: 'fahrenheit',
+  measurementSystem: 'imperial',
+  currencySymbol: 'R',
+  numberFormat: 'comma-period',
+};
+
+type LanguageSettingsPreferences = {
+  regionalSettings?: RegionalSettings;
+};
+
+/**
+ * Accept only the format values this screen can render. User settings are a
+ * generic JSON document, so an old or malformed record must not put this
+ * controlled form into an invalid state.
+ */
+function readRegionalSettings(value: unknown): RegionalSettings | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<RegionalSettings>;
+  const validDateFormats = ['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY', 'DD-MM-YYYY'];
+  if (
+    !validDateFormats.includes(candidate.dateFormat ?? '') ||
+    !['12h', '24h'].includes(candidate.timeFormat ?? '') ||
+    !['sunday', 'monday', 'saturday'].includes(candidate.firstDayOfWeek ?? '') ||
+    !['celsius', 'fahrenheit'].includes(candidate.temperatureUnit ?? '') ||
+    !['metric', 'imperial'].includes(candidate.measurementSystem ?? '') ||
+    !['comma-period', 'period-comma', 'space-comma'].includes(candidate.numberFormat ?? '') ||
+    typeof candidate.currencySymbol !== 'string' ||
+    candidate.currencySymbol.length === 0 ||
+    candidate.currencySymbol.length > 8
+  ) {
+    return null;
+  }
+
+  return candidate as RegionalSettings;
+}
+
 /**
  * Resolve the locale's currency symbol from shared LOCALE_CONFIGS. MediChain
  * targets African markets, so unknown/unsupported language codes fall back to
@@ -63,8 +106,7 @@ const languageBadge = (code: string): string =>
   (code.split('-')[0] || code).toUpperCase();
 
 const LanguageSettingsPage: React.FC = () => {
-  const { t } = useTranslation();
-  const patient = usePatientAuthStore((s) => s.patient);
+  const { t, locale, setLocale } = useTranslation();
   const regionLabel = (region: string) =>
     ({
       Americas: t('languageSettings.regionAmericas'),
@@ -73,41 +115,40 @@ const LanguageSettingsPage: React.FC = () => {
       'Middle East': t('languageSettings.regionMiddleEast'),
     }[region] || region);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(locale);
   const [showRegionalSettings, setShowRegionalSettings] = useState(false);
   const [regionalSettings, setRegionalSettings] = useState<RegionalSettings>({
-    dateFormat: 'MM/DD/YYYY',
-    timeFormat: '12h',
-    firstDayOfWeek: 'sunday',
-    temperatureUnit: 'fahrenheit',
-    measurementSystem: 'imperial',
+    ...DEFAULT_REGIONAL_SETTINGS,
     currencySymbol: currencySymbolFor('en-US'),
-    numberFormat: 'comma-period'
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserSettings<LanguageSettingsPreferences>()
+      .then((settings) => {
+        const stored = readRegionalSettings(settings.regionalSettings);
+        if (!cancelled && stored) setRegionalSettings(stored);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSettingsError(getApiErrorMessage(error, t('languageSettings.loadError')));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   const languages: Language[] = [
     { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 100 },
-    { code: 'en-GB', name: 'English (UK)', nativeName: 'English', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 100 },
-    { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 98 },
-    { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 95 },
-    { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 92 },
-    { code: 'de-DE', name: 'German', nativeName: 'Deutsch', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 90 },
-    { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 88 },
-    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 85 },
-    { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 82 },
-    { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 78 },
-    { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 75 },
-    { code: 'ko-KR', name: 'Korean', nativeName: '한국어', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 72 },
-    { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', direction: 'rtl', region: 'Middle East', isAvailable: true, translationProgress: 68 },
-    { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 65 },
-    { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 70 },
-    { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 55 },
-    { code: 'th-TH', name: 'Thai', nativeName: 'ไทย', direction: 'ltr', region: 'Asia', isAvailable: false, translationProgress: 40 },
-    { code: 'nl-NL', name: 'Dutch', nativeName: 'Nederlands', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 35 },
-    { code: 'pl-PL', name: 'Polish', nativeName: 'Polski', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 30 },
-    { code: 'tr-TR', name: 'Turkish', nativeName: 'Türkçe', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 25 }
+    { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'sw-KE', name: 'Kiswahili', nativeName: 'Kiswahili', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'zu-ZA', name: 'isiZulu', nativeName: 'isiZulu', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
+    { code: 'ha-NG', name: 'Hausa', nativeName: 'Hausa', direction: 'ltr', region: 'Africa', isAvailable: false, translationProgress: 1 },
   ];
 
   const dateFormats = [
@@ -134,6 +175,7 @@ const LanguageSettingsPage: React.FC = () => {
     const lang = languages.find(l => l.code === code);
     if (lang && lang.isAvailable) {
       setSelectedLanguage(code);
+      setLocale(code as SupportedLocale);
       
       // Auto-adjust regional settings based on language
       if (code.startsWith('en-US')) {
@@ -172,21 +214,23 @@ const LanguageSettingsPage: React.FC = () => {
 
   const handleSaveSettings = async () => {
     setSaving(true);
+    setSaved(false);
+    setSettingsError(null);
     try {
-      // Persist the language preference to the backend (was: simulated setTimeout)
+      // The server derives the subject from the authenticated token. Sending a
+      // wallet address or client timestamp here is both misleading and ignored.
       await setLanguagePreference({
-        user_id: patient?.walletAddress || '',
-        preferred_language: selectedLanguage.split('-')[0],
-        secondary_language: null,
-        reading_proficiency: 'Fluent',
-        needs_interpreter: false,
-        interpreter_language: null,
-        updated_at: Math.floor(Date.now() / 1000),
+        language_code: selectedLanguage,
       });
+
+      // Merge at write time: /api/settings also holds notification, privacy,
+      // and wearable preferences owned by other patient-app screens.
+      const current = await getUserSettings<Record<string, unknown>>();
+      await saveUserSettings({ ...current, regionalSettings });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // Network/API failure — leave the selection applied locally.
+    } catch (error) {
+      setSettingsError(getApiErrorMessage(error, t('languageSettings.saveError')));
     } finally {
       setSaving(false);
     }
@@ -197,12 +241,12 @@ const LanguageSettingsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Globe className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('languageSettings.title')}</h1>
         </div>
-        <p className="text-indigo-100">{t('languageSettings.subtitle')}</p>
+        <p className="text-white">{t('languageSettings.subtitle')}</p>
       </div>
 
       {/* Current Selection */}
@@ -236,10 +280,18 @@ const LanguageSettingsPage: React.FC = () => {
             placeholder={t('languageSettings.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full pl-10 pr-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
       </div>
+
+      {settingsError && (
+        <div className="px-4 mb-4" role="alert">
+          <div className="rounded-lg border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
+            {settingsError}
+          </div>
+        </div>
+      )}
 
       {/* Language List */}
       <div className="px-4 mb-6">
@@ -255,7 +307,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => handleLanguageSelect(lang.code)}
                   disabled={!lang.isAvailable}
                   className={`w-full flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors ${
-                    !lang.isAvailable ? 'opacity-50 cursor-not-allowed' : ''
+                    !lang.isAvailable ? 'cursor-not-allowed' : ''
                   } ${selectedLanguage === lang.code ? 'bg-surface-sunken' : ''}`}
                 >
                   <div className="flex items-center gap-3">
@@ -289,7 +341,7 @@ const LanguageSettingsPage: React.FC = () => {
                     {selectedLanguage === lang.code ? (
                       <Check className="w-5 h-5 text-content-secondary" />
                     ) : (
-                      <ChevronRight className="w-5 h-5 text-gray-300" />
+                      <ChevronRight className="w-5 h-5 text-content-muted" />
                     )}
                   </div>
                 </button>
@@ -326,7 +378,7 @@ const LanguageSettingsPage: React.FC = () => {
                 id="lang-date-format"
                 value={regionalSettings.dateFormat}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, dateFormat: e.target.value }))}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
               >
                 {dateFormats.map(df => (
                   <option key={df.value} value={df.value}>
@@ -374,7 +426,7 @@ const LanguageSettingsPage: React.FC = () => {
                 id="lang-first-day"
                 value={regionalSettings.firstDayOfWeek}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as typeof regionalSettings.firstDayOfWeek }))}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
               >
                 <option value="sunday">{t('languageSettings.sunday')}</option>
                 <option value="monday">{t('languageSettings.monday')}</option>
@@ -465,10 +517,10 @@ const LanguageSettingsPage: React.FC = () => {
           disabled={saving}
           className={`w-full py-3 rounded-lg font-medium transition-colors ${
             saved
-              ? 'bg-green-500 text-white'
+              ? 'bg-green-700 text-white'
               : saving
               ? 'bg-gray-300 text-content-muted'
-              : 'bg-gradient-to-r from-indigo-600 to-violet-500 text-white hover:from-indigo-700 hover:to-violet-600'
+              : 'bg-gradient-to-r from-indigo-700 to-violet-800 text-white hover:from-indigo-800 hover:to-violet-900'
           }`}
         >
           {saved ? (

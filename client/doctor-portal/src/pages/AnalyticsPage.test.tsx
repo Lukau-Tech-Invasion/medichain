@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import AnalyticsPage from './AnalyticsPage';
@@ -76,6 +76,10 @@ const RESPONSES: Record<string, unknown> = {
     unmeasured: ['bed_availability', 'ed_wait_time'],
   },
   '/api/platform/list/critical-values': [],
+  '/api/platform/analytics/patients': {
+    gender_distribution: { female: 130, male: 104, unknown: 6 },
+    total_population: 240,
+  },
 };
 
 function respondByUrl(url: string) {
@@ -100,7 +104,7 @@ describe('AnalyticsPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
@@ -280,7 +284,7 @@ describe('AnalyticsPage', () => {
   });
 
   it('tells a non-administrator the section is restricted rather than rendering it', async () => {
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: { walletAddress: '5GrwvaEF...mock', role: 'Doctor' },
       isAuthenticated: true,
     });
@@ -297,5 +301,17 @@ describe('AnalyticsPage', () => {
     expect(await screen.findByRole('status')).toBeInTheDocument();
     expect(screen.queryByText(/Analytics Dashboard/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Total Patients/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the register by recorded gender, unrecorded included', async () => {
+    render(
+      <MemoryRouter>
+        <AnalyticsPage />
+      </MemoryRouter>
+    );
+    const panel = await screen.findByTestId('population-panel');
+    await waitFor(() => expect(within(panel).getByText(/240 patients on the register/i)).toBeInTheDocument());
+    expect(within(panel).getByText('130 (54%)')).toBeInTheDocument();
+    expect(within(panel).getByText('unknown')).toBeInTheDocument();
   });
 });

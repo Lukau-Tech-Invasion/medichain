@@ -25,9 +25,10 @@ it is specifically denied.
   available when a provider needs it for the record.
 - **Recording is OFF by default** (`RoomConfig.recording_enabled = false`).
   Nothing is captured unless a moderator explicitly starts it.
-- **Transcription is OFF by default** (`RoomConfig.transcription_enabled =
-  false`, `TRANSCRIPTION_PROVIDER=none`). No transcript is produced unless a STT
-  provider is configured.
+- **There is no transcription.** Recordings are captured in the browser and
+  never uploaded, so no server-side speech-to-text can run. The pluggable
+  transcriber that stood here was removed on 2026-09-24 for that reason: with
+  no recording to read, every provider returned nothing.
 - Patients/providers who want maximum privacy for a given visit can request an
   **E2EE session**; recording is then unavailable for that session by design.
 
@@ -43,21 +44,13 @@ it is specifically denied.
 4. **Immutable audit.** Recording start/stop is written to the access-log audit
    trail (actor, session, timestamp, reason="explicit consent") and broadcast on
    the SSE channel. This is the consent evidence.
-5. **Transcript handling.** When a STT provider is configured, the transcript is
-   folded into the session's visit notes for provider review before it becomes
-   part of the permanent clinical record — it is never auto-published verbatim.
+5. **Transcripts.** None are produced (see above). Adding transcription needs
+   a server-side recording upload first, with its own consent, custody and
+   BAA/DPA decisions; a transcript would then be folded into the visit notes
+   for provider review, never published verbatim.
 
 ## Where this is enforced in code
 
 - `api/src/telehealth.rs` — `RoomConfig` defaults (recording/transcription off).
-- `api/src/clinical_endpoints/clinical_support.rs` — `telehealth_recording`
-  (consent gate, moderator-only, audit + SSE broadcast) and
-  `append_transcript_on_stop` (transcript → visit notes).
-- `api/src/services/transcription.rs` — pluggable STT; `NoopTranscriber` default.
-
-## Configuring a real STT provider
-
-`TRANSCRIPTION_PROVIDER` selects the backend. `none` (default) needs no
-credentials. Integrating `google` / `aws` / `azure` requires adding that
-vendor's SDK + credentials and implementing the `Transcriber` trait; only do so
-with a signed BAA/DPA and E2EE disabled + per-session consent as above.
+- `api/src/clinical_endpoints/clinical_support/telehealth.rs` —
+  `telehealth_recording` (consent gate, moderator-only, audit + SSE broadcast).

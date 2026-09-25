@@ -30,14 +30,22 @@ describe('themeStore', () => {
     expect(state.effectiveTheme).toBe('dark');
   });
 
-  it('should apply theme correctly to documentElement', () => {
-    const addMock = vi.spyOn(document.documentElement.classList, 'add');
-    const removeMock = vi.spyOn(document.documentElement.classList, 'remove');
-
+  // Asserts the STATE of the document, not which classList method reached it.
+  // The previous version spied on `add` and `remove`, so moving to
+  // `classList.toggle('dark', isDark)` -- one call that cannot leave the two
+  // out of step -- failed a test about an implementation detail while the
+  // behaviour was unchanged.
+  it('puts the theme on the document', () => {
     useThemeStore.getState().setTheme('dark');
-    expect(addMock).toHaveBeenCalledWith('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    // `color-scheme` is what makes the browser paint form controls,
+    // scrollbars and autofill from the matching palette. Without it a dark
+    // page still renders a white input with white text in it, which is the
+    // defect this store is now responsible for not causing.
+    expect(document.documentElement.style.colorScheme).toBe('dark');
 
     useThemeStore.getState().setTheme('light');
-    expect(removeMock).toHaveBeenCalledWith('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe('light');
   });
 });

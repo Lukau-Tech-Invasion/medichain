@@ -35,6 +35,42 @@ pub struct GrantBoundEmergencyAccessResponse {
     pub commitment_verified: bool,
 }
 
+async fn persist_emergency_disclosure(
+    data: &web::Data<AppState>,
+    event: crate::deferred_emergency_audit::DeferredEmergencyAudit,
+) -> Result<(), HttpResponse> {
+    match crate::emergency_capsule::persist_access(data, event.disclosure.clone()).await {
+        Ok(()) => return Ok(()),
+        Err(error) => log::error!("{error}"),
+    }
+    let mode =
+        crate::deferred_emergency_audit::EmergencyAuditMode::from_env().map_err(|error| {
+            log::error!("Emergency audit policy configuration invalid: {error}");
+            emergency_error(
+                HttpResponse::ServiceUnavailable(),
+                "Emergency access audit is unavailable",
+                "AUDIT_POLICY_INVALID",
+            )
+        })?;
+    if mode == crate::deferred_emergency_audit::EmergencyAuditMode::Deny {
+        return Err(emergency_error(
+            HttpResponse::ServiceUnavailable(),
+            "Emergency access audit is unavailable",
+            "AUDIT_PERSISTENCE_REQUIRED",
+        ));
+    }
+    crate::deferred_emergency_audit::persist(event)
+        .await
+        .map_err(|error| {
+            log::error!("Durable deferred emergency audit failed: {error}");
+            emergency_error(
+                HttpResponse::ServiceUnavailable(),
+                "Emergency access audit is unavailable",
+                "AUDIT_FALLBACK_UNAVAILABLE",
+            )
+        })
+}
+
 /// Return the minimum emergency summary only after validating a live work
 /// context, approved device, and newly issued server-side emergency grant.
 #[post("/api/emergency/access")]
@@ -142,23 +178,31 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    let grant = match data.emergency_grants.issue(
-        crate::emergency_grants::EmergencyGrantBinding {
-            patient_id,
-            person_id: wallet,
-            organization_id,
-            facility_id,
-            device_id: body.device_id.clone(),
-        },
-        body.reason_code.clone(),
-        body.reason_text.clone(),
-        vec![
-            EmergencyGrantScope::EmergencySummary,
-            EmergencyGrantScope::DownloadProhibited,
-            EmergencyGrantScope::OfflineProhibited,
-        ],
-        Utc::now(),
-    ) {
+    let grant = match data
+        .emergency_grants
+        .issue_with_audit(
+            crate::emergency_grants::EmergencyGrantBinding {
+                patient_id,
+                person_id: wallet,
+                organization_id,
+                facility_id,
+                device_id: body.device_id.clone(),
+            },
+            crate::emergency_grants::AuditedEmergencyGrantRequest {
+                reason_code: body.reason_code.clone(),
+                reason_text: body.reason_text.clone(),
+                scopes: vec![
+                    EmergencyGrantScope::EmergencySummary,
+                    EmergencyGrantScope::DownloadProhibited,
+                    EmergencyGrantScope::OfflineProhibited,
+                ],
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"device_id": body.device_id}),
+                now: Utc::now(),
+            },
+        )
+        .await
+    {
         Ok(value) => value,
         Err(error) => {
             return emergency_error(
@@ -168,19 +212,13 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    if let Err(error) = data
-        .audit_outbox
-        .record_durable(
-            data.db_pool.as_ref(),
-        "emergency_grant_issued".into(),
-        "emergency_grant".into(),
-        grant.id.clone(),
-        serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-        Utc::now(),
-        )
-        .await
-    {
-        log::error!("audit outbox write failed: {error}");
+    let (grant, event) = grant;
+    if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+        return emergency_error(
+            HttpResponse::ServiceUnavailable(),
+            "Emergency audit service is unavailable",
+            "AUDIT_UNAVAILABLE",
+        );
     }
 
     // HZ-003: record the break-glass disclosure at field granularity, and check
@@ -188,30 +226,45 @@ pub async fn grant_bound_emergency_access(
     // records that a grant was issued; it cannot answer "which of this
     // patient's emergency fields were actually shown, and was the copy intact".
     let verified = crate::emergency_capsule::load_current_verified(&data, &grant.patient_id).await;
-    let (capsule_version, fields_revealed, commitment_verified) = match &verified {
-        Some(v) => (
-            Some(v.version),
-            crate::emergency_capsule::revealed_fields(&v.capsule),
-            v.commitment_verified,
-        ),
-        // No capsule on file. The read still happened and is still logged; an
-        // empty field list is the honest record of what was disclosed from the
-        // capsule store. `commitment_verified` is false because nothing was
-        // verified, not because verification failed.
-        None => (None, Vec::new(), false),
+    let (capsule_version, commitment_verified) = match &verified {
+        Some(v) => (Some(v.version), v.commitment_verified),
+        // No capsule on file. The emergency summary is still disclosed and
+        // logged; `commitment_verified` is false because no capsule integrity
+        // value existed to verify, not because verification failed.
+        None => (None, false),
     };
-    crate::emergency_capsule::log_access(
-        &data,
-        &grant.patient_id,
-        capsule_version,
-        &grant.requesting_person_id,
-        Some(grant.id.clone()),
-        &body.reason_code,
-        body.reason_text.clone(),
-        fields_revealed,
-        commitment_verified,
-    )
-    .await;
+    let fields_revealed = crate::emergency_capsule::emergency_summary_revealed_fields();
+    let disclosure =
+        crate::emergency_capsule::build_access_entry(crate::emergency_capsule::CapsuleDisclosure {
+            patient_id: &grant.patient_id,
+            accessed_by: &grant.requesting_person_id,
+            capsule_version,
+            grant_id: Some(grant.id.clone()),
+            reason_code: &body.reason_code,
+            reason_text: body.reason_text.clone(),
+            fields_revealed,
+            commitment_verified,
+        });
+    let deferred = crate::deferred_emergency_audit::DeferredEmergencyAudit {
+        event_id: disclosure.id.clone(),
+        disclosure,
+        organization_id: grant.organization_id.clone(),
+        facility_id: grant.facility_id.clone(),
+        device_id: body.device_id.clone(),
+        work_context_id: body.work_context_id.clone(),
+        correlation_id: req
+            .headers()
+            .get("x-correlation-id")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        authorization: "active_professional_context_and_emergency_grant".to_string(),
+        deferred_at: Utc::now(),
+    };
+    if let Err(response) = persist_emergency_disclosure(&data, deferred).await {
+        return response;
+    }
 
     HttpResponse::Ok().json(GrantBoundEmergencyAccessResponse {
         grant_id: grant.id,
@@ -228,7 +281,6 @@ fn emergency_error(
     code: &str,
 ) -> HttpResponse {
     builder.json(ErrorResponse {
-        success: false,
         error: error.into(),
         code: code.into(),
     })
@@ -266,7 +318,9 @@ pub async fn exchange_nfc_hash_for_token(
     body: web::Json<NfcTokenExchangeRequest>,
 ) -> impl Responder {
     let responder = match get_current_user_id(&req).and_then(|id| get_user(&data, &id)) {
-        Some(user) if user.role.is_healthcare_provider() => user,
+        // The token this endpoint mints is what opens the capsule, so only a
+        // role that may break glass may be given one.
+        Some(user) if user.role.may_break_glass() => user,
         _ => {
             return emergency_error(
                 HttpResponse::Unauthorized(),
@@ -369,6 +423,7 @@ mod hz_001_exchange_tests {
                 last_used_at: None,
                 use_count: 0,
                 issued_by: None,
+                status: "Active".to_string(),
             })
             .await
             .unwrap();

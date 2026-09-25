@@ -21,9 +21,11 @@ use actix_web::{web, App, HttpServer};
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
+use crate::middleware::jwt_identity::JwtIdentityMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
+use crate::middleware::session_state::SessionStateMiddleware;
 use crate::middleware::signature_auth::SignatureAuthMiddleware;
 use crate::middleware::versioning::ApiVersionMiddleware;
 
@@ -36,10 +38,15 @@ mod repositories;
 mod services;
 
 mod audit_outbox;
+mod auth_challenges;
+mod auth_sessions;
 mod blockchain;
 mod clinical;
 mod clinical_endpoints;
+mod clinical_scoring;
+mod deferred_emergency_audit;
 mod device_lifecycle;
+mod dispensing_policy;
 mod emergency_capsule;
 mod emergency_grants;
 mod ipfs;
@@ -51,11 +58,13 @@ mod notifications;
 mod organization_keys;
 mod pagination;
 mod patient_access;
+mod patient_name_index;
 mod pdf;
+mod privacy_logging;
 mod retention;
 mod security;
 mod telehealth;
-mod telehealth_retention;
+mod transaction_authorization;
 mod websocket;
 
 // API layer modules (split out of the original 10K-line main.rs — Phase 10.2).
@@ -64,6 +73,8 @@ mod routes;
 mod startup;
 pub mod state;
 mod support;
+#[cfg(test)]
+mod test_fixtures;
 mod types;
 
 #[cfg(test)]
@@ -86,83 +97,60 @@ pub(crate) use types::*;
 
 /// Initialize logging (Phase 8.2).
 ///
-/// `LOG_FORMAT=json` installs a `tracing` JSON subscriber and bridges existing
-/// `log::` records into it (structured logs for aggregation). Otherwise the
-/// human-readable `env_logger` is used. Both honor `RUST_LOG`.
+/// One pipeline, composed from layers, for every build.
 ///
-/// Built with `--features tokio-console` (and `RUSTFLAGS="--cfg tokio_unstable"`,
-/// required for tokio's task-tracking instrumentation), this installs the
-/// `tokio-console` subscriber instead so async task state can be inspected live
-/// with the `tokio-console` CLI (Phase 12.1) — mutually exclusive with the two
-/// paths above, since only one global `tracing` subscriber can be active.
-#[cfg(feature = "tokio-console")]
+/// This used to be two mutually exclusive functions: an `env_logger` builder
+/// whose format closure applied `privacy_logging`, and — under
+/// `--features tokio-console` — a bare `console_subscriber::init()`. Only one
+/// global subscriber can exist, so the console build replaced the redacting one
+/// outright and logged the wallet addresses, bearer tokens and patient
+/// identifiers every other build redacts. The control vanished precisely when
+/// someone was debugging a live system closely enough to want a task console.
+///
+/// `console_subscriber` also offers `ConsoleLayer`, so the two compose instead
+/// of competing: the registry holds the redacting layer always, and adds the
+/// console layer when the feature is on. Console telemetry is preserved and
+/// redaction is a property of the pipeline rather than of one configuration.
+///
+/// The existing `log::` call sites — which is most of the codebase — reach the
+/// same pipeline because `tracing-subscriber`'s `init()` installs the
+/// `tracing-log` bridge itself. Do NOT also call `LogTracer::init()` here: both
+/// set the global `log` logger, and the second one panics the process at
+/// startup with `SetLoggerError`. That is not theoretical — it was written that
+/// way first, and every build died before binding a port.
+///
+/// `LOG_FORMAT=json` selects structured output. The console feature still
+/// requires `RUSTFLAGS="--cfg tokio_unstable"`.
 fn init_logging() {
-    console_subscriber::init();
-}
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
 
-#[cfg(not(feature = "tokio-console"))]
-fn init_logging() {
     let json = std::env::var("LOG_FORMAT")
-        .map(|v| v == "json")
+        .map(|value| value == "json")
         .unwrap_or(false);
-    if json {
-        use tracing_subscriber::{fmt, EnvFilter};
-        // Route `log::` macros (used throughout the codebase) into `tracing`.
-        let _ = tracing_log::LogTracer::init();
-        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-        let subscriber = fmt().json().with_env_filter(filter).finish();
-        let _ = tracing::subscriber::set_global_default(subscriber);
-    } else {
-        env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
-    }
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(privacy_logging::RedactingLayer::new(std::io::stderr, json));
+
+    #[cfg(feature = "tokio-console")]
+    let registry = registry.with(console_subscriber::ConsoleLayer::builder().spawn());
+
+    registry.init();
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    // Initialize logging (Phase 8.2). LOG_FORMAT=json emits structured JSON logs
-    // via `tracing` (with a `log` bridge so existing `log::` calls are captured);
-    // otherwise the human-readable `env_logger` is used.
-    init_logging();
-
-    // Start the uptime clock before anything else can take time, so the
-    // operations dashboard reports how long the process has been up rather than
-    // the hardcoded availability figure it used to print.
-    crate::middleware::metrics::mark_process_start();
-
-    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
-    // docker-compose publishes on the host. When the API bound 8080 it stole that
-    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
-    // resolved back to the API itself — every encrypted-record download fetched
-    // the API, got a 404, and surfaced as a misleading "Record content not found".
-    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
-    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
-    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let bind_addr = format!("{}:{}", host, port);
-
-    print_startup_banner(&bind_addr);
-    // =========================================================================
-    // PostgreSQL Database Initialization (for persistent demo users)
-    // =========================================================================
-
-    // Load environment variables from .env file if present
-    let _ = dotenvy::dotenv();
-
-    // Fail fast if a production deployment is configured with demo/default
-    // secrets; warn (but continue) in demo mode. (Phase 6.1)
-    if let Err(msg) = validate_production_secrets() {
-        eprintln!("\n[ERROR] STARTUP ABORTED: {}\n", msg);
-        return Err(std::io::Error::other(msg));
-    }
-
-    // Warn (do not block boot) if any national-ID verifier's API key is unset in
-    // non-demo mode — that country would silently run on the deterministic stub
-    // verifier (Horizon HZ-004).
-    warn_missing_national_id_keys();
-    warn_if_clinic_offset_unset();
-
+/// Bring up the storage backend the environment names, or say why not.
+///
+/// Extracted from `main` because startup is four separate decisions -- storage,
+/// chain, caches, background jobs -- and reading any one of them meant reading
+/// all four. See the register entry on the 60-line rule for the measurement
+/// that motivated this.
+async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
     // Try to connect to PostgreSQL if DATABASE_URL is set
-    let db_pool = match std::env::var("DATABASE_URL") {
+    Ok(match std::env::var("DATABASE_URL") {
         Ok(database_url) => {
             println!("  [DB] Connecting to PostgreSQL database...");
 
@@ -199,7 +187,7 @@ async fn main() -> std::io::Result<()> {
                             let on_disk = db::available_migration_count();
                             eprintln!("\n=================================================");
                             eprintln!("  [WARN] DATABASE MIGRATIONS DID NOT APPLY");
-                            eprintln!("  {e}");
+                            log::warn!("database migration did not apply: {e}");
                             match (applied, on_disk) {
                                 (Some(a), Some(d)) if d > a => eprintln!(
                                     "  Schema is STALE: {a} of {d} migrations applied — {} missing.\n  \
@@ -217,15 +205,13 @@ async fn main() -> std::io::Result<()> {
                             );
                             eprintln!("=================================================\n");
                         } else {
-                            eprintln!("\n[ERROR] STARTUP ABORTED: database migrations failed: {e}");
+                            log::error!("startup aborted because database migrations failed: {e}");
                             eprintln!(
                                 "        Starting now would serve clinical traffic against an \
                                  unknown schema. Fix the migration, or set IS_DEMO=true for a \
                                  synthetic-data demo."
                             );
-                            return Err(std::io::Error::other(format!(
-                                "database migrations failed: {e}"
-                            )));
+                            return Err(std::io::Error::other("database migrations failed"));
                         }
                     } else {
                         println!("  [OK] Migrations completed");
@@ -244,7 +230,7 @@ async fn main() -> std::io::Result<()> {
                         // the startup banner and the demo-secret warnings.
                         eprintln!("\n============================================================");
                         eprintln!("  [DEGRADED] DATABASE_URL was set, but the database is");
-                        eprintln!("             unreachable: {}", e);
+                        log::warn!("database configured but unreachable: {e}");
                         eprintln!();
                         eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
                         eprintln!("  No seeded users, patients or records exist in this mode:");
@@ -257,9 +243,8 @@ async fn main() -> std::io::Result<()> {
                         eprintln!("============================================================\n");
                         None
                     } else {
-                        eprintln!(
-                            "\n[ERROR] STARTUP ABORTED: DATABASE_URL is set but the \
-                                   database is unreachable: {e}"
+                        log::error!(
+                            "startup aborted because configured database is unreachable: {e}"
                         );
                         eprintln!(
                             "        Refusing to fall back to volatile in-memory storage: \
@@ -267,7 +252,7 @@ async fn main() -> std::io::Result<()> {
                              healthy. Fix connectivity, or set IS_DEMO=true for a \
                              synthetic-data demo."
                         );
-                        return Err(std::io::Error::other(format!("database unreachable: {e}")));
+                        return Err(std::io::Error::other("database unreachable"));
                     }
                 }
             }
@@ -290,15 +275,20 @@ async fn main() -> std::io::Result<()> {
             println!("  [INFO] No DATABASE_URL set - using in-memory storage (demo mode)");
             None
         }
-    };
+    })
+}
 
-    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
-        .map_err(std::io::Error::other)?;
-
+/// Connect the Substrate client, if one is configured.
+///
+/// Failure is fatal only when `BLOCKCHAIN_ENABLED` claims the chain is in use;
+/// otherwise it is a warning, because a disabled chain has nothing to connect
+/// to and every write path already returns a typed error for it.
+async fn connect_blockchain(
+) -> std::io::Result<Option<std::sync::Arc<crate::blockchain::SubstrateClient>>> {
     // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
+    Ok(match crate::blockchain::SubstrateClient::from_env() {
         Some(ws_url) => {
-            println!("  [CHAIN] Connecting to Substrate node at {}...", ws_url);
+            log::info!("connecting to configured Substrate node");
             match crate::blockchain::SubstrateClient::new(&ws_url).await {
                 Ok(client) => {
                     let connected = client.health_check().await;
@@ -319,7 +309,7 @@ async fn main() -> std::io::Result<()> {
                             "blockchain client initialization failed: {e}"
                         )));
                     }
-                    eprintln!("  [WARN] Blockchain client init failed: {}", e);
+                    log::warn!("blockchain client initialization failed: {e}");
                     None
                 }
             }
@@ -328,34 +318,15 @@ async fn main() -> std::io::Result<()> {
             println!("  [INFO] No SUBSTRATE_WS_URL set - blockchain features disabled");
             None
         }
-    };
+    })
+}
 
-    // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
-    if !crate::support::is_demo_mode()
-        && state.repositories.backend != crate::repositories::StorageBackend::Postgres
-    {
-        return Err(std::io::Error::other(
-            "persistent PostgreSQL repositories failed to initialize",
-        ));
-    }
-    let app_state = web::Data::new(state);
-
-    // The federation boundary is the deployment, not a column (ADR-0007), so a
-    // second organisation in this database would silently widen every
-    // deployment-wide read into a cross-organisation disclosure.
-    if let Some(pool) = app_state.db_pool.as_ref() {
-        startup::validate_single_organisation(pool)
-            .await
-            .map_err(std::io::Error::other)?;
-        // A published development key holding an Admin role is an open door,
-        // and nothing else checks for it — `blockchain.rs` guards only the
-        // chain signer.
-        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
-            .await
-            .map_err(std::io::Error::other)?;
-    }
-
+/// Fill the in-process caches the authorization path reads from.
+///
+/// Outside demo mode every one of these is fatal: an empty user cache is not a
+/// degraded service, it is an API that refuses every authenticated request
+/// while reporting healthy.
+async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> {
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
         println!("  [INFO] Loading demo users from database...");
@@ -368,7 +339,19 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize authorization users: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load demo users: {}", e),
+            Err(e) => log::warn!("failed to load demo users: {e}"),
+        }
+
+        // Refill the health ID card registry.
+        //
+        // Not fatal outside demo mode the way the user cache is: a card that
+        // cannot be loaded fails a tap, and a tap has a documented fallback
+        // (search by name), whereas an empty user cache refuses every
+        // authenticated request while reporting healthy.
+        println!("  [INFO] Loading health ID cards from database...");
+        match app_state.hydrate_card_registry().await {
+            Ok(count) => println!("  [OK] Loaded {} health ID cards", count),
+            Err(e) => log::warn!("failed to load health ID cards: {e}"),
         }
 
         // Load demo patients from database into in-memory cache
@@ -382,7 +365,7 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize patient cache: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load demo patients: {}", e),
+            Err(e) => log::warn!("failed to load demo patients: {e}"),
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
@@ -394,8 +377,37 @@ async fn main() -> std::io::Result<()> {
                     "failed to initialize MFA security state: {e}"
                 )));
             }
-            Err(e) => eprintln!("  [WARN] Failed to load security state: {}", e),
+            Err(e) => log::warn!("failed to load security state: {e}"),
         }
+    }
+
+    Ok(())
+}
+
+/// Start the periodic jobs. None of them can fail startup, by design: a
+/// reminder that does not fire is not a reason to refuse to serve records.
+fn spawn_background_jobs(app_state: &web::Data<AppState>) {
+    // One pass, not periodic: every save indexes its own row, so only rows
+    // older than the index need this, and a pass leaves none behind.
+    {
+        let index_state = app_state.clone();
+        tokio::spawn(async move {
+            match crate::patient_name_index::backfill_missing_name_index(
+                index_state.repositories.patients.as_ref(),
+                &index_state.encryption_keyring,
+            )
+            .await
+            {
+                Ok(report) if report == Default::default() => {}
+                Ok(report) => log::info!(
+                    "patient name index backfill: {} indexed, {} undecryptable, {} with no indexable name",
+                    report.indexed,
+                    report.undecryptable,
+                    report.nameless
+                ),
+                Err(error) => log::error!("patient name index backfill failed: {error}"),
+            }
+        });
     }
 
     if let (Some(pool), Some(client)) = (
@@ -472,12 +484,125 @@ async fn main() -> std::io::Result<()> {
         });
         println!("  [INFO] Retention assessment task started (daily, report-only — never deletes)");
     }
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Initialize logging (Phase 8.2). LOG_FORMAT=json emits structured JSON logs
+    // via `tracing` (with a `log` bridge so existing `log::` calls are captured);
+    // otherwise the human-readable `env_logger` is used.
+    init_logging();
+
+    // Start the uptime clock before anything else can take time, so the
+    // operations dashboard reports how long the process has been up rather than
+    // the hardcoded availability figure it used to print.
+    crate::middleware::metrics::mark_process_start();
+
+    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
+    // docker-compose publishes on the host. When the API bound 8080 it stole that
+    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
+    // resolved back to the API itself — every encrypted-record download fetched
+    // the API, got a 404, and surfaced as a misleading "Record content not found".
+    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
+    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let bind_addr = format!("{}:{}", host, port);
+
+    print_startup_banner(&bind_addr);
+    // =========================================================================
+    // PostgreSQL Database Initialization (for persistent demo users)
+    // =========================================================================
+
+    // Load environment variables from .env file if present
+    let _ = dotenvy::dotenv();
+
+    // Fail fast if a production deployment is configured with demo/default
+    // secrets; warn (but continue) in demo mode. (Phase 6.1)
+    if let Err(msg) = validate_production_secrets() {
+        log::error!("startup aborted: {msg}");
+        return Err(std::io::Error::other(msg));
+    }
+
+    // Warn (do not block boot) if any national-ID verifier's API key is unset in
+    // non-demo mode — that country would silently run on the deterministic stub
+    // verifier (Horizon HZ-004).
+    warn_missing_national_id_keys();
+    warn_if_clinic_offset_unset();
+
+    let db_pool = initialise_storage().await?;
+
+    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
+        .map_err(std::io::Error::other)?;
+
+    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
+    let substrate_client = connect_blockchain().await?;
+
+    // Create shared state with optional database pool (using async version for PostgreSQL support)
+    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
+    if !crate::support::is_demo_mode()
+        && state.repositories.backend != crate::repositories::StorageBackend::Postgres
+    {
+        return Err(std::io::Error::other(
+            "persistent PostgreSQL repositories failed to initialize",
+        ));
+    }
+    let app_state = web::Data::new(state);
+
+    // The federation boundary is the deployment, not a column (ADR-0007), so a
+    // second organisation in this database would silently widen every
+    // deployment-wide read into a cross-organisation disclosure.
+    if let Some(pool) = app_state.db_pool.as_ref() {
+        startup::validate_single_organisation(pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        // A published development key holding an Admin role is an open door,
+        // and nothing else checks for it — `blockchain.rs` guards only the
+        // chain signer.
+        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
+            .await
+            .map_err(std::io::Error::other)?;
+    }
+
+    hydrate_caches(&app_state).await?;
+
+    match crate::deferred_emergency_audit::EmergencyAuditMode::from_env()
+        .map_err(std::io::Error::other)?
+    {
+        crate::deferred_emergency_audit::EmergencyAuditMode::Deny => {}
+        crate::deferred_emergency_audit::EmergencyAuditMode::DurableDefer => {
+            crate::deferred_emergency_audit::replay_pending(&app_state)
+                .await
+                .map_err(std::io::Error::other)?;
+            let replay_state = app_state.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    match crate::deferred_emergency_audit::replay_pending(&replay_state).await {
+                        Ok(count) if count > 0 => {
+                            log::info!("Reconciled {count} deferred emergency audit event(s)")
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            log::error!("Deferred emergency audit backlog unreconciled: {error}")
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    spawn_background_jobs(&app_state);
 
     println!();
     println!("  [OK] Server ready!");
     println!();
 
     // Start HTTP server
+    // ONE limiter for the whole process. See `middleware::rate_limit`.
+    let rate_limit = RateLimitMiddleware::default_config();
+
     HttpServer::new(move || {
         // Configure CORS - restrictive for production, permissive for demo
         let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
@@ -513,8 +638,11 @@ async fn main() -> std::io::Result<()> {
             cors
         };
 
-        // Configure rate limiting
-        let rate_limit = RateLimitMiddleware::default_config();
+        // Cloned from the single instance built before `HttpServer::new`, so
+        // every worker shares one set of counters. Constructing it here gave
+        // each worker its own and multiplied the effective limit by the worker
+        // count.
+        let rate_limit = rate_limit.clone();
 
         // Configure signature authentication (SEC-005)
         // SECURE BY DEFAULT: verification is ENABLED unless the operator explicitly
@@ -552,11 +680,17 @@ async fn main() -> std::io::Result<()> {
             // Rewrites /api/v1/... → /api/... before routing (Phase 9.1).
             .wrap(ApiVersionMiddleware)
             .wrap(rate_limit)
+            // Must execute after signature authentication so durable operation
+            // claims are never scoped by an unverified legacy identity header.
+            .wrap(IdempotencyMiddleware)
+            // Runs after signature verification. It bridges verified Bearer
+            // sessions to handlers that have not yet stopped reading the
+            // legacy header directly; it never trusts client header content.
+            .wrap(JwtIdentityMiddleware)
+            .wrap(SessionStateMiddleware)
             .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
-            // Innermost: captures handler responses for idempotent replay (Phase 9.2).
-            .wrap(IdempotencyMiddleware)
             .app_data(app_state.clone())
             .configure(routes::configure)
     })

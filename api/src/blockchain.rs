@@ -226,8 +226,6 @@ struct JsonRpcRequest<'a> {
 /// A minimal JSON-RPC 2.0 response envelope.
 #[derive(Debug, Deserialize)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
-    jsonrpc: Option<String>,
     result: Option<Value>,
     error: Option<JsonRpcError>,
 }
@@ -262,6 +260,8 @@ pub struct SystemHealth {
 pub struct ChainTxResult {
     /// The finalized on-chain transaction hash.
     pub hash: String,
+    /// Block containing the successful extrinsic, after GRANDPA finalization.
+    pub finalized_block_hash: String,
     /// Retained for API compatibility; successful results are always finalized.
     pub finalized: bool,
 }
@@ -730,17 +730,23 @@ impl SubstrateClient {
             .sign_and_submit_then_watch_default(&tx, &signer)
             .await
             .map_err(|error| BlockchainError::Rpc(error.to_string()))?;
-        let events = progress
-            .wait_for_finalized_success()
+        let finalized = progress
+            .wait_for_finalized()
+            .await
+            .map_err(|error| BlockchainError::Rpc(error.to_string()))?;
+        let finalized_block_hash = format!("{:?}", finalized.block_hash());
+        let events = finalized
+            .wait_for_success()
             .await
             .map_err(|error| BlockchainError::Rpc(error.to_string()))?;
         let tx_hash = format!("{:?}", events.extrinsic_hash());
         info!(
-            "[blockchain] Extrinsic '{}.{}' finalized, tx_hash={}",
-            pallet_name, call_name, tx_hash
+            "[blockchain] Extrinsic '{}.{}' finalized, tx_hash={}, block_hash={}",
+            pallet_name, call_name, tx_hash, finalized_block_hash
         );
         Ok(ChainTxResult {
             hash: tx_hash,
+            finalized_block_hash,
             finalized: true,
         })
     }
@@ -753,6 +759,105 @@ impl SubstrateClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use subxt::dynamic::At;
+    use subxt::ext::scale_value::{Composite, Value, ValueDef};
+
+    /// Metadata-decoded subset of `pallet_medical_records::HealthRecord`.
+    ///
+    /// Field names intentionally match runtime metadata. `DecodeAsType` skips
+    /// fields outside this proof, so the verifier follows metadata instead of
+    /// assuming fixed byte offsets or duplicating the full pallet type.
+    #[derive(Debug)]
+    struct CapsuleChainState {
+        patient: [u8; 32],
+        emergency_capsule_commitment: [u8; 32],
+        emergency_capsule_version: u32,
+    }
+
+    /// Convert metadata-decoded fixed-byte arrays and AccountId newtypes.
+    fn decoded_bytes(value: &Value) -> Result<Vec<u8>, String> {
+        let values = match &value.value {
+            ValueDef::Composite(Composite::Unnamed(values)) => values,
+            other => return Err(format!("expected byte composite, got {other:?}")),
+        };
+        if values.len() == 1 && values[0].as_u128().is_none() {
+            return decoded_bytes(&values[0]);
+        }
+        values
+            .iter()
+            .map(|item| {
+                let number = item
+                    .as_u128()
+                    .ok_or_else(|| format!("byte item is not an integer: {item:?}"))?;
+                u8::try_from(number).map_err(|_| format!("byte item is out of range: {number}"))
+            })
+            .collect()
+    }
+
+    /// Extract the material fields from a metadata-decoded health record.
+    fn capsule_state_from_value(value: &Value) -> Result<CapsuleChainState, String> {
+        let patient =
+            decoded_bytes(value.at("patient").ok_or_else(|| {
+                "HealthRecords.patient is absent from metadata value".to_string()
+            })?)?
+            .try_into()
+            .map_err(|bytes: Vec<u8>| format!("patient is {} bytes, expected 32", bytes.len()))?;
+        let commitment =
+            decoded_bytes(value.at("emergency_capsule_commitment").ok_or_else(|| {
+                "HealthRecords.emergency_capsule_commitment is absent".to_string()
+            })?)?
+            .try_into()
+            .map_err(|bytes: Vec<u8>| {
+                format!("commitment is {} bytes, expected 32", bytes.len())
+            })?;
+        let version = value
+            .at("emergency_capsule_version")
+            .and_then(Value::as_u128)
+            .ok_or_else(|| "HealthRecords.emergency_capsule_version is not a u32".to_string())?
+            .try_into()
+            .map_err(|_| "HealthRecords.emergency_capsule_version exceeds u32".to_string())?;
+        Ok(CapsuleChainState {
+            patient,
+            emergency_capsule_commitment: commitment,
+            emergency_capsule_version: version,
+        })
+    }
+
+    /// Read and decode `MedicalRecords.HealthRecords` at one finalized block.
+    async fn read_capsule_at_finalized_block(
+        client: &SubstrateClient,
+        patient: [u8; 32],
+        block_hash: &str,
+    ) -> Result<CapsuleChainState, String> {
+        let hash_bytes = hex::decode(block_hash.trim_start_matches("0x"))
+            .map_err(|error| format!("invalid finalized block hash: {error}"))?;
+        if hash_bytes.len() != 32 {
+            return Err(format!(
+                "finalized block hash is {} bytes, expected 32",
+                hash_bytes.len()
+            ));
+        }
+        let hash = subxt::utils::H256::from_slice(&hash_bytes);
+        let api = client
+            .subxt
+            .as_ref()
+            .ok_or_else(|| "subxt client is not connected".to_string())?;
+        let at_block = api
+            .at_block(hash)
+            .await
+            .map_err(|error| format!("cannot open finalized block: {error}"))?;
+        let address =
+            subxt::dynamic::storage::<([u8; 32],), Value>("MedicalRecords", "HealthRecords");
+        let value = at_block
+            .storage()
+            .fetch(address, (patient,))
+            .await
+            .map_err(|error| format!("cannot read HealthRecords: {error}"))?;
+        let decoded = value.decode().map_err(|error| {
+            format!("cannot decode HealthRecords using runtime metadata: {error}")
+        })?;
+        capsule_state_from_value(&decoded)
+    }
 
     /// Verify that WebSocket URLs are correctly converted to HTTP equivalents.
     #[test]
@@ -952,7 +1057,8 @@ mod tests {
         println!("signer pubkey 0x{}", hex::encode(signer_pub));
 
         // Well-known dev account standing in for an existing patient.
-        const SYNTHETIC_PATIENT: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+        let synthetic_patient = std::env::var("CHAIN_E2E_PATIENT")
+            .unwrap_or_else(|_| "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string());
 
         // Unique per run, so the test can be repeated against a chain that
         // already holds state from an earlier run.
@@ -970,15 +1076,22 @@ mod tests {
         // panics on, a failure — so one broken call does not hide the other three.
         fn check(label: &str, outcome: Result<ChainTxResult, BlockchainError>) -> Option<String> {
             match outcome {
-                Ok(result) if result.finalized && result.hash.starts_with("0x") => {
-                    println!("  [OK]   {label:<34} tx {}", result.hash);
+                Ok(result)
+                    if result.finalized
+                        && result.hash.starts_with("0x")
+                        && result.finalized_block_hash.starts_with("0x") =>
+                {
+                    println!(
+                        "  [OK]   {label:<34} tx {} block {}",
+                        result.hash, result.finalized_block_hash
+                    );
                     None
                 }
                 Ok(result) => {
                     println!("  [FAIL] {label:<34} suspicious result {result:?}");
                     Some(format!(
-                        "{label}: finalized={} hash={}",
-                        result.finalized, result.hash
+                        "{label}: finalized={} hash={} block={}",
+                        result.finalized, result.hash, result.finalized_block_hash
                     ))
                 }
                 Err(e) => {
@@ -1014,7 +1127,7 @@ mod tests {
             "MedicalRecords.upsert_ipfs_hash",
             client
                 .record_ipfs_hash_on_chain(
-                    SYNTHETIC_PATIENT,
+                    &synthetic_patient,
                     "QmSyntheticE2ETestHashOnlyNotRealContent00",
                     "lab_result",
                     "e2e",
@@ -1030,7 +1143,7 @@ mod tests {
                 .log_access_on_chain(
                     &format!("e2e-{nonce}"),
                     "e2e-accessor",
-                    SYNTHETIC_PATIENT,
+                    &synthetic_patient,
                     "READ",
                 )
                 .await,
@@ -1038,14 +1151,61 @@ mod tests {
 
         // --- 4. MedicalRecords::upsert_emergency_capsule_commitment -------------
         // The pallet requires a strictly increasing version per patient.
-        let commitment = "ab".repeat(32);
-        let version = (nonce / 1_000_000_000) as u32;
-        failures.extend(check(
-            "MedicalRecords.upsert_capsule",
-            client
-                .set_emergency_capsule_commitment_on_chain(SYNTHETIC_PATIENT, &commitment, version)
-                .await,
-        ));
+        let commitment = std::env::var("CHAIN_E2E_COMMITMENT").unwrap_or_else(|_| "ab".repeat(32));
+        let version = std::env::var("CHAIN_E2E_VERSION")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or((nonce / 1_000_000_000) as u32);
+        let capsule_outcome = client
+            .set_emergency_capsule_commitment_on_chain(&synthetic_patient, &commitment, version)
+            .await;
+        if let Ok(result) = &capsule_outcome {
+            let patient_account = synthetic_patient
+                .parse::<sp_core::crypto::AccountId32>()
+                .expect("synthetic patient must be a valid SS58 account");
+            let patient_bytes: [u8; 32] = AsRef::<[u8]>::as_ref(&patient_account)
+                .try_into()
+                .expect("AccountId32 must contain 32 bytes");
+            match read_capsule_at_finalized_block(
+                &client,
+                patient_bytes,
+                &result.finalized_block_hash,
+            )
+            .await
+            {
+                Ok(stored) => {
+                    let expected_commitment: [u8; 32] = hex::decode(&commitment)
+                        .expect("CHAIN_E2E_COMMITMENT must be hex")
+                        .try_into()
+                        .expect("CHAIN_E2E_COMMITMENT must contain 32 bytes");
+                    if stored.patient != patient_bytes {
+                        failures.push("stored patient does not match the submitted patient".into());
+                    }
+                    if stored.emergency_capsule_commitment != expected_commitment {
+                        failures.push(format!(
+                            "stored commitment {} does not match submitted {}",
+                            hex::encode(stored.emergency_capsule_commitment),
+                            commitment
+                        ));
+                    }
+                    if stored.emergency_capsule_version != version {
+                        failures.push(format!(
+                            "stored version {} does not match submitted {}",
+                            stored.emergency_capsule_version, version
+                        ));
+                    }
+                    println!(
+                        "  [OK]   {:<34} patient={} commitment=0x{} version={}",
+                        "MedicalRecords.storage_equality",
+                        synthetic_patient,
+                        hex::encode(stored.emergency_capsule_commitment),
+                        stored.emergency_capsule_version
+                    );
+                }
+                Err(error) => failures.push(format!("MedicalRecords.storage_equality: {error}")),
+            }
+        }
+        failures.extend(check("MedicalRecords.upsert_capsule", capsule_outcome));
 
         println!("\nfresh patient {fresh_patient}");
         println!("commitment    0x{commitment}");
@@ -1056,6 +1216,61 @@ mod tests {
             "{} of 4 chain writes did not reach finalized success:\n  {}",
             failures.len(),
             failures.join("\n  ")
+        );
+    }
+
+    /// Restart half of BC-001. The qualification script runs this only after
+    /// stopping and restarting the same persistent node base path.
+    #[tokio::test]
+    #[ignore = "run by qualify-storage-equality.sh after a persistent node restart"]
+    async fn chain_storage_equality_survives_restart() {
+        let patient = std::env::var("CHAIN_E2E_PATIENT").expect("CHAIN_E2E_PATIENT is required");
+        let commitment = std::env::var("CHAIN_E2E_COMMITMENT")
+            .expect("CHAIN_E2E_COMMITMENT is required")
+            .to_lowercase()
+            .trim_start_matches("0x")
+            .to_string();
+        let version = std::env::var("CHAIN_E2E_VERSION")
+            .expect("CHAIN_E2E_VERSION is required")
+            .parse::<u32>()
+            .expect("CHAIN_E2E_VERSION must be a u32");
+        let ws =
+            std::env::var("SUBSTRATE_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:9944".to_string());
+        let client = SubstrateClient::new(&ws)
+            .await
+            .expect("could not reconnect to the restarted node");
+        let finalized_hash = client
+            .call_rpc("chain_getFinalizedHead", json!([]))
+            .await
+            .expect("could not obtain finalized head after restart")
+            .as_str()
+            .expect("finalized head must be a hash string")
+            .to_string();
+        let account = patient
+            .parse::<sp_core::crypto::AccountId32>()
+            .expect("CHAIN_E2E_PATIENT must be a valid SS58 account");
+        let patient_bytes: [u8; 32] = AsRef::<[u8]>::as_ref(&account)
+            .try_into()
+            .expect("AccountId32 must contain 32 bytes");
+        let stored = read_capsule_at_finalized_block(&client, patient_bytes, &finalized_hash)
+            .await
+            .expect("metadata-aware storage read failed after restart");
+
+        assert_eq!(
+            stored.patient, patient_bytes,
+            "patient changed after restart"
+        );
+        assert_eq!(
+            hex::encode(stored.emergency_capsule_commitment),
+            commitment,
+            "commitment changed after restart"
+        );
+        assert_eq!(
+            stored.emergency_capsule_version, version,
+            "version changed after restart"
+        );
+        println!(
+            "storage equality survived restart: block={finalized_hash} patient={patient} commitment=0x{commitment} version={version}"
         );
     }
 }

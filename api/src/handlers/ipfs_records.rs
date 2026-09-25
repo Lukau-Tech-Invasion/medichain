@@ -32,7 +32,6 @@ pub async fn upload_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -43,7 +42,6 @@ pub async fn upload_medical_record(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -53,7 +51,6 @@ pub async fn upload_medical_record(
     // Only doctors, nurses, and admins can upload medical records
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot upload medical records. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -66,7 +63,6 @@ pub async fn upload_medical_record(
     // All medical document uploads MUST be encrypted with ChaCha20-Poly1305.
     if !req.encrypted {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Unencrypted document uploads are not permitted. \
                     All medical records must be encrypted (encrypted=true)."
                 .to_string(),
@@ -79,7 +75,6 @@ pub async fn upload_medical_record(
         Ok(patient) => patient,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -88,10 +83,15 @@ pub async fn upload_medical_record(
     let patient_account = patient.wallet_address;
     if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: "Patient has no wallet bound for blockchain recording".to_string(),
             code: "PATIENT_WALLET_REQUIRED".to_string(),
         });
+    }
+
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &req.patient_id).await
+    {
+        return response;
     }
 
     // Decode base64 content
@@ -102,7 +102,6 @@ pub async fn upload_medical_record(
         Ok(c) => c,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!("Invalid base64 content: {}", e),
                 code: "INVALID_CONTENT".to_string(),
             });
@@ -132,7 +131,6 @@ pub async fn upload_medical_record(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS upload failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             });
@@ -161,7 +159,6 @@ pub async fn upload_medical_record(
     {
         log::error!("Medical record persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "The encrypted content was uploaded, but its medical-record reference could not be saved."
                 .to_string(),
             code: "RECORD_PERSISTENCE_REQUIRED".to_string(),
@@ -187,7 +184,6 @@ pub async fn upload_medical_record(
     {
         log::error!("Medical-record upload audit persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error:
                 "The medical record was saved, but its required access audit could not be recorded."
                     .to_string(),
@@ -210,7 +206,6 @@ pub async fn upload_medical_record(
         Err(error) => {
             log::error!("Medical-record chain anchor could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The record was saved, but its blockchain anchor could not be queued."
                     .to_string(),
                 code: "CHAIN_ANCHOR_UNAVAILABLE".to_string(),
@@ -231,7 +226,6 @@ pub async fn upload_medical_record(
         Err(error) => {
             log::error!("Upload access chain audit could not be finalized or queued: {error}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "The record was saved, but its blockchain access audit could not be queued."
                     .to_string(),
                 code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
@@ -265,7 +259,6 @@ pub async fn download_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -276,51 +269,31 @@ pub async fn download_medical_record(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
         }
     };
 
-    // Patients can only download their own records
-    // Healthcare providers can download any records
-    if !current_user.role.is_healthcare_provider() {
-        // Check via repository that this record belongs to the patient
-        let owns_record = match data
-            .repositories
-            .medical_records
-            .get_by_ipfs_hash(&req.content_hash)
-            .await
-        {
-            // `patient_id` is a record id (`PAT-…`) and `current_user_id` is an
-            // SS58 wallet: comparing them directly can never be true for a real
-            // patient account, so this denied every patient their own record.
-            // Same namespace bug `caller_owns_patient_record` was written for;
-            // these two download sites were missed in that sweep.
-            Ok(entity) => crate::support::caller_owns_patient_record(
-                &data,
-                &current_user_id,
-                &entity.patient_id,
-            ),
-            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => false,
-            Err(e) => {
-                log::error!("Medical record lookup failed: {}", e);
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Ownership check failed".to_string(),
-                    code: "REPO_ERROR".to_string(),
-                });
-            }
-        };
-
-        if !owns_record {
-            return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
-                error: "Patients can only download their own medical records".to_string(),
-                code: "ACCESS_DENIED".to_string(),
-            });
+    let record = match data
+        .repositories
+        .medical_records
+        .get_by_ipfs_hash(&req.content_hash)
+        .await
+    {
+        Ok(record) => record,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return access_denied();
         }
+        Err(error) => {
+            log::error!("Medical record lookup failed: {error}");
+            return access_check_unavailable();
+        }
+    };
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &record.patient_id).await
+    {
+        return response;
     }
 
     // Download and decrypt from IPFS
@@ -336,38 +309,31 @@ pub async fn download_medical_record(
         Ok(r) => r,
         Err(IpfsError::NotFound(hash)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Record not found: {}", hash),
                 code: "RECORD_NOT_FOUND".to_string(),
             });
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS download failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             });
         }
     };
 
-    // Log access via repository
-    let _ = data
-        .repositories
-        .access_logs
-        .create(
-            AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: download_result.metadata.patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "download_record".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: false,
-            }
-            .into(),
-        )
-        .await;
+    let audit = AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: download_result.metadata.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "download_record".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    };
+    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+        return response;
+    }
 
     // Encode content as base64 for JSON response
     let content_base64 = base64::Engine::encode(
@@ -396,21 +362,47 @@ pub async fn download_medical_record(
 ///
 /// The IPFS path gets this from the `medical_records` row; these kinds have no
 /// such row, so they check the owning patient themselves.
-fn may_read_patient(
+async fn may_read_patient(
     data: &web::Data<AppState>,
     caller: &crate::types::User,
     caller_id: &str,
     patient_id: &str,
-) -> bool {
-    caller.role.is_healthcare_provider()
-        || crate::support::caller_owns_patient_record(data, caller_id, patient_id)
+) -> Result<bool, &'static str> {
+    if crate::support::caller_owns_patient_record(data, caller_id, patient_id) {
+        return Ok(true);
+    }
+    if !caller.role.is_healthcare_provider() {
+        return Ok(false);
+    }
+    data.patient_access
+        .provider_has_active_grant(patient_id, caller_id, Utc::now())
+        .await
+}
+
+async fn patient_read_denial(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    patient_id: &str,
+) -> Option<HttpResponse> {
+    match may_read_patient(data, caller, caller_id, patient_id).await {
+        Ok(true) => None,
+        Ok(false) => Some(access_denied()),
+        Err(_) => Some(access_check_unavailable()),
+    }
 }
 
 fn access_denied() -> HttpResponse {
     HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
         error: "Patients can only download their own medical records".to_string(),
         code: "ACCESS_DENIED".to_string(),
+    })
+}
+
+fn access_check_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Patient consent records are temporarily unavailable".to_string(),
+        code: "CONSENT_CHECK_UNAVAILABLE".to_string(),
     })
 }
 
@@ -443,12 +435,12 @@ async fn download_history_physical(
     let hp = match data.repositories.history_physicals.get_by_id(hp_id).await {
         Ok(hp) => hp,
         Err(e) => {
-            log::error!("history and physical {hp_id} lookup failed: {e}");
+            log::error!("history and physical lookup failed: {e}");
             return not_found("History and physical");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &hp.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &hp.patient_id).await {
+        return response;
     }
     let some = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_string());
     let json_lines = |value: &Option<serde_json::Value>| match value {
@@ -514,12 +506,12 @@ async fn download_progress_note(
     let note = match data.repositories.progress_notes.get_by_id(note_id).await {
         Ok(note) => note,
         Err(e) => {
-            log::error!("progress note {note_id} lookup failed: {e}");
+            log::error!("progress note lookup failed: {e}");
             return not_found("Progress note");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &note.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &note.patient_id).await {
+        return response;
     }
     let mut body = format!("Progress note {note_id}\n\n");
     body.push_str(&format!("Patient:    {}\n", note.patient_id));
@@ -553,12 +545,12 @@ async fn download_wound(
     {
         Ok(wound) => wound,
         Err(e) => {
-            log::error!("wound assessment {wound_id} lookup failed: {e}");
+            log::error!("wound assessment lookup failed: {e}");
             return not_found("Wound assessment");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &wound.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &wound.patient_id).await {
+        return response;
     }
     let cm = |v: &Option<rust_decimal::Decimal>| {
         v.map(|d| format!("{d} cm"))
@@ -601,12 +593,12 @@ async fn download_vitals(
     let v = match data.repositories.vital_signs.get_by_id(vitals_id).await {
         Ok(v) => v,
         Err(e) => {
-            log::error!("vital signs {vitals_id} lookup failed: {e}");
+            log::error!("vital-signs lookup failed: {e}");
             return not_found("Vital signs");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &v.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &v.patient_id).await {
+        return response;
     }
     let num = |value: Option<i32>| {
         value
@@ -657,9 +649,23 @@ fn text_document(filename: &str, body: String) -> HttpResponse {
         .body(body)
 }
 
+/// Render a structured, repository-backed clinical record without pretending it
+/// was an IPFS object. The caller has already been authorized for the patient.
+fn json_document<T: serde::Serialize>(filename: &str, kind: &str, record: &T) -> HttpResponse {
+    match serde_json::to_string_pretty(record) {
+        Ok(json) => text_document(filename, format!("{kind}\n\n{json}\n")),
+        Err(error) => {
+            log::error!("could not render {kind} {filename}: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Could not render record".to_string(),
+                code: "RENDER_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 fn not_found(kind: &str) -> HttpResponse {
     HttpResponse::NotFound().json(ErrorResponse {
-        success: false,
         error: format!("{kind} not found"),
         code: "RECORD_NOT_FOUND".to_string(),
     })
@@ -679,7 +685,7 @@ async fn download_soap_note(
         Ok(Some(record)) => record,
         Ok(None) => return not_found("SOAP note"),
         Err(e) => {
-            log::error!("soap note {note_id} lookup failed: {e}");
+            log::error!("SOAP-note lookup failed: {e}");
             return not_found("SOAP note");
         }
     };
@@ -693,8 +699,8 @@ async fn download_soap_note(
             .to_string()
     };
     let patient_id = text(&v, "patient_id");
-    if !may_read_patient(data, caller, caller_id, &patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &patient_id).await {
+        return response;
     }
 
     // The four SOAP sections are nested objects, each with its own fields — a
@@ -811,7 +817,7 @@ async fn download_prescription(
         Ok(Some(record)) => record,
         Ok(None) => return not_found("Prescription"),
         Err(e) => {
-            log::error!("prescription {prescription_id} lookup failed: {e}");
+            log::error!("prescription lookup failed: {e}");
             return not_found("Prescription");
         }
     };
@@ -826,8 +832,8 @@ async fn download_prescription(
             .to_string()
     };
     let patient_id = text(&v, "patient_id");
-    if !may_read_patient(data, caller, caller_id, &patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &patient_id).await {
+        return response;
     }
     let empty = serde_json::Value::Null;
     let med = v.get("medication").unwrap_or(&empty);
@@ -880,12 +886,12 @@ async fn download_triage(
     {
         Ok(a) => a,
         Err(e) => {
-            log::error!("triage {assessment_id} lookup failed: {e}");
+            log::error!("triage lookup failed: {e}");
             return not_found("Triage assessment");
         }
     };
-    if !may_read_patient(data, caller, caller_id, &a.patient_id) {
-        return access_denied();
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &a.patient_id).await {
+        return response;
     }
 
     let num = |v: Option<i32>| v.map(|n| n.to_string()).unwrap_or_else(|| "-".into());
@@ -971,15 +977,13 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
         Ok(Some(record)) => record,
         Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Lab result not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
-            log::error!("lab result {submission_id} lookup failed: {e}");
+            log::error!("lab-result lookup failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lookup failed".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -989,9 +993,8 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
     let submission: LabResultSubmission = match serde_json::from_value(record.data) {
         Ok(submission) => submission,
         Err(e) => {
-            log::error!("lab result {submission_id} did not parse: {e}");
+            log::error!("lab-result stored payload did not parse: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lab result could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1035,6 +1038,423 @@ async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) ->
         .body(report)
 }
 
+/// Render a patient's discharge summary as a readable document.
+async fn download_discharge_summary(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    summary_id: &str,
+) -> HttpResponse {
+    let summary = match data
+        .repositories
+        .discharge_summaries
+        .get_by_id(summary_id)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(error) => {
+            log::error!("discharge summary lookup failed: {error}");
+            return not_found("Discharge summary");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &summary.patient_id).await
+    {
+        return response;
+    }
+
+    let json_text = |value: &serde_json::Value| match value {
+        serde_json::Value::Null => "-".to_string(),
+        serde_json::Value::String(text) => text.clone(),
+        other => serde_json::to_string_pretty(other).unwrap_or_else(|_| "-".to_string()),
+    };
+    let optional = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_string());
+    let mut body = format!("Discharge summary {summary_id}\n\n");
+    body.push_str(&format!("Patient:      {}\n", summary.patient_id));
+    body.push_str(&format!(
+        "Attending:    {}\n",
+        summary.attending_physician_id
+    ));
+    body.push_str(&format!(
+        "Admitted:     {}\nDischarged:  {}\n\n",
+        summary.admission_datetime.format("%Y-%m-%d %H:%M UTC"),
+        summary.discharge_datetime.format("%Y-%m-%d %H:%M UTC")
+    ));
+    body.push_str(&format!(
+        "Principal diagnosis:\n  {}\n\n",
+        optional(&summary.principal_diagnosis)
+    ));
+    body.push_str(&format!(
+        "Discharge diagnosis:\n{}\n\n",
+        json_text(&summary.discharge_diagnosis)
+    ));
+    body.push_str(&format!(
+        "Hospital course:\n{}\n\n",
+        summary.hospital_course
+    ));
+    body.push_str(&format!(
+        "Condition at discharge: {}\n",
+        summary.condition_at_discharge
+    ));
+    body.push_str(&format!(
+        "Disposition:            {}\n\n",
+        summary.discharge_disposition
+    ));
+    body.push_str(&format!(
+        "Discharge medications:\n{}\n\n",
+        json_text(&summary.discharge_medications)
+    ));
+    body.push_str(&format!(
+        "Follow-up instructions:\n{}\n\n",
+        optional(&summary.follow_up_instructions)
+    ));
+    body.push_str(&format!(
+        "Warning signs:\n{}\n",
+        optional(&summary.warning_signs)
+    ));
+    text_document(summary_id, body)
+}
+
+async fn download_radiology_order(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.radiology_orders.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("radiology order lookup failed: {error}");
+            return not_found("Radiology order");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Radiology order", &record)
+}
+
+async fn download_radiology_report(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.radiology_reports.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("radiology report lookup failed: {error}");
+            return not_found("Radiology report");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Radiology report", &record)
+}
+
+async fn download_pathology_report(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.pathology_reports.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("pathology report lookup failed: {error}");
+            return not_found("Pathology report");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Pathology report", &record)
+}
+
+async fn download_consultation(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.consultation_notes.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("consultation lookup failed: {error}");
+            return not_found("Consultation");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Consultation", &record)
+}
+
+async fn download_care_plan(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.nursing_care_plans.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("care plan lookup failed: {error}");
+            return not_found("Care plan");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Nursing care plan", &record)
+}
+
+async fn download_discharge_instructions(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.discharge_instructions.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("discharge instructions lookup failed: {error}");
+            return not_found("Discharge instructions");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Discharge instructions", &record)
+}
+
+/// A record kept in one of the JSON stores, rendered for its patient.
+///
+/// The blood-type-screen and transfusion downloads read the typed
+/// `blood_type_screens` and `transfusion_records` repositories, which nothing
+/// has written to since their handlers moved to the JSON stores below. The
+/// patient's own list reads the JSON stores, so a patient could see a
+/// transfusion listed and be told "not found" on opening it -- for every
+/// transfusion ever recorded.
+async fn download_json_record(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+    store: &dyn crate::repositories::traits::JsonRecordRepository,
+    kind: &str,
+) -> HttpResponse {
+    let record = match store.get_by_id(id).await {
+        Ok(Some(record)) => record,
+        Ok(None) => return not_found(kind),
+        Err(error) => {
+            log::error!("{kind} lookup failed: {error}");
+            return not_found(kind);
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.owner_id).await {
+        return response;
+    }
+    json_document(id, kind, &record.data)
+}
+
+async fn download_blood_type_screen(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let store = data.repositories.blood_type_screen_records.as_ref();
+    download_json_record(data, caller, caller_id, id, store, "Blood type screen").await
+}
+
+async fn download_transfusion_record(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let store = data.repositories.transfusion_event_records.as_ref();
+    download_json_record(data, caller, caller_id, id, store, "Transfusion record").await
+}
+
+async fn download_ama_discharge(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.ama_discharges.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("AMA discharge lookup failed: {error}");
+            return not_found("AMA discharge");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Discharge against medical advice", &record)
+}
+
+async fn download_gcs_assessment(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.gcs_assessments.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("GCS assessment lookup failed: {error}");
+            return not_found("GCS assessment");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Glasgow Coma Scale assessment", &record)
+}
+
+async fn download_procedure(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    kind: &str,
+    id: &str,
+) -> HttpResponse {
+    macro_rules! render_procedure {
+        ($repository:ident, $label:literal) => {{
+            let record = match data.repositories.$repository.get_by_id(id).await {
+                Ok(record) => record,
+                Err(error) => {
+                    log::error!(concat!($label, " lookup failed: {}"), error);
+                    return not_found($label);
+                }
+            };
+            if let Some(response) =
+                patient_read_denial(data, caller, caller_id, &record.patient_id).await
+            {
+                return response;
+            }
+            json_document(id, $label, &record)
+        }};
+    }
+    match kind {
+        "intubations" => render_procedure!(intubation_records, "Intubation"),
+        "laceration_repairs" => render_procedure!(laceration_repairs, "Laceration repair"),
+        "splints_and_casts" => render_procedure!(splint_cast_records, "Splint or cast"),
+        "burn_assessments" => render_procedure!(burn_assessments, "Burn assessment"),
+        "anesthesia_records" => render_procedure!(anesthesia_records, "Anaesthesia record"),
+        _ => HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Unsupported procedure document type".to_string(),
+            code: "UNSUPPORTED_RECORD_TYPE".to_string(),
+        }),
+    }
+}
+
+/// Serve a document kept in its own clinical store rather than in IPFS.
+///
+/// Kinds that were never uploaded have no `medical_records` row, so they must be
+/// resolved before the IPFS lookup, which would otherwise 404 them before they
+/// were ever reached. `None` means the reference names no such kind. Each
+/// helper authorizes against the owning patient itself.
+async fn download_structured_document(
+    data: &web::Data<AppState>,
+    current_user: &crate::types::User,
+    current_user_id: &str,
+    content_hash: &str,
+) -> Option<HttpResponse> {
+    if let Some(note_id) = content_hash.strip_prefix("soap-") {
+        return Some(download_soap_note(data, current_user, current_user_id, note_id).await);
+    }
+    if let Some(prescription_id) = content_hash.strip_prefix("rx-") {
+        return Some(
+            download_prescription(data, current_user, current_user_id, prescription_id).await,
+        );
+    }
+    if let Some(hp_id) = content_hash.strip_prefix("hp-") {
+        return Some(download_history_physical(data, current_user, current_user_id, hp_id).await);
+    }
+    if let Some(note_id) = content_hash.strip_prefix("progress-") {
+        return Some(download_progress_note(data, current_user, current_user_id, note_id).await);
+    }
+    if let Some(wound_id) = content_hash.strip_prefix("wound-") {
+        return Some(download_wound(data, current_user, current_user_id, wound_id).await);
+    }
+    if let Some(vitals_id) = content_hash.strip_prefix("vitals-") {
+        return Some(download_vitals(data, current_user, current_user_id, vitals_id).await);
+    }
+    if let Some(assessment_id) = content_hash.strip_prefix("triage-") {
+        return Some(download_triage(data, current_user, current_user_id, assessment_id).await);
+    }
+    // Test the longer discharge-instructions prefix first: it also begins with
+    // `discharge-`, and routing it to a summary lookup would make a valid
+    // instruction document appear missing.
+    if let Some(instructions_id) = content_hash.strip_prefix("discharge-instructions-") {
+        return Some(
+            download_discharge_instructions(data, current_user, current_user_id, instructions_id)
+                .await,
+        );
+    }
+    if let Some(summary_id) = content_hash.strip_prefix("discharge-") {
+        return Some(
+            download_discharge_summary(data, current_user, current_user_id, summary_id).await,
+        );
+    }
+    if let Some(report_id) = content_hash.strip_prefix("imaging-report-") {
+        return Some(
+            download_radiology_report(data, current_user, current_user_id, report_id).await,
+        );
+    }
+    if let Some(order_id) = content_hash.strip_prefix("imaging-order-") {
+        return Some(download_radiology_order(data, current_user, current_user_id, order_id).await);
+    }
+    if let Some(report_id) = content_hash.strip_prefix("pathology-") {
+        return Some(
+            download_pathology_report(data, current_user, current_user_id, report_id).await,
+        );
+    }
+    if let Some(consultation_id) = content_hash.strip_prefix("consult-") {
+        return Some(
+            download_consultation(data, current_user, current_user_id, consultation_id).await,
+        );
+    }
+    if let Some(plan_id) = content_hash.strip_prefix("care-plan-") {
+        return Some(download_care_plan(data, current_user, current_user_id, plan_id).await);
+    }
+    if let Some(screen_id) = content_hash.strip_prefix("blood-screen-") {
+        return Some(
+            download_blood_type_screen(data, current_user, current_user_id, screen_id).await,
+        );
+    }
+    if let Some(transfusion_id) = content_hash.strip_prefix("transfusion-") {
+        return Some(
+            download_transfusion_record(data, current_user, current_user_id, transfusion_id).await,
+        );
+    }
+    if let Some(procedure_ref) = content_hash.strip_prefix("procedure-") {
+        let Some((kind, procedure_id)) = procedure_ref.split_once('-') else {
+            return Some(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "Procedure document reference is incomplete".to_string(),
+                code: "INVALID_RECORD_REFERENCE".to_string(),
+            }));
+        };
+        return Some(
+            download_procedure(data, current_user, current_user_id, kind, procedure_id).await,
+        );
+    }
+    if let Some(ama_id) = content_hash.strip_prefix("ama-") {
+        return Some(download_ama_discharge(data, current_user, current_user_id, ama_id).await);
+    }
+    if let Some(assessment_id) = content_hash.strip_prefix("gcs-") {
+        return Some(
+            download_gcs_assessment(data, current_user, current_user_id, assessment_id).await,
+        );
+    }
+    None
+}
+
 #[get("/api/records/{content_hash}/download")]
 pub async fn download_medical_record_by_hash(
     data: web::Data<AppState>,
@@ -1045,7 +1465,6 @@ pub async fn download_medical_record_by_hash(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -1055,7 +1474,6 @@ pub async fn download_medical_record_by_hash(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -1063,32 +1481,12 @@ pub async fn download_medical_record_by_hash(
     };
     let content_hash = path.into_inner();
 
-    // Resolve the record to get its metadata hash and owner.
-    // Kinds that live in their own store and were never uploaded to IPFS have
-    // no `medical_records` row, so they must be dispatched before the lookup
-    // below — which would otherwise 404 them before they were ever resolved.
-    // Each helper authorizes against the owning patient itself.
-    if let Some(note_id) = content_hash.strip_prefix("soap-") {
-        return download_soap_note(&data, &current_user, &current_user_id, note_id).await;
-    }
-    if let Some(prescription_id) = content_hash.strip_prefix("rx-") {
-        return download_prescription(&data, &current_user, &current_user_id, prescription_id)
-            .await;
-    }
-    if let Some(hp_id) = content_hash.strip_prefix("hp-") {
-        return download_history_physical(&data, &current_user, &current_user_id, hp_id).await;
-    }
-    if let Some(note_id) = content_hash.strip_prefix("progress-") {
-        return download_progress_note(&data, &current_user, &current_user_id, note_id).await;
-    }
-    if let Some(wound_id) = content_hash.strip_prefix("wound-") {
-        return download_wound(&data, &current_user, &current_user_id, wound_id).await;
-    }
-    if let Some(vitals_id) = content_hash.strip_prefix("vitals-") {
-        return download_vitals(&data, &current_user, &current_user_id, vitals_id).await;
-    }
-    if let Some(assessment_id) = content_hash.strip_prefix("triage-") {
-        return download_triage(&data, &current_user, &current_user_id, assessment_id).await;
+    // Resolve the record to get its metadata hash and owner, unless the
+    // reference names a document that lives in its own store.
+    if let Some(response) =
+        download_structured_document(&data, &current_user, &current_user_id, &content_hash).await
+    {
+        return response;
     }
 
     let entity = match data
@@ -1100,7 +1498,6 @@ pub async fn download_medical_record_by_hash(
         Ok(e) => e,
         Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Record not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
@@ -1108,20 +1505,15 @@ pub async fn download_medical_record_by_hash(
         Err(e) => {
             log::error!("Medical record lookup failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Lookup failed".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
         }
     };
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &entity.patient_id)
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &entity.patient_id).await
     {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Patients can only download their own medical records".to_string(),
-            code: "ACCESS_DENIED".to_string(),
-        });
+        return response;
     }
     // A record reference is a pointer, and not every pointer is an IPFS CID.
     // Approving a lab result files it in the patient's records with a synthetic
@@ -1142,7 +1534,6 @@ pub async fn download_medical_record_by_hash(
         Some(h) => h,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Record has no metadata reference".to_string(),
                 code: "METADATA_MISSING".to_string(),
             })
@@ -1157,37 +1548,31 @@ pub async fn download_medical_record_by_hash(
         Ok(r) => r,
         Err(IpfsError::NotFound(hash)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Record content not found: {}", hash),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS download failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             })
         }
     };
 
-    let _ = data
-        .repositories
-        .access_logs
-        .create(
-            AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: result.metadata.patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "download_record".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: false,
-            }
-            .into(),
-        )
-        .await;
+    let audit = AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: result.metadata.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "download_record".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    };
+    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+        return response;
+    }
 
     let filename = result.metadata.filename.clone();
     let content_type = if result.metadata.content_type.trim().is_empty() {
@@ -1204,8 +1589,175 @@ pub async fn download_medical_record_by_hash(
         .body(result.content)
 }
 
+#[cfg(test)]
+mod structured_document_download_tests {
+    use super::*;
+    use crate::{repositories::traits::GcsAssessmentEntity, Role, User};
+    use actix_web::{body::to_bytes, test, web, App};
+
+    fn state_with_linked_patient(wallet: &str, linked_patient_id: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        state.users.write().unwrap().insert(
+            wallet.to_string(),
+            User {
+                wallet_address: wallet.to_string(),
+                username: None,
+                name: "Test patient".to_string(),
+                role: Role::Patient,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: Some(linked_patient_id.to_string()),
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+        web::Data::new(state)
+    }
+
+    #[actix_rt::test]
+    async fn a_patient_can_download_their_own_structured_gcs_document() {
+        let data = state_with_linked_patient("5Patient", "PAT-1");
+        data.repositories
+            .gcs_assessments
+            .create(GcsAssessmentEntity {
+                id: "GCS-1".to_string(),
+                patient_id: "PAT-1".to_string(),
+                eye_response: 4,
+                verbal_response: 5,
+                motor_response: 6,
+                total_score: 0,
+                interpretation: "Normal neurological function".to_string(),
+                notes: None,
+                pupil_assessment: None,
+                assessed_by: "5Clinician".to_string(),
+                assessed_at: Utc::now(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                facility_id: None,
+            })
+            .await
+            .expect("GCS record should be storable");
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::download_medical_record_by_hash),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri("/api/records/gcs-GCS-1/download")
+            .insert_header(("X-User-Id", "5Patient"))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+
+        assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+        let body = to_bytes(response.into_body()).await.unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(text.contains("Normal neurological function"));
+        assert!(text.contains("\"total_score\": 15"));
+    }
+
+    #[actix_rt::test]
+    async fn a_patient_cannot_download_another_patients_structured_document() {
+        let data = state_with_linked_patient("5OtherPatient", "PAT-2");
+        data.repositories
+            .gcs_assessments
+            .create(GcsAssessmentEntity {
+                id: "GCS-2".to_string(),
+                patient_id: "PAT-1".to_string(),
+                eye_response: 4,
+                verbal_response: 5,
+                motor_response: 6,
+                total_score: 0,
+                interpretation: "Normal neurological function".to_string(),
+                notes: None,
+                pupil_assessment: None,
+                assessed_by: "5Clinician".to_string(),
+                assessed_at: Utc::now(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                facility_id: None,
+            })
+            .await
+            .expect("GCS record should be storable");
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::download_medical_record_by_hash),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri("/api/records/gcs-GCS-2/download")
+            .insert_header(("X-User-Id", "5OtherPatient"))
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
+    }
+
+    /// Both used to read typed repositories nothing writes, so every recorded
+    /// transfusion and screen answered "not found" to the patient it is about.
+    #[actix_rt::test]
+    async fn a_patient_can_open_their_own_transfusion_and_blood_screen() {
+        let data = state_with_linked_patient("5Patient", "PAT-1");
+        let now = Utc::now();
+        for (store, id, payload) in [
+            (
+                data.repositories.transfusion_event_records.clone(),
+                "TX-1",
+                serde_json::json!({ "transfusion_id": "TX-1", "product_type": "packed_red_cells" }),
+            ),
+            (
+                data.repositories.blood_type_screen_records.clone(),
+                "BTS-1",
+                serde_json::json!({ "screen_id": "BTS-1", "abo_group": "O" }),
+            ),
+        ] {
+            store
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: id.to_string(),
+                    owner_id: "PAT-1".to_string(),
+                    data: payload,
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("record should be storable");
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::download_medical_record_by_hash),
+        )
+        .await;
+
+        for (hash, expected) in [
+            ("transfusion-TX-1", "packed_red_cells"),
+            ("blood-screen-BTS-1", "\"abo_group\": \"O\""),
+        ] {
+            let request = test::TestRequest::get()
+                .uri(&format!("/api/records/{hash}/download"))
+                .insert_header(("X-User-Id", "5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::OK, "{hash}");
+            let body = to_bytes(response.into_body()).await.unwrap();
+            assert!(
+                std::str::from_utf8(&body).unwrap().contains(expected),
+                "{hash}"
+            );
+        }
+    }
+}
+
 /// List medical records for a patient (paginated)
-/// Requires: Healthcare provider role OR patient accessing own records
+/// Requires: active patient consent OR patient accessing own records
 /// Query params: ?page=1&limit=20
 #[get("/api/records/{patient_id}")]
 pub async fn list_patient_records(
@@ -1221,7 +1773,6 @@ pub async fn list_patient_records(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -1232,22 +1783,16 @@ pub async fn list_patient_records(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
         }
     };
 
-    // Patients can only list their own records
-    if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    if let Some(response) =
+        patient_read_denial(&data, &current_user, &current_user_id, &patient_id).await
     {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Patients can only view their own medical records".to_string(),
-            code: "ACCESS_DENIED".to_string(),
-        });
+        return response;
     }
 
     // Get patient records via repository (paginated)
@@ -1271,7 +1816,6 @@ pub async fn list_patient_records(
         Err(e) => {
             log::error!("List medical records failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to list records".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1282,24 +1826,19 @@ pub async fn list_patient_records(
     let paginated_records: Vec<crate::ipfs::MedicalRecordReference> =
         result.items.into_iter().map(Into::into).collect();
 
-    // Log access via repository
-    let _ = data
-        .repositories
-        .access_logs
-        .create(
-            AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "list_records".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: false,
-            }
-            .into(),
-        )
-        .await;
+    let audit = AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "list_records".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    };
+    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+        return response;
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,

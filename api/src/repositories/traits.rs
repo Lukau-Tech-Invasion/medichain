@@ -83,8 +83,19 @@ pub type RepositoryResult<T> = Result<T, RepositoryError>;
 // COMMON TYPES
 // =============================================================================
 
-/// Pagination parameters
-#[derive(Debug, Clone, Default)]
+/// Pagination parameters.
+///
+/// **Deliberately not `Default`.** The derive gave `page: 0, per_page: 0`, so
+/// `limit()` returned 0 and every paginated repository read applied `.take(0)`.
+/// The call came back with an empty `items` list and an accurate non-zero
+/// `total` — which reads exactly like "this patient has no records" rather than
+/// like a bug, and cost real time to diagnose the one time it was written.
+///
+/// There is no page size that is right by default: 0 returns nothing and any
+/// other number is this type guessing at the caller's intent. `new(page, size)`
+/// makes the caller say, and [`Pagination::first_page`] covers the common case
+/// of "the first screenful" without inventing a silent constant.
+#[derive(Debug, Clone)]
 pub struct Pagination {
     /// Page number (0-indexed)
     pub page: u32,
@@ -94,6 +105,11 @@ pub struct Pagination {
 
 impl Pagination {
     pub const MAX_PER_PAGE: u32 = 100;
+
+    /// The first page, at a stated size. Named so a reader sees the size.
+    pub fn first_page(per_page: u32) -> Self {
+        Self::new(0, per_page)
+    }
 
     pub fn new(page: u32, per_page: u32) -> Self {
         Self {
@@ -209,6 +225,13 @@ pub struct PatientEntity {
     #[serde(default)]
     pub profile_extras_encrypted: Option<Vec<u8>>,
 
+    /// Keyed blind-index tokens for the patient's name. These are not
+    /// reversible plaintext, but do reveal equality of equal name tokens to a
+    /// party that can read this column; never serialize them to clients.
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub name_search_tokens: Vec<String>,
+
     /// Which `ENCRYPTION_KEYS` version the encrypted fields above were sealed
     /// with (Phase 6.3 — key rotation). Rows written before this column existed
     /// default to `1`. New writes stamp the keyring's current version; reads
@@ -219,27 +242,6 @@ pub struct PatientEntity {
 
 fn default_key_version() -> i32 {
     1
-}
-
-/// Allergy entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AllergyEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub allergen: String,
-    pub allergen_type: String,
-    pub reaction: Option<String>,
-    pub severity: String,
-    pub onset_date: Option<chrono::NaiveDate>,
-    pub last_occurrence: Option<chrono::NaiveDate>,
-    pub verified: bool,
-    pub verified_by: Option<String>,
-    pub verified_at: Option<DateTime<Utc>>,
-    pub source: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub created_by: String,
-    pub is_active: bool,
 }
 
 /// Medical record entity (database model)
@@ -265,6 +267,13 @@ pub struct MedicalRecordEntity {
     pub is_active: bool,
     pub is_locked: bool,
 }
+/// The status a stored card carries when the row predates the `status` column.
+///
+/// Every such row was written by a code path that could only produce an active
+/// card, so this is the true value for all of them rather than a placeholder.
+fn default_tag_status() -> String {
+    "Active".to_string()
+}
 
 /// NFC tag entity (database model)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -274,6 +283,16 @@ pub struct NfcTagEntity {
     pub patient_id: String,
     pub tag_type: String,
     pub is_active: bool,
+    /// Why the card is or is not usable: `Active`, `Suspended`, `Revoked` or
+    /// `Expired`.
+    ///
+    /// `is_active` stays the predicate every existing reader asks, and this
+    /// narrows it to the reason. A boolean cannot tell a suspended card, which
+    /// an administrator can reinstate, from a revoked one, which nobody can --
+    /// and collapsing the two loses the difference permanently the first time a
+    /// card is read back from storage.
+    #[serde(default = "default_tag_status")]
+    pub status: String,
     #[serde(skip_serializing)]
     pub pin_hash: Option<String>,
     pub issued_at: DateTime<Utc>,
@@ -336,8 +355,15 @@ pub struct TriageAssessmentEntity {
     pub weight: Option<f64>,
     pub is_critical: bool,
     pub requires_isolation: bool,
+    /// Where the patient went. NOT the triage note — the queue used to read
+    /// this in the note's place, and the create path never sets it.
     pub disposition: Option<String>,
     pub assigned_bed: Option<String>,
+    /// The free-text triage note, which had no column at all until
+    /// `20260910000002`. `CreateTriageRequest` has always carried it and the
+    /// handler has always validated its length; both then dropped it.
+    #[serde(default)]
+    pub notes: Option<String>,
     pub triage_time: DateTime<Utc>,
     pub seen_by_provider_at: Option<DateTime<Utc>>,
     pub performed_by: String,
@@ -399,11 +425,30 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
 
-    /// Search patients by criteria
+    /// List a stable page ordered by `updated_at DESC, id ASC`.
+    ///
+    /// The cursor is the final row from the preceding page. Keeping this at
+    /// the repository boundary prevents a roster handler from loading and
+    /// decrypting an arbitrary national register just to paginate it.
+    async fn list_keyset(
+        &self,
+        cursor: Option<(DateTime<Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
+
+    /// Search patients by identifier or keyed name-token equality.
     async fn search(
         &self,
         query: &str,
         pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
+
+    /// Search a stable page by identifier or keyed name-token equality.
+    async fn search_keyset(
+        &self,
+        query: &str,
+        cursor: Option<(DateTime<Utc>, String)>,
+        limit: u32,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>>;
 
     /// Get patients by provider
@@ -416,6 +461,23 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
     /// Count total patients
     async fn count(&self) -> RepositoryResult<u64>;
 
+    /// Patients whose name index is empty, ordered by id, after `after_id`.
+    ///
+    /// Rows written before the blind index existed have no tokens, and SQL
+    /// cannot compute them: the name is sealed under the application keyring.
+    /// `patient_name_index::backfill_missing_name_index` pages through these.
+    async fn list_unindexed_names(
+        &self,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<PatientEntity>>;
+
+    /// Set a patient's name-search tokens and nothing else.
+    ///
+    /// Not even `updated_at`: indexing is not a change to the patient, and the
+    /// roster is ordered by it.
+    async fn set_name_search_tokens(&self, id: &str, tokens: &[String]) -> RepositoryResult<()>;
+
     /// Count active patients grouped by administrative gender.
     ///
     /// Aggregated in the query rather than by listing every patient and
@@ -427,36 +489,6 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
     /// so the buckets always sum to the population — a distribution that
     /// silently drops them misstates every proportion derived from it.
     async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>>;
-}
-
-/// Allergy repository trait
-#[async_trait]
-pub trait AllergyRepository: Send + Sync + fmt::Debug {
-    /// Create a new allergy
-    async fn create(&self, allergy: AllergyEntity) -> RepositoryResult<AllergyEntity>;
-
-    /// Get allergy by ID
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<AllergyEntity>;
-
-    /// Get all allergies for a patient
-    async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<AllergyEntity>>;
-
-    /// Get active allergies for a patient
-    async fn get_active_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Vec<AllergyEntity>>;
-
-    /// Update allergy
-    async fn update(&self, allergy: AllergyEntity) -> RepositoryResult<AllergyEntity>;
-
-    /// Delete allergy (soft delete)
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-
-    /// Check if patient has specific allergen
-    async fn has_allergen(&self, patient_id: &str, allergen: &str) -> RepositoryResult<bool>;
-
-    /// Get severe allergies for a patient (Severe or LifeThreatening)
-    async fn get_severe_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Vec<AllergyEntity>>;
 }
 
 /// Medical record repository trait
@@ -677,25 +709,6 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
 // PHASE 2 ENTITY MODELS (Clinical Documentation & Nursing Care)
 // =============================================================================
 
-/// Sample history entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct SampleHistoryEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub signs_symptoms: serde_json::Value,
-    pub past_medical_history: serde_json::Value,
-    pub events_leading: String,
-    pub last_intake: Option<serde_json::Value>,
-    pub medications: serde_json::Value,
-    pub allergies_snapshot: serde_json::Value,
-    pub collected_by: String,
-    pub collected_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub facility_id: Option<String>,
-    pub is_active: bool,
-}
-
 /// Glasgow Coma Scale assessment entity (database model)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct GcsAssessmentEntity {
@@ -861,7 +874,14 @@ pub struct IORecordEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -891,7 +911,14 @@ pub struct WoundAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -923,7 +950,12 @@ pub struct IVAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -940,10 +972,31 @@ pub struct FallRiskAssessmentEntity {
     pub iv_therapy: Option<i32>,
     pub gait_status: Option<i32>,
     pub mental_status: Option<i32>,
-    pub total_score: i32,   // Generated column
-    pub risk_level: String, // Generated column
+    /// Morse total. `GENERATED ALWAYS ... STORED` from the six item columns,
+    /// and `Option` because those columns are nullable: a row written before
+    /// the items were populated has a NULL total, and PostgreSQL will not
+    /// decode that into an `i32`.
+    ///
+    /// It was `i32`, which meant one legacy row with a null score made
+    /// `get_high_risk_patients` fail to decode — and that read is on the nurse
+    /// dashboard's critical path, so the entire screen returned 503.
+    ///
+    /// `None` means "never scored", which is deliberately not the same as 0.
+    /// Zero bands as low risk; unscored is a patient nobody has assessed.
+    pub total_score: Option<i32>,
+    /// Risk band, generated from `total_score`. `None` for the same reason.
+    pub risk_level: Option<String>,
     pub additional_factors: Option<serde_json::Value>,
     pub interventions: Option<serde_json::Value>,
+    /// Hazards identified at the bedside. Collected by the form since it was
+    /// written; had no column until 20260909000001, so it was dropped on save.
+    pub environmental_hazards: Option<serde_json::Value>,
+    /// Fall-risk-increasing drugs the patient is on. Same history.
+    pub medications: Option<serde_json::Value>,
+    /// A fall already occurred during this admission.
+    pub recent_fall: bool,
+    /// Mobility status the prevention plan is built around.
+    pub mobility: Option<String>,
     pub notes: Option<String>,
     pub assessed_by: String,
     pub assessed_at: DateTime<Utc>,
@@ -951,7 +1004,14 @@ pub struct FallRiskAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -959,24 +1019,6 @@ pub struct FallRiskAssessmentEntity {
 // =============================================================================
 // PHASE 2 REPOSITORY TRAITS
 // =============================================================================
-
-/// Sample history repository trait
-#[async_trait]
-pub trait SampleHistoryRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, history: SampleHistoryEntity) -> RepositoryResult<SampleHistoryEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<SampleHistoryEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<SampleHistoryEntity>>;
-    async fn get_latest_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<SampleHistoryEntity>>;
-    async fn update(&self, history: SampleHistoryEntity) -> RepositoryResult<SampleHistoryEntity>;
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-}
 
 /// Glasgow Coma Scale assessment repository trait
 #[async_trait]
@@ -1050,6 +1092,17 @@ pub trait HistoryPhysicalRepository: Send + Sync + fmt::Debug {
         &self,
         history: HistoryPhysicalEntity,
     ) -> RepositoryResult<HistoryPhysicalEntity>;
+    /// Replace the record only if nobody has written it since it was read.
+    ///
+    /// Compare-and-set on `updated_at`: `Ok(None)` means another write landed
+    /// first and the caller's copy is stale. A signed H&P is immutable, so an
+    /// unconditional read-check-write could turn a record signed in between
+    /// back into a draft, or drop one of two concurrent addenda.
+    async fn update_if_unchanged(
+        &self,
+        history: HistoryPhysicalEntity,
+        expected_updated_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<HistoryPhysicalEntity>>;
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
     async fn get_by_exam_type(
         &self,
@@ -1257,13 +1310,18 @@ pub trait FallRiskAssessmentRepository: Send + Sync + fmt::Debug {
 pub struct CodeBlueEntity {
     pub id: String,
     pub patient_id: String,
-    pub location: String,
+    /// `Option` throughout for the fields `CodeBluePage` does not collect.
+    /// A resuscitation record that says the initial rhythm was `""` or that
+    /// the arrest was un-witnessed, when nobody was asked, is asserting a
+    /// clinical finding of its own (Rule 12). Stored as JSONB in
+    /// `ep_code_blue_records.record_json`, so this needs no migration.
+    pub location: Option<String>,
     pub code_called_at: i64,
     pub team_arrived_at: Option<i64>,
-    pub initial_rhythm: String,
-    pub witnessed: bool,
+    pub initial_rhythm: Option<String>,
+    pub witnessed: Option<bool>,
     pub outcome: String,
-    pub code_leader: String,
+    pub code_leader: Option<String>,
     pub documented_by: String,
     pub documented_at: i64,
     pub data: serde_json::Value,
@@ -1277,10 +1335,10 @@ pub struct TraumaAssessmentEntity {
     pub id: String,
     pub patient_id: String,
     pub mechanism: String,
-    pub gcs: u8,
+    pub gcs: Option<u8>,
     pub trauma_level: Option<u8>,
-    pub mtp_activated: bool,
-    pub disposition: String,
+    pub mtp_activated: Option<bool>,
+    pub disposition: Option<String>,
     pub assessed_by: String,
     pub assessed_at: i64,
     pub data: serde_json::Value,
@@ -1293,12 +1351,15 @@ pub struct TraumaAssessmentEntity {
 pub struct StrokeAssessmentEntity {
     pub id: String,
     pub patient_id: String,
-    pub nihss_total: u8,
-    pub stroke_type: String,
-    pub tpa_eligible: bool,
-    pub tpa_given: bool,
-    pub hemorrhage: bool,
-    pub lvo_suspected: bool,
+    pub nihss_total: Option<u8>,
+    /// `StrokePage` records a CT *interpretation* in free text; it never asks
+    /// whether there is blood on the scan. Deriving `hemorrhage` from that
+    /// string would be the API inventing a radiology finding.
+    pub stroke_type: Option<String>,
+    pub tpa_eligible: Option<bool>,
+    pub tpa_given: Option<bool>,
+    pub hemorrhage: Option<bool>,
+    pub lvo_suspected: Option<bool>,
     pub assessed_by: String,
     pub assessed_at: i64,
     pub data: serde_json::Value,
@@ -1478,28 +1539,6 @@ pub struct LabSubmissionEntity {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Lab panel entity (groupings of related tests)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct LabPanelEntity {
-    pub id: String,
-    pub submission_id: String,
-    pub patient_id: String,
-    pub panel_code: String,
-    pub panel_name: String,
-    pub status: String,
-    pub results: Option<serde_json::Value>,
-    pub reference_ranges: Option<serde_json::Value>,
-    pub abnormal_flags: Option<serde_json::Value>,
-    pub performing_lab: Option<String>,
-    pub technician_id: Option<String>,
-    pub verified_by: Option<String>,
-    pub collected_at: Option<DateTime<Utc>>,
-    pub resulted_at: Option<DateTime<Utc>>,
-    pub verified_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
 /// Lab QC record entity (quality control for laboratory)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct LabQcRecordEntity {
@@ -1524,7 +1563,12 @@ pub struct LabQcRecordEntity {
     pub lot_number: Option<String>,
     pub expiration_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1552,7 +1596,14 @@ pub struct CriticalValueEntity {
     pub action_taken: Option<String>,
     pub reported_by: String,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1580,7 +1631,12 @@ pub struct SpecimenCollectionEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1601,27 +1657,43 @@ pub struct SpecimenRejectionEntity {
     pub notified_ordering_provider: bool,
     pub notification_sent_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
 
-/// Lab trend entity (historical trend data for lab values)
+/// A request for a fresh sample after a specimen was rejected (SCR-009b).
+///
+/// Separate from `SpecimenRejectionEntity` on purpose. The rejection is a
+/// permanent historical fact and is never edited to look as though the specimen
+/// was fine; obtaining another sample is a new act, with its own requester,
+/// timing, outcome and audit trail, and it points back at the rejection it
+/// answers.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct LabTrendEntity {
+pub struct SpecimenRecollectionRequestEntity {
     pub id: String,
+    pub rejection_id: String,
+    pub original_specimen_id: String,
     pub patient_id: String,
-    pub test_code: String,
-    pub test_name: String,
-    pub values_json: serde_json::Value,
-    pub unit: String,
-    pub reference_low: Option<rust_decimal::Decimal>,
-    pub reference_high: Option<rust_decimal::Decimal>,
-    pub trend_direction: Option<String>,
-    pub percent_change: Option<rust_decimal::Decimal>,
-    pub first_value_date: Option<DateTime<Utc>>,
-    pub last_value_date: Option<DateTime<Utc>>,
-    pub data_points_count: i32,
+    pub ordering_provider_id: Option<String>,
+    pub requested_by: String,
+    pub reason: String,
+    /// `requested` -> `collected` | `cancelled`. Terminal states are terminal.
+    pub status: String,
+    pub requested_at: DateTime<Utc>,
+    /// The specimen that replaced the rejected one. Null until completion, and
+    /// the database refuses a `collected` row without it.
+    pub replacement_specimen_id: Option<String>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub cancellation_reason: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1688,8 +1760,11 @@ pub struct OperativeNoteEntity {
     pub anesthesia_type: String,
     pub scrub_nurse_id: Option<String>,
     pub circulating_nurse_id: Option<String>,
-    pub start_time: DateTime<Utc>,
-    pub end_time: DateTime<Utc>,
+    /// `Option` since migration 20260916000001. `OperativeNotePage` records a
+    /// procedure date and no theatre clock times, and a date written at
+    /// midnight into both of these is a fabricated operative duration.
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
     pub incision_time: Option<DateTime<Utc>>,
     pub closure_time: Option<DateTime<Utc>>,
     pub estimated_blood_loss_ml: Option<i32>,
@@ -1824,7 +1899,14 @@ pub struct IntubationRecordEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1865,7 +1947,14 @@ pub struct LacerationRepairEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1901,7 +1990,14 @@ pub struct SplintCastRecordEntity {
     pub applied_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2028,181 +2124,9 @@ pub struct PathologyReportEntity {
 // PHASE 3: BLOOD BANK ENTITIES
 // =============================================================================
 
-/// Blood type screen entity (ABO/Rh typing and antibody screens)
-#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
-pub struct BloodTypeScreenEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub specimen_id: Option<String>,
-    pub abo_type: String,
-    pub rh_type: String,
-    pub abo_confirmation: Option<String>,
-    pub rh_confirmation: Option<String>,
-    pub weak_d_testing: Option<bool>,
-    pub weak_d_result: Option<String>,
-    pub antibody_screen_result: String,
-    pub antibodies_identified: Option<serde_json::Value>,
-    pub antibody_titer: Option<serde_json::Value>,
-    pub direct_antiglobulin_test: Option<String>,
-    pub dat_specificity: Option<serde_json::Value>,
-    pub special_requirements: Option<serde_json::Value>,
-    pub historical_records_reviewed: Option<bool>,
-    pub discrepancy_notes: Option<String>,
-    pub performed_by: String,
-    pub verified_by: Option<String>,
-    pub performed_at: DateTime<Utc>,
-    pub verified_at: Option<DateTime<Utc>>,
-    pub expiration_date: Option<chrono::NaiveDate>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
-/// Crossmatch record entity (blood compatibility testing)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct CrossmatchRecordEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub blood_type_screen_id: String,
-    pub unit_number: String,
-    pub product_type: String,
-    pub product_abo: String,
-    pub product_rh: String,
-    pub donation_date: Option<chrono::NaiveDate>,
-    pub expiration_date: chrono::NaiveDate,
-    pub crossmatch_type: String,
-    pub result: String,
-    pub incompatibility_details: Option<String>,
-    pub special_processing: Option<serde_json::Value>,
-    pub irradiated: Option<bool>,
-    pub leukoreduced: Option<bool>,
-    pub washed: Option<bool>,
-    pub volume_reduced: Option<bool>,
-    pub reserved_until: Option<DateTime<Utc>>,
-    pub issued_at: Option<DateTime<Utc>>,
-    pub issued_to: Option<String>,
-    pub returned_at: Option<DateTime<Utc>>,
-    pub return_reason: Option<String>,
-    pub performed_by: String,
-    pub verified_by: Option<String>,
-    pub performed_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Transfusion record entity (blood product administration)
-#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
-pub struct TransfusionRecordEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub crossmatch_id: String,
-    pub unit_number: String,
-    pub product_type: String,
-    pub volume_ml: i32,
-    pub ordering_provider_id: String,
-    pub indication: String,
-    pub pre_transfusion_vitals: serde_json::Value,
-    pub pre_transfusion_labs: Option<serde_json::Value>,
-    pub start_time: DateTime<Utc>,
-    pub end_time: Option<DateTime<Utc>>,
-    pub flow_rate_ml_hr: Option<i32>,
-    pub administering_nurse_id: String,
-    pub verifying_nurse_id: String,
-    pub bedside_verification_time: DateTime<Utc>,
-    pub patient_identification_method: String,
-    pub vitals_15_min: Option<serde_json::Value>,
-    pub vitals_1_hr: Option<serde_json::Value>,
-    pub vitals_post: Option<serde_json::Value>,
-    pub reaction_occurred: bool,
-    pub reaction_type: Option<String>,
-    pub reaction_severity: Option<String>,
-    pub reaction_symptoms: Option<serde_json::Value>,
-    pub reaction_time: Option<DateTime<Utc>>,
-    pub reaction_interventions: Option<serde_json::Value>,
-    pub transfusion_completed: bool,
-    pub volume_transfused_ml: Option<i32>,
-    pub reason_not_completed: Option<String>,
-    pub post_transfusion_labs: Option<serde_json::Value>,
-    pub notes: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
 // =============================================================================
 // PHASE 3: PHARMACY & MEDICATIONS ENTITIES
 // =============================================================================
-
-/// E-prescription entity (electronic prescription records)
-#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
-pub struct EPrescriptionEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub prescriber_id: String,
-    pub medication_name: String,
-    pub medication_code: Option<String>,
-    pub ndc_code: Option<String>,
-    pub rxnorm_code: Option<String>,
-    pub strength: Option<String>,
-    pub strength_unit: Option<String>,
-    pub dosage_form: String,
-    pub route: String,
-    pub frequency: String,
-    pub duration_days: Option<i32>,
-    pub quantity: i32,
-    pub quantity_unit: Option<String>,
-    pub refills_authorized: i32,
-    pub refills_remaining: i32,
-    pub daw_code: Option<String>,
-    pub sig: String,
-    pub diagnosis_codes: Option<serde_json::Value>,
-    pub indication: Option<String>,
-    pub is_controlled: bool,
-    pub schedule: Option<String>,
-    pub prior_authorization_required: Option<bool>,
-    pub prior_authorization_number: Option<String>,
-    pub pharmacy_id: Option<String>,
-    pub pharmacy_name: Option<String>,
-    pub pharmacy_npi: Option<String>,
-    pub status: String,
-    pub sent_at: Option<DateTime<Utc>>,
-    pub filled_at: Option<DateTime<Utc>>,
-    pub fill_number: Option<i32>,
-    pub notes: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
-/// Drug interaction entity (drug-drug and drug-allergy interactions)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DrugInteractionEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub prescription_id: Option<String>,
-    pub drug1_name: String,
-    pub drug1_code: Option<String>,
-    pub drug2_name: Option<String>,
-    pub drug2_code: Option<String>,
-    pub interaction_type: String,
-    pub severity: String,
-    pub clinical_significance: String,
-    pub mechanism: Option<String>,
-    pub management: Option<String>,
-    pub documentation_level: Option<String>,
-    pub detected_at: DateTime<Utc>,
-    pub acknowledged: bool,
-    pub acknowledged_by: Option<String>,
-    pub acknowledged_at: Option<DateTime<Utc>>,
-    pub override_reason: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
 
 /// Medication reminder entity (patient medication reminder schedules)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -2280,24 +2204,6 @@ pub trait LabSubmissionRepository: Send + Sync + fmt::Debug {
     async fn get_pending_by_priority(&self) -> RepositoryResult<Vec<LabSubmissionEntity>>;
 }
 
-/// Lab panel repository trait
-#[async_trait]
-pub trait LabPanelRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<LabPanelEntity>;
-    async fn get_by_submission(&self, submission_id: &str)
-        -> RepositoryResult<Vec<LabPanelEntity>>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<LabPanelEntity>>;
-    async fn update(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity>;
-    async fn get_abnormal_results(&self, patient_id: &str)
-        -> RepositoryResult<Vec<LabPanelEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>>;
-}
-
 /// Lab QC record repository trait
 #[async_trait]
 pub trait LabQcRecordRepository: Send + Sync + fmt::Debug {
@@ -2327,13 +2233,31 @@ pub trait CriticalValueRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<CriticalValueEntity>>;
     async fn get_unacknowledged(&self) -> RepositoryResult<Vec<CriticalValueEntity>>;
-    async fn acknowledge(
+    /// Close an open notification -- acknowledged, or cancelled as entered in
+    /// error -- exactly once.
+    ///
+    /// Conditional on `acknowledged_at IS NULL`: `Ok(None)` means it was
+    /// already closed. The unconditional update this replaces could overwrite
+    /// one read-back record with another, and nothing called it.
+    async fn close(
         &self,
         id: &str,
-        acknowledged_by: &str,
-        action_taken: &str,
-    ) -> RepositoryResult<CriticalValueEntity>;
+        closure: CriticalValueClosure,
+    ) -> RepositoryResult<Option<CriticalValueEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>>;
+}
+
+/// What closing a critical-value notification records.
+#[derive(Debug, Clone)]
+pub struct CriticalValueClosure {
+    /// Who documented the acknowledgment or the cancellation.
+    pub closed_by: String,
+    pub action_taken: String,
+    pub notified_provider_id: Option<String>,
+    pub notification_method: Option<String>,
+    pub notified_at: Option<DateTime<Utc>>,
+    /// The whole record document after closing.
+    pub data: serde_json::Value,
 }
 
 /// Specimen collection repository trait
@@ -2361,6 +2285,62 @@ pub trait SpecimenCollectionRepository: Send + Sync + fmt::Debug {
 
 /// Specimen rejection repository trait
 #[async_trait]
+/// Recollection requests raised against rejected specimens (SCR-009b).
+///
+/// Every state change is a single conditional statement rather than a read
+/// followed by a write. Two technicians acting on one rejected specimen is the
+/// ordinary case, and a check-then-write would send the patient two
+/// appointments.
+#[async_trait]
+pub trait SpecimenRecollectionRepository: Send + Sync + fmt::Debug {
+    /// Opens a request.
+    ///
+    /// Returns `Ok(None)` when one is already open for this rejection, so the
+    /// caller can say so rather than creating a duplicate. On PostgreSQL the
+    /// guarantee is a partial unique index, so it holds under concurrency
+    /// regardless of interleaving.
+    async fn open(
+        &self,
+        request: SpecimenRecollectionRequestEntity,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    async fn get_by_id(
+        &self,
+        id: &str,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    async fn list_for_rejection(
+        &self,
+        rejection_id: &str,
+    ) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>>;
+
+    /// Every request still awaiting a replacement sample.
+    async fn list_open(&self) -> RepositoryResult<Vec<SpecimenRecollectionRequestEntity>>;
+
+    /// Records the replacement specimen and closes the request.
+    ///
+    /// Returns `Ok(None)` when the request was not open -- already completed,
+    /// already cancelled, or absent -- so a retry cannot complete it twice or
+    /// resurrect a cancelled one.
+    async fn complete(
+        &self,
+        id: &str,
+        replacement_specimen_id: &str,
+        completed_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+
+    /// Closes the request without a replacement.
+    ///
+    /// Returns `Ok(None)` under the same conditions as `complete`.
+    async fn cancel(
+        &self,
+        id: &str,
+        reason: &str,
+        cancelled_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRecollectionRequestEntity>>;
+}
+
+#[async_trait]
 pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
     async fn create(
         &self,
@@ -2373,21 +2353,19 @@ pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
-}
 
-/// Lab trend repository trait
-#[async_trait]
-pub trait LabTrendRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<LabTrendEntity>;
-    async fn get_by_patient_test(
+    /// Record that the ordering provider has been told about this rejection.
+    ///
+    /// Returns `Ok(None)` when they had already been told. The guard lives
+    /// inside the write, so two clinicians pressing Notify at the same moment
+    /// send one notification between them rather than two — the same shape as
+    /// `RetentionExecutionRepository::decide_approval` and the lab-review
+    /// transition.
+    async fn mark_provider_notified(
         &self,
-        patient_id: &str,
-        test_code: &str,
-    ) -> RepositoryResult<Option<LabTrendEntity>>;
-    async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<LabTrendEntity>>;
-    async fn update(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>>;
+        id: &str,
+        notified_at: DateTime<Utc>,
+    ) -> RepositoryResult<Option<SpecimenRejectionEntity>>;
 }
 
 /// Pre-op assessment repository trait
@@ -2539,6 +2517,15 @@ pub trait SplintCastRecordRepository: Send + Sync + fmt::Debug {
         &self,
         record: SplintCastRecordEntity,
     ) -> RepositoryResult<SplintCastRecordEntity>;
+    /// Every record in the deployment, for the ward worklist.
+    ///
+    /// Required, not defaulted. The page that documents these kept its list in
+    /// local React state -- `setRecords([newRecord, ...records])` -- so the
+    /// screen showed what you typed this session and emptied on reload, while
+    /// the record sat in the database. There was no read path at all to wire
+    /// it to. A defaulted body returning `NotImplemented` would reproduce that
+    /// silently on one backend, which is why trait methods here are required.
+    async fn list_all(&self) -> RepositoryResult<Vec<SplintCastRecordEntity>>;
 }
 
 /// Radiology order repository trait
@@ -2608,136 +2595,6 @@ pub trait PathologyReportRepository: Send + Sync + fmt::Debug {
         report: PathologyReportEntity,
     ) -> RepositoryResult<PathologyReportEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>>;
-}
-
-/// Blood type screen repository trait
-#[async_trait]
-pub trait BloodTypeScreenRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        screen: BloodTypeScreenEntity,
-    ) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<BloodTypeScreenEntity>>;
-    async fn get_latest_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<BloodTypeScreenEntity>>;
-    async fn update(
-        &self,
-        screen: BloodTypeScreenEntity,
-    ) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>>;
-}
-
-/// Crossmatch record repository trait
-#[async_trait]
-pub trait CrossmatchRecordRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        record: CrossmatchRecordEntity,
-    ) -> RepositoryResult<CrossmatchRecordEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<CrossmatchRecordEntity>;
-    async fn get_by_unit(
-        &self,
-        unit_number: &str,
-    ) -> RepositoryResult<Option<CrossmatchRecordEntity>>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<CrossmatchRecordEntity>>;
-    async fn update(
-        &self,
-        record: CrossmatchRecordEntity,
-    ) -> RepositoryResult<CrossmatchRecordEntity>;
-    async fn get_reserved_units(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>>;
-}
-
-/// Transfusion record repository trait
-#[async_trait]
-pub trait TransfusionRecordRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        record: TransfusionRecordEntity,
-    ) -> RepositoryResult<TransfusionRecordEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<TransfusionRecordEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<TransfusionRecordEntity>>;
-    async fn update(
-        &self,
-        record: TransfusionRecordEntity,
-    ) -> RepositoryResult<TransfusionRecordEntity>;
-    async fn get_reactions(
-        &self,
-        date_range: Option<DateRange>,
-    ) -> RepositoryResult<Vec<TransfusionRecordEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>>;
-}
-
-/// E-prescription repository trait
-#[async_trait]
-pub trait EPrescriptionRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        prescription: EPrescriptionEntity,
-    ) -> RepositoryResult<EPrescriptionEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<EPrescriptionEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>>;
-    async fn get_by_prescriber(
-        &self,
-        prescriber_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>>;
-    async fn update(
-        &self,
-        prescription: EPrescriptionEntity,
-    ) -> RepositoryResult<EPrescriptionEntity>;
-    async fn get_active_controlled(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<EPrescriptionEntity>>;
-
-    async fn list_all(
-        &self,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>>;
-}
-
-/// Drug interaction repository trait
-#[async_trait]
-pub trait DrugInteractionRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        interaction: DrugInteractionEntity,
-    ) -> RepositoryResult<DrugInteractionEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<DrugInteractionEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<DrugInteractionEntity>>;
-    async fn get_unacknowledged(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<DrugInteractionEntity>>;
-    async fn acknowledge(
-        &self,
-        id: &str,
-        acknowledged_by: &str,
-        override_reason: Option<&str>,
-    ) -> RepositoryResult<DrugInteractionEntity>;
 }
 
 /// Medication reminder repository trait
@@ -2825,9 +2682,30 @@ pub struct BurnAssessmentEntity {
     pub burn_center_notified: bool,
     pub photos_taken: bool,
     pub notes: Option<String>,
+    /// Parkland input. A stored fluid volume with no weight beside it cannot be
+    /// rechecked against the formula. Added 20260909000002.
+    pub weight_kg: Option<rust_decimal::Decimal>,
+    /// `minor` / `moderate` / `major`, from `clinical_scoring::burn_severity`.
+    pub severity: Option<String>,
+    /// The Parkland split. `parkland_formula_volume` is the 24h total; these are
+    /// the two blocks it is actually delivered in.
+    pub parkland_first_8h_ml: Option<i32>,
+    pub parkland_next_16h_ml: Option<i32>,
+    pub associated_injuries: serde_json::Value,
+    pub interventions: serde_json::Value,
+    pub fluid_start_time: Option<DateTime<Utc>>,
+    /// Measured output, titrated against `urine_output_goal`.
+    pub urine_output_ml_hr: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2876,7 +2754,14 @@ pub struct PsychiatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2921,7 +2806,14 @@ pub struct ToxicologyAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2969,7 +2861,14 @@ pub struct PediatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3031,7 +2930,14 @@ pub struct ObstetricEmergencyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3110,7 +3016,11 @@ pub struct PhysicianOrderEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The order as the ordering screen composed it.
+    ///
+    /// NOT `#[sqlx(skip)]` any more: `20260910000005` gave it a column. While it
+    /// was skipped, `update` bound a column that did not exist, so every status
+    /// change on an order was a 500 on PostgreSQL.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3159,7 +3069,12 @@ pub struct DischargeSummaryEntity {
     pub addendum_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The summary in the shape the discharge screen composed it.
+    ///
+    /// NOT `#[sqlx(skip)]` any more: `20260910000003` gave it a column. While
+    /// it was skipped, `create` never wrote it, every read served
+    /// `Value::Null`, and `update` bound a column that did not exist — which is
+    /// why approving a discharge summary was a 500 on PostgreSQL.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3202,7 +3117,14 @@ pub struct DischargeInstructionsEntity {
     pub provided_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3229,6 +3151,22 @@ pub struct AmaDischargeEntity {
     pub witness_present: bool,
     pub witness_name: Option<String>,
     pub witness_signature: Option<String>,
+    /// The patient's own mark, and when it was taken.
+    ///
+    /// `ama_form_signed` is a boolean and evidences nothing on its own: an AMA
+    /// discharge exists to show that the risks were explained and that the
+    /// patient, having capacity, accepted them, and it is the first document a
+    /// coroner asks for. A refusal to sign is recorded through
+    /// `ama_form_refused_reason`, so "not signed yet" and "refused to sign"
+    /// stay distinguishable (migration 20260922000005).
+    #[serde(default)]
+    pub patient_signature: Option<String>,
+    #[serde(default)]
+    pub patient_signature_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub witness_signature_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub signatures_collected_by: Option<String>,
     pub patient_given_prescriptions: bool,
     pub prescriptions_given: Option<serde_json::Value>,
     pub follow_up_offered: bool,
@@ -3244,7 +3182,14 @@ pub struct AmaDischargeEntity {
     pub nurse_notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3285,7 +3230,14 @@ pub struct ShiftHandoffEntity {
     pub handoff_tool_used: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3332,7 +3284,12 @@ pub struct IncidentReportEntity {
     pub confidential: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3395,7 +3352,14 @@ pub struct EmsHandoffEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3438,7 +3402,12 @@ pub struct MciRecordEntity {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260910000006` gave it a column. While it was
+    /// skipped, PostgreSQL never selected or wrote it, so the blob was always
+    /// `Value::Null` there and held the real content in memory — the same
+    /// endpoint behaving one way in development and another against a database.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3484,7 +3453,14 @@ pub struct ChainOfCustodyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// The record as the form captured it.
+    ///
+    /// NOT `#[sqlx(skip)]`: `20260911000001` gave it a column, and the
+    /// insert binds it. While it was skipped, PostgreSQL never selected or
+    /// wrote this field, so the blob was permanently `Value::Null` there while
+    /// holding the whole record in memory — the same endpoint behaving one way
+    /// in development and another against a database, with nothing in the
+    /// response to say which.
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3691,6 +3667,17 @@ pub trait DischargeSummaryRepository: Send + Sync + fmt::Debug {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>>;
+    /// Every summary in the deployment, for the discharge worklist.
+    ///
+    /// Required, not defaulted. `list_discharges` used to reach this by calling
+    /// `get_by_patient("all", ..)` — a literal patient id, which matched
+    /// nothing on PostgreSQL and left the worklist permanently empty. A
+    /// defaulted body returning `NotImplemented` would have reproduced that
+    /// silently on one backend, which is why trait methods here are required.
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>>;
     async fn update(
         &self,
         summary: DischargeSummaryEntity,
@@ -3751,11 +3738,23 @@ pub trait ShiftHandoffRepository: Send + Sync + fmt::Debug {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ShiftHandoffEntity>>;
-    async fn get_by_provider(
+    /// Handoffs a provider gave or received on or after `since`, newest first.
+    ///
+    /// Was `get_by_provider(provider, date)`, one day exactly, so the handoff
+    /// history screen could never show yesterday's handover -- the one a
+    /// clinician starting a shift most often needs to look back at.
+    async fn get_by_provider_since(
         &self,
         provider_id: &str,
-        date: chrono::NaiveDate,
+        since: chrono::NaiveDate,
     ) -> RepositoryResult<Vec<ShiftHandoffEntity>>;
+    /// Every row of one handoff.
+    ///
+    /// A handoff covers a ward, and storage is one row per patient keyed
+    /// `{batch}-{patient_id}` — so the batch id `create_shift_handoff` returns
+    /// is not the primary key of anything, and `get_by_id` on it was a 404. A
+    /// client that stored the id it was handed had stored nothing.
+    async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>>;
     async fn acknowledge(&self, id: &str) -> RepositoryResult<ShiftHandoffEntity>;
     async fn get_unacknowledged(
         &self,
@@ -3819,6 +3818,19 @@ pub trait MciRecordRepository: Send + Sync + fmt::Debug {
 }
 
 /// Chain of custody repository trait
+/// One hand-over in a chain of custody.
+#[derive(Debug, Clone)]
+pub struct CustodyTransfer {
+    pub new_custodian: String,
+    pub location: String,
+    /// The custody-status column after the hand-over.
+    pub status: String,
+    /// The entry appended to `transfers`.
+    pub entry: serde_json::Value,
+    /// The whole record document after the hand-over.
+    pub data: serde_json::Value,
+}
+
 #[async_trait]
 pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
     async fn create(&self, record: ChainOfCustodyEntity) -> RepositoryResult<ChainOfCustodyEntity>;
@@ -3827,12 +3839,18 @@ pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
         -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
     async fn get_by_case(&self, case_number: &str) -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
     async fn update(&self, record: ChainOfCustodyEntity) -> RepositoryResult<ChainOfCustodyEntity>;
+    /// Record a hand-over, conditional on the record being unchanged since
+    /// `expected_updated_at`; `Ok(None)` means somebody else wrote first.
+    ///
+    /// The unconditional version this replaces read the transfer list and wrote
+    /// it back in two statements, so two simultaneous hand-overs kept one --
+    /// a gap in a chain of custody is what a court challenge points at.
     async fn transfer(
         &self,
         id: &str,
-        new_custodian_id: &str,
-        notes: Option<&str>,
-    ) -> RepositoryResult<ChainOfCustodyEntity>;
+        expected_updated_at: DateTime<Utc>,
+        transfer: CustodyTransfer,
+    ) -> RepositoryResult<Option<ChainOfCustodyEntity>>;
     async fn get_by_custodian(
         &self,
         custodian_id: &str,
@@ -3843,234 +3861,6 @@ pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
 // =============================================================================
 // PHASE 7-10 ENTITIES: Wearables, Telehealth, CDS, Insurance
 // =============================================================================
-
-/// Wearable device entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct WearableDeviceEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub device_type: String,
-    pub device_manufacturer: Option<String>,
-    pub device_model: Option<String>,
-    pub device_serial_number: Option<String>,
-    pub firmware_version: Option<String>,
-    pub registered_datetime: DateTime<Utc>,
-    pub registered_by: String,
-    pub last_sync_datetime: Option<DateTime<Utc>>,
-    pub sync_frequency_minutes: Option<i32>,
-    pub battery_level_percent: Option<i32>,
-    pub is_active: bool,
-    pub connection_status: Option<String>,
-    pub alert_thresholds: Option<serde_json::Value>,
-    pub integration_api_key: Option<String>,
-    pub integration_endpoint: Option<String>,
-    pub notes: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Wearable data entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct WearableDataEntity {
-    pub id: String,
-    pub device_id: String,
-    pub patient_id: String,
-    pub reading_datetime: DateTime<Utc>,
-    pub data_type: String,
-    pub value_numeric: Option<rust_decimal::Decimal>,
-    pub value_text: Option<String>,
-    pub value_json: Option<serde_json::Value>,
-    pub unit_of_measure: Option<String>,
-    pub quality_score: Option<rust_decimal::Decimal>,
-    pub is_valid: Option<bool>,
-    pub anomaly_detected: Option<bool>,
-    pub anomaly_type: Option<String>,
-    pub processed: Option<bool>,
-    pub processed_datetime: Option<DateTime<Utc>>,
-    pub raw_data: Option<Vec<u8>>,
-    pub created_at: DateTime<Utc>,
-}
-
-/// Wearable alert entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct WearableAlertEntity {
-    pub id: String,
-    pub device_id: String,
-    pub patient_id: String,
-    pub data_reading_id: Option<String>,
-    pub alert_datetime: DateTime<Utc>,
-    pub alert_type: String,
-    pub severity: String,
-    pub alert_title: String,
-    pub alert_message: String,
-    pub threshold_value: Option<rust_decimal::Decimal>,
-    pub actual_value: Option<rust_decimal::Decimal>,
-    pub acknowledged: Option<bool>,
-    pub acknowledged_by: Option<String>,
-    pub acknowledged_datetime: Option<DateTime<Utc>>,
-    pub escalated: Option<bool>,
-    pub escalated_to: Option<String>,
-    pub escalated_datetime: Option<DateTime<Utc>>,
-    pub resolution_notes: Option<String>,
-    pub resolved: Option<bool>,
-    pub resolved_datetime: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Wearable integration log entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct WearableIntegrationLogEntity {
-    pub id: String,
-    pub device_id: String,
-    pub patient_id: String,
-    pub log_datetime: DateTime<Utc>,
-    pub event_type: String,
-    pub status: String,
-    pub records_synced: Option<i32>,
-    pub error_code: Option<String>,
-    pub error_message: Option<String>,
-    pub request_payload: Option<serde_json::Value>,
-    pub response_payload: Option<serde_json::Value>,
-    pub duration_ms: Option<i32>,
-    pub created_at: DateTime<Utc>,
-}
-
-/// Telehealth session entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct TelehealthSessionEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub provider_id: String,
-    pub appointment_id: Option<String>,
-    pub session_type: String,
-    pub scheduled_datetime: DateTime<Utc>,
-    pub actual_start_datetime: Option<DateTime<Utc>>,
-    pub actual_end_datetime: Option<DateTime<Utc>>,
-    pub duration_minutes: Option<i32>,
-    pub status: String,
-    pub platform: Option<String>,
-    pub session_url: Option<String>,
-    pub session_access_code: Option<String>,
-    pub patient_location: Option<String>,
-    pub patient_device_type: Option<String>,
-    pub provider_location: Option<String>,
-    pub connection_quality: Option<String>,
-    pub technical_issues: Option<serde_json::Value>,
-    pub interpreter_required: Option<bool>,
-    pub interpreter_language: Option<String>,
-    pub interpreter_present: Option<bool>,
-    pub guardian_present: Option<bool>,
-    pub guardian_name: Option<String>,
-    pub consent_obtained: bool,
-    pub consent_datetime: Option<DateTime<Utc>>,
-    pub billing_code: Option<String>,
-    pub reason_for_visit: Option<String>,
-    pub chief_complaint: Option<String>,
-    pub follow_up_required: Option<bool>,
-    pub follow_up_notes: Option<String>,
-    pub recording_available: Option<bool>,
-    pub recording_url: Option<String>,
-    pub created_by: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Telehealth note entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct TelehealthNoteEntity {
-    pub id: String,
-    pub session_id: String,
-    pub patient_id: String,
-    pub provider_id: String,
-    pub note_datetime: DateTime<Utc>,
-    pub subjective: Option<String>,
-    pub objective: Option<String>,
-    pub assessment: Option<String>,
-    pub plan: Option<String>,
-    pub physical_exam_limitations: Option<String>,
-    pub recommendations_for_inperson: Option<String>,
-    pub prescriptions_issued: Option<serde_json::Value>,
-    pub referrals_made: Option<serde_json::Value>,
-    pub lab_orders: Option<serde_json::Value>,
-    pub imaging_orders: Option<serde_json::Value>,
-    pub patient_education_provided: Option<String>,
-    pub patient_understanding_verified: Option<bool>,
-    pub follow_up_timeframe: Option<String>,
-    pub provider_signature: Option<String>,
-    pub signed_datetime: Option<DateTime<Utc>>,
-    pub addendum: Option<String>,
-    pub addendum_datetime: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Remote patient monitoring entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct RemotePatientMonitoringEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub program_name: String,
-    pub enrollment_date: chrono::NaiveDate,
-    pub enrolled_by: String,
-    pub primary_condition: String,
-    pub secondary_conditions: Option<serde_json::Value>,
-    pub monitoring_parameters: serde_json::Value,
-    pub target_goals: Option<serde_json::Value>,
-    pub alert_thresholds: serde_json::Value,
-    pub monitoring_frequency: Option<String>,
-    pub assigned_care_manager: Option<String>,
-    pub care_team_members: Option<serde_json::Value>,
-    pub devices_assigned: Option<serde_json::Value>,
-    pub billing_eligible: Option<bool>,
-    pub insurance_authorization: Option<String>,
-    pub authorization_expiry: Option<chrono::NaiveDate>,
-    pub status: String,
-    pub status_reason: Option<String>,
-    pub graduation_criteria: Option<String>,
-    pub last_review_date: Option<chrono::NaiveDate>,
-    pub next_review_date: Option<chrono::NaiveDate>,
-    pub notes: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// RPM reading entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct RpmReadingEntity {
-    pub id: String,
-    pub rpm_enrollment_id: String,
-    pub patient_id: String,
-    pub device_id: Option<String>,
-    pub reading_datetime: DateTime<Utc>,
-    pub reading_type: String,
-    pub systolic: Option<i32>,
-    pub diastolic: Option<i32>,
-    pub value_numeric: Option<rust_decimal::Decimal>,
-    pub unit_of_measure: Option<String>,
-    pub measurement_context: Option<String>,
-    pub symptoms_reported: Option<String>,
-    pub patient_notes: Option<String>,
-    pub is_within_target: Option<bool>,
-    pub deviation_type: Option<String>,
-    pub deviation_severity: Option<String>,
-    pub alert_triggered: Option<bool>,
-    pub alert_id: Option<String>,
-    pub reviewed: Option<bool>,
-    pub reviewed_by: Option<String>,
-    pub reviewed_datetime: Option<DateTime<Utc>>,
-    pub review_notes: Option<String>,
-    pub action_taken: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
 
 /// CDS alert entity
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4159,237 +3949,9 @@ pub struct InsuranceRecordEntity {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Billing code entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct BillingCodeEntity {
-    pub id: String,
-    pub code_type: String,
-    pub code: String,
-    pub description: String,
-    pub short_description: Option<String>,
-    pub category: Option<String>,
-    pub subcategory: Option<String>,
-    pub effective_date: Option<chrono::NaiveDate>,
-    pub termination_date: Option<chrono::NaiveDate>,
-    pub is_active: bool,
-    pub billable: Option<bool>,
-    pub requires_modifier: Option<bool>,
-    pub common_modifiers: Option<serde_json::Value>,
-    pub relative_value_units: Option<rust_decimal::Decimal>,
-    pub global_period_days: Option<i32>,
-    pub age_restrictions: Option<serde_json::Value>,
-    pub gender_restrictions: Option<String>,
-    pub place_of_service_restrictions: Option<serde_json::Value>,
-    pub requires_prior_auth: Option<bool>,
-    pub typical_duration_minutes: Option<i32>,
-    pub add_on_code: Option<bool>,
-    pub parent_code: Option<String>,
-    pub laterality_applicable: Option<bool>,
-    pub notes: Option<String>,
-    pub last_updated_by: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
 // =============================================================================
 // PHASE 7-10 REPOSITORY TRAITS
 // =============================================================================
-
-/// Wearable device repository trait
-#[async_trait]
-pub trait WearableDeviceRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, device: WearableDeviceEntity) -> RepositoryResult<WearableDeviceEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<WearableDeviceEntity>;
-    async fn get_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Vec<WearableDeviceEntity>>;
-    async fn update(&self, device: WearableDeviceEntity) -> RepositoryResult<WearableDeviceEntity>;
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-    async fn get_active(&self) -> RepositoryResult<Vec<WearableDeviceEntity>>;
-    async fn update_sync_status(
-        &self,
-        id: &str,
-        last_sync: DateTime<Utc>,
-    ) -> RepositoryResult<WearableDeviceEntity>;
-}
-
-/// Wearable data repository trait
-#[async_trait]
-pub trait WearableDataRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, data: WearableDataEntity) -> RepositoryResult<WearableDataEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<WearableDataEntity>;
-    async fn get_by_device(
-        &self,
-        device_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<WearableDataEntity>>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        data_type: Option<&str>,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<WearableDataEntity>>;
-    async fn get_anomalies(&self, patient_id: &str) -> RepositoryResult<Vec<WearableDataEntity>>;
-    async fn get_unprocessed(&self, limit: i32) -> RepositoryResult<Vec<WearableDataEntity>>;
-    async fn mark_processed(&self, id: &str) -> RepositoryResult<WearableDataEntity>;
-}
-
-/// Wearable alert repository trait
-#[async_trait]
-pub trait WearableAlertRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, alert: WearableAlertEntity) -> RepositoryResult<WearableAlertEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<WearableAlertEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<WearableAlertEntity>>;
-    async fn get_unacknowledged(&self) -> RepositoryResult<Vec<WearableAlertEntity>>;
-    async fn acknowledge(
-        &self,
-        id: &str,
-        acknowledged_by: &str,
-    ) -> RepositoryResult<WearableAlertEntity>;
-    async fn escalate(&self, id: &str, escalated_to: &str)
-        -> RepositoryResult<WearableAlertEntity>;
-    async fn resolve(
-        &self,
-        id: &str,
-        resolution_notes: Option<&str>,
-    ) -> RepositoryResult<WearableAlertEntity>;
-}
-
-/// Wearable integration log repository trait
-#[async_trait]
-pub trait WearableIntegrationLogRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        log: WearableIntegrationLogEntity,
-    ) -> RepositoryResult<WearableIntegrationLogEntity>;
-    async fn get_by_device(
-        &self,
-        device_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<WearableIntegrationLogEntity>>;
-    async fn get_failures(&self, hours: i32)
-        -> RepositoryResult<Vec<WearableIntegrationLogEntity>>;
-}
-
-/// Telehealth session repository trait
-#[async_trait]
-pub trait TelehealthSessionRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        session: TelehealthSessionEntity,
-    ) -> RepositoryResult<TelehealthSessionEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<TelehealthSessionEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<TelehealthSessionEntity>>;
-    async fn get_by_provider(
-        &self,
-        provider_id: &str,
-        date: chrono::NaiveDate,
-    ) -> RepositoryResult<Vec<TelehealthSessionEntity>>;
-    async fn update(
-        &self,
-        session: TelehealthSessionEntity,
-    ) -> RepositoryResult<TelehealthSessionEntity>;
-    async fn get_upcoming(
-        &self,
-        provider_id: &str,
-    ) -> RepositoryResult<Vec<TelehealthSessionEntity>>;
-    async fn start_session(&self, id: &str) -> RepositoryResult<TelehealthSessionEntity>;
-    async fn end_session(&self, id: &str) -> RepositoryResult<TelehealthSessionEntity>;
-}
-
-/// Telehealth note repository trait
-#[async_trait]
-pub trait TelehealthNoteRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, note: TelehealthNoteEntity) -> RepositoryResult<TelehealthNoteEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<TelehealthNoteEntity>;
-    async fn get_by_session(
-        &self,
-        session_id: &str,
-    ) -> RepositoryResult<Option<TelehealthNoteEntity>>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<TelehealthNoteEntity>>;
-    async fn update(&self, note: TelehealthNoteEntity) -> RepositoryResult<TelehealthNoteEntity>;
-    async fn sign(
-        &self,
-        id: &str,
-        provider_signature: &str,
-    ) -> RepositoryResult<TelehealthNoteEntity>;
-    async fn add_addendum(
-        &self,
-        id: &str,
-        addendum: &str,
-    ) -> RepositoryResult<TelehealthNoteEntity>;
-}
-
-/// Remote patient monitoring repository trait
-#[async_trait]
-pub trait RemotePatientMonitoringRepository: Send + Sync + fmt::Debug {
-    async fn create(
-        &self,
-        enrollment: RemotePatientMonitoringEntity,
-    ) -> RepositoryResult<RemotePatientMonitoringEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<RemotePatientMonitoringEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<RemotePatientMonitoringEntity>>;
-    async fn get_active_by_program(
-        &self,
-        program_name: &str,
-    ) -> RepositoryResult<Vec<RemotePatientMonitoringEntity>>;
-    async fn update(
-        &self,
-        enrollment: RemotePatientMonitoringEntity,
-    ) -> RepositoryResult<RemotePatientMonitoringEntity>;
-    async fn update_status(
-        &self,
-        id: &str,
-        status: &str,
-        reason: Option<&str>,
-    ) -> RepositoryResult<RemotePatientMonitoringEntity>;
-    async fn get_by_care_manager(
-        &self,
-        care_manager_id: &str,
-    ) -> RepositoryResult<Vec<RemotePatientMonitoringEntity>>;
-}
-
-/// RPM reading repository trait
-#[async_trait]
-pub trait RpmReadingRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, reading: RpmReadingEntity) -> RepositoryResult<RpmReadingEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<RpmReadingEntity>;
-    async fn get_by_enrollment(
-        &self,
-        enrollment_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<RpmReadingEntity>>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        reading_type: Option<&str>,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<RpmReadingEntity>>;
-    async fn get_unreviewed(&self) -> RepositoryResult<Vec<RpmReadingEntity>>;
-    async fn review(
-        &self,
-        id: &str,
-        reviewed_by: &str,
-        notes: Option<&str>,
-        action: Option<&str>,
-    ) -> RepositoryResult<RpmReadingEntity>;
-    async fn get_alerts(&self, enrollment_id: &str) -> RepositoryResult<Vec<RpmReadingEntity>>;
-}
 
 /// CDS alert repository trait
 #[async_trait]
@@ -4529,39 +4091,6 @@ pub trait InsuranceRecordRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<InsuranceRecordEntity>;
 }
 
-/// Billing code repository trait
-#[async_trait]
-pub trait BillingCodeRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, code: BillingCodeEntity) -> RepositoryResult<BillingCodeEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<BillingCodeEntity>;
-    async fn get_by_code(
-        &self,
-        code_type: &str,
-        code: &str,
-    ) -> RepositoryResult<Option<BillingCodeEntity>>;
-    async fn search(
-        &self,
-        query: &str,
-        code_type: Option<&str>,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<BillingCodeEntity>>;
-    async fn update(&self, code: BillingCodeEntity) -> RepositoryResult<BillingCodeEntity>;
-    async fn get_by_category(&self, category: &str) -> RepositoryResult<Vec<BillingCodeEntity>>;
-
-    /// Get active billing codes by type
-    async fn get_active(&self, code_type: &str) -> RepositoryResult<Vec<BillingCodeEntity>>;
-
-    /// Deactivate a billing code
-    async fn deactivate(&self, id: &str) -> RepositoryResult<BillingCodeEntity>;
-
-    /// List billing codes by type with pagination
-    async fn list_by_type(
-        &self,
-        code_type: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<BillingCodeEntity>>;
-}
-
 // =============================================================================
 // PHASE 5: COMMUNICATION & NOTIFICATIONS
 // =============================================================================
@@ -4609,127 +4138,6 @@ pub trait SmsOptOutRepository: Send + Sync + fmt::Debug {
 // =============================================================================
 // PHASE 11: FAMILY HISTORY & GENETICS
 // =============================================================================
-
-/// Family medical history entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct FamilyMedicalHistoryEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub relationship: String,
-    pub relationship_type: Option<String>,
-    pub relative_name: Option<String>,
-    pub relative_dob: Option<chrono::NaiveDate>,
-    pub relative_gender: Option<String>,
-    pub living_status: Option<String>,
-    pub age_at_death: Option<i32>,
-    pub cause_of_death: Option<String>,
-    pub conditions: Option<serde_json::Value>,
-    pub cancer_history: Option<serde_json::Value>,
-    pub cardiac_history: Option<serde_json::Value>,
-    pub diabetes_history: Option<serde_json::Value>,
-    pub mental_health_history: Option<serde_json::Value>,
-    pub genetic_conditions: Option<serde_json::Value>,
-    pub hereditary_risk_score: Option<i32>,
-    pub genetic_testing_recommended: Option<bool>,
-    pub genetic_counseling_received: Option<bool>,
-    pub notes: Option<String>,
-    pub verified: Option<bool>,
-    pub verified_by: Option<String>,
-    pub verified_date: Option<chrono::NaiveDate>,
-    pub source: Option<String>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[cfg_attr(feature = "postgres", sqlx(skip))]
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
-/// Family medical history repository trait
-#[async_trait]
-pub trait FamilyMedicalHistoryRepository: Send + Sync {
-    async fn create(
-        &self,
-        history: FamilyMedicalHistoryEntity,
-    ) -> RepositoryResult<FamilyMedicalHistoryEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<FamilyMedicalHistoryEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<FamilyMedicalHistoryEntity>>;
-    async fn get_by_relationship(
-        &self,
-        patient_id: &str,
-        relationship: &str,
-    ) -> RepositoryResult<Vec<FamilyMedicalHistoryEntity>>;
-    async fn update(
-        &self,
-        history: FamilyMedicalHistoryEntity,
-    ) -> RepositoryResult<FamilyMedicalHistoryEntity>;
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-    async fn verify(
-        &self,
-        id: &str,
-        verified_by: &str,
-    ) -> RepositoryResult<FamilyMedicalHistoryEntity>;
-}
-
-/// Genetic test result entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct GeneticTestResultEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub test_type: String,
-    pub panel_name: Option<String>,
-    pub lab_name: Option<String>,
-    pub lab_accession: Option<String>,
-    pub ordered_by: Option<String>,
-    pub ordered_date: Option<chrono::NaiveDate>,
-    pub collected_date: Option<chrono::NaiveDate>,
-    pub reported_date: Option<chrono::NaiveDate>,
-    pub result_status: String,
-    pub variants: Option<serde_json::Value>,
-    pub interpretation: Option<String>,
-    pub clinical_significance: Option<String>,
-    pub recommendations: Option<serde_json::Value>,
-    pub follow_up_required: Option<bool>,
-    pub genetic_counseling_provided: Option<bool>,
-    pub counselor_name: Option<String>,
-    pub counseling_date: Option<chrono::NaiveDate>,
-    pub report_url: Option<String>,
-    pub report_ipfs_hash: Option<String>,
-    pub consent_form_signed: Option<bool>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Genetic test result repository trait
-#[async_trait]
-pub trait GeneticTestResultRepository: Send + Sync {
-    async fn create(
-        &self,
-        result: GeneticTestResultEntity,
-    ) -> RepositoryResult<GeneticTestResultEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<GeneticTestResultEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<GeneticTestResultEntity>>;
-    async fn get_by_test_type(
-        &self,
-        patient_id: &str,
-        test_type: &str,
-    ) -> RepositoryResult<Vec<GeneticTestResultEntity>>;
-    async fn update(
-        &self,
-        result: GeneticTestResultEntity,
-    ) -> RepositoryResult<GeneticTestResultEntity>;
-    async fn get_pathogenic(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<GeneticTestResultEntity>>;
-}
 
 // =============================================================================
 // PHASE 12: IMMUNIZATION RECORDS
@@ -4813,357 +4221,13 @@ pub trait ImmunizationRecordRepository: Send + Sync {
     async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>>;
 }
 
-/// Immunization schedule entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct ImmunizationScheduleEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub vaccine_type: String,
-    pub due_date: chrono::NaiveDate,
-    pub earliest_date: Option<chrono::NaiveDate>,
-    pub latest_date: Option<chrono::NaiveDate>,
-    pub dose_number: Option<i32>,
-    pub is_overdue: Option<bool>,
-    pub status: Option<String>,
-    pub completed_immunization_id: Option<String>,
-    pub skip_reason: Option<String>,
-    pub reminder_sent: Option<bool>,
-    pub reminder_date: Option<chrono::NaiveDate>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Immunization schedule repository trait
-#[async_trait]
-pub trait ImmunizationScheduleRepository: Send + Sync {
-    async fn create(
-        &self,
-        schedule: ImmunizationScheduleEntity,
-    ) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<ImmunizationScheduleEntity>>;
-    async fn get_due(&self, patient_id: &str) -> RepositoryResult<Vec<ImmunizationScheduleEntity>>;
-    async fn get_overdue(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<ImmunizationScheduleEntity>>;
-    async fn update(
-        &self,
-        schedule: ImmunizationScheduleEntity,
-    ) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn complete(
-        &self,
-        id: &str,
-        immunization_id: &str,
-    ) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn skip(&self, id: &str, reason: &str) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>>;
-}
-
-/// Vaccine inventory entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct VaccineInventoryEntity {
-    pub id: String,
-    pub facility_id: Option<String>,
-    pub vaccine_type: String,
-    pub vaccine_name: String,
-    pub manufacturer: Option<String>,
-    pub lot_number: String,
-    pub ndc_code: Option<String>,
-    pub quantity_received: i32,
-    pub quantity_remaining: i32,
-    pub unit_of_measure: Option<String>,
-    pub storage_location: Option<String>,
-    pub storage_temperature_min: Option<f64>,
-    pub storage_temperature_max: Option<f64>,
-    pub temperature_monitored: Option<bool>,
-    pub received_date: chrono::NaiveDate,
-    pub expiration_date: chrono::NaiveDate,
-    pub first_use_date: Option<chrono::NaiveDate>,
-    pub status: Option<String>,
-    pub recall_number: Option<String>,
-    pub disposal_date: Option<chrono::NaiveDate>,
-    pub disposal_reason: Option<String>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Vaccine inventory repository trait
-#[async_trait]
-pub trait VaccineInventoryRepository: Send + Sync {
-    async fn create(
-        &self,
-        inventory: VaccineInventoryEntity,
-    ) -> RepositoryResult<VaccineInventoryEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<VaccineInventoryEntity>;
-    async fn get_by_facility(
-        &self,
-        facility_id: &str,
-    ) -> RepositoryResult<Vec<VaccineInventoryEntity>>;
-    async fn get_available(
-        &self,
-        facility_id: &str,
-        vaccine_type: &str,
-    ) -> RepositoryResult<Vec<VaccineInventoryEntity>>;
-    async fn update(
-        &self,
-        inventory: VaccineInventoryEntity,
-    ) -> RepositoryResult<VaccineInventoryEntity>;
-    async fn decrement_quantity(
-        &self,
-        id: &str,
-        amount: i32,
-    ) -> RepositoryResult<VaccineInventoryEntity>;
-    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<VaccineInventoryEntity>>;
-    async fn mark_recalled(
-        &self,
-        lot_number: &str,
-        recall_number: &str,
-    ) -> RepositoryResult<Vec<VaccineInventoryEntity>>;
-}
-
 // =============================================================================
 // PHASE 13: DEATH RECORDS & CERTIFICATION
 // =============================================================================
 
-/// Death record entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct DeathRecordEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub date_of_death: chrono::NaiveDate,
-    pub time_of_death: Option<chrono::NaiveTime>,
-    pub pronounced_datetime: Option<chrono::DateTime<chrono::Utc>>,
-    pub pronounced_by: Option<String>,
-    pub pronounced_by_name: Option<String>,
-    pub place_of_death: Option<String>,
-    pub facility_id: Option<String>,
-    pub facility_name: Option<String>,
-    pub death_address: Option<String>,
-    pub county: Option<String>,
-    pub state: Option<String>,
-    pub country: Option<String>,
-    pub immediate_cause: Option<String>,
-    pub immediate_cause_duration: Option<String>,
-    pub underlying_cause_a: Option<String>,
-    pub underlying_cause_a_duration: Option<String>,
-    pub underlying_cause_b: Option<String>,
-    pub underlying_cause_b_duration: Option<String>,
-    pub underlying_cause_c: Option<String>,
-    pub underlying_cause_c_duration: Option<String>,
-    pub other_significant_conditions: Option<String>,
-    pub manner_of_death: Option<String>,
-    pub autopsy_performed: Option<bool>,
-    pub autopsy_findings_available: Option<bool>,
-    pub autopsy_findings: Option<String>,
-    pub medical_examiner_case: Option<bool>,
-    pub medical_examiner_number: Option<String>,
-    pub certifier_type: Option<String>,
-    pub certifier_id: Option<String>,
-    pub certifier_name: Option<String>,
-    pub certifier_license: Option<String>,
-    pub certification_date: Option<chrono::NaiveDate>,
-    pub death_certificate_number: Option<String>,
-    pub registration_date: Option<chrono::NaiveDate>,
-    pub registrar_district: Option<String>,
-    pub disposition_method: Option<String>,
-    pub disposition_date: Option<chrono::NaiveDate>,
-    pub funeral_home: Option<String>,
-    pub tobacco_contributed: Option<bool>,
-    pub pregnancy_status: Option<String>,
-    pub injury_at_work: Option<bool>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[cfg_attr(feature = "postgres", sqlx(skip))]
-    #[serde(default)]
-    pub data: serde_json::Value,
-}
-
-/// Death record repository trait
-#[async_trait]
-pub trait DeathRecordRepository: Send + Sync {
-    async fn create(&self, record: DeathRecordEntity) -> RepositoryResult<DeathRecordEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<DeathRecordEntity>;
-    async fn get_by_patient(&self, patient_id: &str)
-        -> RepositoryResult<Option<DeathRecordEntity>>;
-    async fn update(&self, record: DeathRecordEntity) -> RepositoryResult<DeathRecordEntity>;
-    async fn get_by_date_range(
-        &self,
-        start_date: &str,
-        end_date: &str,
-    ) -> RepositoryResult<Vec<DeathRecordEntity>>;
-
-    /// Certify a death record
-    async fn certify(
-        &self,
-        id: &str,
-        certifier_id: &str,
-        certifier_name: &str,
-    ) -> RepositoryResult<DeathRecordEntity>;
-
-    /// Get pending certification records
-    async fn get_pending_certification(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
-
-    /// Get record by certificate number
-    async fn get_by_certificate_number(
-        &self,
-        certificate_number: &str,
-    ) -> RepositoryResult<DeathRecordEntity>;
-
-    /// Get medical examiner cases
-    async fn get_medical_examiner_cases(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
-
-    /// Get records pending autopsy
-    async fn get_pending_autopsies(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
-}
-
-/// Organ donation record entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct OrganDonationRecordEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub death_record_id: Option<String>,
-    pub registered_donor: Option<bool>,
-    pub registry_id: Option<String>,
-    pub registration_date: Option<chrono::NaiveDate>,
-    pub consent_type: Option<String>,
-    pub consenting_party: Option<String>,
-    pub consenting_relationship: Option<String>,
-    pub consent_datetime: Option<chrono::DateTime<chrono::Utc>>,
-    pub donation_type: Option<String>,
-    pub organs_donated: Option<serde_json::Value>,
-    pub tissues_donated: Option<serde_json::Value>,
-    pub opo_name: Option<String>,
-    pub opo_contact: Option<String>,
-    pub referral_datetime: Option<chrono::DateTime<chrono::Utc>>,
-    pub evaluation_datetime: Option<chrono::DateTime<chrono::Utc>>,
-    pub recovery_datetime: Option<chrono::DateTime<chrono::Utc>>,
-    pub recovery_location: Option<String>,
-    pub organs_recovered: Option<i32>,
-    pub organs_transplanted: Option<i32>,
-    pub tissues_recovered: Option<i32>,
-    pub recipients_helped: Option<i32>,
-    pub medical_suitability: Option<bool>,
-    pub exclusion_reasons: Option<String>,
-    pub notes: Option<String>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Organ donation record repository trait
-#[async_trait]
-pub trait OrganDonationRecordRepository: Send + Sync {
-    async fn create(
-        &self,
-        record: OrganDonationRecordEntity,
-    ) -> RepositoryResult<OrganDonationRecordEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<OrganDonationRecordEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<OrganDonationRecordEntity>>;
-    async fn get_by_death_record(
-        &self,
-        death_record_id: &str,
-    ) -> RepositoryResult<Option<OrganDonationRecordEntity>>;
-    async fn update(
-        &self,
-        record: OrganDonationRecordEntity,
-    ) -> RepositoryResult<OrganDonationRecordEntity>;
-    async fn get_registered_donors(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
-
-    /// Get records pending organ recovery
-    async fn get_pending_recovery(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
-
-    /// Get records by OPO (Organ Procurement Organization)
-    async fn get_by_opo(&self, opo_name: &str) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
-}
-
 // =============================================================================
 // PHASE 14: DATA SYNCHRONIZATION & CONFLICT RESOLUTION
 // =============================================================================
-
-/// Sync operation entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct SyncOperationEntity {
-    pub id: String,
-    pub operation_type: String,
-    pub source_system: String,
-    pub target_system: String,
-    pub initiated_by: Option<String>,
-    pub initiated_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub entity_types: Option<serde_json::Value>,
-    pub patient_ids: Option<serde_json::Value>,
-    pub date_range_start: Option<chrono::DateTime<chrono::Utc>>,
-    pub date_range_end: Option<chrono::DateTime<chrono::Utc>>,
-    pub status: Option<String>,
-    pub total_records: Option<i32>,
-    pub processed_records: Option<i32>,
-    pub success_count: Option<i32>,
-    pub error_count: Option<i32>,
-    pub conflict_count: Option<i32>,
-    pub error_details: Option<serde_json::Value>,
-    pub sync_summary: Option<serde_json::Value>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Sync operation repository trait
-#[async_trait]
-pub trait SyncOperationRepository: Send + Sync {
-    async fn create(&self, operation: SyncOperationEntity)
-        -> RepositoryResult<SyncOperationEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<SyncOperationEntity>;
-    async fn get_recent(&self, hours: i32) -> RepositoryResult<Vec<SyncOperationEntity>>;
-    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<SyncOperationEntity>>;
-    async fn update(&self, operation: SyncOperationEntity)
-        -> RepositoryResult<SyncOperationEntity>;
-
-    /// Update operation progress
-    async fn update_progress(
-        &self,
-        id: &str,
-        processed: i32,
-        success: i32,
-        errors: i32,
-    ) -> RepositoryResult<SyncOperationEntity>;
-
-    /// Complete an operation
-    async fn complete(
-        &self,
-        id: &str,
-        summary: serde_json::Value,
-    ) -> RepositoryResult<SyncOperationEntity>;
-
-    /// Mark an operation as failed
-    async fn fail(
-        &self,
-        id: &str,
-        error_details: serde_json::Value,
-    ) -> RepositoryResult<SyncOperationEntity>;
-
-    /// Get operations by entity type and id
-    async fn get_by_entity(
-        &self,
-        entity_type: &str,
-        entity_id: &str,
-    ) -> RepositoryResult<Vec<SyncOperationEntity>>;
-
-    /// Get operations pending retry
-    async fn get_pending_retries(&self) -> RepositoryResult<Vec<SyncOperationEntity>>;
-
-    /// Get operations in progress
-    async fn get_in_progress(&self) -> RepositoryResult<Vec<SyncOperationEntity>>;
-}
 
 /// Sync conflict entity
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -5218,147 +4282,9 @@ pub trait SyncConflictRepository: Send + Sync {
     async fn get_auto_resolvable(&self) -> RepositoryResult<Vec<SyncConflictEntity>>;
 }
 
-/// External ID mapping entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct ExternalIdMappingEntity {
-    pub id: String,
-    pub entity_type: String,
-    pub internal_id: String,
-    pub external_system: String,
-    pub external_id: String,
-    pub last_synced_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub sync_status: Option<String>,
-    pub sync_direction: Option<String>,
-    pub external_metadata: Option<serde_json::Value>,
-    pub notes: Option<String>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// External ID mapping repository trait
-#[async_trait]
-pub trait ExternalIdMappingRepository: Send + Sync {
-    async fn create(
-        &self,
-        mapping: ExternalIdMappingEntity,
-    ) -> RepositoryResult<ExternalIdMappingEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity>;
-    async fn get_by_internal(
-        &self,
-        entity_type: &str,
-        internal_id: &str,
-    ) -> RepositoryResult<Vec<ExternalIdMappingEntity>>;
-    async fn get_by_external(
-        &self,
-        external_system: &str,
-        external_id: &str,
-    ) -> RepositoryResult<Option<ExternalIdMappingEntity>>;
-    async fn update(
-        &self,
-        mapping: ExternalIdMappingEntity,
-    ) -> RepositoryResult<ExternalIdMappingEntity>;
-
-    /// Update sync time
-    async fn update_sync_time(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity>;
-
-    /// Delete a mapping
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-
-    /// Deactivate a mapping
-    async fn deactivate(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity>;
-
-    /// Get mappings by external system
-    async fn get_by_system(
-        &self,
-        external_system: &str,
-    ) -> RepositoryResult<Vec<ExternalIdMappingEntity>>;
-
-    /// Get unverified mappings
-    async fn get_unverified(&self) -> RepositoryResult<Vec<ExternalIdMappingEntity>>;
-}
-
 // =============================================================================
 // PHASE 15: ENHANCED AUDIT & COMPLIANCE
 // =============================================================================
-
-/// Compliance report entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
-pub struct ComplianceReportEntity {
-    pub id: String,
-    pub report_type: String,
-    pub report_name: String,
-    pub reporting_period_start: chrono::NaiveDate,
-    pub reporting_period_end: chrono::NaiveDate,
-    pub generated_by: Option<String>,
-    pub generated_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub department: Option<String>,
-    pub facility_id: Option<String>,
-    pub total_events: Option<i32>,
-    pub compliant_count: Option<i32>,
-    pub violation_count: Option<i32>,
-    pub high_risk_count: Option<i32>,
-    pub findings: Option<serde_json::Value>,
-    pub recommendations: Option<serde_json::Value>,
-    pub status: Option<String>,
-    pub reviewed_by: Option<String>,
-    pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub review_notes: Option<String>,
-    pub report_url: Option<String>,
-    pub report_ipfs_hash: Option<String>,
-    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Compliance report repository trait
-#[async_trait]
-pub trait ComplianceReportRepository: Send + Sync {
-    async fn create(
-        &self,
-        report: ComplianceReportEntity,
-    ) -> RepositoryResult<ComplianceReportEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<ComplianceReportEntity>;
-    async fn get_by_type(&self, report_type: &str)
-        -> RepositoryResult<Vec<ComplianceReportEntity>>;
-    async fn update(
-        &self,
-        report: ComplianceReportEntity,
-    ) -> RepositoryResult<ComplianceReportEntity>;
-
-    /// Get reports by period
-    async fn get_by_period(
-        &self,
-        start: chrono::NaiveDate,
-        end: chrono::NaiveDate,
-    ) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-
-    /// Approve a report
-    async fn approve(
-        &self,
-        id: &str,
-        reviewed_by: &str,
-        notes: Option<&str>,
-    ) -> RepositoryResult<ComplianceReportEntity>;
-
-    /// Get pending review reports
-    async fn get_pending_review(&self) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-
-    /// Get reports by compliance framework
-    async fn get_by_framework(
-        &self,
-        framework: &str,
-    ) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-
-    /// Get reports by status
-    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-
-    /// Get reports expiring within specified days
-    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-
-    /// Get recently generated reports
-    async fn get_recent(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>>;
-}
 
 /// Data retention policy entity
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -5805,6 +4731,28 @@ pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
     async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>>;
     /// Delete a record by id. Idempotent: deleting a missing id is `Ok(())`.
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+
+    /// Replace a record **only if** one of its stored JSON fields still holds
+    /// `expected`. Returns `Ok(None)` when the guard did not hold.
+    ///
+    /// This is the state-machine primitive for these tables. `create` is an
+    /// unconditional upsert, so a handler that reads a record, checks its
+    /// status and then writes it back has a read-modify-write race: two
+    /// concurrent approvals both observe `Pending` and both commit, and the
+    /// second silently overwrites the first. Expressing the guard *inside* the
+    /// write makes the transition atomic — the same shape
+    /// `RetentionExecutionRepository::decide_approval` already uses
+    /// (`WHERE status = 'pending' AND requested_by <> $3`).
+    ///
+    /// `field` is a top-level key of the stored `data` object and is compared
+    /// as text, so it must name a field whose JSON representation is a string.
+    async fn replace_if_field_eq(
+        &self,
+        id: &str,
+        field: &str,
+        expected: &str,
+        record: JsonRecordEntity,
+    ) -> RepositoryResult<Option<JsonRecordEntity>>;
 }
 
 // =============================================================================
@@ -6061,6 +5009,14 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         relationship: GuardianRelationshipEntity,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
+    /// Create delegated authority and persist its mandatory audit event in one
+    /// production transaction.
+    async fn create_with_audit(
+        &self,
+        relationship: GuardianRelationshipEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
     /// All relationships (active or not) naming this ward — used to build
     /// "who may act for this patient" views (emergency contact surfacing,
     /// admin review).
@@ -6087,10 +5043,29 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         expires_at: Option<DateTime<Utc>>,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
+    /// Update delegated permissions and persist the mandatory audit event in
+    /// one production transaction.
+    async fn update_permissions_with_audit(
+        &self,
+        id: &str,
+        permissions: Vec<String>,
+        expires_at: Option<DateTime<Utc>>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
     /// Revoke a previously verified relationship (e.g. the ward reaches
     /// majority, guardianship is legally terminated, or the assertion was
     /// made in error).
     async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()>;
+
+    /// Revoke delegated authority and persist its required audit event as one
+    /// production transaction.
+    async fn revoke_with_audit(
+        &self,
+        id: &str,
+        reason: Option<String>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<()>;
 }
 
 // =============================================================================
@@ -6486,6 +5461,15 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         request: AccessRequestEntity,
     ) -> RepositoryResult<AccessRequestEntity>;
 
+    /// Atomically persist a newly-created access request and its mandatory
+    /// audit-outbox event. PostgreSQL implementations must use one database
+    /// transaction; memory implementations retain demo semantics.
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity>;
+
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>>;
 
     /// This patient's requests, newest first.
@@ -6505,10 +5489,27 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         grant: AccessGrantEntity,
     ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
 
+    /// Atomically approve a request, mint its grant, and persist the mandatory
+    /// audit-outbox event. PostgreSQL implementations must commit all three
+    /// writes together; memory implementations retain demo semantics.
+    async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
+
     /// Atomically move a `pending` request to `denied`. `Ok(None)` when it was
     /// already decided.
     async fn deny_request(&self, request_id: &str)
         -> RepositoryResult<Option<AccessRequestEntity>>;
+
+    /// Atomically deny a request and persist the mandatory audit-outbox event.
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>>;
 
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>>;
 
@@ -6526,6 +5527,14 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         &self,
         grant_id: &str,
         now: DateTime<Utc>,
+    ) -> RepositoryResult<Option<AccessGrantEntity>>;
+
+    /// Atomically revoke a grant and persist the mandatory audit-outbox event.
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
     ) -> RepositoryResult<Option<AccessGrantEntity>>;
 }
 

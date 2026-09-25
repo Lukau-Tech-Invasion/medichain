@@ -311,6 +311,63 @@ mod tests {
         );
     }
 
+    /// The wallet is a column on the patient row, not part of the encrypted
+    /// profile, and the read served only the profile -- so a wallet bound at
+    /// registration read back as absent. A patient without one must read back
+    /// as `null`, not as a missing key a client mistakes for the same thing.
+    #[actix_rt::test]
+    async fn a_wallet_bound_at_registration_is_returned_by_the_patient_read() {
+        const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+        let app_state = setup_app_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state)
+                .service(register_patient)
+                .service(get_patient_by_id),
+        )
+        .await;
+
+        let mut with_wallet = registration_payload(7001);
+        with_wallet["wallet_address"] = json!(WALLET);
+        let mut ids = Vec::new();
+        for payload in [with_wallet, registration_payload(7002)] {
+            let req = test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(payload)
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert!(
+                resp.status().is_success(),
+                "registration failed: {}",
+                resp.status()
+            );
+            let created: serde_json::Value = test::read_body_json(resp).await;
+            ids.push(
+                created["patient_id"]
+                    .as_str()
+                    .expect("patient_id")
+                    .to_string(),
+            );
+        }
+
+        let mut wallets = Vec::new();
+        for id in &ids {
+            let req = test::TestRequest::get()
+                .uri(&format!("/api/patients/{id}"))
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .to_request();
+            let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+            assert!(
+                body.as_object()
+                    .is_some_and(|o| o.contains_key("wallet_address")),
+                "the read must state the wallet, even when there is none: {body}"
+            );
+            wallets.push(body["wallet_address"].clone());
+        }
+        assert_eq!(wallets, vec![json!(WALLET), serde_json::Value::Null]);
+    }
+
     #[actix_rt::test]
     async fn settings_round_trip_through_memory_backend() {
         let app_state = setup_app_state().await;
@@ -445,7 +502,8 @@ mod tests {
                 .app_data(app_state.clone())
                 .service(register_patient)
                 .service(crate::clinical_endpoints::fhir_get_conditions)
-                .service(crate::clinical_endpoints::fhir_get_medications),
+                .service(crate::clinical_endpoints::fhir_get_medications)
+                .service(crate::clinical_endpoints::fhir_get_allergies),
         )
         .await;
 
@@ -495,6 +553,25 @@ mod tests {
         assert_eq!(
             body["total"], 2,
             "MedicationStatement bundle reported no medication for a patient on two"
+        );
+
+        // Read an allergies table nothing writes, so it was `total: 0` for
+        // every patient -- a positive "no known allergies" to the importer.
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/fhir/r4/AllergyIntolerance?patient={patient_id}"
+            ))
+            .insert_header(("x-user-id", "doctor_wallet"))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(
+            body["total"], 1,
+            "AllergyIntolerance bundle lost the allergy: {body}"
+        );
+        assert_eq!(body["entry"][0]["resource"]["code"]["text"], "Penicillin");
+        assert_eq!(
+            body["entry"][0]["resource"]["criticality"], "unable-to-assess",
+            "a registration allergy has no assessed severity"
         );
     }
 
@@ -552,5 +629,7 @@ mod tests {
         // Present and false: the card can distinguish "nothing recorded" from
         // "we could not decrypt the record".
         assert_eq!(body["profile_unavailable"], false);
+        assert_eq!(body["allergies"][0]["name"], "Penicillin", "{body}");
+        assert_eq!(body["allergies"][0]["severity"], "unknown", "{body}");
     }
 }

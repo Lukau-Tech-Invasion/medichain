@@ -32,10 +32,10 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
 describe('AnesthesiaPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: { walletAddress: '5GrwvaEF...mock', role: 'Doctor' },
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
   });
 
   it('renders the anesthesia record header', async () => {

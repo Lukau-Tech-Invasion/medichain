@@ -18,6 +18,7 @@ const sw_KE: TranslationRecord = {
     search: 'Tafuta',
     filter: 'Chuja',
     loading: 'Inapakia...',
+    saveFailed: 'Imeshindwa kuhifadhi. Rekodi haikuhifadhiwa — tafadhali jaribu tena.',
     error: 'Hitilafu',
     success: 'Imefanikiwa',
     warning: 'Onyo',

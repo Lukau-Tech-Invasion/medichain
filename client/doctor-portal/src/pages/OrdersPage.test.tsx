@@ -1,17 +1,19 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import OrdersPage from './OrdersPage';
 import { useAuthStore } from '../store';
+import * as shared from '@medichain/shared';
 
 // Mock the auth store
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  listOrders: vi.fn(),
+}));
 
 describe('OrdersPage', () => {
   const mockUser = {
@@ -21,36 +23,29 @@ describe('OrdersPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({
-          orders: [
-            // The page reads snake_case `PhysicianOrder` fields
-            // (order_id/order_type/order_details/ordered_at); the generated
-            // fixture used camelCase `description`/`orderType`, which the
-            // component never looks at, so rows rendered blank.
-            {
-              order_id: 'o1',
-              patient_id: 'PAT-001',
-              patient_name: 'John Doe',
-              order_type: 'lab',
-              order_details: 'CBC with diff',
-              priority: 'routine',
-              status: 'active',
-              ordered_by: 'Dr Smith',
-              ordered_at: 1755000000,
-            },
-          ],
-        }),
-      });
-    });
+    // The bare array, which is what a caller receives: ApiClient unwraps the
+    // `{orders: [...]}` envelope. This mock used to return the envelope, so
+    // the test passed against a shape the running application never sees --
+    // and the page's live behaviour (an error banner and an empty list on
+    // every visit) went unnoticed for as long as the mock disagreed.
+    vi.mocked(shared.listOrders).mockResolvedValue([
+      {
+        order_id: 'o1',
+        patient_id: 'PAT-001',
+        order_type: 'lab',
+        order_details: 'CBC with diff',
+        priority: 'routine',
+        status: 'in_progress',
+        notes: null,
+        ordering_provider: 'Dr Smith',
+        ordered_at: '2026-08-12T10:00:00Z',
+      },
+    ]);
   });
 
   it('renders orders page', async () => {
@@ -63,8 +58,10 @@ describe('OrdersPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Physician Orders/i)).toBeInTheDocument();
       expect(screen.getByText(/CBC with diff/i)).toBeInTheDocument();
-      expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
+      expect(screen.getByText(/PAT-001/i)).toBeInTheDocument();
     });
+
+    expect(screen.getByTestId('orders-in-progress-count')).toHaveTextContent('1');
   });
 
   it('allows filtering by order type', async () => {

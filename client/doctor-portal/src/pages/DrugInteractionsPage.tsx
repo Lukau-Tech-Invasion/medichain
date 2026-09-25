@@ -1,6 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import {
+  getApiClient,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  formatTimestamp,
+  checkDrugInteractions,
+  getDrugInteractionHistory,
+} from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -15,20 +23,21 @@ import {
   Calendar,
   Activity,
   TrendingUp,
-  FileText,
   ExternalLink,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Loader2,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
+import type { StoredDrugInteractionCheck } from '@medichain/shared';
 
 // ===== PART 1: Types, State, Data, Helpers =====
 
 // Type Definitions
 type InteractionSeverity = 'contraindicated' | 'major' | 'moderate' | 'minor' | 'unknown';
 type InteractionType = 'drug-drug' | 'drug-allergy' | 'drug-condition' | 'drug-food' | 'drug-lab';
-type EvidenceLevel = 'A' | 'B' | 'C' | 'D';
+/** `clinical::EvidenceLevel`, exactly as the interaction dataset records it. */
+type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established';
 
 interface Drug {
   drugId: string;
@@ -57,10 +66,10 @@ interface Interaction {
   management: string[];
   monitoring: string[];
   alternatives?: string[];
-  evidenceLevel: EvidenceLevel;
+  /** Absent for an allergy alert: that is the patient's own record, not a
+   *  graded finding from the interaction dataset. */
+  evidenceLevel?: EvidenceLevel;
   references: string[];
-  onset: string;
-  documentation: string;
   riskFactors?: string[];
 }
 
@@ -92,6 +101,30 @@ interface InteractionCheck {
   checkedBy: string;
 }
 
+/** A filed check, in the shape the history tab renders. */
+function fromStoredCheck(stored: StoredDrugInteractionCheck): InteractionCheck {
+  const count = (severity: string) =>
+    stored.interactions.filter((i) => i.severity === severity).length;
+  const drugs = stored.medications_checked?.length
+    ? stored.medications_checked
+    : [stored.new_medication].filter(Boolean);
+  return {
+    checkId: stored.result_id,
+    drugs,
+    timestamp: new Date(stored.checked_at * 1000).toISOString(),
+    interactions: [],
+    totalInteractions: stored.interactions.filter((i) => i.severity !== 'None').length,
+    bySeverity: {
+      contraindicated: count('Contraindicated'),
+      major: count('Major'),
+      moderate: count('Moderate'),
+      minor: count('Minor'),
+      unknown: 0,
+    },
+    checkedBy: stored.checked_by,
+  };
+}
+
 const DrugInteractionsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -108,6 +141,9 @@ const DrugInteractionsPage: React.FC = () => {
   const [severityFilter, setSeverityFilter] = useState<InteractionSeverity | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<InteractionType | 'all'>('all');
   const [expandedInteractions, setExpandedInteractions] = useState<Set<string>>(new Set());
+  // Whether the selected patient's filed checks could be read. A failed read is
+  // not "no history".
+  const [historyUnknown, setHistoryUnknown] = useState(false);
   const [patientContext, setPatientContext] = useState<PatientContext>({
     patientId: '',
     age: 0,
@@ -120,29 +156,48 @@ const DrugInteractionsPage: React.FC = () => {
   // Loading/Error state for drugs
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // What the server actually screened.
+  //
+  // A clinician with the patient's conditions on screen reasonably believes
+  // they were considered. No drug-condition screening exists -- there is no
+  // curated dataset for it,
+  // and inventing one would be fabricating clinical content. The server now
+  // says so in `screened`, and a green "no interactions" panel that does not
+  // repeat the limit is the same false assurance in a nicer colour.
+  const [screened, setScreened] = useState<{
+    drug_drug?: boolean;
+    allergies?: boolean;
+    conditions?: boolean;
+  } | null>(null);
 
   // Drug Database - fetched from API
   const [drugDatabase, setDrugDatabase] = useState<Drug[]>([]);
 
   // Load drug database from API
+  // The history tab used to hold only this session's checks, so it was empty
+  // after every reload although the server had filed each one to the chart.
+  const loadHistory = useCallback(async (patientId: string) => {
+    try {
+      const body = await getDrugInteractionHistory(patientId);
+      setChecks((body.checks ?? []).map(fromStoredCheck));
+      setHistoryUnknown(false);
+    } catch {
+      setHistoryUnknown(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (patientContext.patientId) void loadHistory(patientContext.patientId);
+  }, [patientContext.patientId, loadHistory]);
+
   useEffect(() => {
     const fetchDrugs = async () => {
       if (!user?.walletAddress) return;
       
       try {
-        const response = await fetch(apiUrl('/api/drugs'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch drug database');
-        }
-        
-        const data = await response.json();
+        const data = await getApiClient().get<{ success?: boolean; drugs?: Drug[] }>(
+          '/api/drugs'
+        );
         if (data.success && data.drugs) {
           setDrugDatabase(data.drugs);
         }
@@ -155,7 +210,7 @@ const DrugInteractionsPage: React.FC = () => {
     };
     
     fetchDrugs();
-  }, [user?.walletAddress, user?.role]);
+  }, [user?.walletAddress, user?.role, t]);
 
   // Interaction Database - fetched from API
   const [interactionDatabase, setInteractionDatabase] = useState<Interaction[]>([]);
@@ -166,19 +221,9 @@ const DrugInteractionsPage: React.FC = () => {
       if (!user?.walletAddress) return;
       
       try {
-        const response = await fetch(apiUrl('/api/interactions'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch interaction database');
-        }
-        
-        const data = await response.json();
+        const data = await getApiClient().get<{ success?: boolean; interactions?: Interaction[] }>(
+          '/api/interactions'
+        );
         if (data.success && data.interactions) {
           setInteractionDatabase(data.interactions);
         }
@@ -227,36 +272,20 @@ const DrugInteractionsPage: React.FC = () => {
     setIsChecking(true);
     
     try {
-      const response = await fetch(apiUrl('/api/interactions/check'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role || 'Doctor',
-        },
-        body: JSON.stringify({
-          patient_id: patientContext.patientId || 'UNKNOWN',
-          medications: selectedDrugs.map((d) => d.name),
-          include_allergies: patientContext.allergies.length > 0,
-          include_conditions: patientContext.conditions.length > 0,
-        }),
+      // No patient chosen means a reference lookup, not a check to file on
+      // somebody's chart. This used to send `'UNKNOWN'`, and every such check
+      // was stored as the history of a patient of that name.
+      const data = await checkDrugInteractions({
+        patient_id: patientContext.patientId || undefined,
+        medications: selectedDrugs.map((d) => d.name),
+        include_allergies: patientContext.allergies.length > 0,
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to check interactions');
-      }
-      
-      const data = await response.json();
-      
       // Map API response to local Interaction type
-      const foundInteractions: Interaction[] = (data.interactions || []).map((int: {
-        drug_a: string;
-        drug_b: string;
-        severity: string;
-        description: string;
-        clinical_effects: string;
-        management: string;
-      }, idx: number) => ({
+      // The dataset supplies no onset or documentation grade. This used to show
+      // "Onset: Variable" and "Evidence: B" on every finding -- values nobody
+      // measured, beside ones that were -- so only what came back is shown.
+      const foundInteractions: Interaction[] = data.interactions.map((int, idx) => ({
         interactionId: `INT-API-${idx}`,
         type: 'drug-drug' as InteractionType,
         severity: int.severity.toLowerCase() as InteractionSeverity,
@@ -268,15 +297,13 @@ const DrugInteractionsPage: React.FC = () => {
         clinicalEffects: [int.clinical_effects],
         management: [int.management],
         monitoring: [],
-        evidenceLevel: 'B' as EvidenceLevel,
-        references: [],
-        onset: 'Variable',
-        documentation: 'Established',
+        evidenceLevel: int.evidence_level as EvidenceLevel,
+        references: int.source ? [int.source] : [],
       }));
       
       // Add allergy alerts as interactions
-      if (data.allergy_alerts && data.allergy_alerts.length > 0) {
-        data.allergy_alerts.forEach((alert: { medication: string; allergen: string; reaction: string }, idx: number) => {
+      if (data.allergy_alerts.length > 0) {
+        data.allergy_alerts.forEach((alert, idx) => {
           foundInteractions.push({
             interactionId: `INT-ALLERGY-${idx}`,
             type: 'drug-allergy' as InteractionType,
@@ -284,19 +311,19 @@ const DrugInteractionsPage: React.FC = () => {
             drug1: alert.medication,
             allergen: alert.allergen,
             title: `${alert.medication}: Allergy Alert - ${alert.allergen}`,
-            description: `Patient has documented allergy to ${alert.allergen}`,
+            description: alert.drug_class
+              ? `Patient has documented allergy to ${alert.allergen}; ${alert.medication} is a ${alert.drug_class}`
+              : `Patient has documented allergy to ${alert.allergen}`,
             mechanism: 'Allergic cross-reactivity',
             clinicalEffects: [alert.reaction || 'Allergic reaction'],
             management: ['Do not administer', 'Use alternative medication'],
             monitoring: [],
-            evidenceLevel: 'A' as EvidenceLevel,
             references: [],
-            onset: 'Immediate',
-            documentation: 'Well-established',
           });
         });
       }
       
+      setScreened(data.screened ?? null);
       setInteractions(foundInteractions);
       
       // Create check record
@@ -317,7 +344,14 @@ const DrugInteractionsPage: React.FC = () => {
         checkedBy: user?.userId || user?.walletAddress || 'Unknown',
       };
       
-      setChecks([check, ...checks]);
+      // A check for a patient is filed on their chart; the history is what the
+      // server holds, so it is re-read rather than appended to. A check with
+      // no patient is a lookup, filed nowhere, and is kept for this session.
+      if (patientContext.patientId) {
+        await loadHistory(patientContext.patientId);
+      } else {
+        setChecks((current) => [check, ...current]);
+      }
       setShowResults(true);
     } catch (err) {
       console.error('Failed to check interactions:', err);
@@ -391,19 +425,22 @@ const DrugInteractionsPage: React.FC = () => {
 
   const getEvidenceBadge = (level: EvidenceLevel): string => {
     switch (level) {
-      case 'A':
+      case 'Established':
         return 'bg-ok-subtle text-ok-subtle-fg';
-      case 'B':
+      case 'ClinicalTrial':
         return 'bg-notice-subtle text-notice-subtle-fg';
-      case 'C':
+      case 'CaseStudy':
+      case 'CaseReport':
         return 'bg-caution-subtle text-caution-subtle-fg';
-      case 'D':
+      default:
         return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const formatDate = (isoString: string): string => {
-    return new Date(isoString).toLocaleString();
+    // See formatTimestamp: an absent timestamp renders as nothing, never as
+    // the literal string "Invalid Date".
+    return formatTimestamp(isoString);
   };
 
   // Filtered interactions
@@ -419,15 +456,29 @@ const DrugInteractionsPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-pink-500 rounded-lg shadow-lg p-6 mb-6 text-white">
+      <div className="bg-gradient-to-r from-purple-700 to-pink-800 rounded-lg shadow-lg p-6 mb-6 text-white">
         <div className="flex items-center gap-4">
           <Pill className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docDrugInteractions.title')}</h1>
-            <p className="text-purple-100 mt-1">{t('docDrugInteractions.subtitle')}</p>
+            <p className="text-white mt-1">{t('docDrugInteractions.subtitle')}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {loading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="flex gap-2 mb-6 border-b border-border">
@@ -478,7 +529,7 @@ const DrugInteractionsPage: React.FC = () => {
                 value={drugSearch}
                 onChange={(e) => setDrugSearch(e.target.value)}
                 placeholder={t('docDrugInteractions.searchPh')}
-                className="w-full pl-10 pr-4 py-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
 
               {/* Search Results Dropdown */}
@@ -534,7 +585,7 @@ const DrugInteractionsPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-8 text-content-muted">
-                  <Pill className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <Pill className="w-12 h-12 mx-auto mb-2 text-content-muted" />
                   <p>{t('docDrugInteractions.noMedicationsSelected')}</p>
                   <p className="text-sm">{t('docDrugInteractions.noMedicationsHint')}</p>
                 </div>
@@ -547,7 +598,7 @@ const DrugInteractionsPage: React.FC = () => {
                 <button
                   onClick={handleCheckInteractions}
                   disabled={isChecking}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isChecking ? (
                     <>
@@ -576,14 +627,12 @@ const DrugInteractionsPage: React.FC = () => {
             <h2 className="text-xl font-bold text-content mb-4">{t('docDrugInteractions.patientContextTitle')}</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="ddi-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docDrugInteractions.patientIdLabel')}</label>
-                <input
+                {/* A remembered patient id is not something anyone has; search by name. */}
+                <PatientSelect
                   id="ddi-patient-id"
-                  type="text"
+                  label={t('docDrugInteractions.patientIdLabel')}
                   value={patientContext.patientId}
-                  onChange={(e) => setPatientContext({ ...patientContext, patientId: e.target.value })}
-                  placeholder={t('docDrugInteractions.patientIdPh')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                  onChange={(selectedPatientId) => setPatientContext({ ...patientContext, patientId: selectedPatientId })}
                 />
               </div>
               <div>
@@ -594,7 +643,7 @@ const DrugInteractionsPage: React.FC = () => {
                   value={patientContext.age || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, age: parseInt(e.target.value) || 0 })}
                   placeholder={t('docDrugInteractions.agePh')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               <div>
@@ -605,7 +654,7 @@ const DrugInteractionsPage: React.FC = () => {
                   value={patientContext.weight || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, weight: parseFloat(e.target.value) || 0 })}
                   placeholder={t('docDrugInteractions.weightPh')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>
@@ -624,7 +673,7 @@ const DrugInteractionsPage: React.FC = () => {
                   })
                 }
                 placeholder={t('docDrugInteractions.allergiesPh')}
-                className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
               />
             </div>
           </div>
@@ -641,7 +690,7 @@ const DrugInteractionsPage: React.FC = () => {
                     <select
                       value={severityFilter}
                       onChange={(e) => setSeverityFilter(e.target.value as InteractionSeverity | 'all')}
-                      className="px-3 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
                     >
                       <option value="all">{t('docDrugInteractions.filterAllSeverities')}</option>
                       <option value="contraindicated">{t('docDrugInteractions.severity_contraindicated')}</option>
@@ -652,7 +701,7 @@ const DrugInteractionsPage: React.FC = () => {
                     <select
                       value={typeFilter}
                       onChange={(e) => setTypeFilter(e.target.value as InteractionType | 'all')}
-                      className="px-3 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
                     >
                       <option value="all">{t('docDrugInteractions.filterAllTypes')}</option>
                       <option value="drug-drug">{t('docDrugInteractions.type_drug-drug')}</option>
@@ -665,9 +714,9 @@ const DrugInteractionsPage: React.FC = () => {
                 )}
               </div>
 
-              {interactions.length === 0 ? (
+              {!error && !loading && interactions.length === 0 ? (
                 <div className="text-center py-12 bg-ok-subtle rounded-lg border-2 border-ok">
-                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
+                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-ok" />
                   <h3 className="text-xl font-semibold text-ok-subtle-fg mb-2">{t('docDrugInteractions.noInteractionsTitle')}</h3>
                   <p className="text-ok-subtle-fg">
                     {t('docDrugInteractions.noInteractionsDesc')}
@@ -675,6 +724,14 @@ const DrugInteractionsPage: React.FC = () => {
                   <p className="text-sm text-ok-subtle-fg mt-2">
                     {t('docDrugInteractions.noInteractionsHint')}
                   </p>
+                  {screened && screened.conditions === false && (
+                    // Said on the clean result specifically. A clinician reads
+                    // this panel as "safe to prescribe", and conditions are
+                    // exactly what would make it not safe.
+                    <p className="text-sm text-caution-subtle-fg mt-3">
+                      {t('docDrugInteractions.conditionsNotScreened')}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -707,21 +764,13 @@ const DrugInteractionsPage: React.FC = () => {
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
                                 {t(`docDrugInteractions.type_${interaction.type}`)}
                               </span>
-                              <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                                {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
-                              </span>
+                              {interaction.evidenceLevel && (
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
+                                  {t('docDrugInteractions.evidenceLabel', { level: t(`docDrugInteractions.evidence_${interaction.evidenceLevel}`) })}
+                                </span>
+                              )}
                             </div>
                             <p className="text-content-secondary mb-2">{interaction.description}</p>
-                            <div className="flex items-center gap-4 text-sm text-content-muted">
-                              <span className="flex items-center gap-1">
-                                <Activity className="w-4 h-4" />
-                                {t('docDrugInteractions.onsetLabel', { value: interaction.onset })}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <FileText className="w-4 h-4" />
-                                {t('docDrugInteractions.documentationLabel', { value: interaction.documentation })}
-                              </span>
-                            </div>
                           </div>
                           <button
                             onClick={() => toggleInteractionExpansion(interaction.interactionId)}
@@ -844,6 +893,9 @@ const DrugInteractionsPage: React.FC = () => {
       {/* History Tab */}
       {activeTab === 'history' && (
         <div className="space-y-4">
+          {historyUnknown && (
+            <p role="status" className="text-sm text-content-muted">{t('docDrugInteractions.historyUnknown')}</p>
+          )}
           {checks.length > 0 ? (
             checks.map((check) => (
               <div key={check.checkId} className="bg-surface rounded-lg shadow p-6">
@@ -852,11 +904,11 @@ const DrugInteractionsPage: React.FC = () => {
                     <h3 className="text-lg font-bold text-content mb-2">
                       {t('docDrugInteractions.checkIdLabel', { id: check.checkId })}
                     </h3>
-                    <div className="flex items-center gap-2 text-sm text-content-muted mb-2">
+                    <div className="flex items-center gap-2 text-sm text-content-muted mb-2 min-h-[24px] py-1">
                       <Calendar className="w-4 h-4" />
                       {formatDate(check.timestamp)}
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-content-muted">
+                    <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                       <User className="w-4 h-4" />
                       {t('docDrugInteractions.checkedByLabel', { value: check.checkedBy })}
                     </div>
@@ -909,7 +961,7 @@ const DrugInteractionsPage: React.FC = () => {
             ))
           ) : (
             <div className="bg-surface rounded-lg shadow p-12 text-center">
-              <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <Calendar className="w-16 h-16 text-content-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-content-secondary mb-2">{t('docDrugInteractions.noHistoryTitle')}</h3>
               <p className="text-content-muted">{t('docDrugInteractions.noHistoryHint')}</p>
             </div>
@@ -947,9 +999,11 @@ const DrugInteractionsPage: React.FC = () => {
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
                           {t(`docDrugInteractions.type_${interaction.type}`)}
                         </span>
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                          {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
-                        </span>
+                        {interaction.evidenceLevel && (
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
+                            {t('docDrugInteractions.evidenceLabel', { level: t(`docDrugInteractions.evidence_${interaction.evidenceLevel}`) })}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-content-secondary mb-2">{interaction.description}</p>
                       <div className="text-xs text-content-muted">

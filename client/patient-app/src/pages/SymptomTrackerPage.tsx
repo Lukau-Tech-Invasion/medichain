@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { getSymptomHistory, logSymptom, retractSymptom, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -17,6 +17,7 @@ import {
   Wifi,
   WifiOff,
   ChevronRight,
+  Download,
   Trash2,
   Zap,
   X,
@@ -26,12 +27,29 @@ interface SymptomEntry {
   id: string;
   symptom: string;
   category: string;
-  severity: 1 | 2 | 3 | 4 | 5;
+  severity: number;
   timestamp: string;
   duration?: string;
   notes?: string;
   triggers?: string[];
   relievedBy?: string[];
+}
+
+/** Escape a value for a spreadsheet without turning patient-entered text into a formula. */
+function symptomReportCell(value: string | number | undefined): string {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text.trimStart())) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+/** Build a patient-controlled copy of the symptom rows currently loaded from the API. */
+export function buildSymptomReport(entries: SymptomEntry[]): string {
+  const header = ['timestamp', 'symptom', 'category', 'severity', 'duration', 'notes', 'triggers', 'relieved_by'];
+  const rows = entries.map((entry) => [
+    entry.timestamp, entry.symptom, entry.category, entry.severity, entry.duration, entry.notes,
+    entry.triggers?.join('; '), entry.relievedBy?.join('; '),
+  ].map(symptomReportCell).join(','));
+  return [header.join(','), ...rows].join('\r\n');
 }
 
 interface SymptomCategory {
@@ -57,6 +75,11 @@ export function SymptomTrackerPage() {
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [entries, setEntries] = useState<SymptomEntry[]>([]);
+  // A failed log has to be visible. The entry is added optimistically, so
+  // without this a rejected write left the symptom on screen and out of the
+  // record.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -112,42 +135,35 @@ export function SymptomTrackerPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  useEffect(() => {
-    if (patient) {
-      loadEntries();
-    }
-  }, [patient]);
-
-  const loadEntries = async () => {
+  const loadEntries = useCallback(async () => {
     if (!patient) return;
     
     setLoading(true);
     try {
       const patientId = patient.healthId;
       
-      // Reads the symptom DIARY (what `/api/symptoms/log` below writes), not
-      // `/api/symptoms/history/{id}` — that returns symptom-CHECKER chat
-      // sessions, a different concept, which is why this list was always empty.
-      const response = await fetch(apiUrl(`/api/symptoms/${patientId}`), {
-        headers: { 
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        setEntries(data.entries || []);
-      } else {
-        setApiConnected(false);
-      }
+      // Reads the symptom diary, not the separate symptom-checker chat history.
+      const data = await getSymptomHistory(patientId);
+      setApiConnected(true);
+      setEntries(data.entries.map((entry) => ({
+        ...entry,
+        category: entry.category ?? 'general',
+        severity: entry.severity,
+        duration: entry.duration ?? undefined,
+        notes: entry.notes ?? undefined,
+      })));
     } catch {
       setApiConnected(false);
     } finally {
       setLoading(false);
     }
-  };
+  }, [patient]);
+
+  useEffect(() => {
+    if (patient) {
+      loadEntries();
+    }
+  }, [patient, loadEntries]);
 
   const addEntry = async () => {
     if (!newEntry.symptom || !newEntry.category) return;
@@ -156,7 +172,7 @@ export function SymptomTrackerPage() {
       id: `SYM-${Date.now()}`,
       symptom: newEntry.symptom,
       category: newEntry.category,
-      severity: newEntry.severity as 1 | 2 | 3 | 4 | 5,
+      severity: newEntry.severity ?? 3,
       timestamp: new Date().toISOString(),
       duration: newEntry.duration,
       notes: newEntry.notes,
@@ -164,6 +180,7 @@ export function SymptomTrackerPage() {
       relievedBy: newEntry.relievedBy,
     };
 
+    setSaveError(null);
     setEntries(prev => [entry, ...prev]);
     setShowAddModal(false);
     setSelectedCategory(null);
@@ -172,28 +189,62 @@ export function SymptomTrackerPage() {
     // Log symptom to API
     if (patient) {
       try {
-        await fetch(apiUrl('/api/symptoms/log'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': patient.walletAddress,
-            'X-Health-Id': patient.healthId,
-          },
-          body: JSON.stringify({
-            patient_id: patient.healthId,
-            symptom: entry.symptom,
-            severity: entry.severity,
-            notes: entry.notes,
-          }),
+        await logSymptom({
+          patient_id: patient.healthId,
+          symptom: entry.symptom,
+          category: entry.category,
+          severity: entry.severity,
+          duration: entry.duration,
+          notes: entry.notes,
+          triggers: entry.triggers,
+          relieved_by: entry.relievedBy,
         });
       } catch (err) {
-        console.warn('Failed to log symptom to API:', err);
+        // Surfaced, not warned about in a console the patient cannot see.
+        //
+        // The entry is added to the list before this request runs, so
+        // swallowing the failure left a symptom on screen that no clinician
+        // would ever see — the patient believes it was recorded and it was not.
+        console.error('Failed to log symptom to API:', err);
+        setEntries(prev => prev.filter(e => e.id !== entry.id));
+        setSaveError(t('symptomTracker.logFailed'));
       }
     }
   };
 
-  const deleteEntry = (id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async (id: string) => {
+    if (!patient) return;
+
+    const removedEntry = entries.find(entry => entry.id === id);
+    if (!removedEntry) return;
+
+    setSaveError(null);
+    setEntries(prev => prev.filter(entry => entry.id !== id));
+    try {
+      await retractSymptom(patient.healthId, id);
+    } catch (error) {
+      console.error('Failed to retract symptom entry:', error);
+      setEntries(prev => [removedEntry, ...prev]);
+      setSaveError(t('symptomTracker.retractFailed'));
+    }
+  };
+
+  const downloadReport = () => {
+    setReportError(null);
+    try {
+      const blob = new Blob([buildSymptomReport(entries)], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `medichain-symptom-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download symptom report:', error);
+      setReportError(t('symptomTracker.reportDownloadFailed'));
+    }
   };
 
   const getSeverityColor = (severity: number) => {
@@ -214,7 +265,7 @@ export function SymptomTrackerPage() {
       case 3: return t('symptomTracker.sev3');
       case 4: return t('symptomTracker.sev4');
       case 5: return t('symptomTracker.sev5');
-      default: return t('symptomTracker.sevUnknown');
+      default: return t('symptomTracker.severityValue', { count: severity });
     }
   };
 
@@ -260,7 +311,7 @@ export function SymptomTrackerPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -278,7 +329,7 @@ export function SymptomTrackerPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
         </div>
       </div>
@@ -299,10 +350,21 @@ export function SymptomTrackerPage() {
         </div>
       </div>
 
+      {saveError && (
+        <div role="alert" className="p-3 rounded-xl bg-critical-subtle text-critical-subtle-fg text-sm">
+          {saveError}
+        </div>
+      )}
+      {reportError && (
+        <div role="alert" className="p-3 rounded-xl bg-critical-subtle text-critical-subtle-fg text-sm">
+          {reportError}
+        </div>
+      )}
+
       {/* Add New Button */}
       <button
         onClick={() => setShowAddModal(true)}
-        className="w-full bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-2xl p-6 flex items-center justify-center gap-3 hover:from-primary-600 hover:to-primary-700 transition-all"
+        className="w-full bg-gradient-to-r from-primary-700 to-primary-800 text-white rounded-2xl p-6 flex items-center justify-center gap-3 hover:from-primary-800 hover:to-primary-900 transition-all"
       >
         <Plus className="w-6 h-6" />
         <span className="font-semibold text-lg">{t('symptomTracker.logNew')}</span>
@@ -335,6 +397,7 @@ export function SymptomTrackerPage() {
                   <button
                     onClick={() => deleteEntry(entry.id)}
                     className="p-1 text-content-muted hover:text-red-500 transition-colors"
+                    aria-label={t('symptomTracker.retractEntry')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -375,7 +438,7 @@ export function SymptomTrackerPage() {
 
           {entries.length === 0 && (
             <div className="text-center py-12">
-              <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Activity className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('symptomTracker.noneLogged')}</p>
               <p className="text-sm text-content-muted">{t('symptomTracker.noneHint')}</p>
             </div>
@@ -387,7 +450,7 @@ export function SymptomTrackerPage() {
       {entries.length >= 3 && (
         <div className="patient-card">
           <h3 className="font-semibold text-content mb-3 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary-500" />
+            <TrendingUp className="w-5 h-5 text-brand" />
             {t('symptomTracker.insights')}
           </h3>
           <div className="space-y-2 text-sm">
@@ -404,8 +467,13 @@ export function SymptomTrackerPage() {
               • {t('symptomTracker.totalEntries')} <span className="font-medium">{entries.length}</span>
             </p>
           </div>
-          <button className="mt-3 text-primary-500 font-medium text-sm flex items-center gap-1">
+          <button
+            type="button"
+            onClick={downloadReport}
+            className="mt-3 text-brand font-medium text-sm flex items-center gap-1"
+          >
             {t('symptomTracker.viewReport')} <ChevronRight className="w-4 h-4" />
+            <Download className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
@@ -484,7 +552,7 @@ export function SymptomTrackerPage() {
                       {[1, 2, 3, 4, 5].map(level => (
                         <button
                           key={level}
-                          onClick={() => setNewEntry(prev => ({ ...prev, severity: level as 1|2|3|4|5 }))}
+                          onClick={() => setNewEntry(prev => ({ ...prev, severity: level }))}
                           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
                             newEntry.severity === level
                               ? getSeverityColor(level)
@@ -508,7 +576,7 @@ export function SymptomTrackerPage() {
                       value={newEntry.duration || ''}
                       onChange={(e) => setNewEntry(prev => ({ ...prev, duration: e.target.value }))}
                       placeholder={t('symptomTracker.durationPlaceholder')}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                      className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                     />
                   </div>
 
@@ -523,7 +591,7 @@ export function SymptomTrackerPage() {
                       onChange={(e) => setNewEntry(prev => ({ ...prev, notes: e.target.value }))}
                       placeholder={t('symptomTracker.notesPlaceholder')}
                       rows={3}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
+                      className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
                     />
                   </div>
 
@@ -538,7 +606,7 @@ export function SymptomTrackerPage() {
                     <button
                       onClick={addEntry}
                       disabled={!newEntry.symptom}
-                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                     >
                       {t('symptomTracker.saveEntry')}
                     </button>

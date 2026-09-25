@@ -32,7 +32,7 @@ describe('CarePlanPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
@@ -46,17 +46,14 @@ describe('CarePlanPage', () => {
           // correct — this test previously mocked `{ plans: [] }` and then
           // asserted the heading was visible, so it was asserting against a
           // product behaviour that would have been a bug.
-          Promise.resolve({
-            plans: [
-              {
-                id: 'CP-001',
-                patient_id: 'PAT-001',
-                status: 'active',
-                created_at: 1754985000,
-                diagnoses_count: 2,
-              },
-            ],
-          }),
+          Promise.resolve([
+            {
+              id: 'CP-001',
+              patient_id: 'PAT-001',
+              status: 'active',
+              created_at: '2026-09-20T10:00:00Z',
+            },
+          ]),
       })
     );
   });
@@ -83,5 +80,9 @@ describe('CarePlanPage', () => {
     await waitFor(() => expect(screen.getByText(/Recent Care Plans/i)).toBeInTheDocument());
     expect(screen.getAllByText(/Patient ID/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Status/i).length).toBeGreaterThan(0);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/emergency/care-plan/list'),
+      expect.any(Object),
+    );
   });
 });

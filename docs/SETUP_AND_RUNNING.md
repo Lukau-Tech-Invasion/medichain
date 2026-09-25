@@ -192,9 +192,9 @@ When started successfully, you'll see:
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-  📡 API Server starting on http://127.0.0.1:8080
-  📋 Demo endpoint: http://127.0.0.1:8080/api/demo
-  ❤️  Health check: http://127.0.0.1:8080/health
+  📡 API Server starting on http://127.0.0.1:8090
+  📋 Demo endpoint: http://127.0.0.1:8090/api/demo
+  ❤️  Health check: http://127.0.0.1:8090/health
 ```
 
 ### Environment Variables
@@ -202,7 +202,7 @@ When started successfully, you'll see:
 ```bash
 # Optional configuration
 export HOST=0.0.0.0          # Listen on all interfaces (default: 127.0.0.1)
-export PORT=8080             # Port number (default: 8080)
+export PORT=8090             # Port number (default: 8090; 8080 is IPFS)
 export RUST_LOG=debug        # Log level: error, warn, info, debug, trace
 ```
 
@@ -210,17 +210,17 @@ export RUST_LOG=debug        # Log level: error, warn, info, debug, trace
 
 ```bash
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 
 # Get demo info
-curl http://localhost:8080/api/demo
+curl http://localhost:8090/api/demo
 
 # List patients (requires wallet address auth header)
 # Use your registered wallet address in SS58 format
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8080/api/patients
+curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8090/api/patients
 
 # Register a patient (as a registered healthcare provider)
-curl -X POST http://localhost:8080/api/register \
+curl -X POST http://localhost:8090/api/register \
   -H "Content-Type: application/json" \
   -H "X-User-Id: YOUR_WALLET_SS58_ADDRESS" \
   -d '{
@@ -305,7 +305,7 @@ ipfs daemon
 ipfs id
 
 # Test via API
-curl http://localhost:8080/api/ipfs/health
+curl http://localhost:8090/api/ipfs/health
 ```
 
 ### IPFS Ports
@@ -472,7 +472,7 @@ API_PID=$!
 sleep 5
 
 echo "MediChain Development Environment Started"
-echo "API: http://localhost:8080"
+echo "API: http://localhost:8090"
 echo "IPFS: http://localhost:5001"
 echo ""
 echo "Press Ctrl+C to stop all services"
@@ -613,16 +613,16 @@ cd client/doctor-portal && pnpm dev
 
 ```bash
 # Health
-curl localhost:8080/health
+curl localhost:8090/health
 
 # Demo info
-curl localhost:8080/api/demo
+curl localhost:8090/api/demo
 
 # List patients (as doctor with wallet address)
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" localhost:8080/api/patients
+curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" localhost:8090/api/patients
 
 # IPFS health
-curl localhost:8080/api/ipfs/health
+curl localhost:8090/api/ipfs/health
 ```
 
 ---

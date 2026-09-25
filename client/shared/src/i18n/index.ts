@@ -71,8 +71,6 @@ export const LOCALE_CONFIGS: Record<SupportedLocale, LocaleConfig> = {
   'ha-NG': { code: 'ha-NG', name: 'Hausa', nativeName: 'Hausa', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'NGN', currencySymbol: '₦' },
 };
 
-// Translation key-value store for each locale
-export type TranslationKey = string;
 export type TranslationValue = string | { [key: string]: TranslationValue };
 export type TranslationRecord = { [key: string]: TranslationValue };
 
@@ -167,6 +165,46 @@ export function formatTime(date: Date | string | number, locale: SupportedLocale
   }
 
   return `${String(hours).padStart(2, '0')}:${minutes}`;
+}
+
+/**
+ * A stored timestamp, written for a person — or nothing at all.
+ *
+ * `new Date(undefined).toLocaleString()` returns the literal string
+ * `Invalid Date`, and a screen that prints it has told a clinician something
+ * false about when a record was made. That is not a cosmetic defect: "Created:
+ * Invalid Date" on an order set, a consult or an access log reads as a property
+ * of the record rather than an absence in it.
+ *
+ * Several of the fields these screens read are optional in the API, so absence
+ * is the normal case and not an error. This answers `''` for null, undefined,
+ * empty and unparseable input, which lets a caller drop the row entirely —
+ * saying nothing about when something happened is honest, and saying something
+ * wrong is not.
+ *
+ * @example formatTimestamp(undefined)              => ''
+ * @example formatTimestamp('not a date')           => ''
+ * @example formatTimestamp('2026-09-22T10:00:00Z') => '22/09/2026, 12:00'
+ */
+export function formatTimestamp(
+  value: Date | string | number | null | undefined,
+  options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' }
+): string {
+  if (value === null || value === undefined || value === '') return '';
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  try {
+    return parsed.toLocaleString(undefined, options);
+  } catch {
+    // An unsupported option combination must not take the screen down over a
+    // date; the ISO form is still true.
+    return parsed.toISOString();
+  }
+}
+
+/** The date alone, or `''` when there is none. See {@link formatTimestamp}. */
+export function formatDateOnly(value: Date | string | number | null | undefined): string {
+  return formatTimestamp(value, { dateStyle: 'medium' });
 }
 
 /**

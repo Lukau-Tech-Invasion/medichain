@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SettingsPage from './SettingsPage';
@@ -31,11 +32,11 @@ describe('SettingsPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
-    (useThemeStore as any).mockReturnValue({
+    (useThemeStore as unknown as Mock).mockReturnValue({
       theme: 'light',
       setTheme: vi.fn(),
     });
@@ -96,7 +97,7 @@ describe('SettingsPage', () => {
   });
 
   it('allows switching to display tab and changing theme', async () => {
-    const { setTheme } = (useThemeStore as any)();
+    const { setTheme } = (useThemeStore as unknown as Mock)();
     
     render(
       <MemoryRouter>

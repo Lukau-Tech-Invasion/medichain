@@ -7,6 +7,7 @@ Note: This is a concise reference. For full request/response shapes see `api/src
 
 ## Health
 - GET /health — Public health check
+- GET /health/ready — Readiness check
 - GET /health/db — Database health (shows DB connection status)
 - GET /api/health/detailed — Detailed system health (services, uptime)
 
@@ -136,9 +137,9 @@ New users are registered on the blockchain with their wallet address and assigne
 
 ### Health Check
 
-#### `GET /api/health`
+#### `GET /health`
 
-Returns API health status.
+Returns API liveness status.
 
 **Authentication:** None required
 

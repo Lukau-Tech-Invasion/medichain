@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import PatientSelect from '../components/PatientSelect';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { createOrder, listOrders, updateOrderStatus, useTranslation } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -37,7 +38,7 @@ const PRIORITIES = [
 
 const STATUSES = [
   { value: 'pending', label: 'Pending', icon: Clock, color: 'text-caution-subtle-fg' },
-  { value: 'in_progress', label: 'In Progress', icon: Activity, color: 'text-notice-subtle-fg' },
+  { value: 'active', label: 'In Progress', icon: Activity, color: 'text-notice-subtle-fg' },
   { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'text-ok-subtle-fg' },
   { value: 'cancelled', label: 'Cancelled', icon: XCircle, color: 'text-content-muted' },
 ];
@@ -70,84 +71,54 @@ function OrdersPage() {
     }
   }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    if (isAuthenticated && user) {
-      fetchOrders();
-    }
-  }, [isAuthenticated, user]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     if (!user) return;
     try {
       setLoading(true);
-      const response = await fetch(apiUrl('/api/clinical/orders'), {
-        headers: { 
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setOrders((data.orders || []).map((order: Record<string, unknown>) => ({
+      const rows = await listOrders();
+      setOrders(rows.map((order) => ({
           ...order,
-          order_type: String(order.order_type || order.category || '').toLowerCase() === 'laboratory'
+          order_type: order.order_type.toLowerCase() === 'laboratory'
             ? 'lab'
-            : String(order.order_type || order.category || '').toLowerCase(),
-          order_details: order.order_details || order.order_text || '',
-          ordered_by: order.ordered_by || order.ordering_provider || '',
-          ordered_at: order.ordered_at || order.order_time || 0,
-          notes: order.notes || order.instructions || '',
+            : order.order_type.toLowerCase(),
+          status: order.status === 'in_progress' ? 'active' : order.status,
+          ordered_by: order.ordering_provider,
+          ordered_at: Date.parse(order.ordered_at) || 0,
+          notes: order.notes || '',
         })));
-        setError(null);
-      } else {
-        setError(t('docOrders.failConnect'));
-        setOrders([]);
-      }
+      // A request that resolved IS the success signal. The old code also
+      // required a `success` flag the response does not carry, so it reported
+      // a connection failure on every load and discarded the orders with it.
+      setError(null);
     } catch (err) {
       setError(t('docOrders.failFetch'));
       setOrders([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [t, user]);
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      fetchOrders();
+    }
+  }, [isAuthenticated, user, fetchOrders]);
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     
     try {
-      const now = Date.now();
-      const response = await fetch(apiUrl('/api/clinical/order'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          order_id: `ORD-E2E-${now}`,
-          patient_id: newOrder.patient_id,
-          category: newOrder.order_type === 'lab' ? 'Laboratory' : newOrder.order_type.charAt(0).toUpperCase() + newOrder.order_type.slice(1),
-          order_text: newOrder.order_details,
-          priority: newOrder.priority.charAt(0).toUpperCase() + newOrder.priority.slice(1),
-          start_time: now,
-          end_time: null,
-          frequency: null,
-          instructions: newOrder.notes || null,
-          ordering_provider: user.walletAddress,
-          order_time: now,
-          verbal_order: false,
-          read_back: null,
-          cosign_required: false,
-          cosigned_by: null,
-          status: 'Pending',
-          acknowledged_by: null,
-          acknowledged_time: null,
-        }),
+      const response = await createOrder({
+        patient_id: newOrder.patient_id,
+        category: newOrder.order_type === 'lab' ? 'Laboratory' : newOrder.order_type,
+        order_text: newOrder.order_details,
+        priority: newOrder.priority,
+        instructions: newOrder.notes || null,
+        cosign_required: false,
       });
 
-      if (response.ok) {
+      if (response.success) {
         await fetchOrders();
         setShowNewOrder(false);
         setNewOrder({
@@ -167,23 +138,21 @@ function OrdersPage() {
 
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
     if (!user) return;
+    let persistedStatus: string;
     try {
-      await fetch(apiUrl(`/api/clinical/orders/${orderId}/status`), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
+      persistedStatus = (await updateOrderStatus(orderId, newStatus)).status;
     } catch {
-      // Update locally
+      // The local update below used to happen regardless, with a comment
+      // saying "Update locally" -- so an order the server refused to advance
+      // showed as advanced, and the next person to read the board acted on a
+      // status that exists only in this browser tab.
+      setError(t('docOrders.failUpdateStatus'));
+      return;
     }
     
     setOrders(prev => prev.map(o => 
       o.order_id === orderId 
-        ? { ...o, status: newStatus, completed_at: newStatus === 'completed' ? Date.now() : undefined }
+        ? { ...o, status: persistedStatus, completed_at: persistedStatus === 'completed' ? Date.now() : undefined }
         : o
     ));
   };
@@ -242,6 +211,7 @@ function OrdersPage() {
   const statusLabel = (value: string): string => {
     switch (value) {
       case 'pending': return t('docOrders.stPending');
+      case 'active': return t('docOrders.stInProgress');
       case 'in_progress': return t('docOrders.stInProgress');
       case 'completed': return t('docOrders.stCompleted');
       case 'cancelled': return t('docOrders.stCancelled');
@@ -285,7 +255,7 @@ function OrdersPage() {
               <Activity className="text-notice-subtle-fg" size={24} />
             </div>
             <div>
-              <p className="text-2xl font-bold">{orders.filter(o => o.status === 'in_progress').length}</p>
+              <p data-testid="orders-in-progress-count" className="text-2xl font-bold">{orders.filter(o => o.status === 'active').length}</p>
               <p className="text-sm text-content-muted">{t('docOrders.statInProgress')}</p>
             </div>
           </div>
@@ -359,11 +329,11 @@ function OrdersPage() {
 
         {loading ? (
           <div className="p-12 text-center">
-            <Loader2 className="mx-auto animate-spin text-primary-500" size={48} />
+            <Loader2 className="mx-auto animate-spin text-brand" size={48} />
             <p className="text-content-muted mt-3">{t('docOrders.loading')}</p>
           </div>
         ) : error ? (
-          <div className="p-12 text-center text-red-500">{error}</div>
+          <div className="p-12 text-center text-critical-subtle-fg">{error}</div>
         ) : filteredOrders.length === 0 ? (
           <div className="p-12 text-center text-content-muted">{t('docOrders.noneFound')}</div>
         ) : (
@@ -429,18 +399,16 @@ function OrdersPage() {
           <div className="bg-surface rounded-xl shadow-xl w-full max-w-lg p-6">
             <h2 className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
-              <div>
-                <label htmlFor="order-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.patientId')}</label>
-                <input
-                  id="order-patient-id"
-                  type="text"
-                  value={newOrder.patient_id}
-                  onChange={(e) => setNewOrder({ ...newOrder, patient_id: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  placeholder={t('docOrders.patientIdPlaceholder')}
-                  required
-                />
-              </div>
+              {/* Search by name, not a remembered identifier. This was a bare
+                  text box asking for a patient id: nobody memorises those, so
+                  the order was either abandoned or filed against a typo. */}
+              <PatientSelect
+                id="order-patient-id"
+                label={t('docOrders.patientId')}
+                value={newOrder.patient_id}
+                onChange={(patientId) => setNewOrder({ ...newOrder, patient_id: patientId })}
+                required
+              />
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="order-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.orderType')}</label>

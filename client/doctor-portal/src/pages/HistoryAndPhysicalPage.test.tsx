@@ -29,10 +29,10 @@ describe('HistoryAndPhysicalPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
   });
 
   it('renders H&P page', async () => {
@@ -66,5 +66,14 @@ describe('HistoryAndPhysicalPage', () => {
     const input = screen.getByLabelText(/Chief Complaint/i);
     fireEvent.change(input, { target: { value: 'Severe headache' } });
     expect(input).toHaveValue('Severe headache');
+  });
+
+  it('uses a selected template to open the matching editable examination form', async () => {
+    render(<HistoryAndPhysicalPage />);
+    await waitFor(() => expect(screen.getByText(/^Templates$/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/^Templates$/i));
+    fireEvent.click(screen.getAllByRole('button', { name: /Use Template/i })[2]);
+
+    expect(document.querySelector<HTMLInputElement>('input[name="examType"][value="pre-operative"]')).toBeChecked();
   });
 });

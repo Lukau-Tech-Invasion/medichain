@@ -62,7 +62,6 @@ pub async fn add_vital_signs(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -73,7 +72,6 @@ pub async fn add_vital_signs(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -82,7 +80,6 @@ pub async fn add_vital_signs(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Role '{}' cannot add vital signs. Required: Doctor, Nurse, or Admin",
                 current_user.role
@@ -101,9 +98,22 @@ pub async fn add_vital_signs(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
+            });
+        }
+    }
+
+    // A pressure entered the wrong way round is refused rather than stored:
+    // filed as it stands it reads as profound hypotension, and the critical
+    // alert it raises is about a patient who does not exist.
+    if let (Some(systolic), Some(diastolic)) = (req.systolic_bp, req.diastolic_bp) {
+        if crate::clinical_scoring::blood_pressure_is_transposed(systolic, diastolic) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "Systolic {systolic} is not above diastolic {diastolic}; check the two are not swapped"
+                ),
+                code: "BLOOD_PRESSURE_TRANSPOSED".to_string(),
             });
         }
     }
@@ -165,7 +175,6 @@ pub async fn add_vital_signs(
         if let Err(e) = data.repositories.vital_signs.create(entity).await {
             log::error!("Vital signs persistence failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Vital signs could not be saved".to_string(),
                 code: "DATABASE_ERROR".to_string(),
             });
@@ -173,23 +182,24 @@ pub async fn add_vital_signs(
     }
 
     // Log access via repository
-    let _ = data
-        .repositories
-        .access_logs
-        .create(
-            AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: req.patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "add_vital_signs".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: has_critical,
-            }
-            .into(),
-        )
-        .await;
+    if let Err(response) = crate::support::require_durable_audit(
+        &data,
+        AccessLogEntry {
+            access_id: secure_tokens::generate_access_id(),
+            patient_id: req.patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "add_vital_signs".to_string(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: has_critical,
+        }
+        .into(),
+    )
+    .await
+    {
+        return response;
+    }
 
     log::info!(
         "Vital signs {} added for patient {}{}",
@@ -231,7 +241,6 @@ pub async fn get_patient_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -242,7 +251,6 @@ pub async fn get_patient_vitals(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -253,7 +261,6 @@ pub async fn get_patient_vitals(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -297,7 +304,6 @@ pub async fn get_vitals_flowsheet(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -308,7 +314,6 @@ pub async fn get_vitals_flowsheet(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -319,7 +324,6 @@ pub async fn get_vitals_flowsheet(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -363,7 +367,6 @@ pub async fn get_patient_latest_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -374,7 +377,6 @@ pub async fn get_patient_latest_vitals(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -385,7 +387,6 @@ pub async fn get_patient_latest_vitals(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -418,13 +419,15 @@ pub async fn get_patient_latest_vitals(
                 "critical_alerts": alerts
             }))
         }
-        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
-            error: "No vital signs recorded".to_string(),
-            code: "NO_READINGS".to_string(),
-        }),
+        // No observations is a known, normal state for a registered patient;
+        // it is not a missing resource. Returning 404 made every patient chart
+        // without a reading look like a frontend/API failure in the browser.
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "reading": serde_json::Value::Null,
+            "critical_alerts": false
+        })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -494,6 +497,60 @@ mod cds_wiring_tests {
             status: "active".to_string(),
             last_login: None,
         }
+    }
+
+    /// A pressure entered the wrong way round is refused, and nothing is stored.
+    #[actix_web::test]
+    async fn a_transposed_blood_pressure_is_refused_and_not_stored() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-BP-SWAPPED";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_wallet".to_string(), test_doctor());
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(add_vital_signs),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/vitals")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(serde_json::json!({
+                    "patient_id": patient_id,
+                    "systolic_bp": 80,
+                    "diastolic_bp": 120,
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"]["code"], "BLOOD_PRESSURE_TRANSPOSED", "{body}");
+
+        let stored = app_state
+            .repositories
+            .vital_signs
+            .get_latest_by_patient(patient_id)
+            .await
+            .unwrap();
+        assert!(stored.is_none(), "a refused reading was stored");
     }
 
     /// Recording vital signs for a patient with a documented renal condition and an

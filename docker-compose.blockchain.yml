@@ -1,0 +1,78 @@
+# The MediChain Substrate node, in the stack.
+#
+# Run:  docker compose -f docker-compose.yml -f docker-compose.blockchain.yml up -d
+#
+# docker-compose.prod.yml declares a `substrate-node` service with a
+# healthcheck and no image and no build, behind a profile whose name says the
+# node source is not containerized. So there was nothing to start: the API ran
+# with SUBSTRATE_WS_URL unset, announced "blockchain features disabled" at every
+# boot, and every anchored write returned a typed error. This file is the
+# missing half.
+#
+# It runs the repository's own `--dev` chain. That is the right thing for a
+# local stack and the wrong thing for production, which per the architecture
+# note points SUBSTRATE_WS_URL at an externally managed, independently
+# qualified node. The dev preset grants //Alice the Admin role at genesis,
+# which matters more than it looks: `pallet-access-control::UserRoles` has
+# exactly one writer, `assign_role`, and it requires an existing Admin and
+# refuses to assign Admin. A chain that starts with an empty role table can
+# never populate one, and every call the API submits fails permanently.
+
+services:
+  substrate-node:
+    build:
+      # `blockchain/` is its own cargo workspace with its own toolchain pin,
+      # so the context is that directory rather than the repository root.
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: medichain_substrate
+    restart: unless-stopped
+    command:
+      - --dev
+      - --base-path=/data
+      # Bind outside loopback or nothing in the compose network can reach it.
+      - --rpc-external
+      - --rpc-port=9944
+      # The API is the only caller and it is on this network; the port is not
+      # published to the host below, so this stays inside the stack.
+      - --rpc-cors=all
+      # `unsafe` exposes authorship and key RPCs. The API submits signed
+      # extrinsics through them, and this is a disposable dev chain whose
+      # signer is a published well-known key.
+      - --rpc-methods=unsafe
+      - --name=medichain-dev
+    volumes:
+      # Named, not anonymous: a dev chain that loses its state on restart
+      # cannot show that anything was anchored.
+      - substrate_data:/data
+    expose:
+      - "9944"
+      - "30333"
+    healthcheck:
+      # 9944, not 9933: Substrate merged the RPC ports, so one port serves both
+      # WebSocket and HTTP JSON-RPC and a probe against 9933 can never connect.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -H "Content-Type: application/json"
+          -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}'
+          http://localhost:9944 > /dev/null || exit 1
+      interval: 15s
+      timeout: 10s
+      # A node takes a while to produce its first block; failing it before then
+      # would restart it forever.
+      start_period: 60s
+      retries: 5
+    networks:
+      - medichain_network
+
+  # The API only anchors once the node is actually answering. Without this it
+  # starts first, finds nothing at SUBSTRATE_WS_URL, and every anchored write
+  # in that window is a typed error rather than a retry.
+  api:
+    depends_on:
+      substrate-node:
+        condition: service_healthy
+
+volumes:
+  substrate_data:

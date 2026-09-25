@@ -663,6 +663,33 @@ pub mod signature {
         }
     }
 
+    /// Verify a signature over an application-defined, already freshness-bound
+    /// message. Login challenges use this because their durable nonce, expiry,
+    /// and single-use consumption provide replay protection; they are not the
+    /// timestamp-shaped messages used by request-signature middleware.
+    pub fn verify_wallet_message_signature(
+        signature_hex: &str,
+        message: &str,
+        wallet_address: &str,
+    ) -> Result<(), SignatureError> {
+        let sig_bytes =
+            crate::from_hex(signature_hex).map_err(|_| SignatureError::InvalidSignatureFormat)?;
+        if sig_bytes.len() != 64 {
+            return Err(SignatureError::InvalidSignatureFormat);
+        }
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(&sig_bytes);
+        let signature = Signature::from_raw(sig_array);
+        let pubkey_bytes = decode_ss58_to_pubkey(wallet_address)?;
+        let public = Public::from_raw(pubkey_bytes);
+
+        if sp_core::sr25519::Pair::verify(&signature, message.as_bytes(), &public) {
+            Ok(())
+        } else {
+            Err(SignatureError::VerificationFailed)
+        }
+    }
+
     /// Generate the message that should be signed by the wallet
     ///
     /// # Arguments
@@ -975,8 +1002,9 @@ pub mod signature {
 
 // Re-export signature module
 pub use signature::{
-    create_bound_sign_message, create_sign_message, verify_wallet_signature,
-    verify_wallet_signature_bound, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
+    create_bound_sign_message, create_sign_message, verify_wallet_message_signature,
+    verify_wallet_signature, verify_wallet_signature_bound, SignatureError,
+    MAX_TIMESTAMP_DRIFT_SECS,
 };
 
 /// Password verification for staff credential login.

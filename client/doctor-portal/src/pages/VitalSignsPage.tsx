@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
 import PatientSelect from '../components/PatientSelect';
-import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
+import {
+  createGCS,
+  getApiErrorMessage,
+  bloodPressureSchema,
+  useScoringCatalog,
+  useTranslation,
+  vitalFlag,
+  addVitalSigns,
+  getVitalsFlowsheet,
+  formatTimestamp,
+} from '@medichain/shared';
+import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -22,6 +33,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 
+import StaffName from '../components/StaffName';
 interface VitalReading {
   reading_id: string;
   patient_id: string;
@@ -46,52 +58,39 @@ interface VitalFlowsheet {
   readings: VitalReading[];
 }
 
-function normalizeFlowsheet(data: any): VitalFlowsheet {
+/**
+ * A flowsheet row as stored, which is not quite a `VitalReading`.
+ *
+ * Blood pressure and GCS each arrive under two names depending on which writer
+ * produced the row, and the timestamp is either an ISO string or epoch seconds.
+ * Naming the alternatives is the whole job of this function; `any` meant the
+ * five field names below were unchecked spelling.
+ */
+type RawVitalReading = Partial<VitalReading> & {
+  timestamp?: number;
+  systolic_bp?: number | null;
+  diastolic_bp?: number | null;
+  gcs_score?: number | null;
+};
+
+interface RawFlowsheet {
+  patient_id: string;
+  patient_name?: string;
+  readings?: RawVitalReading[];
+}
+
+function normalizeFlowsheet(data: RawFlowsheet): VitalFlowsheet {
   return {
     patient_id: data.patient_id,
     patient_name: data.patient_name || '',
-    readings: (data.readings || []).map((reading: any) => ({
+    readings: (data.readings || []).map((reading) => ({
       ...reading,
       recorded_at: reading.recorded_at || new Date((reading.timestamp || 0) * 1000).toISOString(),
       blood_pressure_systolic: reading.blood_pressure_systolic ?? reading.systolic_bp ?? null,
       blood_pressure_diastolic: reading.blood_pressure_diastolic ?? reading.diastolic_bp ?? null,
       gcs_total: reading.gcs_total ?? reading.gcs_score ?? null,
-    })),
+    })) as VitalReading[],
   };
-}
-
-// Normal ranges for vitals
-const VITAL_RANGES = {
-  heart_rate: { min: 60, max: 100, unit: 'bpm', label: 'Heart Rate' },
-  respiratory_rate: { min: 12, max: 20, unit: '/min', label: 'Resp Rate' },
-  bp_systolic: { min: 90, max: 140, unit: 'mmHg', label: 'Systolic BP' },
-  bp_diastolic: { min: 60, max: 90, unit: 'mmHg', label: 'Diastolic BP' },
-  temperature: { min: 36.1, max: 37.8, unit: '°C', label: 'Temperature' },
-  oxygen_saturation: { min: 95, max: 100, unit: '%', label: 'SpO2' },
-  pain_scale: { min: 0, max: 3, unit: '/10', label: 'Pain' },
-  gcs: { min: 15, max: 15, unit: '', label: 'GCS' },
-  blood_glucose: { min: 70, max: 140, unit: 'mg/dL', label: 'Glucose' },
-};
-
-function isAbnormal(value: number | null, type: keyof typeof VITAL_RANGES): boolean {
-  if (value === null) return false;
-  const range = VITAL_RANGES[type];
-  return value < range.min || value > range.max;
-}
-
-function isCritical(value: number | null, type: keyof typeof VITAL_RANGES): boolean {
-  if (value === null) return false;
-  const criticalRanges: Record<string, { min: number; max: number }> = {
-    heart_rate: { min: 40, max: 150 },
-    respiratory_rate: { min: 8, max: 30 },
-    bp_systolic: { min: 70, max: 180 },
-    oxygen_saturation: { min: 88, max: 100 },
-    gcs: { min: 9, max: 15 },
-    blood_glucose: { min: 50, max: 400 },
-  };
-  const range = criticalRanges[type];
-  if (!range) return false;
-  return value < range.min || value > range.max;
 }
 
 function getTrend(current: number | null, previous: number | null): 'up' | 'down' | 'stable' | null {
@@ -110,6 +109,88 @@ function VitalSignsPage() {
   const { user, isAuthenticated } = useAuthStore();
   
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
+
+  // --- Glasgow Coma Scale ----------------------------------------------------
+  //
+  // `POST /api/clinical/gcs` and `GET /api/clinical/patient/{id}/gcs` have
+  // existed as long as the feature, with `createGCS`/`getPatientGCS` sitting in
+  // the shared client unused: **no screen wrote a GCS assessment and none read
+  // one**. What this page had instead was a free-typed `gcs_total` on the
+  // vitals form -- a number with no eye, verbal or motor components behind it,
+  // which cannot be checked, trended, or defended.
+  //
+  // This records the components. The total, the interpretation, and whether the
+  // airway is at risk all come back from the server (rule 8); nothing here
+  // adds three numbers together.
+  // The catalog is fetched once and shared: `useScoringCatalog` already caches
+  // it across pages, so this adds no request of its own.
+  const { catalog: scoringCatalog } = useScoringCatalog();
+  // Flagged against the server's catalog bands (rule 8) -- the limits
+  // `POST /api/clinical/vitals` raises its critical alerts on. The page used to
+  // carry its own copy, whose critical systolic limit was 70 where the server
+  // alerted below 90. Until the catalog loads nothing is flagged.
+  const isCritical = (value: number | null, key: string) =>
+    vitalFlag(value, key, scoringCatalog) === 'critical';
+  const isAbnormal = (value: number | null, key: string) => {
+    const flag = vitalFlag(value, key, scoringCatalog);
+    return flag === 'critical' || flag === 'abnormal';
+  };
+  const gcsScale: GcsScale | null = scoringCatalog?.glasgow_coma_scale ?? null;
+  const [gcsEye, setGcsEye] = useState('');
+  const [gcsVerbal, setGcsVerbal] = useState('');
+  const [gcsMotor, setGcsMotor] = useState('');
+  const [gcsNotes, setGcsNotes] = useState('');
+  const [gcsSubmitting, setGcsSubmitting] = useState(false);
+  const [gcsError, setGcsError] = useState<string | null>(null);
+  const [gcsResult, setGcsResult] = useState<{
+    total_score: number;
+    interpretation: string;
+    is_comatose: boolean;
+    needs_airway: boolean;
+  } | null>(null);
+
+  const handleSubmitGcs = async () => {
+    setGcsError(null);
+    setGcsResult(null);
+    if (!selectedPatientId) {
+      setGcsError(t('docVitalSigns.gcsErrorPatient'));
+      return;
+    }
+    // All three components or none. A GCS reported without one of its parts is
+    // not a lower score, it is an incomplete assessment -- and the total the
+    // server computes would silently be wrong.
+    if (!gcsEye || !gcsVerbal || !gcsMotor) {
+      setGcsError(t('docVitalSigns.gcsErrorComponents'));
+      return;
+    }
+
+    try {
+      setGcsSubmitting(true);
+      const result = await createGCS({
+        patient_id: selectedPatientId,
+        eye_response: Number(gcsEye),
+        verbal_response: Number(gcsVerbal),
+        motor_response: Number(gcsMotor),
+        notes: gcsNotes.trim() || undefined,
+      });
+      // Show what the server scored, not what this page thinks the total is.
+      setGcsResult({
+        total_score: result.total_score,
+        interpretation: result.interpretation,
+        is_comatose: result.is_comatose,
+        needs_airway: result.needs_airway,
+      });
+      setGcsEye('');
+      setGcsVerbal('');
+      setGcsMotor('');
+      setGcsNotes('');
+    } catch (err) {
+      setGcsError(getApiErrorMessage(err, t('docVitalSigns.gcsErrorFailed')));
+    } finally {
+      setGcsSubmitting(false);
+    }
+  };
+
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -151,21 +232,7 @@ function VitalSignsPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(
-          apiUrl(`/api/clinical/vitals/flowsheet/${selectedPatientId}`),
-          {
-            headers: { 
-              'X-User-Id': user.walletAddress,
-              'X-Provider-Role': user.role,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(t('docVitalSigns.errorLoadFlowsheet'));
-        }
-
-        const data = await response.json();
+        const data = (await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet;
         setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
@@ -175,16 +242,28 @@ function VitalSignsPage() {
     };
 
     fetchFlowsheet();
-  }, [selectedPatientId, user]);
+  }, [selectedPatientId, user, t]);
 
   const handleSubmitVitals = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !user) return;
 
-    setSubmitting(true);
     setError(null);
     setSuccess(null);
+    // A pair entered the wrong way round reads as profound hypotension; the
+    // server refuses it too, this says so before the round trip.
+    if (newVitals.bp_systolic && newVitals.bp_diastolic) {
+      const bp = bloodPressureSchema.safeParse({
+        systolic: Number(newVitals.bp_systolic),
+        diastolic: Number(newVitals.bp_diastolic),
+      });
+      if (!bp.success) {
+        setError(bp.error.issues[0]?.message ?? t('docVitalSigns.errorRecordVitalsGeneric'));
+        return;
+      }
+    }
 
+    setSubmitting(true);
     try {
       const payload = {
         patient_id: selectedPatientId,
@@ -201,19 +280,10 @@ function VitalSignsPage() {
         notes: newVitals.notes || null,
       };
 
-      const response = await fetch(apiUrl('/api/clinical/vitals'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(getApiErrorMessage(errData, t('docVitalSigns.errorRecordVitals')));
+      try {
+        await addVitalSigns(payload);
+      } catch (refused) {
+        throw new Error(getApiErrorMessage(refused, t('docVitalSigns.errorRecordVitals')));
       }
 
       setSuccess(t('docVitalSigns.recordSuccess'));
@@ -233,18 +303,7 @@ function VitalSignsPage() {
       });
 
       // Refresh flowsheet
-      const refreshResponse = await fetch(
-        apiUrl(`/api/clinical/vitals/flowsheet/${selectedPatientId}`),
-        { 
-          headers: { 
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-          } 
-        }
-      );
-      if (refreshResponse.ok) {
-        setFlowsheet(normalizeFlowsheet(await refreshResponse.json()));
-      }
+      setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
     } finally {
@@ -298,6 +357,111 @@ function VitalSignsPage() {
           )}
         </div>
       </div>
+
+      {/* Glasgow Coma Scale.
+          Its own card, not a field on the vitals form: the vitals row carries a
+          free-typed `gcs_total`, and a total with no eye/verbal/motor behind it
+          cannot be checked or trended. */}
+      {selectedPatientId && gcsScale && (
+        <div className="mb-6 bg-surface rounded-xl shadow p-6">
+          <h2 className="text-lg font-semibold text-content mb-1">
+            {t('docVitalSigns.gcsHeading')}
+          </h2>
+          <p className="text-sm text-content-muted mb-4">{t('docVitalSigns.gcsSubtitle')}</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            {([
+              ['gcs-eye', t('docVitalSigns.gcsEye'), gcsScale.eye, gcsEye, setGcsEye],
+              ['gcs-verbal', t('docVitalSigns.gcsVerbal'), gcsScale.verbal, gcsVerbal, setGcsVerbal],
+              ['gcs-motor', t('docVitalSigns.gcsMotor'), gcsScale.motor, gcsMotor, setGcsMotor],
+            ] as const).map(([id, label, options, value, setValue]) => (
+              <div key={id}>
+                <label htmlFor={id} className="block text-sm font-medium mb-1">
+                  {label}
+                </label>
+                <select
+                  id={id}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                >
+                  <option value="">{t('docVitalSigns.gcsSelect')}</option>
+                  {/* Wording and scores are the server's, not this page's. */}
+                  {options.map((option) => (
+                    <option key={option.score} value={String(option.score)}>
+                      {option.score} — {option.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-4">
+            <label htmlFor="gcs-notes" className="block text-sm font-medium mb-1">
+              {t('docVitalSigns.gcsNotes')}
+            </label>
+            <textarea
+              id="gcs-notes"
+              value={gcsNotes}
+              onChange={(e) => setGcsNotes(e.target.value)}
+              rows={2}
+              className="w-full border border-border-interactive rounded-lg px-3 py-2"
+            />
+          </div>
+
+          {gcsError && (
+            <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+              <p className="text-sm text-critical-subtle-fg">{gcsError}</p>
+            </div>
+          )}
+
+          {/* What the SERVER scored. This page adds nothing up. */}
+          {gcsResult && (
+            <div
+              role="status"
+              className={`mb-4 rounded-lg p-4 border ${
+                gcsResult.needs_airway || gcsResult.is_comatose
+                  ? 'bg-critical-subtle border-critical'
+                  : 'bg-ok-subtle border-ok'
+              }`}
+            >
+              <p
+                className={`text-lg font-semibold ${
+                  gcsResult.needs_airway || gcsResult.is_comatose
+                    ? 'text-critical-subtle-fg'
+                    : 'text-ok-subtle-fg'
+                }`}
+              >
+                {t('docVitalSigns.gcsTotal', { score: gcsResult.total_score })}
+              </p>
+              <p
+                className={`text-sm ${
+                  gcsResult.needs_airway || gcsResult.is_comatose
+                    ? 'text-critical-subtle-fg'
+                    : 'text-ok-subtle-fg'
+                }`}
+              >
+                {gcsResult.interpretation}
+              </p>
+              {gcsResult.needs_airway && (
+                <p className="text-sm font-semibold text-critical-subtle-fg mt-1">
+                  {t('docVitalSigns.gcsNeedsAirway')}
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSubmitGcs}
+            disabled={gcsSubmitting}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+          >
+            {gcsSubmitting ? t('docVitalSigns.gcsSaving') : t('docVitalSigns.gcsSave')}
+          </button>
+        </div>
+      )}
 
       {/* Success/Error Messages */}
       {success && (
@@ -475,7 +639,7 @@ function VitalSignsPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
               >
                 {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
                 {t('docVitalSigns.saveVitalsButton')}
@@ -495,7 +659,7 @@ function VitalSignsPage() {
       {/* Loading State */}
       {loading && (
         <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
-          <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
+          <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
           <p className="text-content-muted">{t('docVitalSigns.loadingVitals')}</p>
         </div>
       )}
@@ -505,23 +669,23 @@ function VitalSignsPage() {
         <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-content">{t('docVitalSigns.latestVitalSignsTitle')}</h2>
-            <span className="text-sm text-content-muted flex items-center gap-1">
+            <span className="text-sm text-content-muted flex items-center gap-1 min-h-[24px] py-1">
               <Clock size={14} />
-              {new Date(lastReading.recorded_at).toLocaleString()}
+              {formatTimestamp(lastReading.recorded_at)}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {/* Heart Rate */}
             <div className={`p-4 rounded-lg ${isCritical(lastReading.heart_rate, 'heart_rate') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.heart_rate, 'heart_rate') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
               <div className="flex items-center gap-2 text-content-muted mb-1">
-                <Heart size={16} className={isCritical(lastReading.heart_rate, 'heart_rate') ? 'text-red-500' : 'text-content-muted'} />
+                <Heart size={16} className={isCritical(lastReading.heart_rate, 'heart_rate') ? 'text-critical' : 'text-content-muted'} />
                 <span className="text-sm">{t('docVitalSigns.heartRateShort')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.heart_rate ?? '—'}</span>
                 <span className="text-sm text-content-muted">bpm</span>
-                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'up' && <TrendingUp size={16} className="text-red-500" />}
-                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'down' && <TrendingDown size={16} className="text-green-500" />}
+                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'up' && <TrendingUp size={16} className="text-critical" />}
+                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'down' && <TrendingDown size={16} className="text-ok" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'stable' && <Minus size={16} className="text-content-muted" />}
               </div>
             </div>
@@ -543,7 +707,7 @@ function VitalSignsPage() {
             {/* SpO2 */}
             <div className={`p-4 rounded-lg ${isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
               <div className="flex items-center gap-2 text-content-muted mb-1">
-                <Droplet size={16} className={isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'text-red-500' : 'text-content-muted'} />
+                <Droplet size={16} className={isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'text-critical' : 'text-content-muted'} />
                 <span className="text-sm">{t('docVitalSigns.spo2Short')}</span>
               </div>
               <div className="flex items-center gap-2">
@@ -614,7 +778,7 @@ function VitalSignsPage() {
                   {flowsheet.readings.map((reading) => (
                     <tr key={reading.reading_id} className="hover:bg-surface-sunken">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {new Date(reading.recorded_at).toLocaleString()}
+                        {formatTimestamp(reading.recorded_at)}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.heart_rate, 'heart_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.heart_rate, 'heart_rate') ? 'text-caution-subtle-fg' : ''}`}>
                         {reading.heart_rate ?? '—'}
@@ -637,7 +801,7 @@ function VitalSignsPage() {
                       <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.gcs_total ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-content-muted">{reading.recorded_by}</td>
+                      <td className="px-4 py-3 text-content-muted"><StaffName id={reading.recorded_by} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -650,7 +814,7 @@ function VitalSignsPage() {
       {/* No Data State */}
       {!loading && selectedPatientId && (!flowsheet || (flowsheet.readings?.length ?? 0) === 0) && (
         <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
-          <Activity className="mx-auto mb-3 text-gray-300" size={48} />
+          <Activity className="mx-auto mb-3 text-content-muted" size={48} />
           <p className="text-content-muted">{t('docVitalSigns.noVitalsRecorded')}</p>
           <button
             onClick={() => setShowForm(true)}
@@ -664,7 +828,7 @@ function VitalSignsPage() {
       {/* No Patient Selected */}
       {!selectedPatientId && (
         <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
-          <Search className="mx-auto mb-3 text-gray-300" size={48} />
+          <Search className="mx-auto mb-3 text-content-muted" size={48} />
           <p className="text-content-muted">{t('docVitalSigns.noPatientSelected')}</p>
         </div>
       )}

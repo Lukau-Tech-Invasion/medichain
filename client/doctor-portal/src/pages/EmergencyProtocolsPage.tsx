@@ -1,90 +1,136 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
-import { 
-  AlertCircle, 
-  Activity, 
-  Heart, 
-  Brain, 
-  Flame, 
-  Siren, 
-  ChevronLeft, 
+import {
+  useTranslation,
+  formatTimestamp,
+  getApiErrorMessage,
+  getPatientCodeBlues,
+  getPatientTraumas,
+  getPatientStrokes,
+  getPatientCardiacEvents,
+  getPatientSepsisAssessments,
+  type CodeBlueListRow,
+  type TraumaListRow,
+  type StrokeListRow,
+  type CardiacEventListRow,
+  type SepsisListRow,
+} from '@medichain/shared';
+import {
+  AlertCircle,
+  Activity,
+  Heart,
+  Brain,
+  Flame,
+  Siren,
+  ChevronLeft,
   Plus,
   Clock,
-  User
+  User,
+  type LucideIcon,
 } from 'lucide-react';
-
-interface CodeBlueRecord {
-  code_blue_id: string;
-  patient_id: string;
-  initiated_at: number;
-  initiated_by: string;
-  location: string;
-  initial_rhythm?: string;
-  interventions: string[];
-  outcome?: string;
-  notes?: string;
-}
-
-interface TraumaAssessment {
-  trauma_id: string;
-  patient_id: string;
-  assessed_at: number;
-  assessed_by: string;
-  mechanism_of_injury: string;
-  trauma_level: number;
-  injuries: string[];
-  interventions: string[];
-}
-
-interface StrokeAssessment {
-  stroke_id: string;
-  patient_id: string;
-  assessed_at: number;
-  assessed_by: string;
-  last_known_normal: number;
-  nihss_score?: number;
-  stroke_type?: string;
-  tpa_given: boolean;
-}
-
-interface CardiacArrestProtocol {
-  protocol_id: string;
-  patient_id: string;
-  started_at: number;
-  cpr_started: boolean;
-  defib_shocks: number;
-  medications_given: string[];
-  rosc_achieved: boolean;
-}
-
-interface SepsisAssessment {
-  sepsis_id: string;
-  patient_id: string;
-  assessed_at: number;
-  assessed_by: string;
-  qsofa_score: number;
-  lactate_level?: number;
-  antibiotics_given: boolean;
-  fluid_resuscitation: boolean;
-}
+import PatientSelect from '../components/PatientSelect';
+import StaffName from '../components/StaffName';
 
 type EmergencyType = 'code_blue' | 'trauma' | 'stroke' | 'cardiac' | 'sepsis';
 
+/**
+ * The rows each tab holds: the list endpoints' summary entities. This page
+ * used to declare its own shapes -- `code_blue_id`, `mechanism_of_injury`,
+ * `antibiotics_given`, `rosc_achieved` -- none of which any endpoint returns,
+ * so every ID rendered blank and every yes/no finding rendered as "No".
+ */
+interface Records {
+  code_blue: CodeBlueListRow[];
+  trauma: TraumaListRow[];
+  stroke: StrokeListRow[];
+  cardiac: CardiacEventListRow[];
+  sepsis: SepsisListRow[];
+}
+
+const NO_RECORDS: Records = { code_blue: [], trauma: [], stroke: [], cardiac: [], sepsis: [] };
+
+/** One labelled finding. `null` means it was not recorded, and is not shown. */
+interface Finding {
+  label: string;
+  value: ReactNode | null;
+}
+
+/** Epoch SECONDS from the API; 0 and null both mean "not recorded". */
+function recordedAt(seconds: number | null | undefined): string {
+  return seconds ? formatTimestamp(seconds * 1000) : '';
+}
+
+function RecordCard({
+  icon: Icon,
+  iconTone,
+  title,
+  subtitle,
+  at,
+  by,
+  findings,
+}: {
+  icon: LucideIcon;
+  iconTone: string;
+  title: string;
+  subtitle?: string | null;
+  at: number;
+  by: string;
+  findings: Finding[];
+}) {
+  const shown = findings.filter((f) => f.value !== null && f.value !== '');
+  return (
+    <div className="bg-surface rounded-xl shadow p-6">
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-3 rounded-lg ${iconTone}`}>
+            <Icon size={24} />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg text-content">{title}</h3>
+            {subtitle && <p className="text-sm text-content-muted">{subtitle}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
+            <Clock size={16} />
+            {recordedAt(at)}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-content-muted mt-1 min-h-[24px] py-1">
+            <User size={16} />
+            <StaffName id={by} />
+          </div>
+        </div>
+      </div>
+      {shown.length > 0 && (
+        <dl className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {shown.map((f) => (
+            <div key={f.label}>
+              <dt className="text-sm font-medium text-content-secondary">{f.label}</dt>
+              <dd className="text-content">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 function EmergencyProtocolsPage() {
   const { t } = useTranslation();
-  const { patientId } = useParams<{ patientId: string }>();
+  const { patientId: routePatientId } = useParams<{ patientId: string }>();
+  // The sidebar links here with no patient in the path, so every read was
+  // `/api/emergency/{type}/patient/undefined` and the header said
+  // "Patient ID:" followed by nothing. A patient chosen on the page is the
+  // same patient as one named in the route.
+  const [chosenPatientId, setChosenPatientId] = useState('');
+  const patientId = routePatientId || chosenPatientId;
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<EmergencyType>('code_blue');
-  const [codeBlueRecords, setCodeBlueRecords] = useState<CodeBlueRecord[]>([]);
-  const [traumaRecords, setTraumaRecords] = useState<TraumaAssessment[]>([]);
-  const [strokeRecords, setStrokeRecords] = useState<StrokeAssessment[]>([]);
-  const [cardiacRecords, setCardiacRecords] = useState<CardiacArrestProtocol[]>([]);
-  const [sepsisRecords, setSepsisRecords] = useState<SepsisAssessment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [records, setRecords] = useState<Records>(NO_RECORDS);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -92,93 +138,220 @@ function EmergencyProtocolsPage() {
     }
   }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    if (user) {
-      fetchEmergencyRecords();
-    }
-  }, [patientId, activeTab, user]);
-
-  const fetchEmergencyRecords = async () => {
+  const fetchEmergencyRecords = useCallback(async () => {
     if (!user) return;
-    
+    // No patient chosen yet means there is nothing to ask for; asking about
+    // the empty id 404s, which reads as "this patient has none".
+    if (!patientId) {
+      setRecords(NO_RECORDS);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
     try {
-      setLoading(true);
-      const endpoints: Record<EmergencyType, string> = {
-        code_blue: apiUrl(`/api/emergency/code-blue/patient/${patientId}`),
-        trauma: apiUrl(`/api/emergency/trauma/patient/${patientId}`),
-        stroke: apiUrl(`/api/emergency/stroke/patient/${patientId}`),
-        cardiac: apiUrl(`/api/emergency/cardiac/patient/${patientId}`),
-        sepsis: apiUrl(`/api/emergency/sepsis/patient/${patientId}`),
-      };
-
-      const response = await fetch(endpoints[activeTab], {
-        headers: { 
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        switch (activeTab) {
-          case 'code_blue':
-            setCodeBlueRecords(Array.isArray(data) ? data : [data]);
-            break;
-          case 'trauma':
-            setTraumaRecords(Array.isArray(data) ? data : [data]);
-            break;
-          case 'stroke':
-            setStrokeRecords(Array.isArray(data) ? data : [data]);
-            break;
-          case 'cardiac':
-            setCardiacRecords(Array.isArray(data) ? data : [data]);
-            break;
-          case 'sepsis':
-            setSepsisRecords(Array.isArray(data) ? data : [data]);
-            break;
-        }
+      const next = { ...NO_RECORDS };
+      switch (activeTab) {
+        case 'code_blue':
+          next.code_blue = await getPatientCodeBlues(patientId);
+          break;
+        case 'trauma':
+          next.trauma = await getPatientTraumas(patientId);
+          break;
+        case 'stroke':
+          next.stroke = await getPatientStrokes(patientId);
+          break;
+        case 'cardiac':
+          next.cardiac = await getPatientCardiacEvents(patientId);
+          break;
+        case 'sepsis':
+          next.sepsis = await getPatientSepsisAssessments(patientId);
+          break;
       }
+      setRecords(next);
     } catch (err) {
-      console.error('Failed to fetch emergency records:', err);
+      // A failed read used to leave the empty-state card up, which says the
+      // patient has no such records. This says the page could not look.
+      setRecords(NO_RECORDS);
+      setLoadError(getApiErrorMessage(err, t('docEmergProto.loadFailed')));
     } finally {
       setLoading(false);
     }
+  }, [activeTab, patientId, user, t]);
+
+  useEffect(() => {
+    if (user) {
+      void fetchEmergencyRecords();
+    }
+  }, [patientId, activeTab, user, fetchEmergencyRecords]);
+
+  const yesNo = (value: boolean | null): string | null =>
+    value === null ? null : value ? t('docEmergProto.yes') : t('docEmergProto.no');
+
+  /** Where each protocol is actually documented. */
+  const PROTOCOL_ROUTE: Record<EmergencyType, string> = {
+    code_blue: '/code-blue',
+    trauma: '/trauma',
+    stroke: '/stroke',
+    cardiac: '/cardiac',
+    sepsis: '/sepsis',
   };
 
-  const formatTimestamp = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
-  };
-
-  const tabs = [
-    { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-notice-subtle-fg' },
-    { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-content-secondary' },
-    { id: 'stroke' as EmergencyType, label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-content-secondary' },
-    { id: 'cardiac' as EmergencyType, label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-critical-subtle-fg' },
-    { id: 'sepsis' as EmergencyType, label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-caution-subtle-fg' },
+  const tabs: { id: EmergencyType; label: string; icon: LucideIcon; color: string }[] = [
+    { id: 'code_blue', label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-notice-subtle-fg' },
+    { id: 'trauma', label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-content-secondary' },
+    { id: 'stroke', label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-content-secondary' },
+    { id: 'cardiac', label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-critical-subtle-fg' },
+    { id: 'sepsis', label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-caution-subtle-fg' },
   ];
+
+  const cards: Record<EmergencyType, ReactNode[]> = {
+    code_blue: records.code_blue.map((r) => (
+      <RecordCard
+        key={r.id}
+        icon={Siren}
+        iconTone="bg-notice-subtle text-notice-subtle-fg"
+        title={t('docEmergProto.codeBlue')}
+        subtitle={t('docEmergProto.idLabel', { id: r.id })}
+        at={r.code_called_at}
+        by={r.documented_by}
+        findings={[
+          { label: t('docEmergProto.location'), value: r.location },
+          { label: t('docEmergProto.initialRhythm'), value: r.initial_rhythm },
+          { label: t('docEmergProto.witnessed'), value: yesNo(r.witnessed) },
+          { label: t('docEmergProto.outcome'), value: r.outcome },
+          { label: t('docEmergProto.codeLeader'), value: r.code_leader },
+          { label: t('docEmergProto.teamArrived'), value: recordedAt(r.team_arrived_at) || null },
+        ]}
+      />
+    )),
+    trauma: records.trauma.map((r) => (
+      <RecordCard
+        key={r.id}
+        icon={AlertCircle}
+        iconTone="bg-surface-sunken text-content-secondary"
+        title={t('docEmergProto.traumaAssessment')}
+        subtitle={t('docEmergProto.idLabel', { id: r.id })}
+        at={r.assessed_at}
+        by={r.assessed_by}
+        findings={[
+          { label: t('docEmergProto.mechanism'), value: r.mechanism },
+          { label: t('docEmergProto.gcs'), value: r.gcs },
+          { label: t('docEmergProto.traumaLevel'), value: r.trauma_level },
+          { label: t('docEmergProto.mtpActivated'), value: yesNo(r.mtp_activated) },
+          { label: t('docEmergProto.disposition'), value: r.disposition },
+        ]}
+      />
+    )),
+    stroke: records.stroke.map((r) => (
+      <RecordCard
+        key={r.id}
+        icon={Brain}
+        iconTone="bg-surface-sunken text-content-secondary"
+        title={t('docEmergProto.strokeAssessment')}
+        subtitle={t('docEmergProto.idLabel', { id: r.id })}
+        at={r.assessed_at}
+        by={r.assessed_by}
+        findings={[
+          { label: t('docEmergProto.nihssTotal'), value: r.nihss_total },
+          { label: t('docEmergProto.strokeType'), value: r.stroke_type },
+          { label: t('docEmergProto.tpaEligible'), value: yesNo(r.tpa_eligible) },
+          { label: t('docEmergProto.tpaGiven'), value: yesNo(r.tpa_given) },
+          { label: t('docEmergProto.hemorrhage'), value: yesNo(r.hemorrhage) },
+          { label: t('docEmergProto.lvoSuspected'), value: yesNo(r.lvo_suspected) },
+        ]}
+      />
+    )),
+    cardiac: records.cardiac.map((r) => (
+      <RecordCard
+        key={r.id}
+        icon={Heart}
+        iconTone="bg-critical-subtle text-critical-subtle-fg"
+        title={t('docEmergProto.cardiacEvent')}
+        subtitle={t('docEmergProto.idLabel', { id: r.id })}
+        at={r.documented_at}
+        by={r.documented_by}
+        findings={[
+          { label: t('docEmergProto.eventType'), value: r.event_type },
+          { label: t('docEmergProto.cathLab'), value: yesNo(r.cath_lab_activated) },
+          { label: t('docEmergProto.pci'), value: yesNo(r.pci_performed) },
+          {
+            label: t('docEmergProto.doorToBalloon'),
+            value:
+              r.door_to_balloon_minutes === null
+                ? null
+                : t('docEmergProto.minutes', { value: r.door_to_balloon_minutes }),
+          },
+        ]}
+      />
+    )),
+    sepsis: records.sepsis.map((r) => (
+      <RecordCard
+        key={r.id}
+        icon={Flame}
+        iconTone="bg-caution-subtle text-caution-subtle-fg"
+        title={t('docEmergProto.sepsisAssessment')}
+        subtitle={t('docEmergProto.qsofa', { score: r.qsofa_score })}
+        at={r.assessed_at}
+        by={r.assessed_by}
+        findings={[
+          { label: t('docEmergProto.severity'), value: r.severity },
+          { label: t('docEmergProto.suspectedSource'), value: r.suspected_source },
+          // Null SOFA means no organ system was measured, which is not a
+          // score of 0 (Rule 12); say so rather than hide the row.
+          { label: t('docEmergProto.sofa'), value: r.sofa_score ?? t('docEmergProto.notMeasured') },
+          { label: t('docEmergProto.vasopressors'), value: yesNo(r.vasopressors_required) },
+          { label: t('docEmergProto.icuAdmission'), value: yesNo(r.icu_admission) },
+        ]}
+      />
+    )),
+  };
+
+  const EMPTY_KEY: Record<EmergencyType, string> = {
+    code_blue: 'docEmergProto.noCodeBlue',
+    trauma: 'docEmergProto.noTrauma',
+    stroke: 'docEmergProto.noStroke',
+    cardiac: 'docEmergProto.noCardiac',
+    sepsis: 'docEmergProto.noSepsis',
+  };
+  const ActiveIcon = tabs.find((tab) => tab.id === activeTab)?.icon ?? Activity;
 
   return (
     <div className="p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <Link to={`/patients/${patientId}`} className="p-2 hover:bg-surface-sunken rounded-lg transition-colors">
+          <Link to={patientId ? `/patients/${patientId}` : '/patients'} className="p-2 hover:bg-surface-sunken rounded-lg transition-colors">
             <ChevronLeft size={24} />
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-content">{t('docEmergProto.title')}</h1>
-            <p className="text-content-muted mt-1">{t('docEmergProto.patientId', { id: patientId ?? '' })}</p>
+            {patientId && <p className="text-content-muted mt-1">{t('docEmergProto.patientId', { id: patientId })}</p>}
           </div>
         </div>
+        {/* This toggled a `showAddForm` flag that nothing read: the button
+            could be pressed for ever and no form existed to appear. Each
+            protocol already has its own screen, so "new record" opens the one
+            the active tab names. */}
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => navigate(PROTOCOL_ROUTE[activeTab])}
           className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2"
         >
           <Plus size={20} />
           {t('docEmergProto.newRecord')}
         </button>
       </div>
+
+      {!routePatientId && (
+        <div className="bg-surface rounded-xl shadow p-4 mb-6 max-w-md">
+          <PatientSelect
+            id="emergency-protocols-patient"
+            label={t('docEmergProto.patientSelectLabel')}
+            value={chosenPatientId}
+            onChange={(selectedPatientId) => setChosenPatientId(selectedPatientId)}
+          />
+        </div>
+      )}
 
       {/* Emergency Type Tabs */}
       <div className="bg-surface rounded-xl shadow mb-6">
@@ -203,351 +376,31 @@ function EmergencyProtocolsPage() {
         </div>
       </div>
 
-      {/* Code Blue Records */}
-      {activeTab === 'code_blue' && (
-        <div className="space-y-4">
-          {codeBlueRecords.map((record) => (
-            <div key={record.code_blue_id} className="bg-surface rounded-xl shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-notice-subtle rounded-lg">
-                    <Siren className="text-notice-subtle-fg" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{t('docEmergProto.codeBlue')}</h3>
-                    <p className="text-sm text-content-muted">{t('docEmergProto.idLabel', { id: record.code_blue_id })}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-content-muted">
-                    <Clock size={16} />
-                    {formatTimestamp(record.initiated_at)}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
-                    <User size={16} />
-                    {record.initiated_by}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.location')}</span>
-                  <p className="text-content">{record.location}</p>
-                </div>
-                {record.initial_rhythm && (
-                  <div>
-                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.initialRhythm')}</span>
-                    <p className="text-content">{record.initial_rhythm}</p>
-                  </div>
-                )}
-                {record.outcome && (
-                  <div>
-                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.outcome')}</span>
-                    <p className={`font-semibold ${
-                      record.outcome.toLowerCase().includes('rosc') ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'
-                    }`}>
-                      {record.outcome}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {record.interventions && record.interventions.length > 0 && (
-                <div className="mb-4">
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.interventions')}</span>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {record.interventions.map((intervention, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-notice-subtle text-notice-subtle-fg rounded-full text-sm">
-                        {intervention}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {record.notes && (
-                <div className="border-t border-border pt-4 mt-4">
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.notes')}</span>
-                  <p className="text-content-secondary mt-2">{record.notes}</p>
-                </div>
-              )}
-            </div>
-          ))}
-          {codeBlueRecords.length === 0 && !loading && (
-            <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <Siren className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-content-muted">{t('docEmergProto.noCodeBlue')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Trauma Records */}
-      {activeTab === 'trauma' && (
-        <div className="space-y-4">
-          {traumaRecords.map((record) => (
-            <div key={record.trauma_id} className="bg-surface rounded-xl shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-surface-sunken rounded-lg">
-                    <AlertCircle className="text-content-secondary" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{t('docEmergProto.traumaAssessment')}</h3>
-                    <p className="text-sm text-content-muted">{t('docEmergProto.level', { level: record.trauma_level })}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-content-muted">
-                    <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
-                    <User size={16} />
-                    {record.assessed_by}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="mb-4">
-                <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.mechanism')}</span>
-                <p className="text-content mt-1">{record.mechanism_of_injury}</p>
-              </div>
-
-              {record.injuries && record.injuries.length > 0 && (
-                <div className="mb-4">
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.injuries')}</span>
-                  <ul className="list-disc list-inside mt-2 space-y-1">
-                    {record.injuries.map((injury, idx) => (
-                      <li key={idx} className="text-content-secondary">{injury}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {record.interventions && record.interventions.length > 0 && (
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.interventions')}</span>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {record.interventions.map((intervention, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm">
-                        {intervention}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          {traumaRecords.length === 0 && !loading && (
-            <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <AlertCircle className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-content-muted">{t('docEmergProto.noTrauma')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Stroke Records */}
-      {activeTab === 'stroke' && (
-        <div className="space-y-4">
-          {strokeRecords.map((record) => (
-            <div key={record.stroke_id} className="bg-surface rounded-xl shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-surface-sunken rounded-lg">
-                    <Brain className="text-content-secondary" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{t('docEmergProto.strokeAssessment')}</h3>
-                    {record.nihss_score !== undefined && (
-                      <p className="text-sm text-content-muted">{t('docEmergProto.nihss', { score: record.nihss_score })}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-content-muted">
-                    <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
-                    <User size={16} />
-                    {record.assessed_by}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.lastKnownNormal')}</span>
-                  <p className="text-content">{formatTimestamp(record.last_known_normal)}</p>
-                </div>
-                {record.stroke_type && (
-                  <div>
-                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.strokeType')}</span>
-                    <p className="text-content">{record.stroke_type}</p>
-                  </div>
-                )}
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.tpaGiven')}</span>
-                  <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${
-                    record.tpa_given ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-surface-sunken text-content-secondary'
-                  }`}>
-                    {record.tpa_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-          {strokeRecords.length === 0 && !loading && (
-            <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <Brain className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-content-muted">{t('docEmergProto.noStroke')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Cardiac Arrest Records */}
-      {activeTab === 'cardiac' && (
-        <div className="space-y-4">
-          {cardiacRecords.map((record) => (
-            <div key={record.protocol_id} className="bg-surface rounded-xl shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-critical-subtle rounded-lg">
-                    <Heart className="text-critical-subtle-fg" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{t('docEmergProto.cardiacProtocol')}</h3>
-                    <p className="text-sm text-content-muted">{t('docEmergProto.idLabel', { id: record.protocol_id })}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-content-muted">
-                    <Clock size={16} />
-                    {formatTimestamp(record.started_at)}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.cprStarted')}</span>
-                  <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.cpr_started ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-surface-sunken text-content-secondary'
-                  }`}>
-                    {record.cpr_started ? t('docEmergProto.yes') : t('docEmergProto.no')}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.defibShocks')}</span>
-                  <p className="text-content font-semibold">{record.defib_shocks}</p>
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.roscAchieved')}</span>
-                  <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.rosc_achieved ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
-                  }`}>
-                    {record.rosc_achieved ? t('docEmergProto.yes') : t('docEmergProto.no')}
-                  </span>
-                </div>
-              </div>
-
-              {record.medications_given && record.medications_given.length > 0 && (
-                <div className="mt-4">
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.medicationsGiven')}</span>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {record.medications_given.map((med, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm">
-                        {med}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          {cardiacRecords.length === 0 && !loading && (
-            <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <Heart className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-content-muted">{t('docEmergProto.noCardiac')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Sepsis Records */}
-      {activeTab === 'sepsis' && (
-        <div className="space-y-4">
-          {sepsisRecords.map((record) => (
-            <div key={record.sepsis_id} className="bg-surface rounded-xl shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-caution-subtle rounded-lg">
-                    <Flame className="text-caution-subtle-fg" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{t('docEmergProto.sepsisAssessment')}</h3>
-                    <p className="text-sm text-content-muted">{t('docEmergProto.qsofa', { score: record.qsofa_score })}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-content-muted">
-                    <Clock size={16} />
-                    {formatTimestamp(record.assessed_at)}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
-                    <User size={16} />
-                    {record.assessed_by}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-4">
-                {record.lactate_level !== undefined && (
-                  <div>
-                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.lactateLevel')}</span>
-                    <p className={`font-semibold ${record.lactate_level > 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                      {t('docEmergProto.lactateValue', { value: record.lactate_level })}
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.antibioticsGiven')}</span>
-                  <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.antibiotics_given ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
-                  }`}>
-                    {record.antibiotics_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.fluidResuscitation')}</span>
-                  <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.fluid_resuscitation ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
-                  }`}>
-                    {record.fluid_resuscitation ? t('docEmergProto.yes') : t('docEmergProto.no')}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-          {sepsisRecords.length === 0 && !loading && (
-            <div className="bg-surface rounded-xl shadow p-12 text-center">
-              <Flame className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-content-muted">{t('docEmergProto.noSepsis')}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {loading && (
-        <div className="bg-surface rounded-xl shadow p-12 text-center">
-          <Activity className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-content-muted">{t('docEmergProto.loading')}</p>
-        </div>
-      )}
+      <div className="space-y-4">
+        {loadError && (
+          <div role="alert" className="bg-critical-subtle text-critical-subtle-fg rounded-xl p-4">
+            {loadError}
+          </div>
+        )}
+        {!loading && !loadError && cards[activeTab]}
+        {!patientId && (
+          <div className="bg-surface rounded-xl shadow p-12 text-center">
+            <p className="text-content-muted">{t('docEmergProto.choosePatient')}</p>
+          </div>
+        )}
+        {patientId && !loading && !loadError && cards[activeTab].length === 0 && (
+          <div className="bg-surface rounded-xl shadow p-12 text-center">
+            <ActiveIcon className="mx-auto mb-3 text-content-muted" size={48} />
+            <p className="text-content-muted">{t(EMPTY_KEY[activeTab])}</p>
+          </div>
+        )}
+        {loading && (
+          <div role="status" className="bg-surface rounded-xl shadow p-12 text-center">
+            <Activity className="mx-auto mb-3 text-brand animate-spin" size={48} />
+            <p className="text-content-muted">{t('docEmergProto.loading')}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

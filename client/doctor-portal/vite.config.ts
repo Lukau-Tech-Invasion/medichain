@@ -3,6 +3,25 @@ import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
 import path from 'path';
 
+// The dev-server port, and therefore the HMR WebSocket's port.
+//
+// These were two separate literals, both `5173`. Running the dev server on any
+// other port -- which `playwright.local-api.config.ts` does deliberately, to
+// avoid adopting a stray server pointed at the Docker image -- left the HMR
+// client still dialling `ws://localhost:5173`. The handshake fails, Vite's
+// client reports "server connection lost. Polling for restart..." and then
+// **full-page-reloads roughly twice a second, forever**.
+//
+// Nothing about that looks like a port problem from the outside. The browser
+// suites simply could not sign in: every reload wiped the form mid-`fill()`
+// and discarded the session (nothing about this app's auth survives a page
+// load), so the Sign in button sat disabled over a form that looked filled and
+// `page.click` timed out against `<button disabled>`.
+//
+// One value now, overridable, so the two can never disagree again. The
+// Playwright configs set it alongside the `--port` they pass.
+const DEV_PORT = Number(process.env.VITE_DEV_PORT || 5173);
+
 // https://vitejs.dev/config/
 export default defineConfig({
   // Served under /doctor/ by the Docker nginx so both portals share one origin
@@ -26,15 +45,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: DEV_PORT,
     host: true, // Listen on all interfaces
     strictPort: true, // Fail if port is in use
     // HMR configuration for WebSocket
     hmr: {
       protocol: 'ws',
       host: 'localhost',
-      port: 5173,
-      clientPort: 5173,
+      port: DEV_PORT,
+      clientPort: DEV_PORT,
     },
     proxy: {
       '/api': {

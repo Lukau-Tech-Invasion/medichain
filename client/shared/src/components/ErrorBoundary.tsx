@@ -180,7 +180,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <div className="border-t pt-4">
                 <button
                   onClick={this.toggleStack}
-                  className="flex items-center gap-2 text-sm text-content-muted hover:text-content-secondary mb-2"
+                  className="flex items-center gap-2 text-sm text-content-muted hover:text-content-secondary mb-2 min-h-[24px] py-1"
                   aria-expanded={this.state.showStack}
                   aria-controls="error-stack-trace"
                 >
@@ -244,43 +244,3 @@ export function withErrorBoundary<P extends object>(
 
   return WithErrorBoundary;
 }
-
-/**
- * Smaller, inline error boundary for non-critical components
- */
-interface InlineErrorFallbackProps {
-  error: Error | null;
-  resetError: () => void;
-  componentName?: string;
-}
-
-export function InlineErrorFallback({
-  error,
-  resetError,
-  componentName = 'component',
-}: InlineErrorFallbackProps): JSX.Element {
-  return (
-    <div 
-      className="bg-critical-subtle border border-critical rounded-lg p-4"
-      role="alert"
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <AlertTriangle className="w-5 h-5 text-red-500" aria-hidden="true" />
-        <span className="font-medium text-critical-subtle-fg">
-          Error loading {componentName}
-        </span>
-      </div>
-      <p className="text-sm text-critical-subtle-fg mb-3">
-        {error?.message || 'An unexpected error occurred'}
-      </p>
-      <button
-        onClick={resetError}
-        className="text-sm text-critical-subtle-fg underline hover:text-critical-subtle-fg focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
-
-

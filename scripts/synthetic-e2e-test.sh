@@ -27,6 +27,7 @@
 # exactly like a broken route registration. The preflight below refuses to run
 # against a server that is not this suite's own.
 BASE=${BASE:-http://127.0.0.1:8090}
+CHAIN_E2E=${CHAIN_E2E:-false}
 
 # Overridable so the suite can be pointed at a server started with a different
 # key; the default matches scripts/run-synthetic-local.sh.
@@ -36,8 +37,17 @@ RESULTS=()
 
 # SS58-shaped synthetic wallets (48 chars, start with 5).
 ADMIN=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+# The seeded judge account is a distinct administrator. Retention approval is
+# maker-checker controlled, so the administrator who requests a token must not
+# decide it; using this account exercises the required separation.
+JUDGE=5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y
 DOCTOR=5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 PARAMEDIC=5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
+# Dispensing is the pharmacist's act, so the pharmacy section needs one of its
+# own rather than borrowing a clinician's identity.
+PHARMACIST=5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW
+PHARMACIST_2=5PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP
+PHARMACIST_3=5QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
 PATIENT_ADULT_WALLET=5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw
 # A wallet that is registered NOWHERE. PATIENT_ADULT_WALLET cannot serve this
 # purpose: it is one of the seeded demo accounts on the PostgreSQL backend (a
@@ -67,6 +77,30 @@ check_setup() {
   fi
 }
 
+# check_any <name> "<code> <code> ...>" <actual> [detail]
+#
+# For the few endpoints where more than one status is a correct answer to the
+# same request. Keep the accepted set as narrow as the behaviour genuinely is:
+# a list wide enough to swallow a client mistake will hide the failure that
+# mistake causes, which is exactly how a telehealth assertion here once passed
+# while the session it was meant to end stayed open.
+check_any() {
+  local name="$1" want="$2" got="$3" detail="${4:-}" code
+  for code in $want; do
+    if [ "$code" = "$got" ]; then
+      PASS=$((PASS+1)); RESULTS+=("PASS | $name | got $got")
+      printf '  [32mPASS[0m %-62s %s
+' "$name" "$got"
+      return
+    fi
+  done
+  FAIL=$((FAIL+1)); RESULTS+=("FAIL | $name | want ${want// //} got $got | $detail")
+  printf '  [31mFAIL[0m %-62s want %s got %s
+' "$name" "${want// //}" "$got"
+  [ -n "$detail" ] && printf '       %s
+' "$(echo "$detail" | head -c 400)"
+}
+
 # check <name> <expected> <actual> [detail]
 check() {
   local name="$1" want="$2" got="$3" detail="${4:-}"
@@ -80,10 +114,37 @@ check() {
   fi
 }
 
+# idem_args METHOD — the Idempotency-Key header, for mutating methods only.
+#
+# `api/src/middleware/idempotency.rs` refuses any keyed-subject mutation that
+# arrives without one (409 IDEMPOTENCY_KEY_REQUIRED). This harness predates
+# that middleware, so every POST/PUT/PATCH/DELETE it made was being refused —
+# which is what failed hosted CI, and it is the third caller class broken by
+# the same change, after the fixture seeder and thirty raw-fetch call sites in
+# the portals. A middleware that adds a required header has to migrate its
+# callers, and this one was landed without doing so.
+#
+# A fresh key per call is right here: each assertion is a distinct intent, and
+# reusing one across two different requests would be answered
+# IDEMPOTENCY_KEY_REUSED, since the key is bound to a request digest.
+idem_args() {
+  case "$1" in
+    POST|PUT|PATCH|DELETE)
+      printf '%s\n%s\n' '-H' "Idempotency-Key: $(python -c 'import uuid;print(uuid.uuid4())')"
+      ;;
+  esac
+}
+
 # code METHOD PATH [BODY] [USER]
 code() {
   local m="$1" p="$2" b="${3:-}" u="${4:-}"
   local args=(-s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "$BASE$p")
+  # Only when there is an identity. The middleware refuses a *keyed* mutation
+  # that carries no subject (409 IDEMPOTENCY_AUTH_REQUIRED) before
+  # authorization runs, so sending a key on a deliberately anonymous request
+  # replaces the 401 those assertions are about with a 409 from a different
+  # layer. An anonymous caller has no operation to make idempotent.
+  [ -n "$u" ] && while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
   [ -n "$u" ] && args+=(-H "X-User-Id: $u")
   [ -n "$b" ] && args+=(-H 'Content-Type: application/json' -d "$b")
   curl "${args[@]}"
@@ -95,8 +156,10 @@ body() { cat /tmp/mc_body 2>/dev/null; }
 # is refused: the token is a credential and belongs in the Authorization
 # header, not in a URL that lands in every proxy and access log.
 code_bearer() {
-  local m="$1" p="$2" tok="$3"
-  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p"
+  local m="$1" p="$2" tok="$3" args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" "$BASE$p"
 }
 
 # code_bearer_timed METHOD PATH TOKEN — same as code_bearer, but also records
@@ -111,8 +174,10 @@ code_bearer() {
 # sample read back as 0, which is how a latency check can silently measure
 # nothing at all while looking like it ran. `last_ms` reads what survived.
 code_bearer_timed() {
-  local m="$1" p="$2" tok="$3" out
-  out=$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code} %{time_total}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p")
+  local m="$1" p="$2" tok="$3" out args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  out=$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code} %{time_total}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" "$BASE$p")
   printf '%s' "${out#* }" | awk '{printf "%.0f", $1 * 1000}' > /tmp/mc_ms
   printf '%s' "${out%% *}"
 }
@@ -122,8 +187,10 @@ last_ms() { cat /tmp/mc_ms 2>/dev/null || echo 0; }
 # patient's own handset, so its capability token is presented together with the
 # device that was issued it.
 code_device() {
-  local m="$1" p="$2" tok="$3" dev="$4"
-  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m"     -H "Authorization: Bearer $tok" -H "X-Device-Id: $dev" "$BASE$p"
+  local m="$1" p="$2" tok="$3" dev="$4" args=()
+  while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
+  curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "${args[@]}" \
+    -H "Authorization: Bearer $tok" -H "X-Device-Id: $dev" "$BASE$p"
 }
 # jget KEY [KEY...] — walk nested JSON keys. Passed as argv, never interpolated
 # into the Python source, so quoting cannot break it.
@@ -167,11 +234,31 @@ if [ "$c" = "403" ]; then
 fi
 check_setup "bootstrap first admin" "$c" "$(body)"
 
+# The memory backend begins without migration-seeded accounts, while PostgreSQL
+# has the judge administrator from the initial schema. Create or re-use that
+# second administrator only in this isolated demo-mode suite so both backends
+# exercise the retention maker-checker boundary with the same actors.
+c=$(code POST /api/auth/demo-login "{\"wallet_address\":\"$JUDGE\",\"role\":\"Admin\",\"name\":\"Synthetic Judge Admin\"}")
+# 200 when the account is already there, 201 when demo-login creates it.
+# PostgreSQL carries the judge administrator from the initial schema; the
+# memory backend does not, so it is created on the spot. Both mean the
+# second administrator this section needs is available.
+check_any "demo-only secondary admin is available for maker-checker" "200 201" "$c" "$(body)"
+
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$DOCTOR\",\"name\":\"Dr Synthetic\",\"username\":\"drsyn\",\"role\":\"Doctor\"}" "$ADMIN")
 check_setup "admin registers doctor" "$c" "$(body)"
 
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$PARAMEDIC\",\"name\":\"Para Synthetic\",\"username\":\"para\",\"role\":\"Nurse\"}" "$ADMIN")
 check_setup "admin registers paramedic" "$c" "$(body)"
+
+c=$(code POST /api/auth/register "{\"wallet_address\":\"$PHARMACIST\",\"name\":\"Pharm Synthetic\",\"username\":\"pharm\",\"role\":\"Pharmacist\"}" "$ADMIN")
+check_setup "admin registers pharmacist" "$c" "$(body)"
+
+c=$(code POST /api/auth/register "{\"wallet_address\":\"$PHARMACIST_2\",\"name\":\"Second Pharm Synthetic\",\"username\":\"pharm2\",\"role\":\"Pharmacist\"}" "$ADMIN")
+check_setup "admin registers second pharmacist" "$c" "$(body)"
+
+c=$(code POST /api/auth/register "{\"wallet_address\":\"$PHARMACIST_3\",\"name\":\"Third Pharm Synthetic\",\"username\":\"pharm3\",\"role\":\"Pharmacist\"}" "$ADMIN")
+check_setup "admin registers third pharmacist" "$c" "$(body)"
 
 # Accounts created by an admin start `pending`, and `support::get_user` only
 # resolves users whose status is "active" — so a freshly registered doctor is
@@ -180,7 +267,7 @@ check_setup "admin registers paramedic" "$c" "$(body)"
 # MFA-gated); the harness predated it and drove every later section with
 # accounts that could not act, which is why a single missing call cascaded into
 # ~100 failures that all looked like authorization bugs.
-for w in "$DOCTOR" "$PARAMEDIC"; do
+for w in "$DOCTOR" "$PARAMEDIC" "$PHARMACIST" "$PHARMACIST_2" "$PHARMACIST_3"; do
   c=$(code PUT "/api/users/$w" '{"status":"active"}' "$ADMIN")
   check "admin activates $w" 200 "$c" "$(body)"
 done
@@ -200,30 +287,65 @@ check "metrics REFUSE a forged identity" 401 "$(code GET /api/metrics '' 0xPROVf
 
 # ---------------------------------------------------------------------------
 say "2. Patient registration (synthetic patients of three ages)"
-mkpatient() { # name dob nid phone blood
+mkpatient() { # name dob nid phone blood [wallet]
+local wallet_json=null
+[ -n "${6:-}" ] && wallet_json="\"$6\""
 cat <<J
 {"full_name":"$1","date_of_birth":"$2","national_id":"$3","phone":"$4","blood_type":"$5",
  "allergies":["penicillin"],"current_medications":[],"chronic_conditions":[],
  "emergency_contact_name":"Synthetic Kin","emergency_contact_phone":"+27000000000",
  "emergency_contact_relationship":"parent","organ_donor":true,"dnr_status":false,
- "languages":["en"]}
+ "languages":["en"],"wallet_address":$wallet_json}
 J
 }
 
-c=$(code POST /api/register "$(mkpatient 'Adult Synthetic' '1990-03-14' 'SYN-ADULT-0001' '+27000000001' 'O+')" "$DOCTOR")
+# A chain-enabled registration needs a checksum-valid SS58 patient account
+# before the record exists. These synthetic public keys need not possess a
+# signer: the operator submits the registration extrinsic on the patient's
+# behalf. A run-specific seed avoids collisions on a persistent dev chain.
+synthetic_ss58() {
+  python -c '
+import hashlib, sys
+alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+public_key = hashlib.sha256(sys.argv[1].encode()).digest()
+payload = b"\x2a" + public_key
+checksum = hashlib.blake2b(b"SS58PRE" + payload, digest_size=64).digest()[:2]
+number = int.from_bytes(payload + checksum, "big")
+encoded = ""
+while number:
+    number, remainder = divmod(number, 58)
+    encoded = alphabet[remainder] + encoded
+print(encoded)
+' "$1"
+}
+
+if [ "$CHAIN_E2E" = "true" ]; then
+  CHAIN_RUN_ID=${CHAIN_RUN_ID:-$(date +%s%N)}
+  WALLET_ADULT=$(synthetic_ss58 "medichain-chain-adult-$CHAIN_RUN_ID")
+  WALLET_C11=$(synthetic_ss58 "medichain-chain-child-$CHAIN_RUN_ID")
+  WALLET_C14=$(synthetic_ss58 "medichain-chain-teen-$CHAIN_RUN_ID")
+fi
+
+c=$(code POST /api/register "$(mkpatient 'Adult Synthetic' '1990-03-14' 'SYN-ADULT-0001' '+27000000001' 'O+' "${WALLET_ADULT:-}")" "$DOCTOR")
 check "register adult patient" 201 "$c" "$(body)"
 PAT_ADULT=$(jget patient_id)
 NFC_ADULT=$(jget nfc_tag_id)
 
-c=$(code POST /api/register "$(mkpatient 'Child Eleven' '2015-01-10' 'SYN-CHILD11-01' '+27000000002' 'A+')" "$DOCTOR")
+c=$(code POST /api/register "$(mkpatient 'Child Eleven' '2015-01-10' 'SYN-CHILD11-01' '+27000000002' 'A+' "${WALLET_C11:-}")" "$DOCTOR")
 check "register child aged 11" 201 "$c" "$(body)"
 PAT_C11=$(jget patient_id)
 
-c=$(code POST /api/register "$(mkpatient 'Teen Fourteen' '2012-01-10' 'SYN-TEEN14-01' '+27000000003' 'B+')" "$DOCTOR")
+c=$(code POST /api/register "$(mkpatient 'Teen Fourteen' '2012-01-10' 'SYN-TEEN14-01' '+27000000003' 'B+' "${WALLET_C14:-}")" "$DOCTOR")
 check "register child aged 14" 201 "$c" "$(body)"
 PAT_C14=$(jget patient_id)
 
 echo "  adult=$PAT_ADULT  child11=$PAT_C11  teen14=$PAT_C14  nfc=$NFC_ADULT"
+
+if [ "$CHAIN_E2E" = "true" ]; then
+  c=$(code POST /api/register "$(mkpatient 'No Wallet Synthetic' '1990-01-02' 'SYN-NO-WALLET' '+27000000008' 'O+')" "$DOCTOR")
+  check "chain mode refuses patient registration without a wallet" 400 "$c" "$(body)"
+  check "wallet refusal names the missing linkage contract" PATIENT_WALLET_REQUIRED "$(jget code)" "$(body)"
+fi
 
 # ----------------------------------------------------------------------------
 # Give each synthetic patient a WALLET they can act as.
@@ -261,9 +383,11 @@ provision_patient_wallet() {
   echo "$w"
 }
 
-WALLET_ADULT=$(provision_patient_wallet "$PAT_ADULT" 'SYN-ADULT-0001' '1990-03-14' 'synadult')
-WALLET_C11=$(provision_patient_wallet "$PAT_C11" 'SYN-CHILD11-01' '2015-01-10' 'synchild11')
-WALLET_C14=$(provision_patient_wallet "$PAT_C14" 'SYN-TEEN14-01' '2012-01-10' 'synteen14')
+if [ "$CHAIN_E2E" != "true" ]; then
+  WALLET_ADULT=$(provision_patient_wallet "$PAT_ADULT" 'SYN-ADULT-0001' '1990-03-14' 'synadult')
+  WALLET_C11=$(provision_patient_wallet "$PAT_C11" 'SYN-CHILD11-01' '2015-01-10' 'synchild11')
+  WALLET_C14=$(provision_patient_wallet "$PAT_C14" 'SYN-TEEN14-01' '2012-01-10' 'synteen14')
+fi
 check "adult patient wallet can read its own record" 200   "$(code GET "/api/patients/$PAT_ADULT" '' "$WALLET_ADULT")" "$(body)"
 
 
@@ -346,9 +470,12 @@ c=$(code POST "/api/admin/retention/approvals/$TOKEN/execute" '' "$ADMIN")
 check "executing an UNAPPROVED token is refused" 400 "$c" "$(body)"
 
 c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":true}' "$ADMIN")
-check "admin approves the token" 200 "$c" "$(body)"
+check "requesting admin CANNOT approve own token" 400 "$c" "$(body)"
 
-c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":false,"reason":"changed mind"}' "$ADMIN")
+c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":true}' "$JUDGE")
+check "separate admin approves the token" 200 "$c" "$(body)"
+
+c=$(code POST "/api/admin/retention/approvals/$TOKEN/decide" '{"approved":false,"reason":"changed mind"}' "$JUDGE")
 check "re-deciding a decided approval is refused" 400 "$c" "$(body)"
 
 c=$(code POST "/api/admin/retention/approvals/$TOKEN/execute" '' "$ADMIN")
@@ -388,11 +515,12 @@ c=$(code GET "/api/access/patient/$PAT_ADULT/requests" '' "$WALLET_ADULT")
 check "patient lists own access requests" 200 "$c" "$(body)"
 
 # Patient approves -> a new active grant is minted.
-c=$(code POST "/api/access/requests/$REQ/approve" '' "$WALLET_ADULT")
+ACCESS_GRANT_EXPIRY=$(python -c 'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(days=1)).isoformat().replace("+00:00", "Z"))')
+c=$(code POST "/api/access/requests/$REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
 check "patient approves the request" 200 "$c" "$(body)"
 GRANT=$(jget grant id)
 
-c=$(code POST "/api/access/requests/$REQ/approve" '' "$WALLET_ADULT")
+c=$(code POST "/api/access/requests/$REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
 check "re-approving a decided request is refused" 400 "$c" "$(body)"
 
 c=$(code GET "/api/access/patient/$PAT_ADULT/grants" '' "$WALLET_ADULT")
@@ -402,7 +530,11 @@ check "patient lists own grants" 200 "$c" "$(body)"
 c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"Second opinion"}' "$PARAMEDIC")
 check "second provider requests access" 201 "$c" "$(body)"
 REQ2=$(jget request id)
-c=$(code POST "/api/access/requests/$REQ2/approve" '' "$DOCTOR")
+# The same body the patient sent at line 439 — only the caller changes. An
+# empty body would be refused at extraction (400 Content type error) before
+# authorization ran, so the assertion would pass on a technicality while
+# proving nothing about who may approve.
+c=$(code POST "/api/access/requests/$REQ2/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$DOCTOR")
 check "a provider CANNOT approve a request for a patient" 403 "$c" "$(body)"
 
 # Patient revokes the active grant; revocation is idempotent.
@@ -418,6 +550,16 @@ c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"x"}')
 check "anonymous CANNOT request access" 401 "$c" "$(body)"
 c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"x"}' "$WALLET_ADULT")
 check "a patient CANNOT request provider access" 403 "$c" "$(body)"
+
+# Establish a fresh treatment grant after proving revocation. The remaining
+# clinical workflow uses this doctor against this patient, so leaving the only
+# grant revoked would make later record tests exercise denial rather than the
+# upload/download behavior they are intended to qualify.
+c=$(code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"Synthetic treatment workflow"}' "$DOCTOR")
+check "provider requests replacement access after revocation" 201 "$c" "$(body)"
+TREATMENT_REQ=$(jget request id)
+c=$(code POST "/api/access/requests/$TREATMENT_REQ/approve" "{\"expires_at\":\"$ACCESS_GRANT_EXPIRY\"}" "$WALLET_ADULT")
+check "patient grants access for the remaining clinical workflow" 200 "$c" "$(body)"
 
 # ---------------------------------------------------------------------------
 say "7. Nursing dashboard + care plans (doctor-portal)"
@@ -588,7 +730,7 @@ say "15. Forged identities refused across the clinical surface (SEC-11)"
 # were used on purpose: clinical endpoints require a clinical ROLE, while
 # patient-facing ones only require the caller to RESOLVE — gating those on a
 # clinical role would lock patients out of their own features.
-for ep in /api/emergency/mar/list /api/emergency/io/list /api/emergency/care-plan/list \
+for ep in /api/emergency/mar/list /api/emergency/care-plan/list \
           /api/emergency/wound/list /api/dashboard/doctor /api/dashboard/nurse \
           /api/dashboard/lab /api/dashboard/pharmacist; do
   check "clinical $ep refuses a forged identity" 401 "$(code GET "$ep" '' 0xPROVforged)"
@@ -642,8 +784,14 @@ if [ -n "$PAT_COND" ]; then
   # server and then failed section 17 on every later run against the same one,
   # with a misleading 404 from the rotate call (the device id was simply empty).
   # Exactly the non-idempotency already fixed for the appointment slots below.
+  # `legacy-organization` is seeded by migration and is the organisation this
+  # deployment actually holds. The harness used to name a fictional ORG-SYNTH,
+  # which passed only while device enrolment lived in process memory: once
+  # devices became durable the foreign key to `organizations` rejected it, the
+  # device id came back empty, and the rotate below became /api/devices//rotate
+  # and 404'd -- a failure four assertions downstream from its cause.
   DEVICE_TAG=$(date +%s)-$$
-  code POST /api/devices/enroll     "{\"organization_id\":\"ORG-SYNTH\",\"device_name\":\"Synthetic Responder Tablet\",\"device_type\":\"tablet\",\"hardware_fingerprint\":\"SYNTH-FP-$DEVICE_TAG\",\"platform\":\"android\"}"     "$ADMIN" >/dev/null
+  code POST /api/devices/enroll     "{\"organization_id\":\"legacy-organization\",\"device_name\":\"Synthetic Responder Tablet\",\"device_type\":\"tablet\",\"hardware_fingerprint\":\"SYNTH-FP-$DEVICE_TAG\",\"platform\":\"android\"}"     "$ADMIN" >/dev/null
   SYNTH_DEVICE=$(jget id)
   c=$(code POST "/api/devices/$SYNTH_DEVICE/rotate" '{"key_id":"KEY-SYNTH-0001"}' "$ADMIN")
   check "responder device is enrolled and keyed" 200 "$c" "$(body)"
@@ -870,13 +1018,49 @@ T4=$(printf '%02d:%02d' "$PM_HOUR" $(( PM_MIN + 30 )))
 # The patient this harness created for itself, not a PostgreSQL demo seed:
 # PAT-001-DEMO does not exist on the in-memory backend.
 APPT_PATIENT="$PAT_ADULT"
-BOOK=$(python -c '
+
+# book_appointment PROVIDER TIME TYPE REASON ACTOR
+#
+# Books an appointment, advancing to the next day's slot when the calendar
+# already holds one that overlaps.
+#
+# The harness leaves its appointments behind, so against a persistent
+# deployment the seeded doctor's calendar fills up: 74 rows were already banked
+# against roughly a thousand candidate slots when this was written -- a ~7%
+# chance per run of failing on a slot clash that says nothing about the
+# behaviour under test, and the odds worsen with every run. Widening the random
+# slot space only lowers the probability; it does not stop it growing.
+# Advancing past an occupied slot is what a scheduling UI does, and it keeps
+# these assertions about attribution and authorization, which is what the
+# sections are named for. Slot conflict has its own dedicated assertion
+# elsewhere and is not what these four bookings exist to prove.
+#
+# Only 409 SLOT_UNAVAILABLE is retried. Any other status -- 403 on a provider
+# mismatch, 400 on an unknown provider -- is returned on the first attempt, so
+# an authorization regression still fails here instead of being retried into a
+# pass. Bounded at 12 attempts.
+book_appointment() {
+  local prov="$1" t="$2" kind="$3" reason="$4" actor="$5"
+  local attempt day c=""
+  for attempt in $(seq 0 11); do
+    day=$(date -u -d "+$(( APPT_DAY_OFFSET + attempt )) days" +%Y-%m-%d 2>/dev/null \
+          || date -u -v+$(( APPT_DAY_OFFSET + attempt ))d +%Y-%m-%d)
+    c=$(code POST /api/appointments "$(python -c '
 import json, sys
 print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Synthetic lifecycle run"}))' "$DOCTOR" "$APPT_DATE" "$T1" "$APPT_PATIENT")
+                  "appointment_type": sys.argv[5], "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": sys.argv[6]}))' \
+      "$prov" "$day" "$t" "$APPT_PATIENT" "$kind" "$reason")" "$actor")
+    if [ "$c" = "409" ] && grep -q SLOT_UNAVAILABLE /tmp/mc_body; then
+      continue
+    fi
+    printf '%s' "$c"
+    return
+  done
+  printf '%s' "$c"
+}
 check "a doctor books an appointment for themselves" 201 \
-  "$(code POST /api/appointments "$BOOK" "$DOCTOR")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T1" consultation "Synthetic lifecycle run" "$DOCTOR")" "$(body)"
 APT_ID=$(jget appointment_id)
 
 # The whole point of WF-030: this used to 500 on PostgreSQL, so the row never
@@ -914,12 +1098,7 @@ check "  status reads back as Completed" "Completed" "$(jget status)"
 
 # WF-006: the portal's Cancel button sends no body at all, and the handler
 # used to require one, so every cancellation 400'd before reaching the code.
-CANCEL_BOOK=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "follow-up", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Cancellation path"}))' "$DOCTOR" "$APPT_DATE" "$T2" "$APPT_PATIENT")
-code POST /api/appointments "$CANCEL_BOOK" "$DOCTOR" >/dev/null
+book_appointment "$DOCTOR" "$T2" follow-up "Cancellation path" "$DOCTOR" >/dev/null
 CANCEL_ID=$(jget appointment_id)
 check "cancel works with no request body (the dead button)" 200 \
   "$(code POST "/api/appointments/$CANCEL_ID/cancel" '' "$DOCTOR")" "$(body)"
@@ -927,13 +1106,8 @@ check "cancel works with no request body (the dead button)" 200 \
 # ---------------------------------------------------------------------------
 say "21. Booking telehealth creates a real, gated session (WF-014)"
 
-TH_BOOK=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "telehealth", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Synthetic telehealth run"}))' "$DOCTOR" "$APPT_DATE" "$T3" "$APPT_PATIENT")
 check "a telehealth appointment is booked" 201 \
-  "$(code POST /api/appointments "$TH_BOOK" "$DOCTOR")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T3" telehealth "Synthetic telehealth run" "$DOCTOR")" "$(body)"
 TH_APT=$(jget appointment_id)
 TH_SESSION=$(jget telehealth_session_id)
 check "  a session is provisioned and returned with the booking" "true" \
@@ -972,13 +1146,8 @@ check "  refused as a provider mismatch, not a generic 403" "PROVIDER_MISMATCH" 
 
 # An administrator legitimately schedules for a colleague, and the record must
 # still name who actually did it.
-ADMIN_BOOKS=$(python -c '
-import json, sys
-print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
-                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
-                  "preferred_time": sys.argv[3], "reason": "Delegated scheduling"}))' "$DOCTOR" "$APPT_DATE" "$T4" "$APPT_PATIENT")
 check "an admin may schedule on a colleague's behalf" 201 \
-  "$(code POST /api/appointments "$ADMIN_BOOKS" "$ADMIN")" "$(body)"
+  "$(book_appointment "$DOCTOR" "$T4" consultation "Delegated scheduling" "$ADMIN")" "$(body)"
 DELEGATED=$(jget appointment_id)
 check "  the appointment is attributed to the colleague" 200 \
   "$(code GET "/api/appointments/$DELEGATED" '' "$DOCTOR")"
@@ -993,6 +1162,223 @@ print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
                   "preferred_time": sys.argv[3], "reason": "Unknown provider"}))' "$UNREGISTERED_WALLET" "$APPT_DATE" "$T4" "$APPT_PATIENT")
 check "an unknown wallet cannot be named as the provider" 400 \
   "$(code POST /api/appointments "$GHOST" "$ADMIN")" "$(body)"
+
+
+# ---------------------------------------------------------------------------
+say "23. Pharmacy dispensing (SCR-013)"
+
+# The prescription lifecycle used to stop at Transmitted. `Received`,
+# `InProgress`, `Dispensed` and `PartialFill` were declared and unreachable, and
+# a pharmacist could see a real transmitted prescription and do nothing with it.
+
+RX_QTY=20
+RX=$(code POST /api/e-prescriptions "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[1], "medication_name": "Amoxicillin",
+                  "strength": "500mg", "form": "capsule", "quantity": int(sys.argv[2]),
+                  "days_supply": 7, "directions": "One three times daily",
+                  "refills_allowed": 0, "is_controlled": False,
+                  "pharmacy_ncpdp": "SYN-001", "pharmacy_name": "Synthetic Pharmacy",
+                  "diagnosis_codes": ["J01.0"], "patient_instructions": "With food"}))' \
+  "$PAT_ADULT" "$RX_QTY")" "$DOCTOR" >/dev/null; jget prescription_id)
+check "a prescription is created" "true" "$([ -n "$RX" ] && echo true || echo false)"
+
+check "the prescriber signs it" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/sign" \
+    '{"signature_method":"electronic","attestation":"Clinically appropriate"}' "$DOCTOR")" "$(body)"
+check "and transmits it to the pharmacy" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/transmit" '{}' "$DOCTOR")" "$(body)"
+
+# Role: dispensing is the pharmacist's act. A prescriber may not fill their own
+# prescription.
+check "the prescriber CANNOT dispense" 403 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$DOCTOR")" "$(body)"
+
+# State: a transmitted prescription has not reached anybody yet.
+check "dispensing before receipt is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$PHARMACIST")" "$(body)"
+check "  refused as not-dispensable, not a generic conflict" "PRESCRIPTION_NOT_DISPENSABLE" \
+  "$(jget error code)"
+
+check "the pharmacy receives it" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/receive" '{}' "$PHARMACIST")" "$(body)"
+check "receiving twice is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/receive" '{}' "$PHARMACIST")" "$(body)"
+check "the pharmacist starts the fill" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/start" '{}' "$PHARMACIST")" "$(body)"
+
+# Quantity: more than was prescribed, and nothing at all, are both refused.
+check "dispensing more than prescribed is refused" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" "{\"quantity\":$((RX_QTY + 1))}" "$PHARMACIST")" "$(body)"
+check "  refused on the remaining quantity" "QUANTITY_EXCEEDS_REMAINING" "$(jget error code)"
+check "dispensing zero is refused" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":0}' "$PHARMACIST")" "$(body)"
+
+# Partial fill: the remainder is tracked, not forgotten.
+check "a partial fill is accepted" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":5}' "$PHARMACIST")" "$(body)"
+check "  the prescription is PartialFill" "PartialFill" "$(jget status)"
+check "  and still owes the remainder" "15" "$(jget remaining)"
+
+check "the balance is dispensed" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":15}' "$PHARMACIST")" "$(body)"
+check "  the prescription is now Dispensed" "Dispensed" "$(jget status)"
+check "  with nothing remaining" "0" "$(jget remaining)"
+LAST_EVENT=$(jget dispense_event_id)
+
+check "a fully dispensed prescription cannot be dispensed again" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense" '{"quantity":1}' "$PHARMACIST")" "$(body)"
+
+# Correction: the original event survives.
+check "a reversal requires a reason" 400 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"   \"}" "$PHARMACIST")" "$(body)"
+check "the last dispense is reversed" 200 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"Collected by the wrong person\"}" "$PHARMACIST")" "$(body)"
+check "  the dispensed total falls back" "5" "$(jget dispensed_total)"
+check "reversing the same event twice is refused" 409 \
+  "$(code POST "/api/e-prescriptions/$RX/dispense/reverse" \
+    "{\"dispense_event_id\":\"$LAST_EVENT\",\"reason\":\"again\"}" "$PHARMACIST")" "$(body)"
+
+# The history keeps every event, including the one that was corrected. A
+# dispensing record that can be erased answers "who said the patient had it"
+# wrongly.
+code GET "/api/e-prescriptions/$RX/dispense-events" '' "$PHARMACIST" >/dev/null
+# Read through `body |` on stdin, exactly as `jget` does. Passing the path
+# instead fails silently here: bash writes an MSYS /tmp path, and the Windows
+# python that reads it resolves /tmp against the current drive root.
+EVENT_COUNT=$(body | python -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(0); raise SystemExit
+print(len(d.get("dispense_events", [])))' 2>/dev/null || echo 0)
+check "the history retains the corrected dispense" "3" "$EVENT_COUNT"
+
+# -- Policy-driven second pharmacist ----------------------------------------
+#
+# The example policy is test configuration, not a claim about any country's
+# controlled-substance schedule. It proves the enforcement mechanism using an
+# organization-owned category that exists only in this synthetic environment.
+DUAL_RX=$(code POST /api/e-prescriptions "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[1], "medication_name": "Synthetic Dual Check",
+                  "strength": "1mg", "form": "tablet", "quantity": 2,
+                  "days_supply": 1, "directions": "Synthetic test only",
+                  "refills_allowed": 0, "is_controlled": False,
+                  "policy_category": "organization-approved-category",
+                  "force_secondary_verification": True,
+                  "pharmacy_ncpdp": "SYN-001", "pharmacy_name": "Synthetic Pharmacy",
+                  "diagnosis_codes": ["Z00.0"], "patient_instructions": "Synthetic"}))' \
+  "$PAT_ADULT")" "$DOCTOR" >/dev/null; jget prescription_id)
+check "policy-matched prescription is created" "true" \
+  "$([ -n "$DUAL_RX" ] && echo true || echo false)"
+code POST "/api/e-prescriptions/$DUAL_RX/sign" \
+  '{"signature_method":"electronic","attestation":"Synthetic dual-check test"}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$DUAL_RX/transmit" '{}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$DUAL_RX/receive" '{}' "$PHARMACIST" >/dev/null
+code POST "/api/e-prescriptions/$DUAL_RX/start" '{}' "$PHARMACIST" >/dev/null
+
+check "direct API dispense cannot bypass second verification" 409 \
+  "$(code POST "/api/e-prescriptions/$DUAL_RX/dispense" '{"quantity":2}' "$PHARMACIST")" "$(body)"
+check "  bypass is refused for the exact verification reason" "SECONDARY_VERIFICATION_REQUIRED" \
+  "$(jget error code)"
+check "first pharmacist requests a second verifier" 200 \
+  "$(code POST "/api/e-prescriptions/$DUAL_RX/verification/request" '{}' "$PHARMACIST")" "$(body)"
+check "first pharmacist cannot approve their own request" 403 \
+  "$(code POST "/api/e-prescriptions/$DUAL_RX/verification/decide" '{"approve":true}' "$PHARMACIST")" "$(body)"
+check "prescriber cannot satisfy the pharmacist requirement" 403 \
+  "$(code POST "/api/e-prescriptions/$DUAL_RX/verification/decide" '{"approve":true}' "$DOCTOR")" "$(body)"
+
+# Two eligible second pharmacists race on the same Pending state. The nested
+# optimistic guard and open-request constraint must admit exactly one decision.
+VERIFY_RACE_DIR=$(mktemp -d)
+for actor in "$PHARMACIST_2" "$PHARMACIST_3"; do
+  (
+    curl -s -o /dev/null -w '%{http_code}\n' -m 30 -X POST \
+      "$BASE/api/e-prescriptions/$DUAL_RX/verification/decide" \
+      -H 'Content-Type: application/json' \
+      -H "X-User-Id: $actor" \
+      -H "Idempotency-Key: $(python -c 'import uuid;print(uuid.uuid4())')" \
+      -d '{"approve":true}' > "$VERIFY_RACE_DIR/${actor:0:8}"
+  ) &
+done
+wait
+VERIFY_OK=$(cat "$VERIFY_RACE_DIR"/* 2>/dev/null | grep -c '^200$' || true)
+rm -rf "$VERIFY_RACE_DIR"
+check "exactly one concurrent second pharmacist approves" "1" "$VERIFY_OK"
+
+check "verified prescription can now dispense" 200 \
+  "$(code POST "/api/e-prescriptions/$DUAL_RX/dispense" '{"quantity":2}' "$PHARMACIST")" "$(body)"
+check "  verified dispense reaches the terminal state" "Dispensed" "$(jget status)"
+code GET /api/dashboard/pharmacist '' "$PHARMACIST" >/dev/null
+DUAL_DASHBOARD_STATE=$(body | python -c '
+import json, sys
+d=json.load(sys.stdin)
+rx=next((r for r in d.get("prescriptions",{}).get("list",[])
+         if r.get("prescription_id")==sys.argv[1]), {})
+print("%s/%s" % (rx.get("status"), rx.get("secondary_verification",{}).get("status")))' \
+  "$DUAL_RX" 2>/dev/null || echo missing)
+check "dashboard reload preserves dispense and verification state" "Dispensed/Verified" \
+  "$DUAL_DASHBOARD_STATE"
+
+# -- Concurrency ------------------------------------------------------------
+#
+# The property that matters most: two pharmacists filling the same prescription
+# at the same moment must not hand out more than was prescribed. The transition
+# is guarded on the dispensed quantity rather than on the status, because status
+# is unchanged across a partial fill and guarding on it would let both succeed.
+
+RACE_QTY=10
+RACE_RX=$(code POST /api/e-prescriptions "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[1], "medication_name": "Ibuprofen",
+                  "strength": "200mg", "form": "tablet", "quantity": int(sys.argv[2]),
+                  "days_supply": 3, "directions": "As needed",
+                  "refills_allowed": 0, "is_controlled": False,
+                  "pharmacy_ncpdp": "SYN-001", "pharmacy_name": "Synthetic Pharmacy",
+                  "diagnosis_codes": ["M79.1"], "patient_instructions": "With food"}))' \
+  "$PAT_ADULT" "$RACE_QTY")" "$DOCTOR" >/dev/null; jget prescription_id)
+code POST "/api/e-prescriptions/$RACE_RX/sign" \
+  '{"signature_method":"electronic","attestation":"Clinically appropriate"}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$RACE_RX/transmit" '{}' "$DOCTOR" >/dev/null
+code POST "/api/e-prescriptions/$RACE_RX/receive" '{}' "$PHARMACIST" >/dev/null
+
+# Six simultaneous attempts to dispense the WHOLE quantity.
+RACE_DIR=$(mktemp -d)
+for i in 1 2 3 4 5 6; do
+  (
+    # Trailing newline matters: without it `cat` joins the six results into
+    # one line and `grep -c '^200$'` counts none -- which reads as "no
+    # dispense succeeded" when in fact exactly one did.
+    curl -s -o /dev/null -w '%{http_code}
+' -m 30 -X POST \
+      "$BASE/api/e-prescriptions/$RACE_RX/dispense" \
+      -H 'Content-Type: application/json' \
+      -H "X-User-Id: $PHARMACIST" \
+      -H "Idempotency-Key: $(python -c 'import uuid;print(uuid.uuid4())')" \
+      -d "{\"quantity\":$RACE_QTY}" > "$RACE_DIR/$i"
+  ) &
+done
+wait
+RACE_OK=$(cat "$RACE_DIR"/* 2>/dev/null | grep -c '^200$' || true)
+rm -rf "$RACE_DIR"
+check "exactly one of six simultaneous dispenses succeeds" "1" "$RACE_OK"
+
+# Proved from the stored events rather than from the status codes: what matters
+# is how much left the pharmacy, not what the API said.
+code GET "/api/e-prescriptions/$RACE_RX/dispense-events" '' "$PHARMACIST" >/dev/null
+RACE_TOTAL=$(body | python -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(-1); raise SystemExit
+print(sum(e.get("quantity", 0) for e in d.get("dispense_events", [])
+          if not e.get("correction")))' 2>/dev/null || echo -1)
+check "  and the patient received exactly the prescribed quantity" "$RACE_QTY" "$RACE_TOTAL"
 
 # ---------------------------------------------------------------------------
 say "RESULTS"

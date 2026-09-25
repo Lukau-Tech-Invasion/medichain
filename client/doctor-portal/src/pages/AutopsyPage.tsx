@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listAutopsy, createAutopsyReport, useTranslation } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
+import {
+  getPatients,
+  listAutopsy,
+  createAutopsyReport,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Textarea,
+  useValidatedForm,
+  autopsyReportSchema,
+  formatDateOnly,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -10,16 +22,17 @@ import {
   Heart,
   Brain,
   RefreshCw,
-  AlertCircle,
 } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 
 type AutopsyType = 'medico-legal' | 'hospital' | 'forensic' | 'clinical';
 type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'undetermined' | 'pending';
 type AutopsyStatus = 'pending' | 'in-progress' | 'completed' | 'reviewed';
 
 interface ExternalExamination {
-  bodyLength: number;
-  bodyWeight: number;
+  /** Absent when nobody measured it -- not 0 cm (CLAUDE.md rule 12). */
+  bodyLength?: number;
+  bodyWeight?: number;
   bodyHabitus: string;
   rigorMortis: string;
   livorMortis: string;
@@ -50,6 +63,34 @@ interface HistologyResult {
   organ: string;
   findings: string;
   diagnosis: string;
+}
+
+/** A number the clinician typed, or nothing when the box was left empty. */
+function measured(value: string): number | undefined {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * A stored report, as the registry list returns it.
+ *
+ * The list serves the stored document flattened onto its row, and the create
+ * request stores the id as `report_id` and the patient as `patient_id` -- not
+ * the `autopsyId` / `patientId` this page reads. Cast straight to the page's
+ * shape, the first real report made `a.autopsyId.toLowerCase()` throw.
+ */
+function toAutopsy(row: Record<string, unknown>): AutopsyReport {
+  const report = row as unknown as AutopsyReport;
+  const text = (key: string) => (typeof row[key] === 'string' ? (row[key] as string) : '');
+  return {
+    ...report,
+    autopsyId: text('autopsyId') || text('report_id') || text('id'),
+    patientId: text('patientId') || text('patient_id') || text('owner_id'),
+    patientName: text('patientName'),
+    causeOfDeath: text('causeOfDeath'),
+    externalExam: report.externalExam ?? ({} as ExternalExamination),
+    internalExam: report.internalExam ?? ({} as InternalExamination),
+  };
 }
 
 interface AutopsyReport {
@@ -88,7 +129,14 @@ interface AutopsyReport {
 }
 
 const AutopsyPage: React.FC = () => {
+  // Toasts, not `alert()`. A native alert is a blocking modal: it freezes the
+  // tab until dismissed, ignores the app's styling and focus handling, and
+  // interrupts a clinician mid-form. `Toast.tsx` says in its own header that it
+  // exists "to replace browser alert() calls"; these three pages were missed.
+  const { showSuccess } = useToastActions();
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [autopsies, setAutopsies] = useState<AutopsyReport[]>([]);
@@ -142,7 +190,7 @@ const AutopsyPage: React.FC = () => {
       setError(null);
       const response = await listAutopsy();
       if (response.success && response.reports?.items) {
-        setAutopsies(response.reports.items as AutopsyReport[]);
+        setAutopsies((response.reports.items as Record<string, unknown>[]).map(toAutopsy));
       }
     } catch (err) {
       console.error('Error fetching autopsy reports:', err);
@@ -150,7 +198,7 @@ const AutopsyPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -164,9 +212,11 @@ const AutopsyPage: React.FC = () => {
     fetchAutopsies();
   }, [fetchAutopsies]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(autopsyReportSchema);
   const handleCreateAutopsy = async () => {
-    if (!newAutopsy.patientId || !newAutopsy.dateOfDeath || !newAutopsy.causeOfDeath) {
-      alert(t('docAutopsy.errorRequiredFields'));
+    // One toast for three fields on a long report form.
+    if (!validate(newAutopsy)) {
       return;
     }
 
@@ -174,7 +224,9 @@ const AutopsyPage: React.FC = () => {
     if (!patient) return;
 
     const autopsy: AutopsyReport = {
-      autopsyId: `AUT-${String(autopsies.length + 1).padStart(3, '0')}`,
+      // The server assigns the id; this used to send `AUT-001` numbered from
+      // the length of this page's own list, which every session repeated.
+      autopsyId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
       autopsyType: newAutopsy.autopsyType,
@@ -182,14 +234,14 @@ const AutopsyPage: React.FC = () => {
       dateOfAutopsy: newAutopsy.dateOfAutopsy,
       timeOfAutopsy: newAutopsy.timeOfAutopsy,
       location: newAutopsy.location,
-      prosector: user?.userId || 'USER-001',
+      prosector: user?.userId ?? '',
       assistant: newAutopsy.assistant || undefined,
       status: 'in-progress',
       circumstances: newAutopsy.circumstances,
       clinicalHistory: newAutopsy.clinicalHistory,
       externalExam: {
-        bodyLength: parseFloat(newAutopsy.bodyLength) || 0,
-        bodyWeight: parseFloat(newAutopsy.bodyWeight) || 0,
+        bodyLength: measured(newAutopsy.bodyLength),
+        bodyWeight: measured(newAutopsy.bodyWeight),
         bodyHabitus: newAutopsy.bodyHabitus,
         rigorMortis: newAutopsy.rigorMortis,
         livorMortis: newAutopsy.livorMortis,
@@ -222,9 +274,11 @@ const AutopsyPage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await createAutopsyReport(autopsy) as { success?: boolean; error?: string };
+      const response = await createAutopsyReport(autopsy) as { success?: boolean; error?: string; id?: string };
       if (response.success) {
-        setAutopsies([autopsy, ...autopsies]);
+        // Read back rather than insert the local copy: the stored report
+        // carries the id the server assigned.
+        void fetchAutopsies();
         setNewAutopsy({
           patientId: '',
           autopsyType: 'hospital',
@@ -263,7 +317,7 @@ const AutopsyPage: React.FC = () => {
           notes: '',
         });
         setActiveTab('reports');
-        alert(t('docAutopsy.successCreated'));
+        showSuccess(t('docAutopsy.successCreated', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docAutopsy.errorCreateFailed'));
       }
@@ -298,7 +352,7 @@ const AutopsyPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   const filteredAutopsies = autopsies.filter((a) => {
@@ -314,10 +368,35 @@ const AutopsyPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-orange-600 to-red-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-orange-700 to-red-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docAutopsy.title')}</h1>
-        <p className="text-orange-100">{t('docAutopsy.subtitle')}</p>
+        <p className="text-white">{t('docAutopsy.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchAutopsies()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b">
         <button
@@ -359,7 +438,7 @@ const AutopsyPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docAutopsy.searchPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -368,7 +447,7 @@ const AutopsyPage: React.FC = () => {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as AutopsyStatus | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docAutopsy.filterAllStatuses')}</option>
                   <option value="pending">{t('docAutopsy.status_pending')}</option>
@@ -445,10 +524,10 @@ const AutopsyPage: React.FC = () => {
                     <p className="text-sm font-semibold text-notice-subtle-fg mb-3">{t('docAutopsy.externalExamTitle')}</p>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblLength')}</span> {t('docAutopsy.cmSuffix', { value: autopsy.externalExam.bodyLength })}
+                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblLength')}</span> {autopsy.externalExam.bodyLength != null ? t('docAutopsy.cmSuffix', { value: autopsy.externalExam.bodyLength }) : t('docAutopsy.notMeasured')}
                       </div>
                       <div>
-                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblWeight')}</span> {t('docAutopsy.kgSuffix', { value: autopsy.externalExam.bodyWeight })}
+                        <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblWeight')}</span> {autopsy.externalExam.bodyWeight != null ? t('docAutopsy.kgSuffix', { value: autopsy.externalExam.bodyWeight }) : t('docAutopsy.notMeasured')}
                       </div>
                       <div className="col-span-2">
                         <span className="text-notice-subtle-fg font-semibold">{t('docAutopsy.lblHabitus')}</span> {autopsy.externalExam.bodyHabitus}
@@ -533,14 +612,14 @@ const AutopsyPage: React.FC = () => {
                 {autopsy.reviewedBy && (
                   <div className="mt-4 bg-surface-sunken border border-purple-200 rounded-lg p-3">
                     <p className="text-sm font-semibold text-content-secondary">
-                      {t('docAutopsy.reviewedByLine', { name: autopsy.reviewedBy, date: formatDate(autopsy.reviewDate!) })}
+                      {t('docAutopsy.reviewedByLine', { name: staffName(autopsy.reviewedBy), date: formatDate(autopsy.reviewDate!) })}
                     </p>
                   </div>
                 )}
               </div>
             ))}
 
-            {(activeTab === 'pending' ? pendingAutopsies : filteredAutopsies).length === 0 && (
+            {!error && !isLoading && (activeTab === 'pending' ? pendingAutopsies : filteredAutopsies).length === 0 && (
               <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                 <FileText className="w-12 h-12 text-content-muted mx-auto mb-3" />
                 <p className="text-content-muted">{t('docAutopsy.noReports')}</p>
@@ -563,7 +642,7 @@ const AutopsyPage: React.FC = () => {
                 <select
                   value={newAutopsy.patientId}
                   onChange={(e) => setNewAutopsy({ ...newAutopsy, patientId: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   required
                 >
                   <option value="">{t('docAutopsy.selectPatient')}</option>
@@ -579,7 +658,7 @@ const AutopsyPage: React.FC = () => {
                 <select
                   value={newAutopsy.autopsyType}
                   onChange={(e) => setNewAutopsy({ ...newAutopsy, autopsyType: e.target.value as AutopsyType })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="hospital">{t('docAutopsy.type_hospital')}</option>
                   <option value="forensic">{t('docAutopsy.type_forensic')}</option>
@@ -599,7 +678,7 @@ const AutopsyPage: React.FC = () => {
                     type="date"
                     value={newAutopsy.dateOfDeath}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, dateOfDeath: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     required
                   />
                 </div>
@@ -609,7 +688,7 @@ const AutopsyPage: React.FC = () => {
                     type="date"
                     value={newAutopsy.dateOfAutopsy}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, dateOfAutopsy: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -618,7 +697,7 @@ const AutopsyPage: React.FC = () => {
                     type="time"
                     value={newAutopsy.timeOfAutopsy}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, timeOfAutopsy: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -630,7 +709,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.location}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, location: e.target.value })}
                     placeholder={t('docAutopsy.locationPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -640,7 +719,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.assistant}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, assistant: e.target.value })}
                     placeholder={t('docAutopsy.assistantPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -656,7 +735,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, circumstances: e.target.value })}
                     placeholder={t('docAutopsy.circumstancesPh')}
                     rows={3}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -666,7 +745,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, clinicalHistory: e.target.value })}
                     placeholder={t('docAutopsy.clinicalHistoryPh')}
                     rows={3}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -682,7 +761,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.bodyLength}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyLength: e.target.value })}
                     placeholder={t('docAutopsy.bodyLengthPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -692,7 +771,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.bodyWeight}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyWeight: e.target.value })}
                     placeholder={t('docAutopsy.bodyWeightPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -704,7 +783,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.bodyHabitus}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyHabitus: e.target.value })}
                     placeholder={t('docAutopsy.bodyHabitusPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -714,7 +793,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.rigorMortis}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, rigorMortis: e.target.value })}
                     placeholder={t('docAutopsy.rigorMortisPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -724,7 +803,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.livorMortis}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, livorMortis: e.target.value })}
                     placeholder={t('docAutopsy.livorMortisPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -734,7 +813,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.decomposition}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, decomposition: e.target.value })}
                     placeholder={t('docAutopsy.decompositionPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -744,7 +823,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, externalInjuries: e.target.value })}
                     placeholder={t('docAutopsy.externalInjuriesPh')}
                     rows={3}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -754,7 +833,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, identifyingMarks: e.target.value })}
                     placeholder={t('docAutopsy.identifyingMarksPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -770,7 +849,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, cardiovascular: e.target.value })}
                     placeholder={t('docAutopsy.cardioPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -780,7 +859,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, respiratory: e.target.value })}
                     placeholder={t('docAutopsy.respPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -790,7 +869,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, gastrointestinal: e.target.value })}
                     placeholder={t('docAutopsy.giPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -800,7 +879,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, hepatobiliary: e.target.value })}
                     placeholder={t('docAutopsy.hepatoPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -810,7 +889,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, genitourinary: e.target.value })}
                     placeholder={t('docAutopsy.guPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -820,7 +899,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, endocrine: e.target.value })}
                     placeholder={t('docAutopsy.endoPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -830,7 +909,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, musculoskeletal: e.target.value })}
                     placeholder={t('docAutopsy.mskPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -840,7 +919,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, nervous: e.target.value })}
                     placeholder={t('docAutopsy.nervousPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -856,7 +935,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, microbiologyFindings: e.target.value })}
                     placeholder={t('docAutopsy.microFindingsPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -866,7 +945,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, radiologyFindings: e.target.value })}
                     placeholder={t('docAutopsy.radFindingsPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -876,15 +955,18 @@ const AutopsyPage: React.FC = () => {
               <h3 className="text-lg font-semibold text-content mb-4">{t('docAutopsy.conclusionsTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docAutopsy.lblCauseOfDeath')} <span className="text-critical-subtle-fg">*</span>
-                  </label>
-                  <textarea
+                  {/* The label had no `htmlFor` and the control no `id`, so the
+                      two were never associated at all -- a screen reader read
+                      an unlabelled text box. `Textarea` renders both. */}
+                  <Textarea
+                    id="autopsy-cause-of-death"
+                    label={t('docAutopsy.lblCauseOfDeath')}
                     value={newAutopsy.causeOfDeath}
-                    onChange={(e) => setNewAutopsy({ ...newAutopsy, causeOfDeath: e.target.value })}
+                    onChange={(e) => { clearField('causeOfDeath'); setNewAutopsy({ ...newAutopsy, causeOfDeath: e.target.value }); }}
+                    onBlur={() => validateField('causeOfDeath', newAutopsy)}
+                    error={errors.causeOfDeath}
                     placeholder={t('docAutopsy.causeOfDeathPh')}
-                    rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    rows={3}
                     required
                   />
                 </div>
@@ -893,7 +975,7 @@ const AutopsyPage: React.FC = () => {
                   <select
                     value={newAutopsy.mannerOfDeath}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, mannerOfDeath: e.target.value as MannerOfDeath })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
                     <option value="natural">{t('docAutopsy.manner_natural')}</option>
                     <option value="accident">{t('docAutopsy.manner_accident')}</option>
@@ -910,7 +992,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, contributingFactors: e.target.value })}
                     placeholder={t('docAutopsy.contributingFactorsPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -920,7 +1002,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, conclusions: e.target.value })}
                     placeholder={t('docAutopsy.conclusionsPh')}
                     rows={4}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -930,7 +1012,7 @@ const AutopsyPage: React.FC = () => {
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, recommendations: e.target.value })}
                     placeholder={t('docAutopsy.recommendationsPh')}
                     rows={2}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -946,7 +1028,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.caseNumber}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, caseNumber: e.target.value })}
                     placeholder={t('docAutopsy.caseNumberPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -956,7 +1038,7 @@ const AutopsyPage: React.FC = () => {
                     value={newAutopsy.legalNotification}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, legalNotification: e.target.value })}
                     placeholder={t('docAutopsy.legalNotificationPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -967,14 +1049,14 @@ const AutopsyPage: React.FC = () => {
                   onChange={(e) => setNewAutopsy({ ...newAutopsy, notes: e.target.value })}
                   placeholder={t('docAutopsy.notesPh')}
                   rows={3}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
             </div>
 
             <button
               onClick={handleCreateAutopsy}
-              className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-orange-700 hover:bg-orange-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
               {t('docAutopsy.createBtn')}

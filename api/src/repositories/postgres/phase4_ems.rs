@@ -4,7 +4,7 @@
 //! instead of manual positional placeholders ($1, $2, etc.).
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::repositories::traits::*;
@@ -41,7 +41,8 @@ impl EmsHandoffRepository for PgEmsHandoffRepository {
                 bleeding_controlled, patient_belongings, family_at_scene, family_contact_info,
                 police_at_scene, police_report_number, trauma_alert, stroke_alert,
                 stemi_alert, sepsis_alert, report_received_by, report_received_time,
-                verbal_report_complete, ems_documentation_received, notes
+                verbal_report_complete, ems_documentation_received, notes,
+                data
             ) ",
         );
 
@@ -93,7 +94,8 @@ impl EmsHandoffRepository for PgEmsHandoffRepository {
                 .push_bind(h.report_received_time)
                 .push_bind(h.verbal_report_complete)
                 .push_bind(h.ems_documentation_received)
-                .push_bind(&h.notes);
+                .push_bind(&h.notes)
+                .push_bind(&h.data);
         });
 
         qb.push(" RETURNING *");
@@ -239,7 +241,7 @@ impl MciRecordRepository for PgMciRecordRepository {
                 decontamination_required, decontamination_completed, treatments_provided,
                 disposition, disposition_datetime, destination, family_notified,
                 family_reunification_completed, patient_tracking_updated,
-                media_release_authorized, special_circumstances, created_by
+                media_release_authorized, special_circumstances, created_by, data
             ) ",
         );
 
@@ -275,7 +277,12 @@ impl MciRecordRepository for PgMciRecordRepository {
                 .push_bind(r.patient_tracking_updated)
                 .push_bind(r.media_release_authorized)
                 .push_bind(&r.special_circumstances)
-                .push_bind(&r.created_by);
+                .push_bind(&r.created_by)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -447,7 +454,8 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
                 court_order_number, released_to, release_datetime, release_authorized_by,
                 release_documentation, destruction_authorized, destruction_datetime,
                 destruction_method, destruction_witnessed_by, status, photos_taken,
-                photo_references, notes
+                photo_references, notes,
+                data
             ) ",
         );
 
@@ -486,7 +494,8 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
                 .push_bind(&r.status)
                 .push_bind(r.photos_taken)
                 .push_bind(&r.photo_references)
-                .push_bind(&r.notes);
+                .push_bind(&r.notes)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -574,49 +583,32 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
     async fn transfer(
         &self,
         id: &str,
-        new_custodian_id: &str,
-        notes: Option<&str>,
-    ) -> RepositoryResult<ChainOfCustodyEntity> {
-        // First get the current record
-        let mut get_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM chain_of_custody WHERE id = ");
-        get_qb.push_bind(id);
-
-        let current = get_qb
-            .build_query_as::<ChainOfCustodyEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        // Build the transfer record
-        let transfer = serde_json::json!({
-            "from": current.current_custodian_id,
-            "to": new_custodian_id,
-            "datetime": Utc::now().to_rfc3339(),
-            "notes": notes
-        });
-
-        let mut transfers = if let Some(arr) = current.transfers.as_array() {
-            arr.clone()
-        } else {
-            vec![]
-        };
-        transfers.push(transfer);
-        let new_transfers = serde_json::Value::Array(transfers);
-
-        // Update the record
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE chain_of_custody SET ");
-        qb.push("current_custodian_id = ")
-            .push_bind(new_custodian_id);
-        qb.push(", transfers = ").push_bind(&new_transfers);
+        expected_updated_at: DateTime<Utc>,
+        transfer: CustodyTransfer,
+    ) -> RepositoryResult<Option<ChainOfCustodyEntity>> {
+        // One statement: the append, the custodian and the guard together.
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE chain_of_custody SET transfers = COALESCE(transfers, '[]'::jsonb) || jsonb_build_array(",
+        );
+        qb.push_bind(&transfer.entry).push("::jsonb)");
+        qb.push(", current_custodian_id = ")
+            .push_bind(&transfer.new_custodian);
+        qb.push(", storage_location = ")
+            .push_bind(&transfer.location);
+        qb.push(", status = ").push_bind(&transfer.status);
+        qb.push(", data = ").push_bind(&transfer.data);
         qb.push(", updated_at = NOW() WHERE id = ").push_bind(id);
+        qb.push(" AND updated_at = ").push_bind(expected_updated_at);
         qb.push(" RETURNING *");
 
-        let result = qb
+        let updated = qb
             .build_query_as::<ChainOfCustodyEntity>()
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
-
-        Ok(result)
+        if updated.is_none() {
+            self.get_by_id(id).await?;
+        }
+        Ok(updated)
     }
 
     async fn get_by_custodian(

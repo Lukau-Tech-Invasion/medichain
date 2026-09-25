@@ -47,50 +47,6 @@ pub struct WalletRegisterResponse {
     pub message: String,
 }
 
-/// Request to verify/login with wallet
-#[derive(Debug, Deserialize)]
-pub struct WalletLoginRequest {
-    /// SS58 encoded wallet address
-    pub wallet_address: String,
-}
-
-/// Request body for POST /api/auth/session
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub struct SessionCreateRequest {
-    /// SS58 encoded wallet address
-    pub wallet_address: String,
-    /// Optional signature over the challenge (for future verification)
-    pub signature: Option<String>,
-    /// Optional challenge string that was signed
-    pub challenge: Option<String>,
-}
-
-/// Response for POST /api/auth/session
-#[derive(Debug, Serialize)]
-pub struct SessionCreateResponse {
-    pub success: bool,
-    pub token: String,
-    pub expires_at: i64,
-    pub wallet_address: String,
-}
-
-/// Response for GET /api/auth/verify
-#[derive(Debug, Serialize)]
-pub struct SessionVerifyResponse {
-    pub success: bool,
-    pub wallet_address: String,
-    pub expires_at: i64,
-}
-
-/// Response for wallet login
-#[derive(Debug, Serialize)]
-pub struct WalletLoginResponse {
-    pub success: bool,
-    pub user: Option<WalletUserInfo>,
-    pub message: String,
-}
-
 /// User info returned on login.
 ///
 /// Deliberately thin: this shape is also used to describe *other* people (the
@@ -204,20 +160,15 @@ pub struct RevokeRoleResponse {
 
 /// Standard error body returned by every failing handler.
 ///
-/// Phase 9.5: this struct keeps its existing fields so the ~1000 construction
-/// sites compile unchanged, but it serializes to the **canonical error envelope**
+/// Serializes to the **canonical error envelope**
 /// `{ "error": { "code": <code>, "message": <message> } }` via a hand-written
 /// `Serialize` impl that delegates to
 /// [`crate::middleware::error_handling::error_envelope_json`] (the single source
-/// of truth for the error shape). The legacy top-level `success`/`error`/`code`
-/// fields are no longer emitted on the wire.
+/// of truth for the error shape). The legacy top-level `success` flag, never
+/// emitted since Phase 9.5, was removed from the struct and its 1,235
+/// construction sites on 2026-09-24.
 #[derive(Debug)]
 pub struct ErrorResponse {
-    /// Retained only so the ~1000 existing `ErrorResponse { success: false, .. }`
-    /// construction sites keep compiling; it is no longer emitted on the wire
-    /// (Phase 9.5 canonical envelope drops the top-level `success` flag).
-    #[allow(dead_code)]
-    pub success: bool,
     pub error: String,
     pub code: String,
 }

@@ -74,7 +74,7 @@ Write-Host ""
 # Check if API is running
 Write-Host "Checking API health..." -ForegroundColor Yellow
 try {
-    $health = Invoke-RestMethod -Uri "$API_BASE/api/health" -Method Get -ErrorAction Stop
+    $health = Invoke-RestMethod -Uri "$API_BASE/health" -Method Get -ErrorAction Stop
     Write-Host "[OK] API is running: $($health.status)" -ForegroundColor Green
 } catch {
     Write-Host "[ERROR] API is not running. Start it with: .\run-api.bat" -ForegroundColor Red

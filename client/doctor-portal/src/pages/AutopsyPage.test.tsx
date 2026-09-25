@@ -37,8 +37,8 @@ describe('AutopsyPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({ user: mockUser });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(useAuthStore).mockReturnValue({ user: mockUser });
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
   });
 
   it('renders the autopsy reports header', async () => {

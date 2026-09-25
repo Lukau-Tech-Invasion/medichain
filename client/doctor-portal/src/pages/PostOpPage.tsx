@@ -1,16 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, apiUrl, useTranslation } from '@medichain/shared';
+import { getPatients, createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
+/** `null` until the clinician scores that component. */
+type AldreteValue = 0 | 1 | 2 | null;
 interface AldreteCriteria {
-  activity: 0 | 1 | 2;
-  respiration: 0 | 1 | 2;
-  circulation: 0 | 1 | 2;
-  consciousness: 0 | 1 | 2;
-  oxygenSaturation: 0 | 1 | 2;
+  activity: AldreteValue;
+  respiration: AldreteValue;
+  circulation: AldreteValue;
+  consciousness: AldreteValue;
+  oxygenSaturation: AldreteValue;
+}
+
+type Nausea = 'none' | 'mild' | 'moderate' | 'severe';
+type Bleeding = 'none' | 'minimal' | 'moderate' | 'significant';
+
+/** Every vital is a string while it is being typed; '' means not taken. */
+interface VitalsForm {
+  bp: string;
+  hr: string;
+  rr: string;
+  spo2: string;
+  temp: string;
+}
+
+/** Only the vitals someone actually took, as numbers where they are numbers. */
+function takenVitals(v: VitalsForm): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  if (v.bp.trim()) out.bp = v.bp.trim();
+  for (const key of ['hr', 'rr', 'spo2', 'temp'] as const) {
+    const n = parseFloat(v[key]);
+    if (Number.isFinite(n)) out[key] = n;
+  }
+  return out;
 }
 
 interface PostOpNote {
@@ -24,11 +50,14 @@ interface PostOpNote {
   anesthesiaType: string;
   arrivalTime: string;
   aldrete: AldreteCriteria;
-  alderetScore: number;
-  vitals: { bp: string; hr: number; rr: number; spo2: number; temp: number };
-  painScore: number;
-  nauseaVomiting: 'none' | 'mild' | 'moderate' | 'severe';
-  bleeding: 'none' | 'minimal' | 'moderate' | 'significant';
+  /** The server's total; absent when not every component was scored. */
+  alderetScore?: number | null;
+  /** The server's reading of the total against the recovery threshold. */
+  readyForDischarge?: boolean | null;
+  vitals: Record<string, string | number>;
+  painScore?: number | null;
+  nauseaVomiting?: Nausea | '';
+  bleeding?: Bleeding | '';
   urineOutput: string;
   fluidIntake: string;
   oralIntake: string;
@@ -42,6 +71,18 @@ interface PostOpNote {
   complications: string;
   notes: string;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type RecordList = { records?: PostOpNote[]; notes?: PostOpNote[] } | PostOpNote[];
 
 const aldreteDescriptions = {
   activity: { 2: 'Moves all extremities', 1: 'Moves two extremities', 0: 'Unable to move' },
@@ -61,7 +102,7 @@ const dischargeCriteriaList = [
 const PostOpPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
@@ -71,13 +112,18 @@ const PostOpPage: React.FC = () => {
   const [surgeon, setSurgeon] = useState('');
   const [anesthesiaType, setAnesthesiaType] = useState('');
   const [arrivalTime, setArrivalTime] = useState('');
+  // Nothing is pre-scored and no vital is pre-filled. Every component used to
+  // start at 2 and the vitals at 120/80, 80, 16, 98%, 36.8 C, so an untouched
+  // form was filed as a normal patient scoring 10 -- "ready for discharge" --
+  // about someone nobody had assessed (CLAUDE.md rules 9 and 12).
   const [aldrete, setAldrete] = useState<AldreteCriteria>({
-    activity: 2, respiration: 2, circulation: 2, consciousness: 2, oxygenSaturation: 2
+    activity: null, respiration: null, circulation: null, consciousness: null, oxygenSaturation: null
   });
-  const [vitals, setVitals] = useState({ bp: '120/80', hr: 80, rr: 16, spo2: 98, temp: 36.8 });
-  const [painScore, setPainScore] = useState(3);
-  const [nauseaVomiting, setNauseaVomiting] = useState<'none' | 'mild' | 'moderate' | 'severe'>('none');
-  const [bleeding, setBleeding] = useState<'none' | 'minimal' | 'moderate' | 'significant'>('none');
+  const [vitals, setVitals] = useState<VitalsForm>({ bp: '', hr: '', rr: '', spo2: '', temp: '' });
+  const [painScore, setPainScore] = useState<number | null>(null);
+  const [nauseaVomiting, setNauseaVomiting] = useState<Nausea | ''>('');
+  const [bleeding, setBleeding] = useState<Bleeding | ''>('');
+  const { catalog } = useScoringCatalog();
   const [urineOutput, setUrineOutput] = useState('');
   const [fluidIntake, setFluidIntake] = useState('');
   const [oralIntake, setOralIntake] = useState('');
@@ -107,17 +153,12 @@ const PostOpPage: React.FC = () => {
     if (activeTab === 'history' && selectedPatient && user) {
       const fetchHistory = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/surgical/post-op/patient/${selectedPatient}`), {
-            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+          const data = await getApiClient().get<RecordList>(`/api/surgical/post-op/patient/${selectedPatient}`);
+          const records = Array.isArray(data) ? data : (data.records || data.notes || []);
+          setNotes(prev => {
+            const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
+            return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
           });
-          if (res.ok) {
-            const data = await res.json();
-            const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-            setNotes(prev => {
-              const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
-              return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
-            });
-          }
         } catch (e) {
           console.error('Failed to fetch post-op history:', e);
         }
@@ -126,61 +167,76 @@ const PostOpPage: React.FC = () => {
     }
   }, [activeTab, selectedPatient, user]);
 
-  // Calculate Aldrete score
-  const aldreteScore = Object.values(aldrete).reduce((a, b) => a + b, 0);
-  const readyForDischarge = aldreteScore >= 9;
+  // A preview only: the total is recomputed and stored by the server, and the
+  // threshold comes from the scoring catalog (rule 8). `null` until every
+  // component is scored.
+  const aldreteScore = aldreteTotal(aldrete, catalog);
+  const aldreteBand = aldreteScore === null ? null : bandFor(aldreteScore, catalog?.aldrete?.bands);
+  const readyForDischarge = aldreteBand === 'ready';
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showWarning(t('docPostOp.warnSelectPatient'));
+      showError(t('docPostOp.errorSelectPatient'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const note: PostOpNote = {
-      id: `POST-${Date.now()}`,
+      id: '',
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
-      documentedBy: user?.userId || 'Unknown',
+      documentedBy: user?.userId ?? '',
       documentedAt: new Date().toISOString(),
       procedure, surgeon, anesthesiaType, arrivalTime, aldrete,
-      alderetScore: aldreteScore, vitals, painScore, nauseaVomiting,
-      bleeding, urineOutput, fluidIntake, oralIntake, ivAccess,
+      vitals: takenVitals(vitals),
+      painScore: painScore ?? undefined,
+      nauseaVomiting: nauseaVomiting || undefined,
+      bleeding: bleeding || undefined,
+      urineOutput, fluidIntake, oralIntake, ivAccess,
       medications, dressingStatus, drains,
       dischargeCriteria: selectedCriteria, dischargeTime, dischargeDisposition,
       complications, notes: notes2
     };
+    let created: { id?: string };
     try {
-      await createPostOp(note);
+      created = await createPostOp(note);
     } catch (err) {
       console.error('Failed to save post-op note:', err);
+      // Stop here. Falling through added the record to the local list
+      // and toasted success for a write that never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
-    setNotes([note, ...notes]);
+    // The server assigns the id and scores the assessment; the local copy
+    // carries both so the history's de-duplication by id still holds.
+    setNotes([{ ...note, id: created.id ?? '', alderetScore: aldreteScore, readyForDischarge: aldreteScore === null ? null : readyForDischarge }, ...notes]);
     showSuccess(t('docPostOp.saved'));
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 to-purple-500 text-white p-6">
+      <div className="bg-gradient-to-r from-violet-700 to-purple-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Activity className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docPostOp.title')}</h1>
-            <p className="text-violet-100">{t('docPostOp.subtitle')}</p>
+            <p className="text-white">{t('docPostOp.subtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* Aldrete Score Banner */}
-      <div className={`p-4 flex items-center justify-between ${readyForDischarge ? 'bg-ok-subtle' : 'bg-caution-subtle'}`}>
+      <div className={`p-4 flex items-center justify-between ${aldreteScore === null ? 'bg-surface-sunken' : readyForDischarge ? 'bg-ok-subtle' : 'bg-caution-subtle'}`}>
         <div className="flex items-center gap-3">
-          {readyForDischarge ? (
+          {aldreteScore === null ? null : readyForDischarge ? (
             <CheckCircle className="w-6 h-6 text-ok-subtle-fg" />
           ) : (
             <AlertTriangle className="w-6 h-6 text-caution-subtle-fg" />
           )}
-          <span className="font-semibold">
-            {t('docPostOp.banner', { score: aldreteScore, status: readyForDischarge ? t('docPostOp.statusReady') : t('docPostOp.statusMonitoring') })}
+          <span className={`font-semibold ${aldreteScore === null ? 'text-content-secondary' : readyForDischarge ? 'text-ok-subtle-fg' : 'text-caution-subtle-fg'}`}>
+            {aldreteScore === null
+              ? t('docPostOp.bannerUnscored')
+              : t('docPostOp.banner', { score: aldreteScore, status: readyForDischarge ? t('docPostOp.statusReady') : t('docPostOp.statusMonitoring') })}
           </span>
         </div>
       </div>
@@ -212,18 +268,12 @@ const PostOpPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="postop-patient" className="text-sm text-content-muted">{t('docPostOp.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="postop-patient"
+                    label={t('docPostOp.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="postop-procedure" className="text-sm text-content-muted">{t('docPostOp.procedure')}</label>
@@ -292,15 +342,19 @@ const PostOpPage: React.FC = () => {
                       ))}
                     </div>
                     <span className="text-sm text-content-muted">
-                      {aldreteDescriptions[key][aldrete[key]]}
+                      {aldrete[key] === null ? t('docPostOp.notAssessed') : aldreteDescriptions[key][aldrete[key] as 0 | 1 | 2]}
                     </span>
                   </div>
                 ))}
                 <div className="mt-4 pt-4 border-t flex items-center justify-between">
-                  <span className="text-xl font-bold">{t('docPostOp.totalScore', { score: aldreteScore })}</span>
-                  <span className={`px-3 py-1 rounded ${readyForDischarge ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'}`}>
-                    {readyForDischarge ? t('docPostOp.dischargeReady') : t('docPostOp.notReady')}
+                  <span className="text-xl font-bold">
+                    {aldreteScore === null ? t('docPostOp.totalUnscored') : t('docPostOp.totalScore', { score: aldreteScore })}
                   </span>
+                  {aldreteScore !== null && (
+                    <span className={`px-3 py-1 rounded ${readyForDischarge ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'}`}>
+                      {readyForDischarge ? t('docPostOp.dischargeReady') : t('docPostOp.notReady')}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -327,7 +381,7 @@ const PostOpPage: React.FC = () => {
                     id="postop-hr"
                     type="number"
                     value={vitals.hr}
-                    onChange={e => setVitals({ ...vitals, hr: Number(e.target.value) })}
+                    onChange={e => setVitals({ ...vitals, hr: e.target.value })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -337,7 +391,7 @@ const PostOpPage: React.FC = () => {
                     id="postop-rr"
                     type="number"
                     value={vitals.rr}
-                    onChange={e => setVitals({ ...vitals, rr: Number(e.target.value) })}
+                    onChange={e => setVitals({ ...vitals, rr: e.target.value })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -347,7 +401,7 @@ const PostOpPage: React.FC = () => {
                     id="postop-spo2"
                     type="number"
                     value={vitals.spo2}
-                    onChange={e => setVitals({ ...vitals, spo2: Number(e.target.value) })}
+                    onChange={e => setVitals({ ...vitals, spo2: e.target.value })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -358,7 +412,7 @@ const PostOpPage: React.FC = () => {
                     type="number"
                     step="0.1"
                     value={vitals.temp}
-                    onChange={e => setVitals({ ...vitals, temp: Number(e.target.value) })}
+                    onChange={e => setVitals({ ...vitals, temp: e.target.value })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -366,24 +420,29 @@ const PostOpPage: React.FC = () => {
               <div className="grid md:grid-cols-4 gap-4 mt-4">
                 <div>
                   <label htmlFor="postop-pain-score" className="text-sm text-content-muted">{t('docPostOp.painScore')}</label>
-                  <input
+                  {/* A select rather than a slider: a slider always has a value,
+                      so "not asked" could not be told from the 3 it started on. */}
+                  <select
                     id="postop-pain-score"
-                    type="range"
-                    min="0" max="10"
-                    value={painScore}
-                    onChange={e => setPainScore(Number(e.target.value))}
-                    className="w-full"
-                  />
-                  <p className="text-center font-medium">{painScore}</p>
+                    value={painScore === null ? '' : String(painScore)}
+                    onChange={e => setPainScore(e.target.value === '' ? null : Number(e.target.value))}
+                    className="w-full border rounded p-2"
+                  >
+                    <option value="">{t('docPostOp.notAssessed')}</option>
+                    {Array.from({ length: 11 }, (_, n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label htmlFor="postop-nausea" className="text-sm text-content-muted">{t('docPostOp.nausea')}</label>
                   <select
                     id="postop-nausea"
                     value={nauseaVomiting}
-                    onChange={e => setNauseaVomiting(e.target.value as 'none' | 'mild' | 'moderate' | 'severe')}
+                    onChange={e => setNauseaVomiting(e.target.value as Nausea | '')}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docPostOp.notAssessed')}</option>
                     <option value="none">{t('docPostOp.nauseaNone')}</option>
                     <option value="mild">{t('docPostOp.nauseaMild')}</option>
                     <option value="moderate">{t('docPostOp.nauseaModerate')}</option>
@@ -395,9 +454,10 @@ const PostOpPage: React.FC = () => {
                   <select
                     id="postop-bleeding"
                     value={bleeding}
-                    onChange={e => setBleeding(e.target.value as 'none' | 'minimal' | 'moderate' | 'significant')}
+                    onChange={e => setBleeding(e.target.value as Bleeding | '')}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docPostOp.notAssessed')}</option>
                     <option value="none">{t('docPostOp.bleedNone')}</option>
                     <option value="minimal">{t('docPostOp.bleedMinimal')}</option>
                     <option value="moderate">{t('docPostOp.bleedModerate')}</option>
@@ -580,15 +640,17 @@ const PostOpPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{n.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(n.documentedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(n.documentedAt)}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs rounded ${n.alderetScore >= 9 ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'}`}>
-                      {t('docPostOp.aldreteBadge', { score: n.alderetScore })}
-                    </span>
+                    {typeof n.alderetScore === 'number' && (
+                      <span className={`px-2 py-1 text-xs rounded ${n.readyForDischarge ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'}`}>
+                        {t('docPostOp.aldreteBadge', { score: n.alderetScore })}
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm">
                     <p><strong>{t('docPostOp.lblProcedure')}</strong> {n.procedure}</p>
-                    <p>{t('docPostOp.painSummary', { pain: n.painScore, nausea: n.nauseaVomiting, bleeding: n.bleeding })}</p>
+                    <p>{t('docPostOp.painSummary', { pain: n.painScore ?? '—', nausea: n.nauseaVomiting || '—', bleeding: n.bleeding || '—' })}</p>
                     {n.dischargeTime && <p className="text-ok-subtle-fg">{t('docPostOp.dischargedLine', { time: n.dischargeTime })}</p>}
                   </div>
                 </div>

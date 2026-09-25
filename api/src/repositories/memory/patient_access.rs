@@ -39,11 +39,28 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         &self,
         request: AccessRequestEntity,
     ) -> RepositoryResult<AccessRequestEntity> {
-        self.requests
-            .write()
-            .map_err(|_| poisoned("request"))?
-            .insert(request.id.clone(), request.clone());
+        let mut requests = self.requests.write().map_err(|_| poisoned("request"))?;
+        if requests.values().any(|existing| {
+            existing.patient_id == request.patient_id
+                && existing.provider_id == request.provider_id
+                && existing.status == "pending"
+        }) {
+            return Err(RepositoryError::Duplicate(
+                "a pending access request already exists for this provider and patient".into(),
+            ));
+        }
+        requests.insert(request.id.clone(), request.clone());
         Ok(request)
+    }
+
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity> {
+        // Demo-only memory storage has no shared transaction manager with the
+        // in-process outbox. Production uses the PostgreSQL implementation.
+        self.create_request(request).await
     }
 
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>> {
@@ -90,6 +107,17 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         Ok(Some((decided, grant)))
     }
 
+    async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>> {
+        // Demo-only memory storage has no shared transaction manager with the
+        // in-process outbox. Production uses the PostgreSQL implementation.
+        self.approve_request(request_id, grant).await
+    }
+
     async fn deny_request(
         &self,
         request_id: &str,
@@ -101,6 +129,14 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         };
         request.status = "denied".to_string();
         Ok(Some(request.clone()))
+    }
+
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>> {
+        self.deny_request(request_id).await
     }
 
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>> {
@@ -149,5 +185,14 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         };
         grant.status = "revoked".to_string();
         Ok(Some(grant.clone()))
+    }
+
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessGrantEntity>> {
+        self.revoke_grant(grant_id, now).await
     }
 }

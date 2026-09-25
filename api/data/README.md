@@ -66,3 +66,16 @@ interactions used in emergency/general medicine).
 clinically-reviewed entries (same schema) — no license needed for
 independently-authored clinical content, only for redistributing a vendor's
 proprietary interaction database wholesale.
+# Dispensing verification policy
+
+dispensing_policy.example.json documents the configuration boundary for
+second-pharmacist verification. MediChain contains no built-in controlled-drug
+mapping. A deployment must supply a reviewed JSON file and set
+DISPENSING_POLICY_PATH before a matching rule can require verification.
+Medication code, organization category, and medication name are exact,
+case-insensitive selectors; multiple selectors on one rule must all match.
+The policy version, rule id, and approved request TTL are copied into each
+prescription so later decisions remain attributable to the policy in force.
+
+The example values are deliberately non-jurisdictional and are not compliance
+data.

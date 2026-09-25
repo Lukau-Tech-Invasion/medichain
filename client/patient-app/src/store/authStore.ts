@@ -10,16 +10,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
-  apiUrl,
   setPatientAuth,
   clearPatientAuth as clearStoredAuth,
   getPatientAuth,
   debugLog,
-  IS_DEVELOPMENT,
-  generateHealthId,
   syncApiClientUserId,
   getApiClient,
   initPushNotifications,
+  getCurrentUser,
+  requestWalletChallenge,
+  issueJwt,
+  signMessage,
+  secretFromMnemonic,
+  signerFromSecret,
 } from '@medichain/shared';
 
 /**
@@ -68,7 +71,15 @@ interface AuthState {
   
   // Actions
   login: (walletAddress: string) => Promise<boolean>;
-  loginWithDemoWallet: (name?: string) => Promise<boolean>;
+  /**
+   * Sign in with the twelve-word recovery phrase issued at registration.
+   *
+   * The extension path assumes a patient has installed Polkadot.js and
+   * imported their key. A patient handed twelve words at a clinic reception
+   * desk has done neither, and had no way in at all -- the only other control
+   * on the sign-in screen mints a DIFFERENT, unregistered identity.
+   */
+  loginWithRecoveryPhrase: (mnemonic: string) => Promise<boolean>;
   logout: () => void;
   setPatient: (patient: Patient) => void;
   clearError: () => void;
@@ -77,21 +88,89 @@ interface AuthState {
 }
 
 /**
- * Generate a demo wallet address for testing
- * Format: 5 + 47 random alphanumeric chars
- */
-function generateDemoAddress(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789';
-  let address = '5';
-  for (let i = 0; i < 47; i++) {
-    address += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return address;
-}
-
-/**
  * Patient auth store with persistence
  */
+
+/**
+ * Everything a patient sign-in does after a signature exists.
+ *
+ * The two paths differ only in WHERE the signature comes from: a browser
+ * extension, or a key derived in this tab from the recovery phrase. Sharing
+ * the rest means the JWT exchange, the role check, the health-id check and
+ * the session write cannot drift apart between them.
+ */
+async function completeLogin(
+  set: (partial: Partial<AuthState>) => void,
+  walletAddress: string,
+  sign: (message: string) => Promise<string>
+): Promise<boolean> {
+  set({ isLoading: true, error: null });
+
+  set({ isLoading: true, error: null });
+
+  try {
+    const challenge = await requestWalletChallenge(walletAddress);
+    const signature = await sign(challenge.challenge.message);
+    const tokens = await issueJwt({
+      wallet_address: walletAddress,
+      challenge_id: challenge.challenge.challenge_id,
+      nonce: challenge.challenge.nonce,
+      signature,
+    });
+    getApiClient().setTokens(tokens.access_token, tokens.refresh_token);
+    const accountData = await getCurrentUser();
+
+    if (accountData.role !== 'Patient') {
+      throw new Error('Please use the Doctor Portal for provider accounts');
+    }
+
+    const patient: Patient = {
+      walletAddress: accountData.wallet_address,
+      healthId: accountData.linked_patient_id ?? '',
+      fullName: accountData.name || 'Patient',
+      firstName: accountData.name?.split(' ')[0] || 'Patient',
+      createdAt: accountData.created_at || new Date().toISOString(),
+    };
+    if (!patient.healthId) {
+      throw new Error('This patient account is not linked to a health record');
+    }
+      
+    // Store auth data for API calls
+    setPatientAuth({
+      address: patient.walletAddress,
+      healthId: patient.healthId,
+      name: patient.fullName,
+    });
+      
+    // The legacy header remains only for demo compatibility. Production
+    // identity comes from the bearer token issued above.
+    syncApiClientUserId();
+      
+    set({
+      patient,
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+    });
+
+    initPush();
+
+    debugLog('patientAuthStore', 'Wallet authentication completed');
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Login failed';
+    
+    set({
+      patient: null,
+      isAuthenticated: false,
+      isLoading: false,
+      error: message,
+    });
+    
+    return false;
+  }
+}
+
 export const usePatientAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -102,150 +181,42 @@ export const usePatientAuthStore = create<AuthState>()(
 
       /**
        * Login with a wallet address
-       * Validates the wallet against the blockchain/API
+       * Proves wallet ownership, then obtains the caller's own identity from
+       * the authenticated API. It deliberately never performs anonymous
+       * wallet discovery.
        */
       login: async (walletAddress: string) => {
-        set({ isLoading: true, error: null });
-
-        try {
-          // Query the API/blockchain for patient account info
-          const response = await fetch(apiUrl(`/api/auth/wallet/${walletAddress}`), {
-            headers: { 'Accept': 'application/json' },
-          });
-          
-          if (response.ok) {
-            const accountData = await response.json();
-            
-            // Ensure it's a patient account
-            if (accountData.role !== 'Patient') {
-              throw new Error('Please use the Doctor Portal for provider accounts');
-            }
-            
-            const patient: Patient = {
-              walletAddress: accountData.address,
-              // `/api/auth/wallet/{address}` returns the patient-record link as
-              // `linked_patient_id`; it has NO `healthId` field. Reading only
-              // `accountData.healthId` left this undefined, so every page that
-              // fetches the patient's own record built the URL
-              // `/api/patients/undefined` and got 403 — the dashboard, the
-              // emergency card and the profile page all failed to load, with
-              // nothing on screen explaining why.
-              healthId: accountData.healthId ?? accountData.linked_patient_id,
-              fullName: accountData.name || `Patient`,
-              firstName: accountData.firstName || accountData.name?.split(' ')[0] || 'Patient',
-              bloodType: accountData.bloodType,
-              emergencyContact: accountData.emergencyContact,
-              createdAt: accountData.createdAt || new Date().toISOString(),
-            };
-            
-            // Store auth data for API calls
-            setPatientAuth({
-              address: patient.walletAddress,
-              healthId: patient.healthId,
-              name: patient.fullName,
-            });
-            
-            // Sync API client with new userId
-            syncApiClientUserId();
-            
-            set({
-              patient,
-              isAuthenticated: true,
-              isLoading: false,
-              error: null,
-            });
-
-            initPush();
-
-            debugLog('patientAuthStore', 'Logged in with wallet:', walletAddress);
-            return true;
-          }
-          
-          throw new Error('Wallet not registered or authentication failed');
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Login failed';
-          
-          set({
-            patient: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: message,
-          });
-          
-          return false;
-        }
+        // The extension signs. Everything after the signature is identical
+        // for both sign-in paths, so it lives in `completeLogin`.
+        return completeLogin(set, walletAddress, (message) =>
+          signMessage(walletAddress, message)
+        );
       },
 
-      /**
-       * Login with a demo wallet for development/testing
-       * Creates a temporary wallet address with patient role
-       */
-      loginWithDemoWallet: async (name?: string) => {
-        if (!IS_DEVELOPMENT) {
-          set({ error: 'Demo wallets are only available in development mode' });
-          return false;
-        }
-        
+      loginWithRecoveryPhrase: async (mnemonic: string) => {
         set({ isLoading: true, error: null });
-
         try {
-          const walletAddress = generateDemoAddress();
-          const displayName = name || 'Demo Patient';
-          const firstName = displayName.split(' ')[0];
-          
-          // Generate a health ID from the wallet address
-          const healthId = await generateHealthId(walletAddress, 'demo-national-id');
-          
-          const patient: Patient = {
-            walletAddress,
-            healthId,
-            fullName: displayName,
-            firstName,
-            bloodType: 'O+',
-            emergencyContact: {
-              name: 'Emergency Contact',
-              phone: '+27 123 456 7890',
-              relationship: 'Family',
-            },
-            createdAt: new Date().toISOString(),
-          };
-          
-          // Store auth data
-          setPatientAuth({
-            address: patient.walletAddress,
-            healthId: patient.healthId,
-            name: patient.fullName,
-          });
-          
-          // Sync API client with new userId
-          syncApiClientUserId();
-          
-          set({
-            patient,
-            isAuthenticated: true,
-            isLoading: false,
-            error: null,
-          });
-
-          initPush();
-
-          debugLog('patientAuthStore', 'Created demo wallet:', { walletAddress, healthId });
-          return true;
+          // Derived in this browser; the phrase is never sent anywhere. The
+          // address comes out of the phrase, so a typo produces a wallet the
+          // server does not know rather than someone else's account.
+          const secret = await secretFromMnemonic(mnemonic);
+          const signer = await signerFromSecret(secret);
+          return await completeLogin(set, signer.address, (message) =>
+            signer.sign(message)
+          );
         } catch (error) {
-          set({
-            patient: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: 'Failed to create demo wallet',
-          });
+          const message =
+            error instanceof Error ? error.message : 'That recovery phrase did not work';
+          set({ patient: null, isAuthenticated: false, isLoading: false, error: message });
           return false;
         }
       },
 
       logout: () => {
         clearStoredAuth();
-        // Clear API client userId + JWT tokens
-        getApiClient().clearTokens();
+        // Revoke the session server-side too; `endSession` clears the local
+        // tokens whether or not the request reaches the API.
+        void getApiClient().endSession();
         syncApiClientUserId();
         set({
           patient: null,
@@ -332,17 +303,3 @@ export const usePatientAuthStore = create<AuthState>()(
   )
 );
 
-/**
- * Helper to get current patient ID (health ID) for API calls
- */
-export function getPatientHealthId(): string | null {
-  const store = usePatientAuthStore.getState();
-  return store.patient?.healthId || null;
-}
-
-/**
- * Helper to check if patient is authenticated
- */
-export function isPatientAuthenticated(): boolean {
-  return usePatientAuthStore.getState().isAuthenticated;
-}

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@medichain/shared';
 import { NFCTapSimulator, EmergencyPatientCard } from '../components';
 import { usePatientStore } from '../store';
@@ -12,25 +13,25 @@ import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
  */
 function EmergencyAccessPage() {
   const { t } = useTranslation();
-  const { currentEmergency, clearEmergencyAccess } = usePatientStore();
-  const [accessGrantedAt, setAccessGrantedAt] = useState<Date | null>(null);
+  const navigate = useNavigate();
+  const { currentEmergency, emergencyExpiresAt, clearEmergencyAccess } = usePatientStore();
+  const [now, setNow] = useState(() => Date.now());
 
-  const handleEmergencyAccess = (info: { patientId: string; emergencyInfo: any }) => {
-    // Use the info parameter to log the access
-    console.log('Emergency access granted for patient:', info.patientId);
-    setAccessGrantedAt(new Date());
-  };
+  useEffect(() => {
+    if (!emergencyExpiresAt) return undefined;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [emergencyExpiresAt]);
 
   const handleClearAccess = () => {
     clearEmergencyAccess();
-    setAccessGrantedAt(null);
   };
 
-  // Calculate time remaining (15 minute window)
+  // The emergency grant has a server-issued expiry. Never reconstruct its
+  // duration in the browser: a shortened grant must shorten this display too.
   const getTimeRemaining = () => {
-    if (!accessGrantedAt) return null;
-    const elapsed = Date.now() - accessGrantedAt.getTime();
-    const remaining = 15 * 60 * 1000 - elapsed; // 15 minutes
+    if (!emergencyExpiresAt) return null;
+    const remaining = emergencyExpiresAt.getTime() - now;
     if (remaining <= 0) return t('docEmergencyAccess.expired');
     const minutes = Math.floor(remaining / 60000);
     const seconds = Math.floor((remaining % 60000) / 1000);
@@ -42,7 +43,7 @@ function EmergencyAccessPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-critical-subtle rounded-lg flex items-center justify-center">
             <AlertTriangle className="text-critical-subtle-fg" size={24} />
           </div>
           <h1 className="text-2xl font-bold text-content">{t('docEmergencyAccess.title')}</h1>
@@ -68,7 +69,7 @@ function EmergencyAccessPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column - NFC Simulator */}
         <div>
-          <NFCTapSimulator onEmergencyAccess={handleEmergencyAccess} />
+          <NFCTapSimulator />
         </div>
 
         {/* Right Column - Patient Info or Instructions */}
@@ -103,6 +104,8 @@ function EmergencyAccessPage() {
                   {t('docEmergencyAccess.endAccess')}
                 </button>
                 <button
+                  type="button"
+                  onClick={() => navigate(`/patients/${currentEmergency.patientId}`)}
                   className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   <FileText size={18} />

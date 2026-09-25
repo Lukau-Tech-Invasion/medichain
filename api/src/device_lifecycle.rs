@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use uuid::Uuid;
 
+#[cfg(feature = "postgres")]
+use sqlx::Row;
+
 pub const ROTATION_INTERVAL_DAYS: i64 = 30;
 pub const ROTATION_WARNING_DAYS: i64 = 7;
 pub const ROTATION_GRACE_DAYS: i64 = 7;
@@ -209,6 +212,94 @@ impl DeviceLifecycleStore {
         self.devices.read().ok()?.get(id).cloned()
     }
 
+    #[cfg(feature = "postgres")]
+    pub async fn load_from_pool(pool: &sqlx::PgPool) -> Result<Self, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, facility_id, device_name, device_type, \
+             hardware_fingerprint, platform, status, current_key_id, last_seen_at, \
+             last_rotation_at, next_rotation_at, revoked_at, revocation_reason \
+             FROM managed_devices",
+        )
+        .fetch_all(pool)
+        .await?;
+        let mut devices = HashMap::new();
+        for row in rows {
+            let status_text: String = row.try_get("status")?;
+            let status = persisted_status(&status_text);
+            let id: String = row.try_get("id")?;
+            let next_rotation_at = row
+                .try_get::<Option<DateTime<Utc>>, _>("next_rotation_at")?
+                .unwrap_or_else(Utc::now);
+            devices.insert(
+                id.clone(),
+                ManagedDevice {
+                    id,
+                    organization_id: row.try_get("organization_id")?,
+                    facility_id: row.try_get("facility_id")?,
+                    device_name: row.try_get("device_name")?,
+                    device_type: row.try_get("device_type")?,
+                    hardware_fingerprint: row.try_get("hardware_fingerprint")?,
+                    platform: row.try_get("platform")?,
+                    status,
+                    current_key_id: row.try_get("current_key_id")?,
+                    last_seen_at: row.try_get("last_seen_at")?,
+                    last_rotation_at: row.try_get("last_rotation_at")?,
+                    next_rotation_at,
+                    revoked_at: row.try_get("revoked_at")?,
+                    revocation_reason: row.try_get("revocation_reason")?,
+                },
+            );
+        }
+        Ok(Self {
+            devices: RwLock::new(devices),
+        })
+    }
+
+    /// Restore a device snapshot after a durable write fails.
+    pub fn restore(&self, device: ManagedDevice) -> Result<(), &'static str> {
+        self.devices
+            .write()
+            .map_err(|_| "Device store is unavailable")?
+            .insert(device.id.clone(), device);
+        Ok(())
+    }
+
+    /// Remove an enrollment that could not be persisted.
+    pub fn remove(&self, id: &str) -> Result<(), &'static str> {
+        self.devices
+            .write()
+            .map_err(|_| "Device store is unavailable")?
+            .remove(id);
+        Ok(())
+    }
+
+    /// Every enrolled device, newest rotation clock last.
+    ///
+    /// # Why this exists
+    ///
+    /// The only device read was `non_compliant()`, which by construction never
+    /// returns a healthy device. So there was no answer to "which devices are
+    /// enrolled here" -- and a device id is required to issue an emergency
+    /// grant, so break-glass access was unreachable in practice: the id existed
+    /// only in the HTTP response of the enrolment call that created it.
+    ///
+    /// Revoked and retired devices are included. An administrator reviewing
+    /// which hardware can open a record needs the ones that used to be able to
+    /// as well.
+    /// Returns an error rather than an empty list when the store cannot be
+    /// read: "no devices are enrolled" and "the device store is unavailable"
+    /// are opposite answers, and an administrator acting on the first when the
+    /// second is true enrols a duplicate.
+    pub fn list_all(&self) -> Result<Vec<ManagedDevice>, &'static str> {
+        let devices = self
+            .devices
+            .read()
+            .map_err(|_| "Device store is unavailable")?;
+        let mut items: Vec<ManagedDevice> = devices.values().cloned().collect();
+        items.sort_by(|a, b| a.device_name.cmp(&b.device_name).then(a.id.cmp(&b.id)));
+        Ok(items)
+    }
+
     pub fn non_compliant(&self) -> Vec<ManagedDevice> {
         self.devices
             .read()
@@ -220,6 +311,21 @@ impl DeviceLifecycleStore {
                     .collect()
             })
             .unwrap_or_default()
+    }
+}
+
+fn persisted_status(value: &str) -> DeviceStatus {
+    match value {
+        "active" => DeviceStatus::Active,
+        "rotation_due" => DeviceStatus::RotationDue,
+        "grace" => DeviceStatus::Grace,
+        "non_compliant" => DeviceStatus::NonCompliant,
+        "quarantined" => DeviceStatus::Quarantined,
+        "lost" => DeviceStatus::Lost,
+        "stolen" => DeviceStatus::Stolen,
+        "revoked" => DeviceStatus::Revoked,
+        "retired" => DeviceStatus::Retired,
+        _ => DeviceStatus::Enrolled,
     }
 }
 
@@ -244,6 +350,40 @@ mod tests {
             )
             .unwrap()
     }
+    /// `non_compliant()` was the only read, so a healthy fleet and an empty
+    /// one looked identical -- and the device id an emergency grant needs
+    /// existed nowhere a person could find it.
+    #[test]
+    fn list_all_returns_healthy_devices_that_non_compliant_never_would() {
+        let store = DeviceLifecycleStore::new();
+        let device = enrolled(&store);
+        store
+            .rotate(&device.id, "key-1".into(), Utc::now())
+            .unwrap();
+        assert!(store.non_compliant().is_empty());
+        let all = store.list_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, device.id);
+        assert_eq!(all[0].status, DeviceStatus::Active);
+    }
+
+    /// An administrator reviewing which hardware can open a record needs the
+    /// ones that used to be able to as well.
+    #[test]
+    fn list_all_keeps_revoked_devices() {
+        let store = DeviceLifecycleStore::new();
+        let device = enrolled(&store);
+        let now = Utc::now();
+        store.rotate(&device.id, "key-1".into(), now).unwrap();
+        store
+            .revoke(&device.id, "reported stolen".into(), now)
+            .unwrap();
+        let all = store.list_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].status, DeviceStatus::Revoked);
+        assert!(!store.can_access(&device.id, now));
+    }
+
     #[test]
     fn revoked_device_cannot_access_even_with_a_previous_key() {
         let store = DeviceLifecycleStore::new();

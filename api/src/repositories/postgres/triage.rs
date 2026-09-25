@@ -32,7 +32,7 @@ impl PgTriageAssessmentRepository {
 /// reporting success, and the patient-facing download 404'd on a record that was
 /// sitting in the table. Casting at the read boundary keeps the column's numeric
 /// precision constraint while matching the Rust type.
-const TRIAGE_COLUMNS: &str = "id, patient_id, esi_level, chief_complaint, heart_rate, respiratory_rate, blood_pressure_systolic, blood_pressure_diastolic, temperature::float8 AS temperature, oxygen_saturation, pain_scale, gcs_score, blood_glucose, weight::float8 AS weight, is_critical, requires_isolation, disposition, assigned_bed, triage_time, seen_by_provider_at, performed_by, facility_id, created_at, updated_at";
+const TRIAGE_COLUMNS: &str = "id, patient_id, esi_level, chief_complaint, heart_rate, respiratory_rate, blood_pressure_systolic, blood_pressure_diastolic, temperature::float8 AS temperature, oxygen_saturation, pain_scale, gcs_score, blood_glucose, weight::float8 AS weight, is_critical, requires_isolation, disposition, assigned_bed, notes, triage_time, seen_by_provider_at, performed_by, facility_id, created_at, updated_at";
 
 #[async_trait]
 impl TriageAssessmentRepository for PgTriageAssessmentRepository {
@@ -45,7 +45,7 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
                 id, patient_id, esi_level, chief_complaint, heart_rate, respiratory_rate,
                 blood_pressure_systolic, blood_pressure_diastolic, temperature, oxygen_saturation,
                 pain_scale, gcs_score, blood_glucose, weight, is_critical, requires_isolation,
-                disposition, assigned_bed, triage_time, seen_by_provider_at, performed_by, facility_id
+                disposition, assigned_bed, notes, triage_time, seen_by_provider_at, performed_by, facility_id
             ) "
         );
 
@@ -68,6 +68,7 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
                 .push_bind(a.requires_isolation)
                 .push_bind(&a.disposition)
                 .push_bind(&a.assigned_bed)
+                .push_bind(&a.notes)
                 .push_bind(a.triage_time)
                 .push_bind(a.seen_by_provider_at)
                 .push_bind(&a.performed_by)

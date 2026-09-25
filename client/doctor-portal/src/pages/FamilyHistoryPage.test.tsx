@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import FamilyHistoryPage from './FamilyHistoryPage';
+import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -44,30 +46,33 @@ describe('FamilyHistoryPage', () => {
 
   const mockFamilyMembers = [
     {
-      // patientId and patientName are required by the page's FamilyMember
-      // interface: the list filters on both, so a record missing them is
-      // filtered out before it can render.
-      memberId: '1',
-      patientId: 'PAT-001',
-      patientName: 'Test Patient',
       relationship: 'mother',
-      vitalStatus: 'alive',
-      conditions: [{ conditionName: 'Diabetes', category: 'diabetes' }],
-      recordedAt: new Date().toISOString(),
+      living: true,
+      current_age: 64,
+      age_at_death: null,
+      cause_of_death: null,
+      conditions: [{ condition: 'Diabetes', age_at_diagnosis: 52, notes: null }],
     }
   ];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getFamilyHistory as any).mockResolvedValue(mockFamilyMembers);
+    vi.mocked(shared.getFamilyHistory).mockResolvedValue({
+      patient_id: 'PAT-001',
+      family_members: mockFamilyMembers,
+      genetic_conditions: [],
+      three_gen_complete: false,
+      last_updated: 0,
+      updated_by: 'test',
+    });
     // The page fetches family history only for a SELECTED patient, and the
     // selector is populated from getPatients — an empty list meant no
     // patient could be chosen, so members never loaded.
-    (shared.getPatients as any).mockResolvedValue([
-      { patient_id: 'PAT-001', full_name: 'Test Patient' },
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientProfile(),
     ]);
   });
 
@@ -77,8 +82,7 @@ describe('FamilyHistoryPage', () => {
     // Choose the patient: the family-history fetch is keyed on the selection.
     // Query the filter by id — several controls on this page are labelled with
     // the word 'Patient'.
-    const filter = await screen.findByLabelText(/Patient Filter/i);
-    fireEvent.change(filter, { target: { value: 'PAT-001' } });
+    await selectPatient(/Patient Filter/i, 'Test Patient');
 
     await waitFor(() => {
       expect(screen.getAllByText(/Family History/i).length).toBeGreaterThan(0);

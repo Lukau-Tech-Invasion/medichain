@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { vi, describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import EmergencyProtocolsPage from './EmergencyProtocolsPage';
 
 describe('EmergencyProtocolsPage', () => {
@@ -13,7 +13,7 @@ describe('EmergencyProtocolsPage', () => {
   it('displays protocol categories', () => {
     render(<EmergencyProtocolsPage />);
 
-    expect(screen.getAllByText(/Cardiac Arrest/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Cardiac Events/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Code Blue/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Trauma/i).length).toBeGreaterThan(0);
   });

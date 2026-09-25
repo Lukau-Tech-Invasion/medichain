@@ -18,6 +18,7 @@ const fr_FR: TranslationRecord = {
     search: 'Rechercher',
     filter: 'Filtrer',
     loading: 'Chargement...',
+    saveFailed: "Échec de l'enregistrement. La fiche n'a pas été enregistrée — veuillez réessayer.",
     error: 'Erreur',
     success: 'Succès',
     warning: 'Avertissement',

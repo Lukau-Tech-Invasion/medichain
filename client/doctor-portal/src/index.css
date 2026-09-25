@@ -4,100 +4,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * Form controls, in both themes.
+ *
+ * 88 inputs, textareas and selects across 18 files declared no background and
+ * no text colour, so they fell back to the browser's defaults while the page
+ * around them was themed. In dark mode that is how a patient came to see the
+ * insurance form as white boxes with white text in them: the field was
+ * painted from the light palette and the value inherited the dark page's
+ * light foreground.
+ *
+ * Fixed here rather than at the 88 call sites. These are element selectors in
+ * the base layer, so any component that DOES set `bg-surface text-content`
+ * still wins on specificity -- this is a floor, not an override.
+ *
+ * `color-scheme` on the root is what makes the browser's own furniture agree:
+ * the caret, the date picker, autofill and the scrollbar are painted by the
+ * browser, not by these rules, and without it they stay light on a dark page.
+ * ------------------------------------------------------------------------ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply bg-surface text-content border-border-interactive;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-content-muted;
+  }
+
+  /* A disabled control must still be readable: a clinician needs to know
+     WHICH action is unavailable, and 1.4.3's exemption for inactive controls
+     does not make an unreadable one useful. */
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    /* opacity-100: Chrome's own stylesheet fades a disabled <select> to 70%,
+       which took the Burn chart's muted text from 5.3:1 to 3.06:1. */
+    @apply bg-surface-sunken text-content-muted opacity-100;
+  }
+
+  /* A native option list is drawn by the browser from the element's own
+     colours; inheriting the page's leaves white-on-white in a dark theme. */
+  option {
+    @apply bg-surface text-content;
+  }
+
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    @apply outline-none ring-2 ring-focus border-transparent;
+  }
+}
+
+
 /* Custom base styles */
 @layer base {
   html {
     font-family: "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* The persistent navigation is 4rem high and the optional offline banner
+       can add another ~3rem. Leave room for both when focus scrolls a control
+       into view (WCAG 2.2 SC 2.4.11). */
+    scroll-padding-top: 8rem;
   }
 
+  /* The page takes its colours from the tokens, which carry both themes. */
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-app-bg text-content;
   }
 
-  /* Dark mode base styles */
-  .dark body,
-  html.dark body {
-    @apply bg-slate-900 text-gray-100;
-  }
-
-  /* Dark mode for common elements */
-  .dark {
-    color-scheme: dark;
-  }
-
-  .dark input,
-  .dark textarea,
-  .dark select {
-    @apply bg-slate-800 border-slate-600 text-gray-100 placeholder-gray-400;
-  }
-
-  .dark input:focus,
-  .dark textarea:focus,
-  .dark select:focus {
-    @apply border-primary-500 ring-primary-500;
-  }
-
-  /* The dark-mode overrides that used to live here targeted *bare elements* —
-     `.dark p`, `.dark h1..h6`, `.dark label`. A type selector plus a class is
-     specificity (0,1,1), which beats a utility class at (0,1,0), so they won
-     against whatever colour a component had deliberately chosen. A paragraph
-     reading `text-green-700` inside a `bg-green-50` alert was repainted
-     gray-300 — pale text on a pale background, on a critical-value screen
-     (docs/WORKFLOW_AUDIT.md, WF-018).
-
-     They are gone. `.dark body` already sets a light default colour, which
-     every unstyled element inherits, and the utility-level overrides below
-     (`.dark .text-gray-700` and friends) still handle elements that opted into
-     a specific grey. Nothing now silently overrules a component's own choice.
-
-     New work should use the semantic tokens (`text-content`, `bg-ok-subtle`,
-     `text-critical-subtle-fg`) which carry their own dark values and need no
-     override layer at all. */
-
-  /* Dark mode cards and containers */
-  .dark .bg-white {
-    @apply bg-slate-800;
-  }
-
-  .dark .bg-gray-50 {
-    @apply bg-slate-900;
-  }
-
-  .dark .bg-gray-100 {
-    @apply bg-slate-800;
-  }
-
-  .dark .border-gray-100,
-  .dark .border-gray-200,
-  .dark .border-gray-300 {
-    @apply border-slate-700;
-  }
-
-  .dark .text-gray-500 {
-    @apply text-gray-400;
-  }
-
-  .dark .text-gray-600 {
-    @apply text-gray-300;
-  }
-
-  .dark .text-gray-700 {
-    @apply text-gray-200;
-  }
-
-  .dark .text-gray-900 {
-    @apply text-white;
-  }
-
-  .dark .hover\:bg-gray-50:hover {
-    @apply bg-slate-700;
-  }
-
-  .dark .hover\:bg-gray-100:hover {
-    @apply bg-slate-700;
-  }
+  /* The ".dark .bg-white { bg-slate-800 }" remap layer that lived here is gone.
+     It repainted a fixed list of greys in dark mode -- bg-white, gray-50/100,
+     text-gray-500/600/700/900 -- and nothing else, so `text-gray-800` or
+     `bg-gray-200` stayed light-mode colours on a dark page, and a component on
+     a deliberately fixed background had its text flipped anyway (MCI's triage
+     cards, WF-018's green alert). Every surface now uses the semantic tokens
+     directly (`bg-surface`, `text-content-muted`, `border-border`), and
+     `scripts/check-undefined-colour-classes.py` plus the colour sweep hold it
+     there. Nothing left needs a second, dark-only rule. */
 
   .dark .shadow,
   .dark .shadow-sm,
@@ -107,11 +102,8 @@
 
   /* Focus styles for accessibility */
   *:focus-visible {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
-  }
-
-  .dark *:focus-visible {
-    @apply ring-offset-slate-900;
+    @apply outline-none ring-2 ring-focus ring-offset-2 ring-offset-app-bg;
+    scroll-margin-top: 8rem;
   }
 }
 
@@ -178,7 +170,7 @@
 
   /* Skeleton loading */
   .skeleton {
-    @apply animate-pulse bg-gray-200 rounded;
+    @apply animate-pulse bg-border rounded;
   }
 
   /* Toast slide-in animation */

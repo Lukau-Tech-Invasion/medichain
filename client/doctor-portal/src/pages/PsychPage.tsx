@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych, getPsychForPatient, useTranslation } from '@medichain/shared';
+import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
@@ -48,7 +49,6 @@ interface PsychAssessment {
   assessedAt: string;
   chiefComplaint: string;
   historyOfPresentIllness: string;
-  psychiatricHistory: string[];
   substanceUse: { substance: string; frequency: string; lastUse: string }[];
   medications: string[];
   mentalStatusExam: MentalStatusExam;
@@ -92,7 +92,33 @@ function toRiskLevel(value: unknown): RiskLevel {
  */
 function toStoredAssessment(patients: Array<{ patient_id: string; full_name: string }>) {
   return (raw: unknown): PsychAssessment => {
-    const item = raw as Record<string, any>;
+    // The stored assessment nests several sub-objects; each is read with `??`
+    // fallbacks below, so the shape is optional all the way down.
+    const item = raw as {
+      history_of_present_illness?: string;
+      psych_medications?: unknown;
+      diagnoses?: unknown;
+      safety_plan?: unknown;
+      notes?: string;
+      assessment_id?: string;
+      patient_id?: string;
+      chief_complaint?: string;
+      assessed_by?: string;
+      assessed_at?: number;
+      disposition?: string;
+      // Each sub-object is read field-by-field with a `?? ''` fallback, so its
+      // values are strings-or-absent. `Record<string, unknown>` would make
+      // every one of those reads `{}` rather than `string`.
+      suicide_risk?: Partial<Record<string, string>>;
+      homicidal_risk?: Partial<Record<string, string>>;
+      mental_status?: Partial<Record<string, string>>;
+      legal_status?: { admission_type?: string };
+      psych_history?: { diagnoses?: unknown };
+      substance_use?: {
+        substances?: { substance?: string; frequency?: string; last_use?: string; lastUse?: string }[];
+      };
+      [key: string]: unknown;
+    };
     const suicide = item.suicide_risk ?? {};
     const homicide = item.homicidal_risk ?? {};
     const mse = item.mental_status ?? {};
@@ -105,8 +131,7 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
     const legal = String(item.legal_status?.admission_type ?? 'voluntary').toLowerCase();
     return {
       historyOfPresentIllness: item.history_of_present_illness ?? '',
-      psychiatricHistory: asList(item.psych_history?.diagnoses),
-      substanceUse: (item.substance_use?.substances ?? []).map((s: any) => ({
+      substanceUse: (item.substance_use?.substances ?? []).map((s) => ({
         substance: s.substance ?? '',
         frequency: s.frequency ?? '',
         lastUse: s.last_use ?? s.lastUse ?? '',
@@ -134,15 +159,16 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
       diagnoses: asList(item.diagnoses),
       safetyPlan: asList(item.safety_plan),
       notes: item.notes ?? '',
-      id: item.assessment_id,
-      patientId: item.patient_id,
-      chiefComplaint: item.chief_complaint,
-      assessedBy: item.assessed_by,
+      id: item.assessment_id ?? '',
+      patientId: item.patient_id ?? '',
+      chiefComplaint: item.chief_complaint ?? '',
+      assessedBy: item.assessed_by ?? '',
       assessedAt: new Date((item.assessed_at ?? 0) * 1000).toISOString(),
-      disposition: item.disposition,
+      disposition: item.disposition ?? '',
       patientName:
-        patients.find((patient) => patient.patient_id === item.patient_id)?.full_name ||
-        item.patient_id,
+        patients.find((patient) => patient.patient_id === item.patient_id)?.full_name ??
+        item.patient_id ??
+        '',
       suicideRisk: {
         ideation: Boolean(suicide.ideation),
         plan: Boolean(suicide.plan),
@@ -175,15 +201,15 @@ const psychiatricDiagnoses = [
 const PsychPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const [historyError, setHistoryError] = useState('');
 
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [hpi, setHpi] = useState('');
-  const [psychHistory, _setPsychHistory] = useState<string[]>([]);
   const [substances, setSubstances] = useState<{ substance: string; frequency: string; lastUse: string }[]>([]);
   const [selectedDiagnoses, setSelectedDiagnoses] = useState<string[]>([]);
   const [legalStatus, setLegalStatus] = useState<LegalStatus>('voluntary');
@@ -227,14 +253,25 @@ const PsychPage: React.FC = () => {
     loadData();
   }, []);
 
-  useEffect(() => {
+  const refreshAssessments = useCallback(async () => {
     if (!selectedPatient) return;
-    getPsychForPatient(selectedPatient)
-      .then(({ assessments: saved }) => {
-        setAssessments(saved.map(toStoredAssessment(patients)));
-      })
-      .catch((err) => console.error('Failed to load psychiatric assessments:', err));
-  }, [selectedPatient, patients]);
+    try {
+      const { assessments: saved } = await getPsychForPatient(selectedPatient);
+      setAssessments(saved.map(toStoredAssessment(patients)));
+      setHistoryError('');
+    } catch (err) {
+      console.error('Failed to load psychiatric assessments:', err);
+      // Said out loud rather than left as an empty tab. "No prior
+      // assessments" and "the history could not be loaded" are opposite
+      // findings for a patient being assessed for suicide risk, and an empty
+      // list asserts the first one.
+      setHistoryError(t('docPsych.historyLoadFailed'));
+    }
+  }, [selectedPatient, patients, t]);
+
+  useEffect(() => {
+    void refreshAssessments();
+  }, [refreshAssessments]);
 
   // Auto-calculate suicide risk
   useEffect(() => {
@@ -262,11 +299,11 @@ const PsychPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showWarning(t('docPsych.warnSelectPatient'));
+      showError(t('docPsych.errorSelectPatient'));
       return;
     }
     if (!disposition) {
-      showWarning('Select a disposition before saving the assessment.');
+      showError('Select a disposition before saving the assessment.');
       return;
     }
     const apiDisposition: Record<string, string> = {
@@ -286,7 +323,6 @@ const PsychPage: React.FC = () => {
       assessedAt: new Date().toISOString(),
       chiefComplaint,
       historyOfPresentIllness: hpi,
-      psychiatricHistory: psychHistory,
       substanceUse: substances,
       medications: [],
       mentalStatusExam: mse,
@@ -333,44 +369,39 @@ const PsychPage: React.FC = () => {
           cssrs_used: false,
           cssrs_score: null,
         },
+        // Only what the form collects.
+        //
+        // This block used to assert a page of negatives nobody entered:
+        // `history_of_violence: false`, `duty_to_warn: false`,
+        // `law_enforcement_notified: false`, `currently_intoxicated: false`,
+        // `in_withdrawal: false`, `self_harm_history: false`,
+        // `hospitalizations: 0`, and an empty `diagnoses` list from a
+        // `psychHistory` state that had no control and was always `[]` — so
+        // every psychiatric assessment on file recorded no prior diagnoses, no
+        // hospitalisations and no self-harm history.
+        //
+        // `legal_status.admission_type: 'Voluntary'` was the worst of them:
+        // whether a psychiatric admission is voluntary or under a hold is a
+        // legal status with due-process consequences, and it was asserted for
+        // every patient by a form that never asks.
+        //
+        // A psychiatric-history and legal-status sub-form is a feature to
+        // build. Until it exists, absent is the truthful value: the handler
+        // stores these as NULL, which reads as "not recorded" rather than as a
+        // negative finding.
         homicidal_risk: {
           ideation: newAssessment.homicideRisk.ideation,
           target_identified: newAssessment.homicideRisk.target,
-          target_description: null,
           plan: newAssessment.homicideRisk.plan,
           access_to_weapons: newAssessment.homicideRisk.means,
-          history_of_violence: false,
           risk_level: newAssessment.homicideRisk.riskLevel,
-          duty_to_warn: false,
-          law_enforcement_notified: false,
         },
         substance_use: {
-          currently_intoxicated: false,
-          substances: newAssessment.substanceUse.map((item) => ({ ...item, route: '', amount: null, last_use: item.lastUse })),
-          in_withdrawal: false,
-          withdrawal_symptoms: [],
-          withdrawal_score: null,
-          withdrawal_protocol: false,
+          substances: newAssessment.substanceUse.map((item) => ({ ...item, last_use: item.lastUse })),
         },
         psych_history: {
-          diagnoses: newAssessment.psychiatricHistory,
-          hospitalizations: 0,
           suicide_attempts: newAssessment.suicideRisk.priorAttempts,
-          self_harm_history: false,
-          trauma_history: null,
-          family_history: [],
         },
-        psych_medications: newAssessment.medications,
-        medication_compliant: null,
-        social_history: {
-          living_situation: '',
-          support_system: '',
-          employment: '',
-          recent_stressors: [],
-          legal_issues: null,
-          financial_issues: null,
-        },
-        legal_status: { admission_type: 'Voluntary', hold_type: null, hold_expiration: null, court_hearing: null, guardian: null },
         safety_precautions: [],
         disposition: newAssessment.disposition,
         safety_plan: null,
@@ -380,7 +411,12 @@ const PsychPage: React.FC = () => {
       if (result?.success === false) {
         throw new Error('Psychiatric assessment was not saved.');
       }
-      setAssessments([newAssessment, ...assessments]);
+      // Re-read rather than prepending the object this page just built.
+      // The optimistic entry showed the clinician their own input back, so a
+      // field the API dropped -- and this handler flattens a psychiatric
+      // history the form does not collect -- looked stored until the next
+      // reload, by which time nobody connects the loss to the save.
+      await refreshAssessments();
       showSuccess(t('docPsych.saved'));
     } catch (err) {
       console.error('Failed to save psychiatric assessment:', err);
@@ -391,12 +427,12 @@ const PsychPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Brain className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docPsych.title')}</h1>
-            <p className="text-purple-100">{t('docPsych.subtitle')}</p>
+            <p className="text-white">{t('docPsych.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -437,17 +473,11 @@ const PsychPage: React.FC = () => {
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docPsych.patient')}
               </label>
-              <select
+              <PatientSelect
                 id="psych-patient"
                 value={selectedPatient}
-                onChange={e => setSelectedPatient(e.target.value)}
-                className="w-full border rounded p-2"
-              >
-                <option value="">{t('docPsych.selectPatient')}</option>
-                {patients.map(p => (
-                  <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+              />
             </div>
 
             {/* Chief Complaint & HPI */}
@@ -770,15 +800,22 @@ const PsychPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
+            {historyError && (
+              <div className="bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg p-3 text-sm">
+                {historyError}
+              </div>
+            )}
             {assessments.length === 0 ? (
-              <div className="text-center py-8 text-content-muted">{t('docPsych.noAssessments')}</div>
+              <div className="text-center py-8 text-content-muted">
+                {historyError ? t('docPsych.historyUnknown') : t('docPsych.noAssessments')}
+              </div>
             ) : (
               assessments.map(a => (
                 <div key={a.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(a.assessedAt)}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 text-xs rounded ${riskLevelColors[a.suicideRisk.riskLevel]}`}>

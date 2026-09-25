@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Siren, AlertTriangle, X } from 'lucide-react';
 
+import { formatTimestamp } from '@medichain/shared';
 export interface CriticalAlert {
   id: string;
   type: 'critical_value' | 'code_blue' | 'allergy' | 'drug_interaction' | 'medication_due';
@@ -30,9 +32,27 @@ export default function CriticalAlertsBanner({
   alerts,
   onAcknowledge,
   onViewAll,
-  viewAllLink = '/alerts',
+  // `/alerts` is not a route. An unknown path falls through to the router's
+  // catch-all, which redirects to the dashboard -- so pressing "View Alerts"
+  // on the dashboard put you back on the dashboard, and read as a dead button.
+  viewAllLink = '/critical-value',
   maxDisplay = 3,
 }: CriticalAlertsBannerProps) {
+  // A callback and a route cannot both be the destination. The caller's
+  // callback wins; `viewAllLink` stays the default for callers that pass
+  // neither. Rendering a <button> rather than a <Link> keeps the semantics
+  // honest: with onViewAll there is no href to open in a new tab.
+  const renderViewAll = (className: string, children: ReactNode) =>
+    onViewAll ? (
+      <button type="button" onClick={onViewAll} className={className}>
+        {children}
+      </button>
+    ) : (
+      <Link to={viewAllLink} className={className}>
+        {children}
+      </Link>
+    );
+
   const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
   
   if (unacknowledgedAlerts.length === 0) {
@@ -77,12 +97,10 @@ export default function CriticalAlertsBanner({
             </p>
           </div>
         </div>
-        <Link 
-          to={viewAllLink}
-          className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle transition-colors"
-        >
-          View All
-        </Link>
+        {renderViewAll(
+          'bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle transition-colors',
+          'View All'
+        )}
       </div>
 
       {/* Alert List */}
@@ -106,7 +124,7 @@ export default function CriticalAlertsBanner({
             </div>
             <div className="flex items-center gap-3">
               <span className="text-critical-fg text-xs">
-                {new Date(alert.timestamp).toLocaleTimeString()}
+                {formatTimestamp(alert.timestamp, { timeStyle: 'short' })}
               </span>
               {onAcknowledge && (
                 <button
@@ -125,12 +143,12 @@ export default function CriticalAlertsBanner({
       {/* Footer with remaining count */}
       {remainingCount > 0 && (
         <div className="p-3 bg-critical text-center">
-          <Link 
-            to={viewAllLink}
-            className="text-critical-fg text-sm hover:text-white transition-colors"
-          >
-            + {remainingCount} more alert{remainingCount !== 1 ? 's' : ''} →
-          </Link>
+          {renderViewAll(
+            'inline-flex items-center min-h-[24px] py-1 text-critical-fg text-sm hover:text-white transition-colors',
+            <>
+              + {remainingCount} more alert{remainingCount !== 1 ? 's' : ''} →
+            </>
+          )}
         </div>
       )}
     </div>

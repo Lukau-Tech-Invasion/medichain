@@ -1,17 +1,23 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { MessagesPage } from './MessagesPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getMessages: vi.fn(),
+  getProviders: vi.fn(),
+  markMessageRead: vi.fn(),
+  sendMessage: vi.fn(),
+}));
 
 // Mock scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -33,18 +39,22 @@ describe('MessagesPage (Patient)', () => {
       providerRole: 'Physician',
       specialty: 'Cardiology',
       lastMessage: 'Hello, how are you?',
-      lastMessageTime: new Date().toISOString(),
+      lastMessageTime: Math.floor(Date.now() / 1000),
       unreadCount: 1,
       messages: [
         {
-          id: 'msg1',
-          senderId: 'PROV1',
-          senderName: 'Dr. Smith',
-          senderRole: 'Physician',
+          message_id: 'msg1',
+          sender_id: 'PROV1',
+          sender_name: 'Dr. Smith',
+          sender_role: 'Physician',
+          recipient_id: mockPatient.walletAddress,
+          subject: 'Check-in',
           content: 'Hello, how are you?',
-          timestamp: new Date().toISOString(),
+          priority: 'normal',
+          related_patient_id: 'HEALTH123',
+          sent_at: Math.floor(Date.now() / 1000),
           read: false,
-          isPatient: false,
+          thread_id: 'msg1',
         }
       ],
     }
@@ -52,24 +62,23 @@ describe('MessagesPage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (usePatientAuthStore as any).mockReturnValue({
+    (usePatientAuthStore as unknown as Mock).mockReturnValue({
       patient: mockPatient,
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/messages')) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: () => Promise.resolve({ conversations: mockConversations }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({}),
-      });
+    vi.mocked(shared.getMessages).mockResolvedValue({
+      success: true,
+      folder: 'all',
+      messages: mockConversations[0].messages,
+      conversations: mockConversations,
+      count: 1,
+      unread_count: 1,
+    });
+    vi.mocked(shared.markMessageRead).mockResolvedValue({
+      success: true,
+      message_id: 'msg1',
+      read: true,
     });
   });
 
@@ -103,6 +112,8 @@ describe('MessagesPage (Patient)', () => {
       // In mobile view it might show a back button, in desktop it shows the chat area
       expect(screen.getByPlaceholderText(/Type a message/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Hello, how are you?/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Attachments are not available/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /attach file/i })).not.toBeInTheDocument();
     });
   });
 

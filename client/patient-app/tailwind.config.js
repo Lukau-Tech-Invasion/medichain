@@ -8,6 +8,12 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // A bare `border` or `divide-y` takes Tailwind's default colour, gray-200,
+      // in BOTH themes -- a light hairline across every dark surface. Pointing the
+      // default at the token makes every unqualified border follow the theme.
+      borderColor: {
+        DEFAULT: 'rgb(var(--border-default) / <alpha-value>)',
+      },
       colors: {
         // Semantic tokens (client/shared/src/styles/tokens.css).
         // Prefer these over raw palette scales: they say what a colour means,
@@ -87,7 +93,12 @@ export default {
           200: '#80bfff',
           300: '#4da6ff',
           400: '#1a8cff',
-          500: '#007AFF', // Main brand blue
+          // Points at the `--primary` token rather than a fixed hex.
+          // #007AFF measures 4.02:1 on white — below WCAG AA's 4.5:1 — and had
+          // no dark value at all, so `text-primary-500` was unreadable in one
+          // theme and borderline in the other. The token is contrast-checked in
+          // both themes by scripts/check-contrast.py.
+          500: 'rgb(var(--primary) / <alpha-value>)',
           600: '#0062cc',
           700: '#004999',
           800: '#003166',
@@ -139,9 +150,15 @@ export default {
           dark: '#15803d',
         },
         info: {
-          light: '#dbeafe',
-          DEFAULT: '#3b82f6',
-          dark: '#1d4ed8',
+          // `DEFAULT` was blue-500 (#3b82f6), which on the `light` tint below
+          // measures 3.01:1 — the pairing this palette exists to produce, and
+          // it fails AA. The tokens carry the tested pair for both themes.
+          light: 'rgb(var(--info-subtle-bg) / <alpha-value>)',
+          DEFAULT: 'rgb(var(--info-subtle-fg) / <alpha-value>)',
+          // `-dark` is used as TEXT on the light tint, so it needs the
+          // foreground tested against that tint. Mapping it to `--info`
+          // gave blue-400 on the dark-mode tint: 4.07:1, just under AA.
+          dark: 'rgb(var(--info-subtle-fg) / <alpha-value>)',
         },
       },
       fontFamily: {

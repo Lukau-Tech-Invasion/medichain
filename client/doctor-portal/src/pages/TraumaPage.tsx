@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients, apiUrl, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, useTranslation, type TraumaListRow } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -12,23 +11,21 @@ import {
   Shield,
   History
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
-interface EmergencyRecord {
-  event_id: string;
-  event_type?: string;
-  event_time?: number;
-  assessed_at?: number;
-  outcome?: string;
-}
 
 export default function TraumaPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // The roster this page fetched existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<TraumaListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   
   // Trauma Form State
@@ -42,7 +39,7 @@ export default function TraumaPage() {
   const [breathing, setBreathing] = useState('spontaneous');
   const [circulation, setCirculation] = useState('stable');
   const [disability, setDisability] = useState('alert');
-  const [exposure, _setExposure] = useState('none');
+  const [exposure, setExposure] = useState('none');
 
   const [notes, setNotes] = useState('');
 
@@ -52,8 +49,7 @@ export default function TraumaPage() {
 
   const loadPatients = async () => {
     try {
-      const data = await getPatients();
-      setPatients(data);
+      await getPatients();
     } catch (error) {
       console.error('Failed to load patients', error);
     }
@@ -63,13 +59,7 @@ export default function TraumaPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/trauma/patient/${patientId}`), {
-        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      setEmergencyHistory(await getPatientTraumas(patientId));
     } catch (e) {
       console.error('Failed to fetch emergency history', e);
     } finally {
@@ -83,7 +73,6 @@ export default function TraumaPage() {
 
     try {
       const traumaData = {
-        assessment_id: `TR-${Date.now()}`,
         patient_id: selectedPatient,
         trauma_type: traumaType,
         injury_severity_score: issScore,
@@ -91,15 +80,18 @@ export default function TraumaPage() {
         mechanism_of_injury: mechanism,
         injuries: [], // Injuries added via injury documentation form
         interventions: [],
-        vital_signs: {
-          // Default vitals - updated from patient monitoring
-          bp: "120/80",
-          hr: 80,
-          rr: 16,
-          spo2: 98
-        },
+        // No `vital_signs`. This sent `{bp: "120/80", hr: 80, rr: 16, spo2: 98}`
+        // under a comment reading "Default vitals - updated from patient
+        // monitoring" — an update that does not happen. Every trauma assessment
+        // on file therefore records textbook-normal observations for a trauma
+        // patient, on someone who may be shocked.
+        //
+        // This page has no vital-signs inputs; observations are recorded on the
+        // Vitals page against the same patient. Sending none is the truthful
+        // answer, and an absent set reads as "not recorded here" rather than as
+        // a stable patient.
+
         notes: `Primary Survey:\nA: ${airway}\nB: ${breathing}\nC: ${circulation}\nD: ${disability}\nE: ${exposure}\n\nNotes: ${notes}`,
-        assessed_by: user?.userId || 'unknown',
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
@@ -133,20 +125,12 @@ export default function TraumaPage() {
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-content-muted" />
             </div>
-            <select
+            <PatientSelect
               id="trauma-patient"
-              className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               value={selectedPatient}
-              onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
+              onChange={(selectedPatientId) => { setSelectedPatient(selectedPatientId); fetchEmergencyHistory(selectedPatientId); }}
               required
-            >
-              <option value="">{t('docTrauma.selectPatientPlaceholder')}</option>
-              {patients.map(patient => (
-                <option key={patient.patient_id} value={patient.patient_id}>
-                  {patient.full_name} ({patient.national_id})
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -154,7 +138,7 @@ export default function TraumaPage() {
         {selectedPatient && (
           <div className="bg-surface shadow rounded-lg p-6">
             <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-              <History className="h-5 w-5 text-red-500" />
+              <History className="h-5 w-5 text-critical" />
               {t('docTrauma.pastEvents')}
             </h3>
             {historyLoading ? (
@@ -167,25 +151,18 @@ export default function TraumaPage() {
                   <thead className="bg-surface-sunken">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colEventId')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colType')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colMechanism')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colTime')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colOutcome')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docTrauma.colGcs')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {emergencyHistory.map((ev) => (
-                      <tr key={ev.event_id} className="hover:bg-surface-sunken">
-                        <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                        <td className="px-4 py-2">{ev.event_type || t('docTrauma.trauma')}</td>
-                        <td className="px-4 py-2">
-                          {ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleString() :
-                           ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary">
-                            {ev.outcome || t('docTrauma.na')}
-                          </span>
-                        </td>
+                      <tr key={ev.id} className="hover:bg-surface-sunken">
+                        <td className="px-4 py-2 font-mono text-xs">{ev.id}</td>
+                        <td className="px-4 py-2">{ev.mechanism}</td>
+                        <td className="px-4 py-2">{formatTimestamp(ev.assessed_at * 1000) || '-'}</td>
+                        <td className="px-4 py-2">{ev.gcs ?? t('docTrauma.na')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -317,6 +294,23 @@ export default function TraumaPage() {
                 <option value="voice">{t('docTrauma.disVoice')}</option>
                 <option value="pain">{t('docTrauma.disPain')}</option>
                 <option value="unresponsive">{t('docTrauma.disUnresponsive')}</option>
+              </select>
+            </div>
+            {/* E — Exposure. A, B, C and D each had a control; this did not, so
+                every primary survey narrative recorded "E: none" regardless of
+                what was found. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+              <label htmlFor="trauma-exposure" className="font-medium text-content-secondary">{t('docTrauma.exposure')}</label>
+              <select
+                id="trauma-exposure"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                value={exposure}
+                onChange={(e) => setExposure(e.target.value)}
+              >
+                <option value="none">{t('docTrauma.expNone')}</option>
+                <option value="log-rolled">{t('docTrauma.expLogRolled')}</option>
+                <option value="fully-exposed">{t('docTrauma.expFullyExposed')}</option>
+                <option value="hypothermia-risk">{t('docTrauma.expHypothermia')}</option>
               </select>
             </div>
           </div>

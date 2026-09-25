@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import AccessLogsPage from './AccessLogsPage';
 import { useAuthStore } from '../store';
 
@@ -30,13 +31,13 @@ describe('AccessLogsPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    (useAuthStore as unknown as Mock).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
     // Both call styles must be configured: the hook for render-time reads, and
     // `getState()` for the effect that actually fetches.
-    (useAuthStore as any).getState.mockReturnValue({
+    (useAuthStore.getState as unknown as Mock).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });

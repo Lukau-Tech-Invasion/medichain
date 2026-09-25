@@ -1,6 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listCdsAlerts, apiUrl, useTranslation } from '@medichain/shared';
+import {
+  createCdsRule,
+  getApiErrorMessage,
+  getCdsAudit,
+  listCdsRules,
+  retireCdsRule,
+  setCdsRuleEnablement,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  cdsRuleSchema,
+  Textarea,
+  cdsActionSchema,
+  formatTimestamp,
+  confirmDialog,
+} from '@medichain/shared';
+import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -13,9 +31,7 @@ import {
   Filter,
   Copy,
   Download,
-  Shield,
   Activity,
-  FileText,
   Clock,
   User,
   Code,
@@ -24,6 +40,8 @@ import {
   Save,
   X,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * CDSAlertsPage - Part 1
@@ -96,10 +114,46 @@ const CDSAlertsPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<AlertCategory | 'all'>('all');
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<AlertStatus | 'all'>('all');
-  const [_selectedRule, _setSelectedRule] = useState<CDSRule | null>(null);
-  const [_showEditModal, _setShowEditModal] = useState(false);
-  const [_showDetailsModal, _setShowDetailsModal] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
+
+  // --- What the rules actually did -------------------------------------------
+  //
+  // `GET /api/admin/cds/audit` records every alert that fired and what the
+  // clinician did about it, and no screen called it. A rule could be created,
+  // enabled, and fire a thousand times, and nobody could see whether it was
+  // ever acted on or silently overridden -- which is the only evidence that
+  // distinguishes a useful rule from alert fatigue.
+  const [auditEntries, setAuditEntries] = useState<Record<string, unknown>[]>([]);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditLoaded, setAuditLoaded] = useState(false);
+  // "No alert has fired" and "the trail could not be read" are opposite
+  // findings about a safety control.
+  const [auditUnknown, setAuditUnknown] = useState(false);
+  const [auditPatient, setAuditPatient] = useState('');
+
+  const loadAudit = useCallback(
+    async (cursor?: string) => {
+      try {
+        const body = await getCdsAudit(auditPatient.trim() || undefined, { cursor, limit: 50 });
+        const rows = (body.entries ?? []) as Record<string, unknown>[];
+        setAuditEntries((previous) => (cursor ? [...previous, ...rows] : rows));
+        // The handler pages; carrying the cursor is what makes the second page
+        // reachable at all.
+        setAuditCursor(body.next_cursor ?? null);
+        setAuditUnknown(false);
+      } catch {
+        setAuditUnknown(true);
+      } finally {
+        setAuditLoaded(true);
+      }
+    },
+    [auditPatient]
+  );
+
+  useEffect(() => {
+    if (activeTab === 'analytics') void loadAudit();
+  }, [activeTab, loadAudit]);
+
 
   // New Rule Form State
   const [newRule, setNewRule] = useState<Partial<CDSRule>>({
@@ -134,14 +188,22 @@ const CDSAlertsPage: React.FC = () => {
     blockAction: false,
   });
 
-  // Fetch CDS rules from API
+  /**
+   * The rules, from the endpoint that serves rules.
+   *
+   * This read `/api/platform/list/cds-alerts`, which is the list of alerts
+   * that have FIRED. So the screen showed instances under the heading
+   * "rules" — an alert's id in the rule id column, a patient's alert in a
+   * table of facility configuration — and the rule an administrator wrote had
+   * nowhere to appear even if it had been saved, which it was not.
+   */
   const fetchRules = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await listCdsAlerts();
-      if (response.success && Array.isArray(response.items)) {
-        setRules(response.items as CDSRule[]);
+      const response = await listCdsRules();
+      if (Array.isArray(response?.rules)) {
+        setRules(response.rules as unknown as CDSRule[]);
       }
     } catch (err) {
       console.error('Error fetching CDS rules:', err);
@@ -149,7 +211,7 @@ const CDSAlertsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // Load CDS rules on mount
   useEffect(() => {
@@ -157,38 +219,88 @@ const CDSAlertsPage: React.FC = () => {
   }, [fetchRules]);
 
   // Handler Functions
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
 
-  const handleCreateRule = () => {
-    if (!newRule.name || !newRule.description || !newRule.conditions?.length || !newRule.actions?.length) {
-      showError(t('docCDS.errorRequiredFieldsRule'));
-      return;
-    }
+  const { errors, validate, validateField, clearField } = useValidatedForm(cdsRuleSchema);
 
-    const ruleId = `CDS-${String(rules.length + 1).padStart(3, '0')}`;
-    const rule: CDSRule = {
-      ruleId,
-      name: newRule.name,
+  const ruleCore = () => ({
+    name: newRule.name ?? '',
+    description: newRule.description ?? '',
+  });
+
+  /**
+   * A CDS rule interrupts a clinician mid-task and can block an order, so it
+   * is an administrator's to write. The screen still shows every rule to every
+   * clinical role: a rule that governs you is one you may read.
+   */
+  const mayWriteRules = user?.role === 'Admin';
+
+  /**
+   * Save a rule.
+   *
+   * This pushed the rule into React state and announced success. It vanished
+   * on reload, no engine had heard of it, and the id it invented
+   * (`CDS-004`, from the length of the browser's array) belonged to nothing.
+   */
+  const saveRule = async (name: string, description: string): Promise<boolean> => {
+    const payload: CreateCdsRulePayload = {
+      name,
+      description,
       category: newRule.category || 'medication',
-      description: newRule.description,
       severity: newRule.severity || 'medium',
       triggerType: newRule.triggerType || 'threshold',
       conditions: newRule.conditions || [],
-      actions: newRule.actions || [],
+      actions: (newRule.actions || []).map((action) => ({
+        type: action.type,
+        message: action.message,
+        severity: action.severity,
+        notifyRoles: action.notifyRoles,
+        blockAction: action.blockAction,
+        suggestedAction: action.suggestedAction,
+        escalateTo: action.escalateTo,
+      })),
       status: newRule.status || 'draft',
       priority: newRule.priority || 5,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      triggerCount: 0,
       isEnabled: newRule.isEnabled || false,
       testMode: newRule.testMode !== undefined ? newRule.testMode : true,
       targetRoles: newRule.targetRoles || ['doctor'],
       evidenceLevel: newRule.evidenceLevel || undefined,
       references: newRule.references || [],
     };
+    try {
+      await createCdsRule(payload);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
+      return false;
+    }
+    await fetchRules();
+    return true;
+  };
 
-    setRules([...rules, rule]);
+  const handleCreateRule = async () => {
+    // A CDS rule fires at someone mid-task, and the clinician deciding whether
+    // to override it has only the rule's own words to judge it by -- an
+    // unexplained alert is the one dismissed reflexively. So the name and the
+    // description are field errors.
+    //
+    // Having at least one condition and one action stays a toast: that is a
+    // rule about the rule, not a fact about any single control, and the
+    // conditions are built in a sub-form of their own.
+    // The parsed output, not the raw state: it is trimmed, and it narrows
+    // `string | undefined` to `string` the way the hand-written guard used to.
+    const validated = validate(ruleCore());
+    if (!validated) {
+      return;
+    }
+    if (!newRule.conditions?.length || !newRule.actions?.length) {
+      showError(t('docCDS.errorRequiredFieldsRule'));
+      return;
+    }
+
+    if (!(await saveRule(validated.name, validated.description))) {
+      return;
+    }
+
     setNewRule({
       name: '',
       category: 'medication',
@@ -206,7 +318,7 @@ const CDSAlertsPage: React.FC = () => {
       references: [],
     });
     setActiveTab('all');
-    showSuccess(t('docCDS.successRuleCreated', { name: rule.name }));
+    showSuccess(t('docCDS.successRuleCreated', { name: validated.name }));
   };
 
   const handleAddCondition = () => {
@@ -245,9 +357,21 @@ const CDSAlertsPage: React.FC = () => {
     });
   };
 
+  const {
+    errors: actionErrors,
+    validate: validateAction,
+    validateField: validateActionField,
+    clearField: clearActionField,
+  } = useValidatedForm(cdsActionSchema);
+
   const handleAddAction = () => {
-    if (!newAction.message) {
-      showError(t('docCDS.errorRequiredActionMessage'));
+    // This string is the entire alert as the clinician sees it, mid-task. An
+    // empty one interrupts without saying why, which trains people to dismiss
+    // the next one too.
+    // The parsed output, which narrows `string | undefined` the way the old
+    // truthiness check did, and is trimmed.
+    const validatedAction = validateAction({ message: newAction.message ?? '' });
+    if (!validatedAction) {
       return;
     }
 
@@ -255,7 +379,7 @@ const CDSAlertsPage: React.FC = () => {
     const action: Action = {
       actionId,
       type: newAction.type || 'alert',
-      message: newAction.message,
+      message: validatedAction.message,
       severity: newAction.severity || 'medium',
       notifyRoles: newAction.notifyRoles || ['doctor'],
       blockAction: newAction.blockAction || false,
@@ -284,58 +408,86 @@ const CDSAlertsPage: React.FC = () => {
     });
   };
 
+  // Server first, then the switch.
+  //
+  // This used to flip the rule in local state and *then* call the API, logging
+  // any failure to the console. A clinician disabling a drug-allergy alert — or
+  // enabling one — saw the switch move and had no way to learn the server still
+  // disagreed. A clinical decision-support rule that is off when the screen says
+  // on is the failure mode this page exists to prevent.
+  //
+  // The call it made was `/api/cds/alerts/{id}/respond`, which records a
+  // clinician's response to an alert that FIRED. It never changed a rule's
+  // enablement, because at the time no endpoint did.
   const handleToggleRule = async (ruleId: string) => {
-    setRules(rules.map(r =>
-      r.ruleId === ruleId
-        ? { ...r, isEnabled: !r.isEnabled, lastModified: new Date().toISOString() }
-        : r
-    ));
-    // Also call the API to respond/update the alert status
-    if (user) {
-      try {
-        const rule = rules.find(r => r.ruleId === ruleId);
-        await fetch(apiUrl(`/api/cds/alerts/${ruleId}/respond`), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-          },
-          body: JSON.stringify({
-            action: rule?.isEnabled ? 'deactivate' : 'activate',
-            responded_by: user.userId,
-            responded_at: new Date().toISOString(),
-          }),
-        });
-      } catch (e) {
-        console.error('Failed to respond to CDS alert:', e);
-      }
+    const rule = rules.find(r => r.ruleId === ruleId);
+    if (!rule) return;
+
+    try {
+      await setCdsRuleEnablement(ruleId, !rule.isEnabled);
+    } catch (e) {
+      console.error('Failed to change CDS rule enablement:', e);
+      showError(getApiErrorMessage(e, t('docCDS.errorToggleFailed')));
+      return;
     }
+    // Re-read rather than patching the row: the server owns `status` and
+    // `lastModified`, and a screen that computes them drifts from the record.
+    await fetchRules();
   };
 
-  const handleDuplicateRule = (rule: CDSRule) => {
-    const newRuleId = `CDS-${String(rules.length + 1).padStart(3, '0')}`;
-    const duplicatedRule: CDSRule = {
-      ...rule,
-      ruleId: newRuleId,
-      name: `${rule.name} (Copy)`,
-      status: 'draft',
-      isEnabled: false,
-      testMode: true,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      triggerCount: 0,
-      lastTriggered: undefined,
-    };
-    setRules([...rules, duplicatedRule]);
-    showSuccess(t('docCDS.successRuleDuplicated', { name: duplicatedRule.name }));
+  /** A copy is a new draft, in test mode, disabled, like any other new rule. */
+  const handleDuplicateRule = async (rule: CDSRule) => {
+    const name = `${rule.name} (Copy)`;
+    try {
+      await createCdsRule({
+        name,
+        description: rule.description,
+        category: rule.category,
+        severity: rule.severity,
+        triggerType: rule.triggerType,
+        conditions: rule.conditions,
+        actions: rule.actions.map((action) => ({
+          type: action.type,
+          message: action.message,
+          severity: action.severity,
+          notifyRoles: action.notifyRoles,
+          blockAction: action.blockAction,
+          suggestedAction: action.suggestedAction,
+          escalateTo: action.escalateTo,
+        })),
+        status: 'draft',
+        priority: rule.priority,
+        isEnabled: false,
+        testMode: true,
+        targetRoles: rule.targetRoles,
+        evidenceLevel: rule.evidenceLevel,
+        references: rule.references,
+      });
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
+      return;
+    }
+    await fetchRules();
+    showSuccess(t('docCDS.successRuleDuplicated', { name }));
   };
 
-  const handleDeleteRule = (ruleId: string) => {
-    if (confirm(t('docCDS.confirmDeleteRule'))) {
-      setRules(rules.filter(r => r.ruleId !== ruleId));
+  /**
+   * Retire a rule. Hidden from the engine, kept in the record (ADR-0005):
+   * the CDS audit trail names the rule that fired, and deleting the rule makes
+   * every one of those entries unresolvable.
+   */
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!(await confirmDialog({ message: t('docCDS.confirmDeleteRule'), destructive: true }))) {
+      return;
     }
+    try {
+      await retireCdsRule(ruleId);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docCDS.errorRuleRetireFailed')));
+      return;
+    }
+    await fetchRules();
+    showSuccess(t('docCDS.successRuleRetired'));
   };
 
   const handleExportRule = (rule: CDSRule) => {
@@ -362,18 +514,6 @@ const CDSAlertsPage: React.FC = () => {
   };
 
   // Helper Functions
-  const _getCategoryIcon = (category: AlertCategory) => {
-    const icons = {
-      medication: <Shield className="w-5 h-5" />,
-      allergy: <AlertTriangle className="w-5 h-5" />,
-      vital_signs: <Activity className="w-5 h-5" />,
-      lab_results: <FileText className="w-5 h-5" />,
-      diagnosis: <FileText className="w-5 h-5" />,
-      procedure: <Activity className="w-5 h-5" />,
-      clinical_pathway: <FileText className="w-5 h-5" />,
-    };
-    return icons[category];
-  };
 
   const getSeverityBadge = (severity: AlertSeverity) => {
     const badges = {
@@ -410,7 +550,10 @@ const CDSAlertsPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    // `formatTimestamp`, not `new Date(x).toLocaleString()`: the latter writes
+    // the literal "Invalid Date" for an absent or unparseable value, which
+    // tells a clinician something false about when the record was made.
+    return formatTimestamp(isoString);
   };
 
   const getOperatorLabel = (operator: Condition['operator']) => {
@@ -438,15 +581,29 @@ const CDSAlertsPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-lg shadow-lg p-6 mb-6 text-white">
+      <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6 text-white">
         <div className="flex items-center gap-4">
           <Bell className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docCDS.title')}</h1>
-            <p className="text-critical-fg mt-1">{t('docCDS.subtitle')}</p>
+            <p className="text-white mt-1">{t('docCDS.subtitle')}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="flex gap-2 mb-6 border-b border-border">
@@ -460,16 +617,18 @@ const CDSAlertsPage: React.FC = () => {
         >
           {t('docCDS.tabAllRules', { count: rules.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('create')}
-          className={`px-6 py-3 font-medium transition-colors ${
-            activeTab === 'create'
-              ? 'border-b-2 border-red-600 text-critical-subtle-fg'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docCDS.tabCreateRule')}
-        </button>
+        {mayWriteRules && (
+          <button
+            onClick={() => setActiveTab('create')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              activeTab === 'create'
+                ? 'border-b-2 border-red-600 text-critical-subtle-fg'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docCDS.tabCreateRule')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('analytics')}
           className={`px-6 py-3 font-medium transition-colors ${
@@ -498,7 +657,7 @@ const CDSAlertsPage: React.FC = () => {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docCDS.searchPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
               </div>
 
@@ -509,7 +668,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-category-filter"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as AlertCategory | 'all')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllCategories')}</option>
                   <option value="medication">{t('docCDS.category_medication')}</option>
@@ -529,7 +688,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-severity-filter"
                   value={severityFilter}
                   onChange={(e) => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllSeverities')}</option>
                   <option value="critical">{t('docCDS.severity_critical')}</option>
@@ -549,7 +708,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as AlertStatus | 'all')}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllStatuses')}</option>
                   <option value="active">{t('docCDS.status_active')}</option>
@@ -595,7 +754,7 @@ const CDSAlertsPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-content-muted text-sm mb-3">{rule.description}</p>
-                          <div className="flex items-center gap-4 text-sm text-content-muted">
+                          <div className="flex items-center gap-4 text-sm text-content-muted min-h-[24px] py-1">
                             <span className="flex items-center gap-1">
                               <Code className="w-4 h-4" />
                               {rule.ruleId}
@@ -626,24 +785,28 @@ const CDSAlertsPage: React.FC = () => {
                           >
                             {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                           </button>
-                          <button
-                            onClick={() => handleToggleRule(rule.ruleId)}
-                            className={`p-2 rounded-lg transition-colors ${
-                              rule.isEnabled
-                                ? 'text-ok-subtle-fg hover:bg-ok-subtle'
-                                : 'text-content-muted hover:bg-surface-sunken'
-                            }`}
-                            title={rule.isEnabled ? t('docCDS.disableRuleTitle') : t('docCDS.enableRuleTitle')}
-                          >
-                            {rule.isEnabled ? <Power className="w-5 h-5" /> : <PowerOff className="w-5 h-5" />}
-                          </button>
-                          <button
-                            onClick={() => handleDuplicateRule(rule)}
-                            className="p-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-lg transition-colors"
-                            title={t('docCDS.duplicateRuleTitle')}
-                          >
-                            <Copy className="w-5 h-5" />
-                          </button>
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleToggleRule(rule.ruleId)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                rule.isEnabled
+                                  ? 'text-ok-subtle-fg hover:bg-ok-subtle'
+                                  : 'text-content-muted hover:bg-surface-sunken'
+                              }`}
+                              title={rule.isEnabled ? t('docCDS.disableRuleTitle') : t('docCDS.enableRuleTitle')}
+                            >
+                              {rule.isEnabled ? <Power className="w-5 h-5" /> : <PowerOff className="w-5 h-5" />}
+                            </button>
+                          )}
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleDuplicateRule(rule)}
+                              className="p-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-lg transition-colors"
+                              title={t('docCDS.duplicateRuleTitle')}
+                            >
+                              <Copy className="w-5 h-5" />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleExportRule(rule)}
                             className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
@@ -651,13 +814,15 @@ const CDSAlertsPage: React.FC = () => {
                           >
                             <Download className="w-5 h-5" />
                           </button>
-                          <button
-                            onClick={() => handleDeleteRule(rule.ruleId)}
-                            className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
-                            title={t('docCDS.deleteRuleTitle')}
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
+                          {mayWriteRules && (
+                            <button
+                              onClick={() => handleDeleteRule(rule.ruleId)}
+                              className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
+                              title={t('docCDS.deleteRuleTitle')}
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -672,8 +837,8 @@ const CDSAlertsPage: React.FC = () => {
                             </h4>
                             <div className="space-y-2">
                               {rule.conditions.map((condition, idx) => (
-                                <div key={condition.conditionId} className="flex items-center gap-2 text-sm">
-                                  <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
+                                <div key={condition.conditionId} className="flex items-center gap-2 text-sm min-h-[24px] py-1">
+                                  <span className="bg-notice-subtle text-notice-subtle-fg px-2 py-1 rounded font-medium">
                                     {condition.field}
                                   </span>
                                   <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
@@ -747,7 +912,7 @@ const CDSAlertsPage: React.FC = () => {
                                 <User className="w-4 h-4" />
                                 {t('docCDS.createdByLabel')}
                               </div>
-                              <div className="font-medium text-content">{rule.createdBy}</div>
+                              <StaffName id={rule.createdBy} className="font-medium text-content" />
                               <div className="text-xs text-content-muted mt-1">{formatDate(rule.createdAt)}</div>
                             </div>
                             <div className="bg-surface-sunken rounded p-3">
@@ -792,7 +957,7 @@ const CDSAlertsPage: React.FC = () => {
             </div>
           ) : (
             <div className="bg-surface rounded-lg shadow p-12 text-center">
-              <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <Bell className="w-16 h-16 text-content-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-content-secondary mb-2">{t('docCDS.noRulesTitle')}</h3>
               <p className="text-content-muted">{t('docCDS.noRulesHint')}</p>
             </div>
@@ -810,15 +975,17 @@ const CDSAlertsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="cds-rule-name" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docCDS.ruleNameLabel')} <span className="text-red-500">*</span>
+                    {t('docCDS.ruleNameLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
+                  <Input
                     id="cds-rule-name"
                     type="text"
                     value={newRule.name || ''}
-                    onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                    onChange={(e) => { clearField('name'); setNewRule({ ...newRule, name: e.target.value }); }}
+                    onBlur={() => validateField('name', ruleCore())}
+                    error={errors.name}
                     placeholder={t('docCDS.ruleNamePh')}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    required
                   />
                 </div>
 
@@ -828,7 +995,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-category"
                     value={newRule.category || 'medication'}
                     onChange={(e) => setNewRule({ ...newRule, category: e.target.value as AlertCategory })}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="medication">{t('docCDS.category_medication')}</option>
                     <option value="allergy">{t('docCDS.category_allergy')}</option>
@@ -848,7 +1015,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-severity"
                     value={newRule.severity || 'medium'}
                     onChange={(e) => setNewRule({ ...newRule, severity: e.target.value as AlertSeverity })}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="critical">{t('docCDS.severity_critical')}</option>
                     <option value="high">{t('docCDS.severity_high')}</option>
@@ -868,7 +1035,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-evidence-level"
                     value={newRule.evidenceLevel || ''}
                     onChange={(e) => setNewRule({ ...newRule, evidenceLevel: e.target.value })}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="">{t('docCDS.evidence_unspecified')}</option>
                     <option value="A">{t('docCDS.evidence_a')}</option>
@@ -883,7 +1050,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-trigger-type"
                     value={newRule.triggerType || 'threshold'}
                     onChange={(e) => setNewRule({ ...newRule, triggerType: e.target.value as TriggerType })}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="threshold">{t('docCDS.trigger_threshold')}</option>
                     <option value="pattern">{t('docCDS.trigger_pattern')}</option>
@@ -902,14 +1069,14 @@ const CDSAlertsPage: React.FC = () => {
                     max="10"
                     value={newRule.priority || 5}
                     onChange={(e) => setNewRule({ ...newRule, priority: parseInt(e.target.value) || 5 })}
-                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
               </div>
 
               <div>
                 <label htmlFor="cds-description" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docCDS.descriptionLabel')} <span className="text-red-500">*</span>
+                  {t('docCDS.descriptionLabel')} <span className="text-critical">*</span>
                 </label>
                 <textarea
                   id="cds-description"
@@ -917,7 +1084,7 @@ const CDSAlertsPage: React.FC = () => {
                   onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
                   placeholder={t('docCDS.descriptionPh')}
                   rows={3}
-                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
               </div>
 
@@ -928,7 +1095,7 @@ const CDSAlertsPage: React.FC = () => {
                     type="checkbox"
                     checked={newRule.isEnabled || false}
                     onChange={(e) => setNewRule({ ...newRule, isEnabled: e.target.checked })}
-                    className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
+                    className="rounded border-border-interactive text-critical-subtle-fg focus:ring-red-500"
                   />
                   <span className="text-sm font-medium text-content-secondary">{t('docCDS.enableRuleLabel')}</span>
                 </label>
@@ -938,7 +1105,7 @@ const CDSAlertsPage: React.FC = () => {
                     type="checkbox"
                     checked={newRule.testMode !== undefined ? newRule.testMode : true}
                     onChange={(e) => setNewRule({ ...newRule, testMode: e.target.checked })}
-                    className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
+                    className="rounded border-border-interactive text-critical-subtle-fg focus:ring-red-500"
                   />
                   <span className="text-sm font-medium text-content-secondary">{t('docCDS.testModeLabel')}</span>
                 </label>
@@ -950,7 +1117,7 @@ const CDSAlertsPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
               <Filter className="w-6 h-6 text-notice-subtle-fg" />
-              {t('docCDS.conditionsTitle')} <span className="text-red-500">*</span>
+              {t('docCDS.conditionsTitle')} <span className="text-critical">*</span>
             </h2>
 
             {/* Add Condition Form */}
@@ -1027,8 +1194,8 @@ const CDSAlertsPage: React.FC = () => {
                 <h3 className="font-semibold text-content mb-2">{t('docCDS.currentConditionsTitle', { count: newRule.conditions.length })}</h3>
                 {newRule.conditions.map((condition, idx) => (
                   <div key={condition.conditionId} className="flex items-center justify-between bg-surface-sunken border border-border rounded p-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
+                    <div className="flex items-center gap-2 text-sm min-h-[24px] py-1">
+                      <span className="bg-notice-subtle text-notice-subtle-fg px-2 py-1 rounded font-medium">
                         {condition.field}
                       </span>
                       <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
@@ -1056,7 +1223,7 @@ const CDSAlertsPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
               <AlertTriangle className="w-6 h-6 text-content-secondary" />
-              {t('docCDS.actionsTitle')} <span className="text-red-500">*</span>
+              {t('docCDS.actionsTitle')} <span className="text-critical">*</span>
             </h2>
 
             {/* Add Action Form */}
@@ -1107,13 +1274,16 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="cds-action-message" className="sr-only">{t('docCDS.alertMessageSr')}</label>
-                  <textarea
+                  <Textarea
                     id="cds-action-message"
+                    label={t('docCDS.alertMessageSr')}
                     value={newAction.message || ''}
-                    onChange={(e) => setNewAction({ ...newAction, message: e.target.value })}
+                    onChange={(e) => { clearActionField('message'); setNewAction({ ...newAction, message: e.target.value }); }}
+                    onBlur={() => validateActionField('message', { message: newAction.message ?? '' })}
+                    error={actionErrors.message}
                     placeholder={t('docCDS.alertMessagePh')}
                     rows={2}
-                    className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                    required
                   />
                 </div>
                 <div>
@@ -1130,7 +1300,7 @@ const CDSAlertsPage: React.FC = () => {
               </div>
               <button
                 onClick={handleAddAction}
-                className="mt-3 flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                className="mt-3 flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-lg hover:bg-orange-800 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 {t('docCDS.addActionBtn')}
@@ -1221,6 +1391,70 @@ const CDSAlertsPage: React.FC = () => {
       {/* Analytics Tab */}
       {activeTab === 'analytics' && (
         <div className="space-y-6">
+          {/* Audit trail */}
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h3 className="font-semibold text-content mb-1">{t('docCDS.auditHeading')}</h3>
+            <p className="text-sm text-content-muted mb-4">{t('docCDS.auditSubtitle')}</p>
+
+            <div className="flex flex-wrap items-end gap-2 mb-4">
+              <div>
+                {/* A remembered patient id is not something anyone has; search by name. */}
+                <PatientSelect
+                  id="cds-audit-patient"
+                  label={t('docCDS.auditPatientLabel')}
+                  value={auditPatient}
+                  onChange={(selectedPatientId) => setAuditPatient(selectedPatientId)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadAudit()}
+                className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+              >
+                {t('docCDS.auditFilter')}
+              </button>
+            </div>
+
+            {!auditLoaded ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditLoading')}</p>
+            ) : auditUnknown ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditUnknown')}</p>
+            ) : auditEntries.length === 0 ? (
+              <p className="text-sm text-content-muted">{t('docCDS.auditNone')}</p>
+            ) : (
+              <>
+                <ul className="space-y-2" data-testid="cds-audit-list">
+                  {auditEntries.map((entry, index) => (
+                    <li
+                      key={String(entry.id ?? entry.audit_id ?? index)}
+                      className="border border-border rounded-lg p-3"
+                    >
+                      <p className="text-sm text-content">
+                        {String(entry.rule_name ?? entry.alert_type ?? t('docCDS.auditUnnamed'))}
+                      </p>
+                      <p className="text-xs text-content-muted">
+                        {String(entry.patient_id ?? '')}
+                        {entry.action ? ` · ${String(entry.action)}` : ''}
+                        {entry.created_at
+                          ? ` · ${formatTimestamp(String(entry.created_at))}`
+                          : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                {auditCursor && (
+                  <button
+                    type="button"
+                    onClick={() => void loadAudit(auditCursor)}
+                    className="mt-3 px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+                  >
+                    {t('docCDS.auditMore')}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-surface rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.totalRulesTitle')}</h3>

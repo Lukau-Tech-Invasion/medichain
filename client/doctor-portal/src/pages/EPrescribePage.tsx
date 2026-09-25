@@ -5,6 +5,9 @@ import {
   transmitEPrescription,
   exportDocumentToPdf,
   useTranslation,
+  Input,
+  useValidatedForm,
+  prescriptionSchema,
 } from '@medichain/shared';
 import { FileText, Send, AlertCircle, Download } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -39,8 +42,32 @@ export default function EPrescribePage() {
   const [lastPrescription, setLastPrescription] = useState<typeof formData | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
+  // Validation lives in `@medichain/shared/validation`, not in this page: the
+  // same prescription rules have to hold wherever a prescription is written,
+  // and a rule spelled out in JSX is a rule that exists once.
+  //
+  // Client-side validation is a usability feature and provides no security
+  // whatsoever -- the server validates independently. What it buys is the
+  // clinician learning about a mistyped dose beside the field, before the
+  // prescription is signed and transmitted, rather than from a generic 400.
+  const { errors, validate, validateField, clearField } = useValidatedForm(prescriptionSchema);
+
+  /**
+   * Validate on blur, per the sound default: check a field when the user leaves
+   * it, and clear its error as soon as they start correcting it. Validating on
+   * every keystroke scolds someone mid-word; validating only on submit hides
+   * the problem until the end.
+   */
+  const handleBlur = (field: Parameters<typeof validateField>[0]) => () =>
+    validateField(field, formData);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Every field on submit, because blur never fires on a control the user
+    // skipped entirely.
+    if (!validate(formData)) {
+      return;
+    }
     setIsSubmitting(true);
     try {
       // "Send Prescription" has to actually send it. Creating alone leaves the
@@ -119,6 +146,7 @@ export default function EPrescribePage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const numericFields = new Set(['quantity', 'days_supply', 'refills_allowed']);
+    clearField(name as Parameters<typeof clearField>[0]);
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox'
@@ -151,7 +179,7 @@ export default function EPrescribePage() {
             type="button"
             onClick={handleExportPdf}
             disabled={isExportingPdf}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-ok-subtle-fg border border-ok rounded-md hover:bg-ok-subtle disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-ok-subtle-fg border border-ok rounded-md hover:bg-ok-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             <Download className="h-4 w-4" />
             {isExportingPdf ? t('docEPrescribe.exportingPdf') : t('docEPrescribe.exportPdf')}
@@ -177,8 +205,8 @@ export default function EPrescribePage() {
       )}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
-        <div className="bg-surface dark:bg-slate-800 shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium text-content dark:text-white mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
+        <div className="bg-surface shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-content mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <PatientSelect
               id="patient_id"
@@ -209,30 +237,28 @@ export default function EPrescribePage() {
         <div className="bg-surface shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-content mb-4">{t('docEPrescribe.medicationDetails')}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="medication_name" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.medicationName')}</label>
-              <input 
-                id="medication_name"
-                name="medication_name" 
-                value={formData.medication_name} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                placeholder={t('docEPrescribe.medicationNamePh')}
-                required 
-              />
-            </div>
-            <div>
-              <label htmlFor="strength" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.strength')}</label>
-              <input 
-                id="strength"
-                name="strength" 
-                value={formData.strength} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                placeholder={t('docEPrescribe.strengthPh')}
-                required 
-              />
-            </div>
+            <Input
+              id="medication_name"
+              name="medication_name"
+              placeholder={t('docEPrescribe.medicationNamePh')}
+              label={t('docEPrescribe.medicationName')}
+              value={formData.medication_name}
+              onChange={handleChange}
+              onBlur={handleBlur('medication_name')}
+              error={errors.medication_name}
+              required
+            />
+            <Input
+              id="strength"
+              name="strength"
+              placeholder={t('docEPrescribe.strengthPh')}
+              label={t('docEPrescribe.strength')}
+              value={formData.strength}
+              onChange={handleChange}
+              onBlur={handleBlur('strength')}
+              error={errors.strength}
+              required
+            />
             <div>
               <label htmlFor="form" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.form')}</label>
               <select
@@ -250,41 +276,41 @@ export default function EPrescribePage() {
                 <option value="inhaler">{t('docEPrescribe.formInhaler')}</option>
               </select>
             </div>
-            <div>
-              <label htmlFor="quantity" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.quantity')}</label>
-              <input 
-                id="quantity"
-                type="number" 
-                name="quantity" 
-                value={formData.quantity} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-              />
-            </div>
-            <div>
-              <label htmlFor="days_supply" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.daysSupply')}</label>
-              <input 
-                id="days_supply"
-                type="number" 
-                name="days_supply" 
-                value={formData.days_supply} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-              />
-            </div>
-            <div>
-              <label htmlFor="refills_allowed" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.refillsAllowed')}</label>
-              <input 
-                id="refills_allowed"
-                type="number" 
-                name="refills_allowed" 
-                value={formData.refills_allowed} 
-                onChange={handleChange} 
-                min="0"
-                max="12"
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-              />
-            </div>
+            <Input
+              id="quantity"
+              name="quantity"
+              type="number"
+              label={t('docEPrescribe.quantity')}
+              value={formData.quantity}
+              onChange={handleChange}
+              onBlur={handleBlur('quantity')}
+              error={errors.quantity}
+              required
+            />
+            <Input
+              id="days_supply"
+              name="days_supply"
+              type="number"
+              label={t('docEPrescribe.daysSupply')}
+              value={formData.days_supply}
+              onChange={handleChange}
+              onBlur={handleBlur('days_supply')}
+              error={errors.days_supply}
+              required
+            />
+            <Input
+              id="refills_allowed"
+              name="refills_allowed"
+              type="number"
+              min="0"
+              max="12"
+              label={t('docEPrescribe.refillsAllowed')}
+              value={formData.refills_allowed}
+              onChange={handleChange}
+              onBlur={handleBlur('refills_allowed')}
+              error={errors.refills_allowed}
+              required
+            />
           </div>
 
           <div className="mt-4">
@@ -323,7 +349,7 @@ export default function EPrescribePage() {
               onChange={handleChange}
               className="h-4 w-4 text-notice-subtle-fg focus:ring-blue-500 border-border-interactive rounded"
             />
-            <label htmlFor="is_controlled" className="ml-2 block text-sm text-content-secondary">
+            <label htmlFor="is_controlled" className="ml-2 flex items-center min-h-[24px] py-1 text-sm text-content-secondary">
               {t('docEPrescribe.controlled')}
             </label>
           </div>

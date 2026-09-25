@@ -62,13 +62,14 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [patientDesktopMenuOpen, setPatientDesktopMenuOpen] = useState(false);
 
   // Connection status
   const { isOnline, queueSize, checkConnection } = useApiStatus();
 
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
-  const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  const { showInfo, showWarning, showSuccess } = useToastActions();
   const lastProcessedEventRef = useRef<number>(0);
 
   // Handle incoming real-time events
@@ -94,7 +95,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               );
               break;
             case 'notification':
-              showInfo(latestEvent.payload.message, 'New Notification');
+              // Every sibling case here had a fallback and this one did not, so
+              // a `notification` event carrying no `message` rendered a toast
+              // with an empty body. Typing `payload` is what surfaced it.
+              showInfo(
+                latestEvent.payload.message || 'You have a new notification',
+                'New Notification'
+              );
               break;
             default:
               // For patients, maybe show less technical info
@@ -108,7 +115,12 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
             case 'cds_alert':
               showWarning(
                 latestEvent.payload.title || 'Clinical Alert',
-                `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                // An absent severity used to interpolate as the literal string
+                // "undefined severity" into a clinical alert. Say nothing about
+                // the severity rather than say that.
+                latestEvent.payload.severity
+                  ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+                  : `Patient ${latestEvent.patient_id}`
               );
               break;
             case 'lab_result':
@@ -196,10 +208,9 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
     },
   ];
 
-  // Flatten patient sections for mobile and simple nav
-  const _patientNavItems: NavItem[] = patientNavSections.flatMap(section => section.items);
-  
-  // Main nav for top bar (subset for cleaner UX)
+  // Primary actions stay in the desktop header. The remaining routes are in a
+  // labelled desktop menu below; hiding them in the mobile-only drawer made
+  // implemented patient workflows undiscoverable on laptops and desktops.
   const patientMainNav: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/records', label: 'Records', icon: FileText },
@@ -219,6 +230,22 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {/*
+        First focusable element in the document, deliberately. The patient app
+        had no skip link at all: a keyboard or switch user reached the page
+        content only after tabbing the entire header and navigation, on every
+        single route.
+
+        `min-h`/`min-w` because it becomes a real target once focused — WCAG 2.2
+        SC 2.5.8 asks for 24x24 CSS px, and padding around a 14px line box does
+        not get there on its own.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 inline-flex items-center min-h-[24px] min-w-[24px] px-3 py-1.5 bg-surface text-content border border-border-interactive rounded shadow"
+      >
+        Skip to main content
+      </a>
       {/* Offline Banner */}
       {!isOnline && (
         <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
@@ -256,7 +283,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
             </Link>
 
             {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-1">
+            <div className="hidden lg:flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -275,6 +302,55 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                   </Link>
                 );
               })}
+              {variant === 'patient' && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    aria-expanded={patientDesktopMenuOpen}
+                    aria-controls="patient-desktop-navigation"
+                    onClick={() => setPatientDesktopMenuOpen((open) => !open)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-content-muted hover:bg-surface-sunken transition-colors"
+                  >
+                    <Menu className="w-5 h-5" />
+                    <span className="text-sm">More</span>
+                  </button>
+                  {patientDesktopMenuOpen && (
+                    <div
+                      id="patient-desktop-navigation"
+                      className="absolute right-0 top-full mt-2 z-50 grid w-[44rem] grid-cols-2 gap-x-6 gap-y-4 rounded-xl border border-border bg-surface p-5 shadow-lg"
+                    >
+                      {patientNavSections.map((section) => (
+                        <section key={section.label} aria-label={section.label}>
+                          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-muted">
+                            {section.label}
+                          </h2>
+                          <div className="space-y-1">
+                            {section.items.map((item) => {
+                              const Icon = item.icon;
+                              const isActive = location.pathname === item.path;
+                              return (
+                                <Link
+                                  key={item.path}
+                                  to={item.path}
+                                  onClick={() => setPatientDesktopMenuOpen(false)}
+                                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                                    isActive
+                                      ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                                      : 'text-content-muted hover:bg-surface-sunken'
+                                  }`}
+                                >
+                                  <Icon className="w-4 h-4" />
+                                  <span>{item.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Right Actions */}
@@ -299,7 +375,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
+                className="lg:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
@@ -309,7 +385,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
+          <div className="lg:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
             <div className="px-4 py-2">
               {variant === 'patient' ? (
                 // Sectioned navigation for patient
@@ -384,7 +460,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
           patient portal and took the emergency medical ID down with it.
           Keying it on the path resets the boundary when the user navigates
           away; without that, one crash would latch for the rest of the session. */}
-      <main className="max-w-7xl mx-auto">
+      <main id="main-content" className="max-w-7xl mx-auto">
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>

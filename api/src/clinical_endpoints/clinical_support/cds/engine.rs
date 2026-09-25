@@ -184,25 +184,24 @@ pub async fn run_and_persist_cds_alerts(
             alert.severity,
             crate::clinical::CDSSeverity::High | crate::clinical::CDSSeverity::Critical
         ) {
-            let repos = data.repositories.clone();
+            let state = data.clone();
             let recipient = patient_id.to_string();
             let title = alert.title.clone();
             tokio::spawn(async move {
-                let _ = crate::notifications::send_push_to_user(
-                    &repos,
-                    crate::notifications::PushNotification {
-                        user_id: recipient,
-                        title: "Clinical Alert".to_string(),
-                        body: title,
-                        data: Some([("type".to_string(), "cds_alert".to_string())].into()),
-                    },
+                crate::notifications::notify_patient(
+                    &state,
+                    &recipient,
+                    &["emergencyAlerts", "pushNotifications"],
+                    "Clinical Alert",
+                    &title,
+                    "cds_alert",
                 )
                 .await;
             });
         }
         let entity: crate::repositories::traits::CdsAlertEntity = alert.clone().into();
         if let Err(e) = data.repositories.cds_alerts.create(entity).await {
-            log::error!("Failed to persist CDS alert {}: {}", alert.alert_id, e);
+            log::error!("Failed to persist CDS alert: {}", e);
         }
     }
 }
@@ -593,17 +592,4 @@ pub fn evaluate_cds_rules(
     }
 
     alerts
-}
-
-/// Create CDS alert request
-#[derive(Debug, Deserialize)]
-pub struct CreateCDSAlertRequest {
-    pub patient_id: String,
-    pub alert_type: String,
-    pub severity: String,
-    pub title: String,
-    pub description: String,
-    pub clinical_context: String,
-    pub guideline_reference: Option<String>,
-    pub expires_at: Option<i64>,
 }

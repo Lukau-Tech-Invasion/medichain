@@ -1,9 +1,17 @@
 /**
- * Input Component
+ * Form controls.
+ *
+ * All three share `useFieldA11y` for id generation and ARIA wiring, and
+ * `FieldLabel`/`FieldError`/`FieldHelp` for the surrounding chrome. See
+ * `field.ts` for the three defects that shared wiring exists to prevent —
+ * chiefly that ids used to be derived from label text, so two fields with the
+ * same label collided and the label focused the wrong control.
  */
 
-import { forwardRef, type InputHTMLAttributes } from 'react';
+import { forwardRef, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { clsx } from 'clsx';
+import { useFieldA11y, fieldBorderClass, FIELD_BASE_CLASS } from './field';
+import { FieldLabel, FieldError, FieldHelp } from './FieldParts';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -14,50 +22,44 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, helperText, leftIcon, rightIcon, className, id, ...props }, ref) => {
-    const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+  ({ label, error, helperText, leftIcon, rightIcon, className, id, required, ...props }, ref) => {
+    const field = useFieldA11y({ id, error, helperText, required });
 
     return (
       <div className="w-full">
         {label && (
-          <label
-            htmlFor={inputId}
-            className="block text-sm font-medium text-content-secondary mb-1"
-          >
+          <FieldLabel htmlFor={field.controlId} required={required}>
             {label}
-          </label>
+          </FieldLabel>
         )}
         <div className="relative">
           {leftIcon && (
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none">
               {leftIcon}
             </div>
           )}
           <input
             ref={ref}
-            id={inputId}
+            required={required}
             className={clsx(
-              'w-full px-4 py-2 border rounded-lg transition-colors',
-              'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-              'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
-              error
-                ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                : 'border-border-interactive',
+              FIELD_BASE_CLASS,
+              fieldBorderClass(Boolean(error)),
               leftIcon && 'pl-10',
               rightIcon && 'pr-10',
               className
             )}
+            {...field.controlProps}
             {...props}
           />
           {rightIcon && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-content-muted">
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none">
               {rightIcon}
             </div>
           )}
         </div>
-        {error && <p className="mt-1 text-sm text-critical-subtle-fg">{error}</p>}
-        {helperText && !error && (
-          <p className="mt-1 text-sm text-content-muted">{helperText}</p>
+        {error && field.errorId && <FieldError id={field.errorId}>{error}</FieldError>}
+        {helperText && !error && field.helperId && (
+          <FieldHelp id={field.helperId}>{helperText}</FieldHelp>
         )}
       </div>
     );
@@ -66,42 +68,29 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
 Input.displayName = 'Input';
 
-/**
- * Select Component
- */
-
-export interface SelectProps extends InputHTMLAttributes<HTMLSelectElement> {
+export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
+  helperText?: string;
   options: Array<{ value: string; label: string }>;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, className, id, ...props }, ref) => {
-    const selectId = id || label?.toLowerCase().replace(/\s+/g, '-');
+  ({ label, error, helperText, options, className, id, required, ...props }, ref) => {
+    const field = useFieldA11y({ id, error, helperText, required });
 
     return (
       <div className="w-full">
         {label && (
-          <label
-            htmlFor={selectId}
-            className="block text-sm font-medium text-content-secondary mb-1"
-          >
+          <FieldLabel htmlFor={field.controlId} required={required}>
             {label}
-          </label>
+          </FieldLabel>
         )}
         <select
           ref={ref}
-          id={selectId}
-          className={clsx(
-            'w-full px-4 py-2 border rounded-lg transition-colors appearance-none',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-            'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
-            error
-              ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-              : 'border-border-interactive',
-            className
-          )}
+          required={required}
+          className={clsx(FIELD_BASE_CLASS, 'appearance-none', fieldBorderClass(Boolean(error)), className)}
+          {...field.controlProps}
           {...props}
         >
           {options.map(option => (
@@ -110,7 +99,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             </option>
           ))}
         </select>
-        {error && <p className="mt-1 text-sm text-critical-subtle-fg">{error}</p>}
+        {error && field.errorId && <FieldError id={field.errorId}>{error}</FieldError>}
+        {helperText && !error && field.helperId && (
+          <FieldHelp id={field.helperId}>{helperText}</FieldHelp>
+        )}
       </div>
     );
   }
@@ -118,46 +110,35 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
 Select.displayName = 'Select';
 
-/**
- * Textarea Component
- */
-
-export interface TextareaProps extends InputHTMLAttributes<HTMLTextAreaElement> {
+export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
-  rows?: number;
+  helperText?: string;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, rows = 3, className, id, ...props }, ref) => {
-    const textareaId = id || label?.toLowerCase().replace(/\s+/g, '-');
+  ({ label, error, helperText, rows = 3, className, id, required, ...props }, ref) => {
+    const field = useFieldA11y({ id, error, helperText, required });
 
     return (
       <div className="w-full">
         {label && (
-          <label
-            htmlFor={textareaId}
-            className="block text-sm font-medium text-content-secondary mb-1"
-          >
+          <FieldLabel htmlFor={field.controlId} required={required}>
             {label}
-          </label>
+          </FieldLabel>
         )}
         <textarea
           ref={ref}
-          id={textareaId}
           rows={rows}
-          className={clsx(
-            'w-full px-4 py-2 border rounded-lg transition-colors resize-none',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-            'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
-            error
-              ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-              : 'border-border-interactive',
-            className
-          )}
+          required={required}
+          className={clsx(FIELD_BASE_CLASS, 'resize-none', fieldBorderClass(Boolean(error)), className)}
+          {...field.controlProps}
           {...props}
         />
-        {error && <p className="mt-1 text-sm text-critical-subtle-fg">{error}</p>}
+        {error && field.errorId && <FieldError id={field.errorId}>{error}</FieldError>}
+        {helperText && !error && field.helperId && (
+          <FieldHelp id={field.helperId}>{helperText}</FieldHelp>
+        )}
       </div>
     );
   }

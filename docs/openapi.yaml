@@ -37,7 +37,7 @@ info:
     url: https://medichain.ng/license
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8090
     description: Local development server
   - url: https://api.medichain.ng
     description: Production server

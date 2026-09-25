@@ -3,7 +3,6 @@
 //! This module contains all the Phase 2 clinical documentation and nursing care
 //! memory repository implementations for backward compatibility.
 
-mod sample_history;
 mod gcs_assessment;
 mod progress_note;
 mod history_physical;
@@ -15,7 +14,6 @@ mod wound_assessment;
 mod iv_assessment;
 mod fall_risk_assessment;
 
-pub use sample_history::MemorySampleHistoryRepository;
 pub use gcs_assessment::MemoryGcsAssessmentRepository;
 pub use progress_note::MemoryProgressNoteRepository;
 pub use history_physical::MemoryHistoryPhysicalRepository;

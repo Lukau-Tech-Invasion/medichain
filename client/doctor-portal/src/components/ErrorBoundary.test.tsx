@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ErrorBoundary, withErrorBoundary, InlineErrorFallback } from '../components/ErrorBoundary';
+import { ErrorBoundary, withErrorBoundary } from '../components/ErrorBoundary';
 
 // Component that throws an error
 const ThrowingComponent = ({ shouldThrow = true }: { shouldThrow?: boolean }) => {
@@ -146,47 +146,5 @@ describe('withErrorBoundary HOC', () => {
     render(<SafeComponent message="Hello World" />);
 
     expect(screen.getByText('Hello World')).toBeInTheDocument();
-  });
-});
-
-describe('InlineErrorFallback', () => {
-  it('displays error message', () => {
-    const error = new Error('Inline error');
-    const resetError = vi.fn();
-
-    render(<InlineErrorFallback error={error} resetError={resetError} />);
-
-    expect(screen.getByText('Inline error')).toBeInTheDocument();
-  });
-
-  it('displays component name', () => {
-    const resetError = vi.fn();
-
-    render(
-      <InlineErrorFallback 
-        error={null} 
-        resetError={resetError} 
-        componentName="PatientList" 
-      />
-    );
-
-    expect(screen.getByText(/Error loading PatientList/)).toBeInTheDocument();
-  });
-
-  it('calls resetError when "Try again" is clicked', () => {
-    const resetError = vi.fn();
-
-    render(<InlineErrorFallback error={null} resetError={resetError} />);
-
-    fireEvent.click(screen.getByText('Try again'));
-    expect(resetError).toHaveBeenCalledTimes(1);
-  });
-
-  it('has proper accessibility role', () => {
-    const resetError = vi.fn();
-
-    render(<InlineErrorFallback error={null} resetError={resetError} />);
-
-    expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 });

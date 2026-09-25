@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::pagination::{paginate_cursor, CursorQuery, Cursorable};
+use crate::pagination::{decode_cursor, encode_cursor_ms, CursorQuery, Cursorable, MAX_LIMIT};
 
 impl Cursorable for PatientProfile {
     fn cursor_ts(&self) -> i64 {
@@ -53,6 +53,32 @@ impl Cursorable for RosterRow {
     }
 }
 
+/// A readable patient as served: the decrypted profile plus the columns the
+/// row stores beside it in clear.
+///
+/// `wallet_address` is a column on the patient row, not part of the encrypted
+/// profile, so serialising `PatientProfile` alone left it out: a patient whose
+/// wallet was bound at registration read back as having none. The row is the
+/// one source of truth for it, so it is added here rather than copied into
+/// the blob, where the two could drift.
+fn readable_patient_json(
+    profile: &PatientProfile,
+    entity: &crate::repositories::traits::PatientEntity,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(profile).unwrap_or(serde_json::Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "wallet_address".to_string(),
+            serde_json::json!(entity.wallet_address),
+        );
+        object.insert(
+            "content_available".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    }
+    value
+}
+
 /// Everything about a patient that is stored unencrypted, for a row whose
 /// profile blob could not be read.
 fn unreadable_roster_row(
@@ -64,6 +90,7 @@ fn unreadable_roster_row(
         id: entity.id.clone(),
         value: serde_json::json!({
             "patient_id": entity.id,
+            "wallet_address": entity.wallet_address,
             "health_id": entity.health_id,
             "gender": entity.gender,
             "national_id_type": entity.national_id_type,
@@ -84,7 +111,11 @@ fn unreadable_roster_row(
 
 /// Get all registered patients (paginated)
 /// Requires authentication: Only healthcare providers can list all patients
-/// Query params: ?limit=20&cursor=<opaque>
+/// Query params: ?limit=20&cursor=<opaque>&q=<name-or-identifier>
+///
+/// `q` is evaluated server-side. Names use keyed whole-token blind indexes;
+/// identifiers retain their existing lookup behavior. No plaintext name is
+/// stored or returned solely to make search work.
 #[get("/api/patients")]
 pub async fn list_patients(
     data: web::Data<AppState>,
@@ -96,7 +127,6 @@ pub async fn list_patients(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required to list patients".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -107,7 +137,6 @@ pub async fn list_patients(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -117,25 +146,41 @@ pub async fn list_patients(
     // Only healthcare providers can list all patients
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can list patients".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
-    // List patients via repository.
-    // Decrypts each profile blob; capped at 1000 for this cursor pass.
-    let entities = match data
-        .repositories
-        .patients
-        .list(crate::repositories::Pagination::new(0, 1000))
-        .await
-    {
-        Ok(result) => result.items,
+    let requested_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
+    let cursor = match query.cursor.as_deref() {
+        Some(encoded) => match decode_cursor(encoded).and_then(|(ts, id)| {
+            chrono::DateTime::<Utc>::from_timestamp_millis(ts).map(|at| (at, id))
+        }) {
+            Some(cursor) => Some(cursor),
+            None => {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "Invalid patient roster cursor".to_string(),
+                    code: "INVALID_CURSOR".to_string(),
+                });
+            }
+        },
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(50).clamp(1, MAX_LIMIT) as u32;
+    let repository_result = match requested_query {
+        Some(search_query) => {
+            data.repositories
+                .patients
+                .search_keyset(search_query, cursor, limit)
+                .await
+        }
+        None => data.repositories.patients.list_keyset(cursor, limit).await,
+    };
+    let (entities, total) = match repository_result {
+        Ok(result) => (result.items, result.total),
         Err(e) => {
             log::error!("Patient list failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Internal server error".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -152,17 +197,10 @@ pub async fn list_patients(
     for entity in &entities {
         match patient_entity_to_profile(entity, &data.encryption_keyring) {
             Some(profile) => {
-                let mut value = serde_json::to_value(&profile).unwrap_or(serde_json::Value::Null);
-                if let Some(object) = value.as_object_mut() {
-                    object.insert(
-                        "content_available".to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
                 rows.push(RosterRow {
-                    ts: profile.last_updated.timestamp_millis(),
+                    ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
-                    value,
+                    value: readable_patient_json(&profile, entity),
                 });
             }
             None => {
@@ -177,12 +215,12 @@ pub async fn list_patients(
         }
     }
 
-    // Sort: timestamp DESC, then ID ASC (stable tiebreaker)
-    rows.sort_by(|a, b| b.ts.cmp(&a.ts).then_with(|| a.id.cmp(&b.id)));
-
-    let total = rows.len();
-    let (page, next_cursor) = paginate_cursor(&rows, query.cursor.as_deref(), query.limit);
-    let page: Vec<serde_json::Value> = page.into_iter().map(|r| r.value).collect();
+    let next_cursor = if rows.len() == limit as usize {
+        rows.last().map(|row| encode_cursor_ms(row.ts, &row.id))
+    } else {
+        None
+    };
+    let page: Vec<serde_json::Value> = rows.into_iter().map(|row| row.value).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -209,7 +247,6 @@ pub async fn get_patient_by_id(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -220,7 +257,6 @@ pub async fn get_patient_by_id(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -233,7 +269,6 @@ pub async fn get_patient_by_id(
         || current_user.wallet_address == patient_id;
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Patients can only view their own records".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -242,7 +277,7 @@ pub async fn get_patient_by_id(
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            Some(profile) => HttpResponse::Ok().json(profile),
+            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile, &entity)),
             // The row exists; its PHI just cannot be decrypted with the keys
             // this process holds. Reporting that as `PATIENT_NOT_FOUND` told
             // the caller the patient was never registered, which is false and
@@ -251,9 +286,8 @@ pub async fn get_patient_by_id(
             // so this fails loudly instead.
             None => {
                 let reason = unreadable_reason(&entity, &data.encryption_keyring);
-                log::error!("patient {patient_id} exists but its profile is unreadable ({reason})");
+                log::error!("patient profile is unreadable ({reason})");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: format!(
                         "Patient {patient_id} is registered but their stored record could not be decrypted"
                     ),
@@ -262,7 +296,6 @@ pub async fn get_patient_by_id(
             }
         },
         Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient {} not found", patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         }),
@@ -312,7 +345,6 @@ pub async fn update_patient(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error:
                     "Missing X-User-Id header. Only doctors and nurses can update patient records."
                         .to_string(),
@@ -325,7 +357,6 @@ pub async fn update_patient(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -335,7 +366,6 @@ pub async fn update_patient(
     // CRITICAL: Only Doctor, Nurse, or Admin can edit records
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: format!(
                 "Only doctors and nurses can update medical records. Your role: {}",
                 current_user.role
@@ -349,7 +379,6 @@ pub async fn update_patient(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -359,7 +388,6 @@ pub async fn update_patient(
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -440,7 +468,6 @@ pub async fn update_patient(
     if let Err(e) = data.repositories.patients.update(updated_entity).await {
         log::error!("Patient update persistence failed: {}", e);
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to persist patient update".to_string(),
             code: "REPO_ERROR".to_string(),
         });
@@ -458,144 +485,4 @@ pub async fn update_patient(
         updated_by: current_user_id,
         message: "Patient record updated successfully".to_string(),
     })
-}
-
-/// Add emergency contact request
-#[derive(Debug, Deserialize)]
-pub struct AddEmergencyContactRequest {
-    pub name: String,
-    pub phone: String,
-    pub relationship: String,
-}
-
-/// Add emergency contact (Patient can manage their own contacts)
-#[post("/api/patients/{patient_id}/emergency-contacts")]
-pub async fn add_emergency_contact(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    path: web::Path<String>,
-    req: web::Json<AddEmergencyContactRequest>,
-) -> impl Responder {
-    let patient_id = path.into_inner();
-
-    // Get current user
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
-    };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Patients can only manage their own emergency contacts
-    // Healthcare providers can manage any patient's contacts
-    let is_own_record =
-        crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
-    let is_provider = current_user.role.can_edit_medical_records();
-
-    if !is_own_record && !is_provider {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "You can only manage your own emergency contacts".to_string(),
-            code: "FORBIDDEN".to_string(),
-        });
-    }
-
-    // Validate input
-    if req.name.trim().is_empty()
-        || req.phone.trim().is_empty()
-        || req.relationship.trim().is_empty()
-    {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "Name, phone, and relationship are required".to_string(),
-            code: "INVALID_INPUT".to_string(),
-        });
-    }
-
-    // Add emergency contact via repository (was: in-memory data.patients HashMap)
-    let entity = match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(e) => e,
-        Err(_) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Patient not found".to_string(),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            });
-        }
-    };
-    let mut patient = match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-        Some(p) => p,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Patient not found".to_string(),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Determine next priority based on existing contacts
-    let next_priority = patient.emergency_info.emergency_contacts.len() as u8 + 1;
-
-    let new_contact = EmergencyContact {
-        name: req.name.clone(),
-        phone: req.phone.clone(),
-        relationship: req.relationship.clone(),
-        priority: next_priority,
-        can_make_medical_decisions: false,
-        language: None,
-    };
-
-    patient
-        .emergency_info
-        .emergency_contacts
-        .push(new_contact.clone());
-    patient.emergency_info.last_updated = Utc::now();
-    patient.last_updated = Utc::now();
-
-    // Persist via repository, preserving entity-only fields not in PatientProfile.
-    let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
-    updated_entity.health_id = entity.health_id.clone();
-    updated_entity.gender = entity.gender.clone();
-    updated_entity.wallet_address = entity.wallet_address.clone();
-    updated_entity.is_verified = entity.is_verified;
-    updated_entity.registered_by = entity.registered_by.clone();
-    updated_entity.primary_provider_id = entity.primary_provider_id.clone();
-    updated_entity.created_at = entity.created_at;
-    if let Err(e) = data.repositories.patients.update(updated_entity).await {
-        log::error!("Emergency contact persistence failed: {}", e);
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: "Failed to persist emergency contact".to_string(),
-            code: "REPO_ERROR".to_string(),
-        });
-    }
-
-    log::info!(
-        "Emergency contact added to patient {} by {}",
-        patient_id,
-        current_user_id
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "contact": new_contact,
-        "message": "Emergency contact added successfully"
-    }))
 }

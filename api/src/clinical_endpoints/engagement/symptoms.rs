@@ -5,7 +5,6 @@ use super::*;
 // ============================================================================
 
 /// Start symptom check session request
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct StartSymptomCheckRequest {
     pub primary_symptom: String,
@@ -21,10 +20,24 @@ pub async fn start_symptom_check(
     http_req: HttpRequest,
     req: web::Json<StartSymptomCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    // The session belongs to the PATIENT, under the id their own history is
+    // read by.
+    //
+    // This used to key the session on the caller's wallet address, while
+    // `GET /api/symptoms/history/{patient_id}` looks it up by health id
+    // (`PAT-…`) — the id every patient-app screen holds. The two namespaces
+    // never met, so a patient's symptom-check history was permanently empty
+    // and the triage that told them to go to an emergency department left no
+    // record anyone could find. The wallet remains the fallback for a caller
+    // with no linked patient record.
+    let current_user_id = caller
+        .linked_patient_id
+        .clone()
+        .unwrap_or_else(|| caller.wallet_address.clone());
 
     // Generate initial follow-up questions based on primary symptom
     let follow_up_questions = generate_symptom_questions(&req.primary_symptom);
@@ -42,6 +55,13 @@ pub async fn start_symptom_check(
         started_at: chrono::Utc::now().timestamp(),
         completed_at: None,
         initial_symptoms: vec![req.primary_symptom.clone()],
+        // Carried onto the record rather than discarded. The request has
+        // accepted these three since the feature was built and the session was
+        // constructed without them, so a symptom history showed what somebody
+        // reported and never who reported it.
+        age: req.age,
+        gender: req.gender.clone(),
+        pregnant: req.pregnant,
         conversation: vec![initial_message],
         assessment: None,
         triage_recommendation: None,
@@ -59,7 +79,15 @@ pub async fn start_symptom_check(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.symptom_sessions.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
+            log::error!("symptom_sessions persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The symptom session could not be saved; please retry.".to_string(),
+                code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({
@@ -171,7 +199,6 @@ pub async fn submit_symptom_answers(
             Ok(s) => s,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt session record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -179,7 +206,6 @@ pub async fn submit_symptom_answers(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -190,7 +216,6 @@ pub async fn submit_symptom_answers(
     // session is keyed by patient_id, the caller by wallet.
     if !crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Session does not belong to you".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -254,7 +279,15 @@ pub async fn submit_symptom_answers(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.symptom_sessions.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.symptom_sessions.create(entity).await {
+            log::error!("symptom_sessions persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The symptom session could not be saved; please retry.".to_string(),
+                code: "SYMPTOM_SESSION_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -362,7 +395,6 @@ pub async fn get_symptom_session(
             Ok(s) => s,
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "Corrupt session record".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -370,7 +402,6 @@ pub async fn get_symptom_session(
         },
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Session not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -379,7 +410,6 @@ pub async fn get_symptom_session(
 
     if session.patient_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -414,7 +444,6 @@ pub async fn get_symptom_checker_history(
         && !is_provider
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -491,7 +520,6 @@ pub async fn analyze_symptoms(
 
     if symptoms.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "At least one symptom is required".to_string(),
             code: "INVALID_INPUT".to_string(),
         });

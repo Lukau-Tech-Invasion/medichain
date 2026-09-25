@@ -40,7 +40,6 @@ pub async fn sms_opt_out(
             "message": "Opted out of SMS notifications"
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "DATABASE_ERROR".to_string(),
         }),
@@ -69,7 +68,6 @@ pub async fn sms_opt_in(
             "message": "Opted back in to SMS notifications"
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "DATABASE_ERROR".to_string(),
         }),
@@ -170,7 +168,17 @@ pub async fn sms_inbound_webhook(
             source: Some("sms_stop_reply".to_string()),
             reason: Some(req.text.clone()),
         };
-        let _ = data.repositories.sms_opt_outs.add_opt_out(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.sms_opt_outs.add_opt_out(entity).await {
+            log::error!("sms_opt_outs persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error:
+                    "The opt-out could not be saved. You may still receive messages; please retry."
+                        .to_string(),
+                code: "SMS_OPT_OUT_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
     HttpResponse::Ok().finish()
 }

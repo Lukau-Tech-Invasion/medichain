@@ -22,7 +22,7 @@ vi.mock('../components', () => ({
       </button>
     </div>
   ),
-  EmergencyPatientCard: ({ patient }: { patient: any }) => (
+  EmergencyPatientCard: ({ patient }: { patient: Record<string, string> }) => (
     <div data-testid="emergency-card">
       <p>{patient.fullName || patient.full_name}</p>
       <p>{patient.patientId || patient.patient_id}</p>
@@ -47,7 +47,7 @@ describe('EmergencyAccessPage', () => {
   });
 
   it('renders instructions when no emergency patient is active', () => {
-    (usePatientStore as any).mockReturnValue({
+    vi.mocked(usePatientStore).mockReturnValue({
       currentEmergency: null,
       clearEmergencyAccess: vi.fn(),
     });
@@ -60,7 +60,7 @@ describe('EmergencyAccessPage', () => {
   });
 
   it('renders patient card and timer when emergency patient is active', () => {
-    (usePatientStore as any).mockReturnValue({
+    vi.mocked(usePatientStore).mockReturnValue({
       currentEmergency: mockEmergencyPatient,
       clearEmergencyAccess: vi.fn(),
     });
@@ -74,7 +74,7 @@ describe('EmergencyAccessPage', () => {
 
   it('allows clearing emergency access', () => {
     const clearEmergencyAccess = vi.fn();
-    (usePatientStore as any).mockReturnValue({
+    vi.mocked(usePatientStore).mockReturnValue({
       currentEmergency: mockEmergencyPatient,
       clearEmergencyAccess,
     });

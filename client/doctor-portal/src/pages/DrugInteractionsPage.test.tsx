@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import DrugInteractionsPage from './DrugInteractionsPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -17,10 +18,12 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
-// The page calls fetch directly for /api/drugs and /api/interactions/check.
+// The page reaches /api/drugs and /api/interactions/check through the typed
+// client, which calls fetch underneath.
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
@@ -40,24 +43,41 @@ describe('DrugInteractionsPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
+    // A bare vi.fn() resolves undefined, and PatientSelect then calls
+    // `.find` on it -- a crash that only lands when the list request settles
+    // before the test ends, so it failed under full-suite load and passed alone.
+    vi.mocked(shared.getPatients).mockResolvedValue([] as never);
 
     mockFetch.mockImplementation((input: RequestInfo | URL) => {
       const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
       if (url.includes('/api/interactions/check')) {
+        // The server's own shape: `clinical::DrugInteraction` serialises its
+        // enums PascalCase, and a patientless check files nothing.
         return json({
+          success: true,
+          check_id: null,
+          patient_id: null,
+          medications_checked: 2,
+          interactions_found: 1,
+          has_critical: true,
           interactions: [
             {
               drug_a: 'Warfarin',
               drug_b: 'Aspirin',
-              severity: 'major',
+              severity: 'Major',
               description: 'Major interaction between Warfarin and Aspirin',
               clinical_effects: 'Increased bleeding risk',
               management: 'Monitor INR closely',
+              evidence_level: 'Established',
+              source: 'Test formulary',
             },
           ],
+          allergy_alerts: [],
+          screened: { drug_drug: true, allergies: false, conditions: false },
+          recommendation: 'MAJOR interactions - Consider alternatives',
         });
       }
       if (url.includes('/api/drugs')) {
@@ -118,5 +138,33 @@ describe('DrugInteractionsPage', () => {
         screen.getAllByText(/Major interaction between Warfarin and Aspirin/i).length
       ).toBeGreaterThan(0);
     });
+  });
+
+  it('shows the checks filed to the chosen patient, not only this session', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([patientFixture({ patient_id: 'PAT-9', full_name: 'Lindiwe Khumalo' })] as never);
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+      if (url.includes('/api/interactions/history/PAT-9')) {
+        return json({
+          success: true,
+          count: 1,
+          checks: [{
+            result_id: 'CHK-FILED-1', patient_id: 'PAT-9', checked_at: 1790000000,
+            new_medication: 'Warfarin', medications_checked: ['Warfarin', 'Ibuprofen'],
+            interactions: [{ drug_a: 'Warfarin', drug_b: 'Ibuprofen', severity: 'Major', description: 'Bleeding' }],
+            overall_severity: 'Major', safe_to_prescribe: false, checked_by: '5Doctor',
+          }],
+        });
+      }
+      return base(input);
+    });
+    render(<DrugInteractionsPage />);
+
+    await selectPatient(/Patient/i, 'Lindiwe Khumalo', 'ddi-patient-id');
+    fireEvent.click(screen.getByText(/History/i));
+
+    expect(await screen.findByText(/CHK-FILED-1/)).toBeInTheDocument();
+    expect(screen.getByText('Ibuprofen')).toBeInTheDocument();
   });
 });

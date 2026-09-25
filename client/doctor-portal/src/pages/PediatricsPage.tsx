@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useToastActions } from '../components/Toast';
 import {
   Baby,
   Search,
-  Plus,
   TrendingUp,
   Ruler,
   Scale,
@@ -12,8 +12,17 @@ import {
   Heart,
   FileSignature
 } from 'lucide-react';
-import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
-import { getPatients, useTranslation } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
+import {
+  createPeds,
+  listPedsForPatient,
+  getPatients,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  pediatricAssessmentSchema,
+} from '@medichain/shared';
 
 /**
  * PediatricsPage
@@ -60,6 +69,11 @@ const latestGrowthOf = (patient: PediatricPatient): GrowthData | undefined =>
   patient.growthData.length > 0 ? patient.growthData[patient.growthData.length - 1] : undefined;
 
 const PediatricsPage: React.FC = () => {
+  // Toasts, not `alert()`. A native alert is a blocking modal: it freezes the
+  // tab until dismissed, ignores the app's styling and focus handling, and
+  // interrupts a clinician mid-form. `Toast.tsx` says in its own header that it
+  // exists "to replace browser alert() calls"; these three pages were missed.
+  const { showSuccess, showError } = useToastActions();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'assessment' | 'growth'>('patients');
   const [patients, setPatients] = useState<PediatricPatient[]>([]);
@@ -149,9 +163,9 @@ const PediatricsPage: React.FC = () => {
     let cancelled = false;
     const loadGrowth = async () => {
       try {
-        const response = await listPedsForPatient(selectedPatient.id);
+        const rows = await listPedsForPatient(selectedPatient.id);
         if (cancelled) return;
-        const points: GrowthData[] = (response.items || [])
+        const points: GrowthData[] = rows
           .map((item) => {
             const wrapper = item as { data?: Record<string, unknown>; created_at?: string };
             const record = wrapper.data ?? (item as Record<string, unknown>);
@@ -227,65 +241,74 @@ const PediatricsPage: React.FC = () => {
     p.mrn.includes(searchQuery)
   );
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(pediatricAssessmentSchema);
   const handleSubmitAssessment = async () => {
-    if (!assessmentForm.patientId || !assessmentForm.weightKg || !assessmentForm.heartRate) {
-      alert(t('docPediatrics.warningRequiredFields'));
+    // Weight is bounded as well as required: paediatric dosing is per
+    // kilogram, so a weight in pounds entered as kilograms roughly doubles
+    // every dose calculated from it, and 250 kg is not a child.
+    if (!validate(assessmentForm)) {
       return;
     }
 
     try {
-      // Mapping to the backend PediatricAssessment structure
+      // Only what the form collects, under the names the handler reads.
+      //
+      // Two things were wrong here. The field names did not match — the page
+      // sent `age: {years, months}`, `weight_method` and `immunizations`
+      // against a handler reading `age_months`, `weight_estimated` and
+      // `immunizations_up_to_date` — so a paediatric assessment stored age
+      // 0 months and no immunisation status while returning success.
+      //
+      // And six clinical findings were asserted that nobody entered:
+      //
+      //   hr_interpretation / rr_interpretation / temp_interpretation: 'Normal'
+      //     — every paediatric vital sign filed as normal, including a
+      //       tachycardic infant's.
+      //   pain: { score: 0 }              — no pain, on a child nobody asked.
+      //   immunizations: 'Up to date'     — a complete schedule for every child.
+      //   abuse_screening: { concerns: false }
+      //     — the worst of them: a record stating a child-protection screen
+      //       found no concerns, when no screen was performed.
+      //   guardian_present: true          — a guardian who may not have been there.
+      //   weight_method: 'Measured'       — measured, not estimated.
+      //
+      // A temperature nobody entered also became 37.0 and a weight nobody
+      // entered became 0. Absent is what these are, and absent is what they
+      // send now.
       const assessmentData = {
-        assessment_id: `PEDS-${Date.now()}`,
         patient_id: selectedPatient?.id || assessmentForm.patientId,
-        age: {
-          years: Math.floor((selectedPatient?.ageMonths || 0) / 12),
-          months: (selectedPatient?.ageMonths || 0) % 12,
-          category: (selectedPatient?.ageGroup || 'infant').charAt(0).toUpperCase() + (selectedPatient?.ageGroup || 'infant').slice(1)
+        age_months: selectedPatient?.ageMonths,
+        weight_kg: assessmentForm.weightKg ? parseFloat(assessmentForm.weightKg) : null,
+        length_cm: assessmentForm.heightCm ? parseFloat(assessmentForm.heightCm) : null,
+        // The Paediatric Assessment Triangle, which the form does collect.
+        appearance_score: assessmentForm.patAppearance === 'normal' ? 'Normal' : 'Abnormal',
+        work_of_breathing: assessmentForm.patWorkOfBreathing === 'normal' ? 'Normal' : 'Abnormal',
+        circulation_to_skin: assessmentForm.patCirculation === 'normal' ? 'Normal' : 'Abnormal',
+        developmental_concerns:
+          assessmentForm.developmentalStatus === 'on-track'
+            ? null
+            : assessmentForm.developmentalStatus,
+        // Vital signs as recorded. No interpretation: the form has no control
+        // for one, and a vital sign labelled "Normal" by the page rather than
+        // by a clinician is a finding nobody made.
+        pediatric_triangle: {
+          heart_rate: assessmentForm.heartRate ? parseInt(assessmentForm.heartRate) : null,
+          respiratory_rate: assessmentForm.respiratoryRate
+            ? parseInt(assessmentForm.respiratoryRate)
+            : null,
+          temperature_celsius: assessmentForm.temperature
+            ? parseFloat(assessmentForm.temperature)
+            : null,
+          appearance: assessmentForm.patAppearance,
+          work_of_breathing: assessmentForm.patWorkOfBreathing,
+          circulation: assessmentForm.patCirculation,
         },
-        weight_kg: parseFloat(assessmentForm.weightKg) || 0,
-        // Collected by the form but previously never sent, so a child's
-        // height and the clinician's notes were discarded on save.
-        length_cm: parseFloat(assessmentForm.heightCm) || null,
         notes: assessmentForm.notes,
-        weight_method: 'Measured',
-        vital_signs: {
-          heart_rate: parseInt(assessmentForm.heartRate) || 0,
-          hr_interpretation: 'Normal',
-          respiratory_rate: parseInt(assessmentForm.respiratoryRate) || 0,
-          rr_interpretation: 'Normal',
-          temperature_celsius: parseFloat(assessmentForm.temperature) || 37.0,
-          temp_interpretation: 'Normal'
-        },
-        pat: {
-          appearance: assessmentForm.patAppearance === 'normal' ? 'Normal' : 'Abnormal',
-          work_of_breathing: assessmentForm.patWorkOfBreathing === 'normal' ? 'Normal' : 'Abnormal',
-          circulation: assessmentForm.patCirculation === 'normal' ? 'Normal' : 'Abnormal'
-        },
-        pain: {
-          score: 0,
-          scale_used: 'FLACC'
-        },
-        development: assessmentForm.developmentalStatus,
-        history: {
-          symptoms: '',
-          allergies: '',
-          medications: '',
-          past_history: '',
-          last_meal: '',
-          events: ''
-        },
-        immunizations: 'Up to date',
-        abuse_screening: {
-          concerns: false,
-          notes: ''
-        },
-        guardian_present: true,
-        assessed_at: Date.now()
       };
 
       await createPeds(assessmentData);
-      alert(t('docPediatrics.submittedSuccess'));
+      showSuccess(t('docPediatrics.submittedSuccess'));
       setActiveTab('patients');
       // Reset form
       setAssessmentForm({
@@ -295,7 +318,7 @@ const PediatricsPage: React.FC = () => {
       });
     } catch (error) {
       console.error('Failed to submit pediatric assessment:', error);
-      alert(t('docPediatrics.submitError'));
+      showError(t('docPediatrics.submitError'));
     }
   };
 
@@ -311,12 +334,12 @@ const PediatricsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-sky-500 to-blue-400 text-white p-6">
+      <div className="bg-gradient-to-r from-sky-700 to-blue-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Baby className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docPediatrics.title')}</h1>
         </div>
-        <p className="text-sky-100">{t('docPediatrics.subtitle')}</p>
+        <p className="text-white">{t('docPediatrics.subtitle')}</p>
       </div>
 
       {/* Stats */}
@@ -372,7 +395,7 @@ const PediatricsPage: React.FC = () => {
               return (
                 <div
                   key={patient.id}
-                  onClick={() => setSelectedPatient(patient)}
+                  {...clickable(() => setSelectedPatient(patient))}
                   className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                     patient.alerts.length > 0 ? 'border-l-4 border-l-yellow-500' : ''
                   }`}
@@ -437,31 +460,28 @@ const PediatricsPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="peds-patient" className="block text-sm font-medium mb-1">{t('docPediatrics.patientRequired')} *</label>
-                <select
+                <PatientSelect
                   id="peds-patient"
+                  label={t('docPediatrics.patientRequired')}
+                  required
                   value={assessmentForm.patientId}
-                  onChange={(e) => setAssessmentForm({ ...assessmentForm, patientId: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docPediatrics.selectPatientPh')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {getAgeDisplay(p.ageMonths)}</option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setAssessmentForm({ ...assessmentForm, patientId: selectedPatientId })}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="peds-weight" className="block text-sm font-medium mb-1">{t('docPediatrics.weightKgRequired')} *</label>
-                  <input
+                  <Input
                     id="peds-weight"
                     type="number"
                     step="0.1"
                     value={assessmentForm.weightKg}
-                    onChange={(e) => setAssessmentForm({ ...assessmentForm, weightKg: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
+                    onChange={(e) => { clearField('weightKg'); setAssessmentForm({ ...assessmentForm, weightKg: e.target.value }); }}
+                    onBlur={() => validateField('weightKg', assessmentForm)}
+                    error={errors.weightKg}
                     placeholder="0.0"
+                    required
                   />
                 </div>
                 <div>
@@ -616,7 +636,7 @@ const PediatricsPage: React.FC = () => {
                       <h3 className="font-semibold">{patient.name}</h3>
                       <p className="text-sm text-content-muted">{getAgeDisplay(patient.ageMonths)}</p>
                     </div>
-                    <TrendingUp className="w-5 h-5 text-green-500" />
+                    <TrendingUp className="w-5 h-5 text-ok" />
                   </div>
                   <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-content-muted">
                     <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>
@@ -687,6 +707,18 @@ const PediatricsPage: React.FC = () => {
                   {t('docPediatrics.vaccinesStatusLine', { status: selectedPatient.vaccinesUpToDate ? t('docPediatrics.upToDate') : t('docPediatrics.overdue') })}
                 </span>
                 {getDevelopmentBadge(selectedPatient.developmentStatus)}
+              </div>
+
+              {/* `developmentalMilestones` was built and never rendered. The badge
+                  above says "delayed" or "on track" without saying against what;
+                  these are the milestones that judgement is made against. */}
+              <div>
+                <h3 className="font-medium mb-2">{t('docPediatrics.milestonesHeading')}</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm text-content-secondary">
+                  {developmentalMilestones[selectedPatient.ageGroup].map((milestone) => (
+                    <li key={milestone}>{milestone}</li>
+                  ))}
+                </ul>
               </div>
             </div>
           </div>

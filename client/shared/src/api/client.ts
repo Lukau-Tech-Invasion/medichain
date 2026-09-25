@@ -50,10 +50,38 @@ export interface ApiClientConfig {
 export interface RequestOptions {
   /** Skip retry logic for this request */
   noRetry?: boolean;
+  /**
+   * Return the response body as the server sent it.
+   *
+   * By default a body carrying an `items`/`records`/`orders`/... array is
+   * unwrapped to that array. That is wrong for a response that carries two
+   * lists side by side -- the patient imaging read returns `orders` AND
+   * `reports`, and unwrapping would silently discard every report.
+   */
+  keepEnvelope?: boolean;
   /** Custom timeout for this request */
   timeout?: number;
   /** Additional headers */
   headers?: Record<string, string>;
+  /**
+   * Queue this mutation for replay if the device cannot reach the server.
+   *
+   * **Opt-in, deliberately.** Queueing every failed mutation would sweep up
+   * sign-in, sign-out and token refresh, and replaying those hours later is
+   * wrong at best. It would also surprise someone who watched a write fail and
+   * then saw it apply itself later. A caller asks for this when the operation
+   * is the user's own record and capturing it offline is the point — a dose
+   * taken with no signal, a symptom logged in a queue at a rural clinic.
+   *
+   * The caller still receives an error (`OfflineQueuedError`), so nothing shows
+   * a false success. Replay is safe because the queue item's id becomes the
+   * `Idempotency-Key`; see `utils/syncQueue.ts`.
+   */
+  queueWhenOffline?: {
+    category: 'medical-records' | 'appointments' | 'medications' | 'lab-results' | 'documents' | 'images';
+    description: string;
+    patientId?: string;
+  };
 }
 
 /**
@@ -122,7 +150,31 @@ function extractApiError(
  * can be found.
  */
 export function getApiErrorMessage(data: unknown, fallback = 'Request failed'): string {
+  // What the typed client throws already carries the server's message. Parsing
+  // it as a response body found no `error` field and returned the fallback, so
+  // every page that caught a typed-client error showed "Request failed" in
+  // place of the reason the server gave.
+  if (data instanceof ApiClientError) return data.message || fallback;
   return parseErrorBody(data).message ?? fallback;
+}
+
+/**
+ * Extract the machine-readable error code from a thrown API error.
+ *
+ * Callers branch on codes like `DISPENSE_RACE_DETECTED` to explain what
+ * happened in clinical terms, and they were reaching into the thrown value with
+ * `catch (error: any)` and an optional-chain guess at two possible shapes. The
+ * two shapes are real -- the typed client throws a flat `{ code }`, while a
+ * raw `fetch` path surfaces the body under `response.data.error` -- so the
+ * knowledge belongs here, once, rather than in each catch block.
+ */
+export function getApiErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const flat = (error as { code?: unknown }).code;
+  if (typeof flat === 'string') return flat;
+  const nested = (error as { response?: { data?: { error?: { code?: unknown } } } })
+    .response?.data?.error?.code;
+  return typeof nested === 'string' ? nested : undefined;
 }
 
 export class ApiClient {
@@ -141,6 +193,13 @@ export class ApiClient {
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
   private refreshToken?: string;
+  /**
+   * True once a JWT session existed and then ended (logout, or a refresh that
+   * failed). Latched rather than derived, because "no token right now" cannot
+   * distinguish a demo client that never signed in from a session that was
+   * revoked a moment ago -- and those two must not get the same identity.
+   */
+  private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
@@ -172,24 +231,83 @@ export class ApiClient {
   }
 
   /**
+   * The signer currently attached, if any.
+   *
+   * Sign-in needs to know whether this client can prove control of a key before
+   * it claims a session: an identity with no signer cannot obtain a JWT, because
+   * the server verifies a real signature over a single-use challenge in every
+   * mode. Reading it back from here keeps one copy of that state rather than a
+   * second one in the store that could disagree.
+   */
+  getSignatureProvider(): ((message: string) => Promise<string>) | null {
+    return this.signatureProvider;
+  }
+
+  /**
    * Set JWT access + refresh tokens (Phase 9.4).
    *
-   * Once set, requests carry `Authorization: Bearer <access>` (preferred by the
-   * backend) and a 401 triggers a one-time refresh + retry. `X-User-Id` is still
-   * sent as a backward-compatible fallback.
+   * Once set, requests carry `Authorization: Bearer <access>` and a 401 triggers
+   * a one-time refresh + retry. The shared client does not also send the raw
+   * wallet header: the API derives identity from the verified JWT subject.
+   * Header-only identity remains a demo-only compatibility path when no token
+   * has been established.
    */
   setTokens(accessToken: string | undefined, refreshToken?: string): void {
     this.accessToken = accessToken;
     if (refreshToken !== undefined) {
       this.refreshToken = refreshToken;
     }
+    if (accessToken) {
+      this.sessionEnded = false;
+    }
     debugLog('ApiClient', `JWT tokens ${accessToken ? 'set' : 'cleared'}`);
   }
 
   /**
-   * Clear stored JWT tokens (e.g. on logout).
+   * End this login session on the server, then clear local credentials.
+   *
+   * Discarding tokens client-side is not signing out: an access token stays
+   * cryptographically valid until it expires, and the refresh generation stays
+   * usable, so the session has to be revoked where it lives. The local clear
+   * happens regardless of the outcome -- a user who asked to sign out must not
+   * be left holding credentials because the network was down.
+   */
+  async endSession(options?: { allDevices?: boolean }): Promise<boolean> {
+    const path = options?.allDevices ? '/api/auth/logout-all' : '/api/auth/logout';
+    let revoked = false;
+    if (this.accessToken) {
+      try {
+        // Logout is deliberately absent from the middleware's allowlist —
+        // it is a keyed-subject mutation like any other — so it needs a key.
+        // Without one the server refused it and the session stayed alive
+        // while the client cleared its tokens and believed otherwise.
+        const resp = await fetch(`${this.baseUrl}${path}`, {
+          method: 'POST',
+          headers: this.getMutationHeaders(),
+        });
+        revoked = resp.ok;
+      } catch {
+        // Reported through the return value; the local clear below still runs.
+        revoked = false;
+      }
+    }
+    this.clearTokens();
+    return revoked;
+  }
+
+  /**
+   * Clear stored JWT tokens, on logout or on a refresh that failed.
+   *
+   * This also latches `sessionEnded`, which is what stops the client silently
+   * reverting to the legacy identity header afterwards. Without that latch, an
+   * expired or *revoked* session degraded into wallet-header identity on the
+   * next request and kept working -- which would make session revocation
+   * unenforceable for any client still holding a signer.
    */
   clearTokens(): void {
+    if (this.accessToken || this.refreshToken) {
+      this.sessionEnded = true;
+    }
     this.accessToken = undefined;
     this.refreshToken = undefined;
   }
@@ -199,6 +317,55 @@ export class ApiClient {
    */
   getAccessToken(): string | undefined {
     return this.accessToken;
+  }
+
+  /**
+   * Return the normal identity headers for a direct browser request.
+   *
+   * A verified JWT is always preferred. The optional legacy wallet address is
+   * used only when no session token exists, which keeps local demo flows
+   * working while direct pages are migrated away from `X-User-Id`.
+   */
+  /**
+   * Headers for a mutation made with a raw `fetch` rather than through this
+   * client's own `post`/`put`/`patch`/`delete`.
+   *
+   * `api/src/middleware/idempotency.rs` refuses any keyed-subject mutation
+   * that arrives without an `Idempotency-Key` (409
+   * IDEMPOTENCY_KEY_REQUIRED). `request()` adds one automatically; a direct
+   * `fetch` does not, and 30 production call sites were written that way
+   * before the middleware existed. Every one of them was being refused:
+   * recording vital signs, registering a patient, writing a SOAP note,
+   * placing an order, triage, wound care, discharge, messages, consent
+   * changes — and signing out.
+   *
+   * A fresh key per call is right for a user-initiated action: the button
+   * press *is* the intent, and two presses are two intents. Retrying one
+   * request with a stable key is a different problem, handled inside
+   * `request()`.
+   */
+  getMutationHeaders(legacyUserId?: string): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      ...this.getSessionHeaders(legacyUserId),
+      'Idempotency-Key': createOperationKey(),
+    };
+  }
+
+  getSessionHeaders(legacyUserId?: string): Record<string, string> {
+    if (this.accessToken) {
+      return { Authorization: `Bearer ${this.accessToken}` };
+    }
+
+    // A session that existed and ended must not silently become a weaker
+    // identity. Only a client that never held one -- the demo path -- may
+    // fall back to the legacy header.
+    if (this.sessionEnded) {
+      return {};
+    }
+
+    const userId = legacyUserId ?? this.userId;
+    return userId ? { 'X-User-Id': userId } : {};
   }
 
   /**
@@ -224,8 +391,9 @@ export class ApiClient {
           return false;
         }
         const data = await resp.json();
-        if (data?.access_token) {
+        if (data?.access_token && data?.refresh_token) {
           this.accessToken = data.access_token as string;
+          this.refreshToken = data.refresh_token as string;
           return true;
         }
         return false;
@@ -327,15 +495,32 @@ export class ApiClient {
     method: string,
     path: string,
     body?: unknown,
-    options?: RequestOptions
+    options?: RequestOptions,
+    /** Internal: return the bytes rather than parsing JSON (see `getBlob`). */
+    asBlob = false
   ): Promise<T> {
     const maxAttempts = options?.noRetry ? 1 : this.maxRetries + 1;
     const timeout = options?.timeout ?? this.timeout;
+    // Generate once per logical mutation, outside the retry loop. Recreating a
+    // key per attempt would turn a response-loss retry into a second write.
+    // A caller-supplied key wins. `replayQueuedMutation` passes the queue
+    // item's id, and overwriting it with a fresh one here would defeat the
+    // server-side deduplication that makes replay safe at all.
+    const callerKey = options?.headers?.['Idempotency-Key'];
+    const idempotencyKey = isMutationMethod(method)
+      ? (callerKey ?? createOperationKey())
+      : undefined;
+    const requestHeaders = idempotencyKey
+      ? { ...options?.headers, 'Idempotency-Key': idempotencyKey }
+      : options?.headers;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const result = await this.executeRequest<T>(method, path, body, timeout, options?.headers);
+        const result = await this.executeRequest<T>(method, path, body, timeout, requestHeaders, {
+          keepEnvelope: options?.keepEnvelope,
+          blob: asBlob,
+        });
         
         // Success - mark as connected
         this.setConnectionStatus(true);
@@ -356,17 +541,29 @@ export class ApiClient {
           if (this.isNetworkError(error)) {
             this.setConnectionStatus(false);
             
-            // Queue for offline processing if it's a mutation and not already a retry from the queue
-            if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !options?.headers?.['X-Offline-Retry']) {
-              debugLog('ApiClient', `Network error, enqueuing ${method} ${path} for offline sync`);
-              this.offlineQueue.enqueue({
-                method,
+            // Replay used to be disabled outright, and that was right at the
+            // time: "durable server-side idempotency ... is not complete, so
+            // automatic replay could duplicate a clinical or governance action
+            // after a response loss."
+            //
+            // It is complete now — `middleware/idempotency.rs` claims each
+            // keyed mutation in PostgreSQL under
+            // `UNIQUE (subject, method, route, idempotency_key)`, surviving
+            // restart — so a queued item replayed twice executes once. What
+            // remains deliberate is that a caller has to *ask*: see
+            // `queueWhenOffline`.
+            if (isMutationMethod(method) && options?.queueWhenOffline) {
+              const queued = await queueOfflineMutation(
+                method as 'POST' | 'PUT' | 'DELETE',
                 path,
-                body
-              }).catch(err => debugLog('ApiClient', 'Failed to enqueue offline operation:', err));
-              
-              // Return a placeholder or throw specific error?
-              // For now, let's throw so the UI knows it's pending/failed
+                body,
+                options.queueWhenOffline
+              );
+              if (queued) {
+                throw queued;
+              }
+            } else if (isMutationMethod(method)) {
+              debugLog('ApiClient', `${method} ${path} failed offline and was not queued (no queueWhenOffline)`);
             }
           }
           break;
@@ -386,7 +583,8 @@ export class ApiClient {
     path: string,
     body?: unknown,
     timeout?: number,
-    extraHeaders?: Record<string, string>
+    extraHeaders?: Record<string, string>,
+    mode: { keepEnvelope?: boolean; blob?: boolean } = {}
   ): Promise<T> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
@@ -400,16 +598,20 @@ export class ApiClient {
           ...extraHeaders,
         };
 
-        // JWT Bearer (Phase 9.4) — preferred by the backend.
-        if (this.accessToken) {
-          headers['Authorization'] = `Bearer ${this.accessToken}`;
-        }
+        // `getSessionHeaders()` is the single owner of the Bearer-vs-legacy
+        // decision. This used to re-derive the same rule inline and re-assign
+        // the header, which is how two copies of one authentication policy
+        // start to drift apart.
+        const identity = this.getSessionHeaders();
+        Object.assign(headers, identity);
 
-        // Add legacy auth header if user ID is set (backward-compatible fallback).
-        if (this.userId) {
-          headers['X-User-Id'] = this.userId;
-
-          // If a signature provider is available, sign a challenge
+        // Sign only when the legacy identity header is what actually went out.
+        // The signature binds a wallet address, so signing a request that does
+        // not carry that address proves nothing -- and keying off the emitted
+        // header rather than off `this.userId` means the value signed and the
+        // value sent cannot diverge.
+        const legacyIdentity = identity['X-User-Id'];
+        if (legacyIdentity) {
           if (this.signatureProvider) {
             const timestamp = Math.floor(Date.now() / 1000).toString();
             // Bind the signature to this exact method, path, and body
@@ -418,7 +620,7 @@ export class ApiClient {
             // below (`body ? JSON.stringify(body) : undefined`).
             const bodyText = body ? JSON.stringify(body) : '';
             const bodyHash = await sha256Hex(bodyText);
-            const message = `${timestamp}:${this.userId}:${method}:${path}:${bodyHash}`;
+            const message = `${timestamp}:${legacyIdentity}:${method}:${path}:${bodyHash}`;
             try {
               const signature = await this.signatureProvider(message);
               headers['X-Signature'] = signature;
@@ -463,6 +665,17 @@ export class ApiClient {
 
       // Handle non-JSON responses
       const contentType = response.headers.get('content-type');
+
+      if (mode.blob) {
+        if (!response.ok) {
+          const errorBody = contentType?.includes('application/json')
+            ? await response.json().catch(() => ({}))
+            : {};
+          const { message, code } = extractApiError(errorBody, response.status);
+          throw new ApiClientError(message, code, response.status);
+        }
+        return { blob: await response.blob(), contentType: contentType ?? '' } as T;
+      }
       if (!contentType?.includes('application/json')) {
         if (!response.ok) {
           throw new ApiClientError(
@@ -484,8 +697,8 @@ export class ApiClient {
       }
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
-      if (data && typeof data === 'object' && !Array.isArray(data)) {
-        const wrappedData = data as Record<string, any>;
+      if (!mode.keepEnvelope && data && typeof data === 'object' && !Array.isArray(data)) {
+        const wrappedData = data as Record<string, unknown>;
         if (Array.isArray(wrappedData.items)) return wrappedData.items as T;
         if (Array.isArray(wrappedData.records)) return wrappedData.records as T;
         if (Array.isArray(wrappedData.submissions)) return wrappedData.submissions as T;
@@ -558,6 +771,28 @@ export class ApiClient {
     return this.request<T>('POST', path, body, options);
   }
 
+  /**
+   * A binary download: the bytes, and the type the server declared for them.
+   *
+   * Same session, refresh and retry handling as every other read. A document
+   * download written as a raw `fetch` had none of it, so a patient whose access
+   * token had expired got "download failed" rather than a refreshed session.
+   */
+  async getBlob(path: string, options?: RequestOptions): Promise<{ blob: Blob; contentType: string }> {
+    const blobOptions: RequestOptions = { ...options, headers: { Accept: '*/*', ...options?.headers } };
+    return this.request('GET', path, undefined, blobOptions, true);
+  }
+
+  /** A mutation whose answer is a file -- a rendered PDF. See {@link getBlob}. */
+  async postBlob(
+    path: string,
+    body: unknown,
+    options?: RequestOptions
+  ): Promise<{ blob: Blob; contentType: string }> {
+    const blobOptions: RequestOptions = { ...options, headers: { Accept: '*/*', ...options?.headers } };
+    return this.request('POST', path, body, blobOptions, true);
+  }
+
   async put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>('PUT', path, body, options);
   }
@@ -567,10 +802,98 @@ export class ApiClient {
   }
 
   /**
+   * Send a mutation that was queued while the device was offline, under a key
+   * the *caller* owns.
+   *
+   * This is the one place a caller supplies the `Idempotency-Key`, and the
+   * reason is the whole safety argument for replay. `request()` mints a fresh
+   * key per logical mutation, which is right for a button press — two presses
+   * are two intents. A queued item is the opposite case: every attempt to send
+   * it is the *same* intent, so the key must be the item's own id and must not
+   * change between attempts. The server claims it under
+   * `UNIQUE (subject, method, route, idempotency_key)` and refuses a second
+   * execution, which is what makes replaying after a lost response safe rather
+   * than a second clinical write.
+   *
+   * `noRetry` is deliberate: the replay loop owns retrying, because it also
+   * owns the ordering.
+   */
+  async replayQueuedMutation<T>(
+    method: 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: unknown,
+    idempotencyKey: string
+  ): Promise<T> {
+    return this.request<T>(method, path, body, {
+      noRetry: true,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  }
+
+  /**
    * Get the current offline queue
    */
   getOfflineQueue(): OfflineQueue {
     return this.offlineQueue;
+  }
+}
+
+function isMutationMethod(method: string): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+}
+
+function createOperationKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `op-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * A mutation the device could not send, which has been queued for replay.
+ *
+ * Thrown rather than swallowed. The caller has to know the write did not land,
+ * or a page reports success over a record the server has never seen — which is
+ * the defect this whole queue exists to avoid.
+ */
+export class OfflineQueuedError extends Error {
+  public readonly queueItemId: string;
+
+  constructor(queueItemId: string, endpoint: string) {
+    super(`This device is offline. "${endpoint}" is queued and will be sent when it reconnects.`);
+    this.name = 'OfflineQueuedError';
+    this.queueItemId = queueItemId;
+  }
+}
+
+/**
+ * Put a mutation in the durable queue. Returns the error to throw, or `null`
+ * if the queue itself is unavailable — in which case the original network
+ * error stands, because a failure to queue must not read as a successful one.
+ */
+async function queueOfflineMutation(
+  method: 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body: unknown,
+  intent: NonNullable<RequestOptions['queueWhenOffline']>
+): Promise<OfflineQueuedError | null> {
+  try {
+    const { enqueueSyncItem } = await import('../utils/indexedDB');
+    const id = await enqueueSyncItem({
+      action: method === 'DELETE' ? 'delete' : 'update',
+      endpoint: path,
+      method,
+      body,
+      category: intent.category,
+      description: intent.description,
+      priority: 'medium',
+      patientId: intent.patientId,
+    });
+    debugLog('ApiClient', `Queued ${method} ${path} for replay as ${id}`);
+    return new OfflineQueuedError(id, path);
+  } catch (error) {
+    debugLog('ApiClient', `Could not queue ${method} ${path}: ${String(error)}`);
+    return null;
   }
 }
 
@@ -630,16 +953,6 @@ export class ApiClientError extends Error {
 let defaultClient: ApiClient | null = null;
 
 /**
- * Initialize the default API client
- * Should be called once at app startup
- */
-export function initApiClient(config: ApiClientConfig): ApiClient {
-  defaultClient = new ApiClient(config);
-  debugLog('ApiClient', `Initialized with baseUrl: ${config.baseUrl || '(relative)'}`);
-  return defaultClient;
-}
-
-/**
  * Get the default API client instance
  * Auto-initializes with stored userId if available
  */
@@ -667,9 +980,3 @@ export function syncApiClientUserId(): void {
   debugLog('ApiClient', `Synced userId: ${storedWallet ? storedWallet.substring(0, 12) + '...' : '(none)'}`);
 }
 
-/**
- * Check if API client is initialized
- */
-export function isApiClientInitialized(): boolean {
-  return defaultClient !== null;
-}

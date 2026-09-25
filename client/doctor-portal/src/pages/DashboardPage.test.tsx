@@ -18,13 +18,13 @@ describe('DashboardPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
       logout: vi.fn(),
       restoreSession: vi.fn(),
     });
-    (usePatientStore as any).mockReturnValue({
+    vi.mocked(usePatientStore).mockReturnValue({
       recentPatients: [],
       setRecentPatients: vi.fn(),
     });

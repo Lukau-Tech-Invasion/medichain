@@ -1,7 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createIvSite, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import {
+  createIvSite,
+  getApiClient,
+  getPatients,
+  useTranslation,
+  useScoringCatalog,
+  vipScorePreview,
+  dwellDueAt,
+  formatDateOnly,
+  formatTimestamp,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Syringe,
@@ -72,15 +82,32 @@ interface IVAssessment {
   assessedBy: string;
   conditions: SiteCondition[];
   dressingType: DressingType;
-  dressingIntact: boolean;
-  flushPatent: boolean;
-  bloodReturn: boolean;
+  // Optional, because "not assessed" is a real state and is not the same as
+  // "assessed and normal". The controls are already three-state radios; only
+  // the initial value was asserting a finding.
+  dressingIntact?: boolean;
+  flushPatent?: boolean;
+  bloodReturn?: boolean;
   infusing: string;
   infusionRate?: string;
   notes: string;
   phlebitisScore: number;
-  infiltrationGrade: number;
+  /// INS infiltration grade 0-4. Optional: grade 0 means "no symptoms", which
+  /// is a finding, and a site nobody graded must not assert it.
+  infiltrationGrade?: number;
 }
+
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type SiteList = { sites?: IVSite[]; iv_sites?: IVSite[] } | IVSite[];
 
 export default function IVSitePage() {
   const { t } = useTranslation();
@@ -112,9 +139,11 @@ export default function IVSitePage() {
   const [newAssessment, setNewAssessment] = useState<Partial<IVAssessment>>({
     conditions: ['clean-dry-intact'],
     dressingType: 'transparent',
-    dressingIntact: true,
-    flushPatent: true,
-    bloodReturn: true,
+    // Deliberately unset. These three were pre-selected as `true`, so a nurse
+    // who opened the form and saved without touching them recorded three normal
+    // findings they had never checked — and the radios below already offer a
+    // yes and a no, so leaving both unselected is what "not assessed" looks
+    // like.
     infusing: '',
     notes: ''
   });
@@ -206,18 +235,10 @@ export default function IVSitePage() {
     if (!selectedPatient || !user) return;
     const fetchIVSites = async () => {
       try {
-        const response = await fetch(apiUrl(`/api/clinical/iv-sites/${selectedPatient.patient_id}`), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Nurse',
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
-          if (sites.length > 0) {
-            setIvSites(sites);
-          }
+        const data = await getApiClient().get<SiteList>(`/api/clinical/iv-sites/${selectedPatient.patient_id}`);
+        const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
+        if (sites.length > 0) {
+          setIvSites(sites);
         }
       } catch (err) {
         console.error('Failed to fetch IV site history:', err);
@@ -225,6 +246,8 @@ export default function IVSitePage() {
     };
     fetchIVSites();
   }, [selectedPatient, user]);
+
+  const { catalog } = useScoringCatalog();
 
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -238,7 +261,10 @@ export default function IVSitePage() {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
+  // An unknown review date is not an expiring one. Both guards return false
+  // for an empty string so the counters say "none known" rather than "all due".
   const isExpiringSoon = (expiresAt: string) => {
+    if (!expiresAt) return false;
     const expires = new Date(expiresAt);
     const now = new Date();
     const diffTime = expires.getTime() - now.getTime();
@@ -247,17 +273,25 @@ export default function IVSitePage() {
   };
 
   const isExpired = (expiresAt: string) => {
+    if (!expiresAt) return false;
     return new Date(expiresAt) < new Date();
   };
 
-  const calculateExpiration = (catheterType: CatheterType) => {
-    const now = new Date();
-    switch (catheterType) {
-      case 'peripheral': return new Date(now.setDate(now.getDate() + 4)).toISOString().split('T')[0];
-      case 'midline': return new Date(now.setDate(now.getDate() + 28)).toISOString().split('T')[0];
-      case 'picc': return new Date(now.setDate(now.getDate() + 90)).toISOString().split('T')[0];
-      case 'central': return new Date(now.setDate(now.getDate() + 7)).toISOString().split('T')[0];
-    }
+  /**
+   * When a newly inserted device is due for review.
+   *
+   * The dwell limits used to be a `switch` here — 4 days peripheral, 28
+   * midline, 90 PICC, 7 central. Those are ward policy, and ward policy in a
+   * component cannot be changed without a front-end deploy. They come from
+   * `GET /api/clinical/scoring/catalog` now, and the same numbers are returned
+   * by `createIvSite` for each site it stores.
+   */
+  const calculateExpiration = (catheterType: CatheterType): string => {
+    const due = dwellDueAt(new Date().toISOString(), catheterType, catalog);
+    // Empty until the catalog loads. `expiresAt` feeds the "expiring" and
+    // "expired" counters, and a made-up date there would tell a nurse a line
+    // is due out when nobody said so.
+    return due ? due.toISOString().split('T')[0] : '';
   };
 
   const addNewSite = () => {
@@ -291,16 +325,30 @@ export default function IVSitePage() {
       id: `ASSESS-${Date.now()}`,
       assessedAt: new Date().toISOString(),
       assessedBy: user?.userId || 'Unknown',
+      // Nothing here is defaulted to a reassuring value.
+      //
+      // `dressingIntact ?? true`, `flushPatent ?? true` and `bloodReturn ?? true`
+      // asserted three normal findings nobody had checked, and
+      // `infiltrationGrade ?? 0` asserted INS grade 0 — "no symptoms" — for a
+      // site nobody had graded. On a cannula record those are not blanks, they
+      // are the observations that decide whether the line stays in.
+      //
+      // A field nobody entered is absent (CLAUDE.md rules 9 and 10). The
+      // renderer already distinguishes an absent finding from a negative one.
       conditions: newAssessment.conditions || ['clean-dry-intact'],
       dressingType: newAssessment.dressingType || 'transparent',
-      dressingIntact: newAssessment.dressingIntact ?? true,
-      flushPatent: newAssessment.flushPatent ?? true,
-      bloodReturn: newAssessment.bloodReturn ?? true,
+      dressingIntact: newAssessment.dressingIntact,
+      flushPatent: newAssessment.flushPatent,
+      bloodReturn: newAssessment.bloodReturn,
       infusing: newAssessment.infusing || '',
       infusionRate: newAssessment.infusionRate,
       notes: newAssessment.notes || '',
+      // Sent for the page's own optimistic render only; the server recomputes
+      // the VIP score from `conditions` and ignores whatever arrives here,
+      // because a score that decides whether a cannula is resited is not a
+      // number a browser gets to assert (CLAUDE.md rule 8).
       phlebitisScore: calculatePhlebitisScore(newAssessment.conditions || []),
-      infiltrationGrade: newAssessment.infiltrationGrade ?? 0
+      infiltrationGrade: newAssessment.infiltrationGrade
     };
 
     setIvSites(prev => prev.map(site => 
@@ -313,9 +361,7 @@ export default function IVSitePage() {
     setNewAssessment({
       conditions: ['clean-dry-intact'],
       dressingType: 'transparent',
-      dressingIntact: true,
-      flushPatent: true,
-      bloodReturn: true,
+      // Reset to unassessed, same reason as the initial state above.
       infusing: '',
       notes: ''
     });
@@ -323,17 +369,20 @@ export default function IVSitePage() {
     setTimeout(() => setSuccess(''), 3000);
   };
 
-  const calculatePhlebitisScore = (conditions: SiteCondition[]) => {
-    if (conditions.includes('clean-dry-intact') && conditions.length === 1) return 0;
-    let score = 0;
-    if (conditions.includes('tenderness')) score = Math.max(score, 1);
-    if (conditions.includes('redness')) score = Math.max(score, 1);
-    if (conditions.includes('swelling')) score = Math.max(score, 2);
-    if (conditions.includes('warmth')) score = Math.max(score, 2);
-    if (conditions.includes('induration')) score = Math.max(score, 3);
-    if (conditions.includes('drainage')) score = Math.max(score, 4);
-    return score;
-  };
+  /**
+   * VIP phlebitis stage for a set of site findings.
+   *
+   * A preview. The stored grade is the server's — `createIvSite` scores the
+   * latest assessment for each site and returns it, along with what that stage
+   * requires. The stage-to-sign mapping now comes from the scoring catalog
+   * rather than a ladder of `Math.max` calls here.
+   *
+   * Returns 0 rather than `null` when the catalog has not loaded: this feeds a
+   * colour and a number beside an assessment the nurse is entering, and 0 is
+   * also what "clean, dry and intact" scores.
+   */
+  const calculatePhlebitisScore = (conditions: SiteCondition[]): number =>
+    vipScorePreview(conditions, catalog) ?? 0;
 
   const discontinueSite = (siteId: string, reason: string) => {
     setIvSites(prev => prev.map(site => 
@@ -383,7 +432,7 @@ export default function IVSitePage() {
         record_id: `IVSITE-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
         sites: ivSites,
-        documented_by: user?.userId || 'unknown',
+        documented_by: user?.userId,
         documented_at: Math.floor(Date.now() / 1000)
       };
 
@@ -405,7 +454,7 @@ export default function IVSitePage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-blue-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -413,7 +462,7 @@ export default function IVSitePage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docIVSite.title')}</h1>
-                <p className="text-blue-100">{t('docIVSite.subtitle')}</p>
+                <p className="text-white">{t('docIVSite.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -444,7 +493,7 @@ export default function IVSitePage() {
           <div className="lg:col-span-1">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-bold text-content mb-4 flex items-center">
-                <User className="h-5 w-5 mr-2 text-blue-500" />
+                <User className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                 {t('docIVSite.selectPatientTitle')}
               </h2>
               <div className="relative mb-4">
@@ -454,7 +503,7 @@ export default function IVSitePage() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docIVSite.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="max-h-64 overflow-y-auto space-y-2">
@@ -518,7 +567,7 @@ export default function IVSitePage() {
                     'bg-critical-subtle'
                   }`}>
                     <span className="font-bold w-6 flex-shrink-0">{grade}:</span>
-                    <span className="text-content-muted">{description}</span>
+                    <span className="text-content-secondary">{description}</span>
                   </div>
                 ))}
               </div>
@@ -538,7 +587,7 @@ export default function IVSitePage() {
                     'bg-critical-subtle'
                   }`}>
                     <span className="font-bold w-6">{score}:</span>
-                    <span className="text-content-muted">{description}</span>
+                    <span className="text-content-secondary">{description}</span>
                   </div>
                 ))}
               </div>
@@ -595,7 +644,7 @@ export default function IVSitePage() {
                               <div className="flex justify-between items-start">
                                 <div>
                                   <div className="flex items-center space-x-3">
-                                    <MapPin className="h-5 w-5 text-blue-500" />
+                                    <MapPin className="h-5 w-5 text-notice-subtle-fg" />
                                     <h3 className="font-bold text-content">{locationLabels[site.location]}</h3>
                                     <span className="text-xs px-2 py-1 rounded bg-notice-subtle text-notice-subtle-fg">
                                       {site.gauge}
@@ -610,13 +659,15 @@ export default function IVSitePage() {
                                   <div className="mt-2 ml-8 grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.insertedLabel')}</span>
-                                      <span className="ml-2">{new Date(site.insertedAt).toLocaleDateString()}</span>
+                                      <span className="ml-2">{formatDateOnly(site.insertedAt)}</span>
                                       <span className="ml-2 text-content-muted">{t('docIVSite.daysActiveSuffix', { days: daysActive })}</span>
                                     </div>
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.expiresLabel')}</span>
                                       <span className={`ml-2 ${expired ? 'text-critical-subtle-fg font-bold' : expiringSoon ? 'text-caution-subtle-fg font-bold' : ''}`}>
-                                        {new Date(site.expiresAt).toLocaleDateString()}
+                                        {site.expiresAt
+                                          ? formatDateOnly(site.expiresAt)
+                                          : '—'}
                                       </span>
                                     </div>
                                     <div>
@@ -630,7 +681,7 @@ export default function IVSitePage() {
                                   </div>
                                   {latestAssessment && (
                                     <div className="mt-3 ml-8 p-2 bg-surface rounded text-sm">
-                                      <p className="text-content-muted text-xs">{t('docIVSite.latestAssessmentLine', { date: new Date(latestAssessment.assessedAt).toLocaleString() })}</p>
+                                      <p className="text-content-muted text-xs">{t('docIVSite.latestAssessmentLine', { date: formatTimestamp(latestAssessment.assessedAt) })}</p>
                                       <div className="flex items-center space-x-2 mt-1">
                                         <span className={`px-2 py-0.5 rounded text-xs ${
                                           latestAssessment.phlebitisScore === 0 ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -703,7 +754,7 @@ export default function IVSitePage() {
                                     <span className="text-sm">{site.gauge} {catheterTypes[site.catheterType]}</span>
                                   </div>
                                   <div className="text-sm">
-                                    {t('docIVSite.discontinuedLine', { date: new Date(site.discontinuedAt!).toLocaleDateString() })}
+                                    {t('docIVSite.discontinuedLine', { date: formatDateOnly(site.discontinuedAt!) })}
                                     <span className="ml-2 text-content-muted">{t('docIVSite.discontinuedReasonSuffix', { reason: site.discontinuedReason || '' })}</span>
                                   </div>
                                 </div>
@@ -728,7 +779,7 @@ export default function IVSitePage() {
                               id="iv-location"
                               value={newSite.location}
                               onChange={(e) => setNewSite({ ...newSite, location: e.target.value as SiteLocation })}
-                              className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-blue-500"
+                              className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                             >
                               {Object.entries(locationLabels).map(([value, label]) => (
                                 <option key={value} value={value}>{label}</option>
@@ -743,7 +794,7 @@ export default function IVSitePage() {
                               value={newSite.locationDetail}
                               onChange={(e) => setNewSite({ ...newSite, locationDetail: e.target.value })}
                               placeholder={t('docIVSite.locationDetailPh')}
-                              className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-blue-500"
+                              className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
                         </div>
@@ -755,7 +806,7 @@ export default function IVSitePage() {
                               id="iv-catheter-type"
                               value={newSite.catheterType}
                               onChange={(e) => setNewSite({ ...newSite, catheterType: e.target.value as CatheterType })}
-                              className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-blue-500"
+                              className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                             >
                               {Object.entries(catheterTypes).map(([value, label]) => (
                                 <option key={value} value={value}>{label}</option>
@@ -866,8 +917,8 @@ export default function IVSitePage() {
                                       onClick={() => toggleCondition(key)}
                                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                         newAssessment.conditions?.includes(key)
-                                          ? severity === 'normal' ? 'bg-ok text-critical-fg' :
-                                            severity === 'warning' ? 'bg-caution text-critical-fg' :
+                                          ? severity === 'normal' ? 'bg-ok text-ok-fg' :
+                                            severity === 'warning' ? 'bg-caution text-caution-fg' :
                                             'bg-critical text-critical-fg'
                                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                       }`}
@@ -886,7 +937,7 @@ export default function IVSitePage() {
                                   id="iv-infiltration-grade"
                                   value={newAssessment.infiltrationGrade ?? 0}
                                   onChange={(e) => setNewAssessment({ ...newAssessment, infiltrationGrade: Number(e.target.value) })}
-                                  className="w-full p-3 border border-border-strong rounded-lg"
+                                  className="w-full p-3 border border-border-interactive rounded-lg"
                                 >
                                   {infiltrationGrades.map(({ grade, description }) => (
                                     <option key={grade} value={grade}>{grade} — {description}</option>
@@ -906,7 +957,7 @@ export default function IVSitePage() {
                                     id="iv-dressing-type"
                                     value={newAssessment.dressingType}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, dressingType: e.target.value as DressingType })}
-                                    className="w-full p-3 border border-border-strong rounded-lg"
+                                    className="w-full p-3 border border-border-interactive rounded-lg"
                                   >
                                     <option value="transparent">{t('docIVSite.dressing_transparent')}</option>
                                     <option value="gauze">{t('docIVSite.dressing_gauze')}</option>
@@ -1003,7 +1054,7 @@ export default function IVSitePage() {
                                     value={newAssessment.infusing}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, infusing: e.target.value })}
                                     placeholder={t('docIVSite.currentlyInfusingPh')}
-                                    className="w-full p-3 border border-border-strong rounded-lg"
+                                    className="w-full p-3 border border-border-interactive rounded-lg"
                                   />
                                 </div>
                                 <div>
@@ -1014,7 +1065,7 @@ export default function IVSitePage() {
                                     value={newAssessment.infusionRate}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, infusionRate: e.target.value })}
                                     placeholder={t('docIVSite.infusionRatePh')}
-                                    className="w-full p-3 border border-border-strong rounded-lg"
+                                    className="w-full p-3 border border-border-interactive rounded-lg"
                                   />
                                 </div>
                               </div>
@@ -1027,7 +1078,7 @@ export default function IVSitePage() {
                                   onChange={(e) => setNewAssessment({ ...newAssessment, notes: e.target.value })}
                                   rows={2}
                                   placeholder={t('docIVSite.notesPh')}
-                                  className="w-full p-3 border border-border-strong rounded-lg"
+                                  className="w-full p-3 border border-border-interactive rounded-lg"
                                 />
                               </div>
 
@@ -1066,7 +1117,7 @@ export default function IVSitePage() {
                                   <div key={a.id} className="p-3 bg-surface rounded border text-sm">
                                     <div className="flex justify-between items-start">
                                       <div>
-                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: new Date(a.assessedAt).toLocaleString(), by: a.assessedBy })}</p>
+                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: formatTimestamp(a.assessedAt), by: a.assessedBy })}</p>
                                         <div className="flex flex-wrap gap-1 mt-1">
                                           {a.conditions.map(c => (
                                             <span key={c} className={`text-xs px-2 py-0.5 rounded ${
@@ -1104,7 +1155,7 @@ export default function IVSitePage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting || ivSites.length === 0}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -1122,7 +1173,7 @@ export default function IVSitePage() {
               </div>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
-                <Syringe className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <Syringe className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                 <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docIVSite.selectPatientEmptyTitle')}</h2>
                 <p className="text-content-muted">{t('docIVSite.selectPatientEmptyMessage')}</p>
               </div>

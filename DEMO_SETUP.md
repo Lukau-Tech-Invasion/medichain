@@ -28,6 +28,18 @@ cd scripts
 bash create-demo-users.sh
 ```
 
+Both scripts register as `DOC-001` by default. That identity only exists on a
+database seeded with the old demo staff format; on any other, set `STAFF_ID` to
+an active Doctor or Admin first:
+
+```bash
+STAFF_ID=<wallet-address> bash create-demo-users.sh
+```
+
+Either script now checks that identity before writing anything and exits
+non-zero if the API rejects it, rather than reporting success over five failed
+registrations.
+
 ## Demo Accounts
 
 ### Healthcare Staff (Pre-configured)

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::repositories::traits::{
-    AccessGrantEntity, AccessRequestEntity, PatientAccessRepository,
+    AccessGrantEntity, AccessRequestEntity, PatientAccessRepository, RepositoryError,
 };
 
 /// How much of the record a grant opens up.
@@ -61,6 +61,8 @@ pub struct RequestingProvider {
 pub const STORE_UNAVAILABLE: &str = "Patient access records are unavailable";
 const REQUEST_NOT_FOUND: &str = "Access request not found";
 const REQUEST_ALREADY_DECIDED: &str = "Access request has already been decided";
+pub const PENDING_REQUEST_EXISTS: &str =
+    "A pending access request already exists for this provider and patient";
 const GRANT_NOT_FOUND: &str = "Access grant not found";
 const GRANT_NOT_ACTIVE: &str = "Access grant is not active";
 
@@ -106,10 +108,42 @@ impl PatientAccessService {
             reason: provider.reason,
             status: "pending".to_string(),
         };
-        self.repo.create_request(request).await.map_err(|e| {
-            log::error!("patient access: create_request failed: {e}");
-            STORE_UNAVAILABLE
-        })
+        self.repo
+            .create_request(request)
+            .await
+            .map_err(map_create_request_error)
+    }
+
+    /// Create a request and mandatory outbox event in the same production
+    /// transaction. The caller prepares the event after the request ID exists.
+    pub async fn create_request_with_audit(
+        &self,
+        patient_id: String,
+        provider: RequestingProvider,
+        event: crate::audit_outbox::AuditOutboxEvent,
+        now: DateTime<Utc>,
+    ) -> Result<AccessRequestEntity, &'static str> {
+        if patient_id.is_empty()
+            || provider.provider_id.is_empty()
+            || provider.reason.trim().is_empty()
+        {
+            return Err("Patient, provider, and a reason are required");
+        }
+        let request = AccessRequestEntity {
+            id: event.aggregate_id.clone(),
+            patient_id,
+            provider_id: provider.provider_id,
+            provider_name: provider.provider_name,
+            provider_role: provider.provider_role,
+            organization: provider.organization,
+            requested_at: now,
+            reason: provider.reason,
+            status: "pending".to_string(),
+        };
+        self.repo
+            .create_request_with_audit(request, event)
+            .await
+            .map_err(map_create_request_error)
     }
 
     /// This patient's requests, newest first.
@@ -144,6 +178,24 @@ impl PatientAccessService {
                 log::error!("patient access: list_grants_by_patient failed: {e}");
                 STORE_UNAVAILABLE
             })
+    }
+
+    /// Whether a provider currently holds an effective patient-approved grant.
+    ///
+    /// This is the server-side authorization decision used by clinical record
+    /// reads. It deliberately fails closed when the grant store is unavailable:
+    /// treating a storage error as "no consent required" would turn a database
+    /// outage into universal provider access.
+    pub async fn provider_has_active_grant(
+        &self,
+        patient_id: &str,
+        provider_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, &'static str> {
+        let grants = self.list_grants_by_patient(patient_id, now).await?;
+        Ok(grants
+            .iter()
+            .any(|grant| grant.provider_id == provider_id && grant.is_effective(now)))
     }
 
     pub async fn get_request(
@@ -210,6 +262,49 @@ impl PatientAccessService {
         }
     }
 
+    /// Approve a request, mint its grant, and persist a prebuilt audit event
+    /// in the same production transaction.
+    pub async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        access_type: AccessType,
+        expires_at: Option<DateTime<Utc>>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+        now: DateTime<Utc>,
+    ) -> Result<(AccessRequestEntity, AccessGrantEntity), &'static str> {
+        let request = match self.get_request(request_id).await? {
+            Some(request) => request,
+            None => return Err(REQUEST_NOT_FOUND),
+        };
+        let grant = AccessGrantEntity {
+            id: event.aggregate_id.clone(),
+            patient_id: request.patient_id.clone(),
+            provider_id: request.provider_id.clone(),
+            provider_name: request.provider_name.clone(),
+            provider_role: request.provider_role.clone(),
+            organization: request.organization.clone(),
+            access_type: access_type.as_str().to_string(),
+            granted_at: now,
+            expires_at,
+            status: "active".to_string(),
+            last_accessed: None,
+            access_count: 0,
+            source_request_id: Some(request.id.clone()),
+        };
+        match self
+            .repo
+            .approve_request_with_audit(request_id, grant, event)
+            .await
+        {
+            Ok(Some(approved)) => Ok(approved),
+            Ok(None) => Err(REQUEST_ALREADY_DECIDED),
+            Err(error) => {
+                log::error!("patient access: approve_request_with_audit failed: {error}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
     /// Patient denies a pending request. Only a `pending` request can be denied.
     pub async fn deny_request(
         &self,
@@ -220,6 +315,23 @@ impl PatientAccessService {
             Ok(None) => Err(self.why_request_refused(request_id).await),
             Err(e) => {
                 log::error!("patient access: deny_request failed: {e}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
+    /// Deny a pending request and persist its audit event in the same
+    /// production transaction.
+    pub async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> Result<AccessRequestEntity, &'static str> {
+        match self.repo.deny_request_with_audit(request_id, event).await {
+            Ok(Some(request)) => Ok(request),
+            Ok(None) => Err(self.why_request_refused(request_id).await),
+            Err(error) => {
+                log::error!("patient access: deny_request_with_audit failed: {error}");
                 Err(STORE_UNAVAILABLE)
             }
         }
@@ -243,6 +355,28 @@ impl PatientAccessService {
         }
     }
 
+    /// Revoke an active grant and persist its audit event in the same
+    /// production transaction.
+    pub async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> Result<AccessGrantEntity, &'static str> {
+        match self
+            .repo
+            .revoke_grant_with_audit(grant_id, now, event)
+            .await
+        {
+            Ok(Some(grant)) => Ok(grant),
+            Ok(None) => Err(self.why_grant_refused(grant_id).await),
+            Err(error) => {
+                log::error!("patient access: revoke_grant_with_audit failed: {error}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
     /// Distinguish "no such request" from "already decided" for the caller's
     /// message only. Advisory: the row may change again after this read.
     async fn why_request_refused(&self, request_id: &str) -> &'static str {
@@ -258,6 +392,16 @@ impl PatientAccessService {
             Ok(Some(_)) => GRANT_NOT_ACTIVE,
             Ok(None) => GRANT_NOT_FOUND,
             Err(_) => STORE_UNAVAILABLE,
+        }
+    }
+}
+
+fn map_create_request_error(error: RepositoryError) -> &'static str {
+    match error {
+        RepositoryError::Duplicate(_) => PENDING_REQUEST_EXISTS,
+        other => {
+            log::error!("patient access: create request failed: {other}");
+            STORE_UNAVAILABLE
         }
     }
 }
@@ -418,6 +562,60 @@ mod tests {
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, "expired");
+    }
+
+    #[tokio::test]
+    async fn provider_access_tracks_grant_expiry_and_revocation() {
+        let svc = service();
+        let now = Utc::now();
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+
+        let request = svc
+            .create_request("PAT-1".into(), provider(), now)
+            .await
+            .unwrap();
+        let (_, grant) = svc
+            .approve_request(
+                &request.id,
+                AccessType::Limited,
+                Some(now + Duration::hours(1)),
+                now,
+            )
+            .await
+            .unwrap();
+        assert!(svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5OtherWallet", now)
+            .await
+            .unwrap());
+        svc.revoke_grant(&grant.id, now).await.unwrap();
+        assert!(!svc
+            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .await
+            .unwrap());
+
+        let second_request = svc
+            .create_request("PAT-2".into(), provider(), now)
+            .await
+            .unwrap();
+        svc.approve_request(
+            &second_request.id,
+            AccessType::Limited,
+            Some(now + Duration::hours(1)),
+            now,
+        )
+        .await
+        .unwrap();
+        assert!(!svc
+            .provider_has_active_grant("PAT-2", "5DoctorWallet", now + Duration::hours(2))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

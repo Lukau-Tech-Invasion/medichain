@@ -58,6 +58,14 @@ const BYPASS_ROUTES: &[&str] = &[
     "/api/fhir/r4/metadata",
 ];
 
+/// Only explicitly registered public endpoints may skip wallet-signature
+/// verification. Prefix matching would turn a future route such as
+/// `/api/metrics-private` into an accidental bypass merely because its path
+/// begins with `/api/metrics`.
+fn is_bypass_route(path: &str) -> bool {
+    BYPASS_ROUTES.contains(&path)
+}
+
 /// Signature authentication middleware factory
 pub struct SignatureAuthMiddleware {
     /// Enable or disable signature verification (for gradual rollout)
@@ -135,7 +143,7 @@ where
 
             // Check if route bypasses signature verification
             let path = req.path();
-            if BYPASS_ROUTES.iter().any(|r| path.starts_with(r)) {
+            if is_bypass_route(path) {
                 let res = service.call(req).await?;
                 return Ok(res.map_into_left_body());
             }
@@ -269,8 +277,7 @@ where
 
                     let response = HttpResponse::build(status).json(serde_json::json!({
                         "error": "Signature verification failed",
-                        "message": error_msg,
-                        "wallet": wallet_address
+                        "message": error_msg
                     }));
                     Ok(req.into_response(response).map_into_right_body())
                 }
@@ -291,50 +298,38 @@ where
 /// it. No current client calls this endpoint; if one starts signing live
 /// per-request actions from a challenge, it must construct the bound message
 /// itself, the same way `client/shared/src/api/client.ts` does inline.
-pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
-    let timestamp = chrono::Utc::now().timestamp();
-    let message = format!("{}:{}", timestamp, wallet_address);
-
-    AuthChallenge {
-        wallet: wallet_address.to_string(),
-        timestamp,
-        message,
-        expires_in_secs: MAX_TIMESTAMP_DRIFT_SECS,
-    }
-}
-
-/// Authentication challenge response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AuthChallenge {
-    /// Wallet address for the challenge
-    pub wallet: String,
-    /// Unix timestamp to include in signature
-    pub timestamp: i64,
-    /// Full message to sign: "<timestamp>:<wallet>"
-    pub message: String,
-    /// Seconds until this challenge expires
-    pub expires_in_secs: i64,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_generate_auth_challenge() {
-        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let challenge = generate_auth_challenge(wallet);
-
-        assert_eq!(challenge.wallet, wallet);
-        assert!(challenge.timestamp > 0);
-        assert!(challenge.message.contains(wallet));
-        assert!(challenge.message.contains(&challenge.timestamp.to_string()));
-        assert_eq!(challenge.expires_in_secs, MAX_TIMESTAMP_DRIFT_SECS);
+    fn test_bypass_routes_include_health() {
+        assert!(is_bypass_route("/api/health"));
+        assert!(!is_bypass_route("/api/health-private"));
     }
 
-    #[test]
-    fn test_bypass_routes_include_health() {
-        assert!(BYPASS_ROUTES.contains(&"/api/health"));
+    /// A public-prefix lookalike must remain signature-protected. This closes
+    /// the accidental broad bypass that prefix matching would create.
+    #[actix_web::test]
+    async fn public_prefix_lookalike_requires_signature() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+            "/api/metrics-private",
+            web::get().to(|| async { HttpResponse::Ok().finish() }),
+        ))
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/metrics-private")
+            .insert_header((
+                "X-User-Id",
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            ))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+
+        assert_eq!(response.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 
     /// SECURE-BY-DEFAULT: a mutating request that supplies `X-User-Id` but no
@@ -364,6 +359,34 @@ mod tests {
             actix_web::http::StatusCode::UNAUTHORIZED,
             "POST with X-User-Id but no signature must be rejected when verification is enabled"
         );
+    }
+
+    /// Error responses must not reflect the asserted wallet identifier.  A
+    /// caller can choose this header, so reflecting it turns error responses
+    /// into an unnecessary identity-data sink.
+    #[actix_web::test]
+    async fn test_invalid_signature_response_does_not_reflect_wallet() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+            "/api/patients/{id}",
+            web::post().to(|| async { HttpResponse::Ok().finish() }),
+        ))
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/patients/PAT-001")
+            .insert_header(("X-User-Id", wallet))
+            .insert_header(("X-Signature", "not-a-signature"))
+            .insert_header(("X-Timestamp", chrono::Utc::now().timestamp().to_string()))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+        let body = test::read_body(response).await;
+        let body = std::str::from_utf8(&body).expect("signature error body must be UTF-8");
+
+        assert!(!body.contains(wallet));
+        assert!(body.contains("Signature verification failed"));
     }
 
     /// Counterpart: with the middleware DISABLED (demo mode), the same request is

@@ -22,7 +22,6 @@ pub async fn update_medical_id_preferences(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -33,7 +32,6 @@ pub async fn update_medical_id_preferences(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -47,7 +45,6 @@ pub async fn update_medical_id_preferences(
 
     if !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patient or admin can update preferences".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -58,7 +55,6 @@ pub async fn update_medical_id_preferences(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -68,7 +64,6 @@ pub async fn update_medical_id_preferences(
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -106,7 +101,6 @@ pub async fn update_medical_id_preferences(
     if let Err(error) = data.repositories.patients.update(updated_entity).await {
         log::error!("Medical ID preference persistence failed: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Medical ID preferences could not be saved".to_string(),
             code: "STORAGE_UNAVAILABLE".to_string(),
         });
@@ -133,7 +127,6 @@ pub async fn trigger_emergency_notification(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -144,7 +137,6 @@ pub async fn trigger_emergency_notification(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -158,7 +150,6 @@ pub async fn trigger_emergency_notification(
 
     if !is_patient && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -169,7 +160,6 @@ pub async fn trigger_emergency_notification(
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
@@ -184,9 +174,8 @@ pub async fn trigger_emergency_notification(
     let profile = match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
         Some(profile) => profile,
         None => {
-            log::error!("emergency notify {patient_id}: profile could not be decrypted");
+            log::error!("emergency notification profile could not be decrypted");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Emergency contacts could not be read, so no notification was sent."
                     .to_string(),
                 code: "CONTACTS_UNAVAILABLE".to_string(),
@@ -197,7 +186,6 @@ pub async fn trigger_emergency_notification(
     // The patient's own opt-out is now actually honoured.
     if !profile.preferences.auto_notify_family {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Family notifications are disabled for this patient".to_string(),
             code: "NOTIFICATIONS_DISABLED".to_string(),
         });
@@ -215,7 +203,6 @@ pub async fn trigger_emergency_notification(
         // Distinct from success-with-zero: the caller must know nobody was
         // reachable so they can find another way.
         return HttpResponse::UnprocessableEntity().json(ErrorResponse {
-            success: false,
             error: "No emergency contacts are recorded for this patient; nobody was notified."
                 .to_string(),
             code: "NO_EMERGENCY_CONTACTS".to_string(),
@@ -290,7 +277,9 @@ pub async fn trigger_emergency_notification(
         accessed_at: chrono::Utc::now(),
         facility_id: None,
     };
-    let _ = data.repositories.access_logs.create(log_entry).await;
+    if let Err(response) = crate::support::require_durable_audit(&data, log_entry).await {
+        return response;
+    }
 
     // `success` reflects whether anyone was actually reached, and
     // `notifications_sent` counts deliveries rather than attempts — the old

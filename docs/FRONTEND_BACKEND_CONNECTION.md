@@ -8,6 +8,15 @@ policy enforcement or negative-path behavior. The current feature verdict and
 remaining release blockers are in
 [`FEATURE_END_TO_END_AUDIT.md`](FEATURE_END_TO_END_AUDIT.md).
 
+> **What that caveat costs, measured.** On 2026-09-09 seven clinical pages with
+> matching paths were probed with the payload they actually send. Three returned
+> 400 or 500 — they had never filed a record at all — and four returned **201
+> while discarding every clinical field**, because the handler read names the
+> page did not send. Nineteen GET handlers returned a literal `null` with a 200.
+> See "Six clinical scales lived in the browser" in
+> [`TECHNICAL_DEBT_REGISTER.md`](TECHNICAL_DEBT_REGISTER.md). A path that
+> resolves is the start of the question, not the answer.
+
 ## How the connection works
 
 The apps never hardcode the API host. In development they call **relative
@@ -21,7 +30,7 @@ The proxy target is configurable (`client/*/vite.config.ts`):
 
 | Setup | Target | How |
 |---|---|---|
-| Standalone API (README quickstart, no Docker) | `http://127.0.0.1:8080` | default |
+| Standalone API (README quickstart, no Docker) | `http://127.0.0.1:8090` | default |
 | Full Docker stack (API behind Nginx) | `http://127.0.0.1` (:80) | `VITE_API_PROXY_TARGET=http://127.0.0.1` |
 
 In production the client uses same-origin, or an explicit `VITE_API_URL`.
@@ -34,8 +43,8 @@ In production the client uses same-origin, or an explicit `VITE_API_URL`.
 
 ```bash
 cargo build -p medichain-api --bin medichain-api
-bash scripts/run-synthetic-local.sh          # API on :8080
-cd client && npm run dev:doctor               # doctor portal on :5173, proxying to :8080
+bash scripts/run-browser-e2e-api.sh           # API on :8090, PostgreSQL-backed
+cd client && npm run dev:doctor                # doctor portal on :5173, proxying to :8090
 ```
 
 ## Verified working end-to-end (through the proxy)

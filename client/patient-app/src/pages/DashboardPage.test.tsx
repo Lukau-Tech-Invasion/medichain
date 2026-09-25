@@ -1,17 +1,24 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { DashboardPage } from './DashboardPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
+
+vi.mock('@medichain/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return {
+    ...actual,
+    getAccessLogs: vi.fn(),
+    getPatient: vi.fn(),
+  };
+});
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
-
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 describe('DashboardPage (Patient)', () => {
   const mockPatient = {
@@ -24,35 +31,27 @@ describe('DashboardPage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (usePatientAuthStore as any).mockReturnValue({
+    (usePatientAuthStore as unknown as Mock).mockReturnValue({
       patient: mockPatient,
       isAuthenticated: true,
       logout: vi.fn(),
     });
 
-    mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/patients/')) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: () => Promise.resolve({
-            patient_id: '1',
-            full_name: 'Test Patient',
-            health_id: 'HEALTH123',
-            emergency_info: {
-              blood_type: 'OPositive',
-              allergies: ['Peanuts'],
-              current_medications: ['Aspirin'],
-              chronic_conditions: ['Hypertension'],
-            },
-          }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve([]),
-      });
+    vi.mocked(shared.getPatient).mockResolvedValue({
+      patient_id: '1',
+      full_name: 'Test Patient',
+      health_id: 'HEALTH123',
+      emergency_info: {
+        blood_type: 'OPositive',
+        allergies: ['Peanuts'],
+        current_medications: ['Aspirin'],
+        chronic_conditions: ['Hypertension'],
+      },
+    } as never);
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: '1',
+      access_logs: [],
+      total_accesses: 0,
     });
   });
 
@@ -97,5 +96,18 @@ describe('DashboardPage (Patient)', () => {
       expect(screen.getByText(/Manage Consent/i).closest('a')).toHaveAttribute('href', '/consent');
       expect(screen.getByText(/Emergency Card/i).closest('a')).toHaveAttribute('href', '/emergency-card');
     });
+  });
+
+  it('does not substitute made-up clinical data when the profile cannot load', async () => {
+    vi.mocked(shared.getPatient).mockRejectedValue(new Error('offline'));
+    render(
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <DashboardPage />
+      </BrowserRouter>
+    );
+
+    expect(await screen.findByText(/data unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Unknown$/i)).toBeInTheDocument();
+    expect(screen.getByText(/no recent activity to show/i)).toBeInTheDocument();
   });
 });

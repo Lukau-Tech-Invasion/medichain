@@ -4,164 +4,10 @@ use super::*;
 // ER MANAGEMENT & NURSING
 // ============================================================================
 
-/// Create MAR entry
-/// What the MAR page submits: one patient's medication record for a date.
-///
-/// The clinical `MedicationAdministrationRecord` splits medication into
-/// scheduled/PRN/infusion collections of a typed struct; the page sends one flat
-/// `medications` list, so every save was rejected with 400. The CDS check below
-/// still runs — it only needs the drug names, and losing it would mean a nurse
-/// documenting an administration without the interaction and condition rules
-/// firing.
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct CreateMarRequest {
-    pub patient_id: String,
-    #[serde(default)]
-    pub date: String,
-    /// The scheduled-medication list.
-    ///
-    /// `scheduled_medications` is the name the original typed request used and
-    /// is still what the stored entity column is called, so it is accepted as
-    /// an alias rather than dropped. Without it an existing caller's payload
-    /// deserializes to an empty list *successfully*: the record saves, the
-    /// medications vanish, and the CDS interaction rules never see a drug to
-    /// check — a silent loss that reads as "no alerts" rather than as an error.
-    #[serde(default, alias = "scheduled_medications")]
-    pub medications: Vec<serde_json::Value>,
-    #[serde(default)]
-    pub prn_medications: Vec<serde_json::Value>,
-    #[serde(default)]
-    pub infusions: Vec<serde_json::Value>,
-}
-
-/// Drug names out of a loosely typed medication list, for the CDS rules.
-fn medication_names(items: &[serde_json::Value]) -> Vec<String> {
-    items
-        .iter()
-        .filter_map(|m| {
-            m.get("medication_name")
-                .or_else(|| m.get("medicationName"))
-                .or_else(|| m.get("name"))
-                .and_then(|n| n.as_str())
-                .map(str::to_string)
-        })
-        .collect()
-}
-
-#[post("/api/emergency/mar")]
-pub async fn create_mar(
-    data: web::Data<AppState>,
-    req: web::Json<CreateMarRequest>,
-    http_req: HttpRequest,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let record = req.into_inner();
-    if record.patient_id.trim().is_empty() {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "patient_id is required".to_string(),
-            code: "VALIDATION_ERROR".to_string(),
-        });
-    }
-    if data
-        .repositories
-        .patients
-        .get_by_id(&record.patient_id)
-        .await
-        .is_err()
-    {
-        return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
-            error: format!("Patient '{}' not found", record.patient_id),
-            code: "PATIENT_NOT_FOUND".to_string(),
-        });
-    }
-
-    let today = Utc::now().date_naive();
-    let record_date = chrono::NaiveDate::parse_from_str(&record.date, "%Y-%m-%d").unwrap_or(today);
-    let id = format!("MAR-{}-{}", record.patient_id, record_date);
-
-    // CDS: administered meds plus the patient's real conditions/medications can
-    // trigger condition-only rules (NSAID in renal impairment, anticoagulant with
-    // fall risk) that need no vitals or labs snapshot at all.
-    {
-        let (conditions, mut medications) =
-            crate::clinical_endpoints::patient_conditions_and_meds(&data, &record.patient_id).await;
-        medications.extend(medication_names(&record.medications));
-        medications.extend(medication_names(&record.prn_medications));
-        medications.extend(medication_names(&record.infusions));
-        crate::clinical_endpoints::run_and_persist_cds_alerts(
-            &data,
-            &record.patient_id,
-            None,
-            None,
-            &conditions,
-            &medications,
-            None,
-        )
-        .await;
-    }
-
-    let now = Utc::now();
-    let entity = crate::repositories::traits::MedicationRecordEntity {
-        id: id.clone(),
-        patient_id: record.patient_id.clone(),
-        record_date,
-        scheduled_medications: serde_json::json!(record.medications),
-        prn_medications: serde_json::json!(record.prn_medications),
-        infusions: serde_json::json!(record.infusions),
-        completion_status: None,
-        completion_percentage: None,
-        primary_nurse: Some(current_user_id.clone()),
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
-        is_active: true,
-        data: serde_json::to_value(&record).unwrap_or_default(),
-    };
-
-    // One MAR per patient per day: re-saving the sheet updates it rather than
-    // failing on the primary key or duplicating the day's record.
-    let existing = data
-        .repositories
-        .medication_records
-        .get_by_id(&id)
-        .await
-        .is_ok();
-    let outcome = if existing {
-        data.repositories
-            .medication_records
-            .update(entity)
-            .await
-            .map(|_| ())
-    } else {
-        data.repositories
-            .medication_records
-            .create(entity)
-            .await
-            .map(|_| ())
-    };
-    match outcome {
-        Ok(()) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(e) => {
-            log::error!("MAR persistence failed for {}: {e}", record.patient_id);
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: "Failed to save the medication record".to_string(),
-                code: "REPO_ERROR".to_string(),
-            })
-        }
-    }
-}
-
 /// Get MAR entry
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.
-/// Now matches `create_mar`'s authenticated-caller bar.
+/// Now requires an authenticated clinical caller.
 #[get("/api/emergency/mar/{patient_id}/{medication_id}")]
 pub async fn get_mar(
     data: web::Data<AppState>,
@@ -208,20 +54,22 @@ pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
         .map(|r| r.items)
         .unwrap_or_default();
 
+    // Read once. It was read inside the loop below -- every prescription in
+    // the deployment, once per patient on the page.
+    let prescriptions = data
+        .repositories
+        .e_prescriptions_v2
+        .list_all()
+        .await
+        .unwrap_or_default();
+
     let mut rows: Vec<serde_json::Value> = Vec::new();
     for entity in &patients {
         let name = patient_entity_to_profile(entity, &data.encryption_keyring)
             .map(|p| p.full_name)
             .unwrap_or_else(|| entity.id.clone());
 
-        let prescriptions = data
-            .repositories
-            .e_prescriptions_v2
-            .list_all()
-            .await
-            .unwrap_or_default();
-
-        for record in prescriptions {
+        for record in &prescriptions {
             let v = &record.data;
             if v.get("patient_id").and_then(|x| x.as_str()) != Some(entity.id.as_str()) {
                 continue;
@@ -248,18 +96,90 @@ pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
                 "patient_name": name,
                 "medication_name": text(&med, "name"),
                 "dose": text(&med, "strength"),
-                "route": if text(&med, "form").eq_ignore_ascii_case("injection") { "IV" } else { "PO" },
+                // A prescription records a form, not a route of administration.
+                // This mapped "injection" to IV and everything else to PO -- so
+                // a cream, an inhaler and an IM injection all arrived at the
+                // bedside with a route nobody prescribed, and the five-rights
+                // check showed it pre-ticked. The nurse records the route used.
+                "route": serde_json::Value::Null,
+                "form": text(&med, "form"),
                 "frequency": text(&med, "directions"),
                 "scheduled_times": [],
                 "start_date": text(v, "created_at"),
                 "indication": text(v, "patient_instructions"),
                 "prescriber": text(v, "prescriber_name"),
-                "priority": "routine",
             }));
         }
     }
 
     HttpResponse::Ok().json(rows)
+}
+
+/// List the dose administrations already durably recorded in daily MARs.
+///
+/// The order-entry grid and administration history are different views: the
+/// former is derived from active prescriptions; the latter must read the MAR
+/// records written by `append_mar_administration`. Returning an empty local
+/// array after reload made a persisted dose disappear from the nurse's history.
+#[get("/api/emergency/mar/administrations")]
+pub async fn list_mar_administrations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+    let patient_filter = query.get("patient_id").map(String::as_str);
+    let records = match data
+        .repositories
+        .medication_records
+        .list_all(Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => result.items,
+        Err(error) => {
+            log::error!("MAR administration history read failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Medication administration history could not be loaded".to_string(),
+                code: "MAR_HISTORY_READ_FAILED".to_string(),
+            });
+        }
+    };
+    let mut administrations = Vec::new();
+    for record in records {
+        if patient_filter.is_some_and(|id| id != record.patient_id) {
+            continue;
+        }
+        let Some(events) = record
+            .data
+            .get("administrations")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        for event in events {
+            let mut item = event.clone();
+            if let Some(object) = item.as_object_mut() {
+                object.insert("patient_id".into(), serde_json::json!(record.patient_id));
+                object.insert("record_date".into(), serde_json::json!(record.record_date));
+            }
+            administrations.push(item);
+        }
+    }
+    administrations.sort_by(|left, right| {
+        right
+            .get("administered_at")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .cmp(
+                left.get("administered_at")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+            )
+    });
+    HttpResponse::Ok()
+        .json(serde_json::json!({ "success": true, "administrations": administrations }))
 }
 
 /// Administer medication — appends the dose to the patient's MAR for today.
@@ -281,7 +201,6 @@ pub async fn administer_medication(
         Some(p) if !p.trim().is_empty() => p.to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "patient_id is required".to_string(),
                 code: "MISSING_PATIENT_ID".to_string(),
             })
@@ -311,9 +230,8 @@ pub async fn administer_medication(
             "message": "Medication administered and recorded"
         })),
         Err(e) => {
-            log::error!("MAR administration failed for {}: {}", patient_id, e);
+            log::error!("MAR administration failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Could not record the administration".to_string(),
                 code: "MAR_WRITE_FAILED".to_string(),
             })
@@ -361,7 +279,6 @@ pub async fn create_io(
     let entry = req.into_inner();
     if entry.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patientId is required".to_string(),
             code: "MISSING_PATIENT_ID".to_string(),
         });
@@ -370,7 +287,6 @@ pub async fn create_io(
     // negating a comparison.
     if !entry.amount.is_finite() || entry.amount <= 0.0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "amount must be greater than zero".to_string(),
             code: "INVALID_AMOUNT".to_string(),
         });
@@ -383,7 +299,6 @@ pub async fn create_io(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", entry.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -405,17 +320,22 @@ pub async fn create_io(
             "night".to_string()
         }
     });
-    // Categories are stored prefixed by direction so intake and output cannot be
-    // confused when the totals are recomputed.
-    let category = format!("{}:{}", entry.direction, entry.category);
-
+    // Direction travels as its own field. Prefixing it onto the category
+    // produced `"output:urine"`, which matched no arm of the routing table and
+    // was therefore counted as intake — the fluid balance moved the wrong way
+    // for every output this page ever charted.
     match crate::clinical_endpoints::append_io_event(
         &data,
-        &entry.patient_id,
-        &shift,
-        &caller.wallet_address,
-        &category,
-        amount_ml,
+        crate::clinical_endpoints::FluidEvent {
+            patient_id: &entry.patient_id,
+            shift: &shift,
+            recorded_by: &caller.wallet_address,
+            category: &entry.category,
+            direction: Some(&entry.direction),
+            label: Some(&entry.category),
+            notes: Some(entry.notes.as_str()).filter(|n| !n.is_empty()),
+            amount_ml,
+        },
     )
     .await
     {
@@ -427,7 +347,6 @@ pub async fn create_io(
         Err(e) => {
             log::error!("intake/output persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to record the fluid entry".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -456,119 +375,93 @@ pub async fn get_io(
     }
 }
 
-/// List all I/O records
-#[get("/api/emergency/io/list")]
-pub async fn list_io(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
-    match data
-        .repositories
-        .io_records
-        .list_all(Pagination::new(0, 50))
-        .await
-    {
-        Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
-    }
-}
-
-/// Record a fluid intake/output event against today's shift record.
-///
-/// This used to acknowledge without persisting; see [`super::append_io_event`].
-#[post("/api/emergency/record-fluid")]
-pub async fn record_fluid(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    req: web::Json<serde_json::Value>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-    let body = req.into_inner();
-    let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
-        Some(p) if !p.trim().is_empty() => p.to_string(),
-        _ => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
-                error: "patient_id is required".to_string(),
-                code: "MISSING_PATIENT_ID".to_string(),
-            })
-        }
-    };
-    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
-        return resp;
-    }
-    let amount_ml = match body
-        .get("amount_ml")
-        .or_else(|| body.get("amount"))
-        .and_then(|v| v.as_i64())
-    {
-        Some(a) if a >= 0 => a as i32,
-        _ => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
-                error: "amount_ml is required and must be a non-negative number".to_string(),
-                code: "INVALID_AMOUNT".to_string(),
-            })
-        }
-    };
-    let category = body
-        .get("category")
-        .or_else(|| body.get("type"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("other")
-        .to_string();
-    let shift = body
-        .get("shift")
-        .and_then(|v| v.as_str())
-        .unwrap_or("day")
-        .to_string();
-
-    match super::append_io_event(
-        &data,
-        &patient_id,
-        &shift,
-        &current_user_id,
-        &category,
-        amount_ml,
-    )
-    .await
-    {
-        Ok(record_id) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "record_id": record_id,
-            "message": "Fluid intake/output recorded"
-        })),
-        Err(e) => {
-            log::error!("I/O write failed for {}: {}", patient_id, e);
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: "Could not record the fluid event".to_string(),
-                code: "IO_WRITE_FAILED".to_string(),
-            })
-        }
-    }
-}
-
 /// Create nursing care plan
 /// What the nursing care-plan form submits.
 ///
-/// The clinical `NursingCarePlan` type models goals, outcomes and interventions
-/// as structures the create form does not collect; it captures a patient, a
-/// nursing diagnosis and a priority. Requiring the full structure is why the
-/// form was never wired up to anything.
+/// `CarePlanPage.tsx` builds a plan out of three cross-referenced lists —
+/// `NursingDiagnosis[]`, `Goal[]` and `Intervention[]`, each an object with an
+/// id, camelCase — and this struct wanted a single `diagnosis: String` with
+/// `Vec<String>` goals. Every save was
+/// `400 invalid type: map, expected a string`, so the page's Save button had
+/// never once worked; the only care plan in the database was written by a
+/// seeder.
+///
+/// A nursing care plan without its goals and interventions is a diagnosis list,
+/// not a plan, so accepting the diagnoses alone would not have been a fix.
+///
+/// Both shapes are accepted. `Vec<String>` is what the synthetic harness and
+/// the earlier API contract send, and breaking those to fix the page would
+/// trade one silent mismatch for another.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum CarePlanItem {
+    /// The page's shape: an object carrying its own text plus cross-references.
+    Structured(serde_json::Map<String, serde_json::Value>),
+    /// A bare line of text.
+    Text(String),
+}
+
+impl CarePlanItem {
+    /// The human-readable line this item contributes.
+    ///
+    /// A structured item is searched for the field that carries its text —
+    /// `diagnosis`, `description` or `goal` depending on which list it came
+    /// from — because that is what a nurse reads on the plan. An item whose
+    /// text cannot be found is rendered as its JSON rather than dropped:
+    /// losing a documented intervention is worse than showing it awkwardly.
+    fn line(&self) -> String {
+        match self {
+            CarePlanItem::Text(t) => t.trim().to_string(),
+            CarePlanItem::Structured(map) => {
+                for key in ["diagnosis", "description", "goal", "intervention", "text"] {
+                    if let Some(v) = map.get(key).and_then(|v| v.as_str()) {
+                        if !v.trim().is_empty() {
+                            return v.trim().to_string();
+                        }
+                    }
+                }
+                serde_json::Value::Object(map.clone()).to_string()
+            }
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateCarePlanRequest {
+    #[serde(rename = "patientId", alias = "patient_id")]
     pub patient_id: String,
-    pub diagnosis: String,
+    /// The page's list. A single `diagnosis` string is still accepted, because
+    /// that is the shape the earlier contract and the synthetic harness use.
+    #[serde(default)]
+    pub diagnoses: Vec<CarePlanItem>,
+    #[serde(default)]
+    pub diagnosis: Option<String>,
     #[serde(default)]
     pub priority: String,
     #[serde(default)]
-    pub goals: Vec<String>,
+    pub goals: Vec<CarePlanItem>,
     #[serde(default)]
-    pub interventions: Vec<String>,
+    pub interventions: Vec<CarePlanItem>,
+    #[serde(rename = "carePlanId", alias = "care_plan_id", default)]
+    pub care_plan_id: Option<String>,
+}
+
+impl CreateCarePlanRequest {
+    /// Every nursing diagnosis on the plan, whichever shape it arrived in.
+    fn diagnosis_lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .diagnoses
+            .iter()
+            .map(CarePlanItem::line)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if let Some(single) = self.diagnosis.as_deref().map(str::trim) {
+            if !single.is_empty() && !lines.iter().any(|l| l == single) {
+                lines.push(single.to_string());
+            }
+        }
+        lines
+    }
 }
 
 #[post("/api/emergency/care-plan")]
@@ -583,10 +476,10 @@ pub async fn create_care_plan(
     };
 
     let plan = req.into_inner();
-    if plan.patient_id.trim().is_empty() || plan.diagnosis.trim().is_empty() {
+    let diagnoses = plan.diagnosis_lines();
+    if plan.patient_id.trim().is_empty() || diagnoses.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "patient_id and diagnosis are required".to_string(),
+            error: "patient_id and at least one nursing diagnosis are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
@@ -598,7 +491,6 @@ pub async fn create_care_plan(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", plan.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -609,9 +501,15 @@ pub async fn create_care_plan(
     let entity = crate::repositories::traits::NursingCarePlanEntity {
         id: id.clone(),
         patient_id: plan.patient_id.clone(),
-        plan_name: plan.diagnosis.trim().to_string(),
+        // The plan is named for its first diagnosis, which is the one the
+        // nurse listed as the priority problem.
+        plan_name: diagnoses[0].clone(),
         care_level: Some(plan.priority.clone()).filter(|p| !p.is_empty()),
-        nursing_diagnoses: serde_json::json!([plan.diagnosis.trim()]),
+        nursing_diagnoses: serde_json::json!(diagnoses),
+        // The structured items are stored whole, not flattened to their text:
+        // a goal carries its target date and measurable outcome, and an
+        // intervention carries its frequency and who is responsible. Those are
+        // the parts a nurse acts on.
         goals: serde_json::json!(plan.goals),
         interventions: serde_json::json!(plan.interventions),
         evaluation_notes: None,
@@ -633,7 +531,6 @@ pub async fn create_care_plan(
         Err(e) => {
             log::error!("nursing care plan persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the care plan".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -722,7 +619,6 @@ pub async fn create_wound(
     let assessment = req.into_inner();
     if assessment.patient_id.trim().is_empty() || assessment.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and location are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -730,7 +626,6 @@ pub async fn create_wound(
     if let Some(pain) = assessment.pain_level {
         if !(0..=10).contains(&pain) {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "pain_level must be between 0 and 10".to_string(),
                 code: "VALIDATION_ERROR".to_string(),
             });
@@ -744,7 +639,6 @@ pub async fn create_wound(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", assessment.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -790,7 +684,6 @@ pub async fn create_wound(
         Err(e) => {
             log::error!("wound assessment persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the wound assessment".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -858,9 +751,54 @@ pub struct IvSiteInput {
     #[serde(rename = "isActive", default)]
     pub is_active: bool,
     #[serde(default)]
-    pub assessments: Vec<serde_json::Value>,
+    pub assessments: Vec<IvAssessmentInput>,
     #[serde(rename = "discontinuedReason", default)]
     pub discontinued_reason: Option<String>,
+}
+
+/// One bedside look at a cannula site.
+///
+/// `phlebitisScore` is accepted but ignored — the page computed it in the
+/// browser and posted it, and it is recomputed here from `conditions` by
+/// `clinical_scoring::vip_score`. A site score decides whether the cannula
+/// stays in, so it is not a number a client gets to assert.
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub struct IvAssessmentInput {
+    #[serde(default)]
+    pub id: String,
+    #[serde(rename = "assessedAt", default)]
+    pub assessed_at: Option<String>,
+    /// Site findings, from the form's fixed vocabulary
+    /// (`clean-dry-intact`, `tenderness`, `redness`, `swelling`, `warmth`,
+    /// `induration`, `drainage`).
+    #[serde(default)]
+    pub conditions: Vec<String>,
+    #[serde(rename = "dressingType", default)]
+    pub dressing_type: Option<String>,
+    #[serde(rename = "dressingIntact", default)]
+    pub dressing_intact: Option<bool>,
+    #[serde(rename = "flushPatent", default)]
+    pub flush_patent: Option<bool>,
+    #[serde(rename = "bloodReturn", default)]
+    pub blood_return: Option<bool>,
+    #[serde(default)]
+    pub infusing: Option<String>,
+    /// Free text, not a number.
+    ///
+    /// `IVAssessment.infusionRate` is `string` in the page and the field invites
+    /// "80 mL/hr" — a rate is a quantity *and* a unit, and nurses write both.
+    /// Typing it `f64` here meant serde refused the body outright, so a nurse
+    /// who filled the field lost the entire cannula record to
+    /// `400 invalid type: string "80 mL/hr", expected f64`, with no indication
+    /// which field caused it.
+    #[serde(rename = "infusionRate", default)]
+    pub infusion_rate: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(rename = "infiltrationGrade", default)]
+    pub infiltration_grade: Option<i32>,
+    #[serde(rename = "painLevel", default)]
+    pub pain_level: Option<i32>,
 }
 
 /// What the IV site form submits: a patient and every site currently documented.
@@ -890,14 +828,12 @@ pub async fn create_iv_site(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if record.sites.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "at least one IV site is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -910,14 +846,13 @@ pub async fn create_iv_site(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
     }
 
     let now = Utc::now();
-    let mut saved = Vec::new();
+    let mut saved: Vec<serde_json::Value> = Vec::with_capacity(record.sites.len());
     for site in &record.sites {
         // The site keeps its client id so re-saving the same list updates rather
         // than duplicating rows for a cannula that is already documented.
@@ -931,6 +866,23 @@ pub async fn create_iv_site(
             format!("{} ({})", site.location, site.location_detail.trim())
         };
 
+        // The most recent look at the site is the one that describes it now.
+        // Every field below was hardcoded `None`: the appearance, the phlebitis
+        // grade, the infiltration grade, the pain score, the dressing status
+        // and the notes were all collected by the form, posted, and dropped —
+        // so a cannula with a stage-4 site read back as never assessed.
+        let latest = site.assessments.last();
+        let conditions: Vec<String> = latest.map(|a| a.conditions.clone()).unwrap_or_default();
+        let phlebitis = latest.map(|_| crate::clinical_scoring::vip_score(&conditions));
+        // The finding that set the score, for the queryable column.
+        let worst_condition = phlebitis.and_then(|score| {
+            conditions
+                .iter()
+                .find(|c| crate::clinical_scoring::vip_score(std::slice::from_ref(c)) == score)
+                .map(String::as_str)
+        });
+        let dwell_hours = crate::clinical_scoring::catheter_dwell_limit_hours(&site.catheter_type);
+
         let entity = crate::repositories::traits::IVAssessmentEntity {
             id: id.clone(),
             patient_id: record.patient_id.clone(),
@@ -939,16 +891,31 @@ pub async fn create_iv_site(
             catheter_type: Some(site.catheter_type.clone()).filter(|c| !c.is_empty()),
             catheter_gauge: Some(site.gauge.clone()).filter(|g| !g.is_empty()),
             insertion_date: Some(inserted),
-            patency: None,
-            site_appearance: None,
-            infiltration_grade: None,
-            phlebitis_grade: None,
-            current_infusions: None,
-            dressing_intact: None,
+            // `patent` / `sluggish` / `occluded` is the column's own CHECK-ed
+            // vocabulary. A cannula that will not flush is occluded; "sluggish"
+            // is a third observation this form does not collect.
+            patency: latest
+                .and_then(|a| a.flush_patent)
+                .map(|p| if p { "patent" } else { "occluded" }.to_string()),
+            // The single worst finding, not the joined list. The column is
+            // VARCHAR(32) and a full list of findings overflows it; the
+            // complete set is in `data`, and what belongs in a queryable column
+            // is the one that decides what happens to the cannula.
+            site_appearance: worst_condition.map(str::to_string),
+            infiltration_grade: latest.and_then(|a| a.infiltration_grade),
+            phlebitis_grade: phlebitis.map(i32::from),
+            current_infusions: latest
+                .and_then(|a| a.infusing.clone())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| serde_json::json!([s])),
+            dressing_intact: latest.and_then(|a| a.dressing_intact),
             dressing_change_due: None,
-            pain_level: None,
-            notes: None,
-            actions_taken: None,
+            pain_level: latest.and_then(|a| a.pain_level),
+            notes: latest
+                .and_then(|a| a.notes.clone())
+                .filter(|s| !s.trim().is_empty()),
+            actions_taken: phlebitis
+                .map(|score| crate::clinical_scoring::vip_action(score).to_string()),
             site_discontinued: Some(!site.is_active),
             discontinuation_reason: site.discontinued_reason.clone(),
             assessed_by: caller.wallet_address.clone(),
@@ -979,14 +946,22 @@ pub async fn create_iv_site(
                 .map(|_| ())
         };
         if let Err(e) = outcome {
-            log::error!("IV site persistence failed for {}: {e}", site.id);
+            log::error!("IV site persistence failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the IV site record".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
         }
-        saved.push(id);
+        saved.push(serde_json::json!({
+            "id": id,
+            "site_id": site.id,
+            // What the server scored, and what that score requires. The page
+            // showed its own arithmetic and never learned whether the server
+            // agreed - and the server was storing nothing at all.
+            "phlebitis_score": phlebitis,
+            "action": phlebitis.map(crate::clinical_scoring::vip_action),
+            "dwell_limit_hours": dwell_hours,
+        }));
     }
 
     HttpResponse::Created().json(serde_json::json!({ "success": true, "sites": saved }))
@@ -1128,14 +1103,12 @@ pub async fn create_shift_handoff(
     let handoff = req.into_inner();
     if handoff.incoming_nurse.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "incoming_nurse is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
     }
     if handoff.patients.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "a handoff must cover at least one patient".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1163,7 +1136,6 @@ pub async fn create_shift_handoff(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", patient.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -1234,7 +1206,6 @@ pub async fn create_shift_handoff(
                 patient.patient_id
             );
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the handoff".to_string(),
                 code: "REPO_ERROR".to_string(),
             });
@@ -1263,32 +1234,72 @@ pub async fn get_shift_handoff(
         return resp;
     }
     let id = path.into_inner();
-    match data.repositories.shift_handoffs.get_by_id(&id).await {
-        Ok(record) => HttpResponse::Ok().json(record),
-        Err(_) => HttpResponse::NotFound().finish(),
+    // A handoff covers a ward, and storage is one row per patient keyed
+    // `{batch}-{patient_id}` — so `create_shift_handoff` returns the batch id
+    // and this endpoint could not resolve it. Every client that followed the id
+    // it had just been handed got a 404, which is not a handle to anything.
+    //
+    // A batch resolves to the handoff it names; a single row still resolves to
+    // itself, so the existing per-row callers are unaffected.
+    if let Ok(record) = data.repositories.shift_handoffs.get_by_id(&id).await {
+        return HttpResponse::Ok().json(record);
+    }
+    match data.repositories.shift_handoffs.get_by_batch(&id).await {
+        Ok(rows) => {
+            if rows.is_empty() {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    error: format!("No handoff found for '{id}'"),
+                    code: "NOT_FOUND".to_string(),
+                });
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "handoff_id": id,
+                "patients": rows,
+            }))
+        }
+        Err(e) => {
+            log::error!("handoff lookup failed for {id}: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The handoff could not be read".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
-/// List shift handoffs involving a provider for today.
+/// How far back the handoff history may look, in days.
+const MAX_HANDOFF_HISTORY_DAYS: u32 = 30;
+
+#[derive(Debug, Deserialize)]
+pub struct HandoffHistoryQuery {
+    /// Days of history including today; 1 (the default) is today only.
+    pub days: Option<u32>,
+}
+
+/// List shift handoffs involving a provider, newest first.
 ///
 /// Connects the doctor-portal ShiftHandoffPage, which fetches by the logged-in
 /// provider's id (the bare `/api/emergency/handoff/{id}` route is by *handoff*
-/// id). Today-scoped via the repository's `get_by_provider`; multi-day history
-/// is tracked in the technical-debt register.
+/// id). `?days=N` widens the window from today to the last N days, capped at
+/// 30; without it the answer is today's, as it always was.
 #[get("/api/clinical/shift-handoff/{provider_id}")]
 pub async fn list_provider_handoffs(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<HandoffHistoryQuery>,
 ) -> impl Responder {
     let provider_id = path.into_inner();
     if let Err(resp) = require_emergency_list_access(&data, &http_req, &provider_id) {
         return resp;
     }
+    let days = query.days.unwrap_or(1).clamp(1, MAX_HANDOFF_HISTORY_DAYS);
+    let since = Utc::now().date_naive() - chrono::Duration::days(i64::from(days - 1));
     match data
         .repositories
         .shift_handoffs
-        .get_by_provider(&provider_id, Utc::now().date_naive())
+        .get_by_provider_since(&provider_id, since)
         .await
     {
         Ok(handoffs) => HttpResponse::Ok().json(handoffs),
@@ -1327,6 +1338,22 @@ pub struct CreateIncidentRequest {
     pub immediate_actions: String,
 }
 
+/// A vocabulary term as the database CHECK spells it.
+///
+/// The safety-report form writes `medication-error` and `near-miss`; the
+/// constraints spell them `medication_error` and `near_miss`. Two spellings of
+/// one word meant four of seven incident types and one of five severities could
+/// not be filed at all — the insert failed the CHECK and the handler returned
+/// `500 REPO_ERROR`, on PostgreSQL only, because the in-memory backend enforces
+/// no constraints.
+///
+/// Normalising here rather than renaming the form's values keeps every stored
+/// row and every existing caller working, and it is the separator that differs,
+/// not the meaning.
+fn canonical_term(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
 #[post("/api/emergency/incident")]
 pub async fn create_incident(
     data: web::Data<AppState>,
@@ -1341,7 +1368,6 @@ pub async fn create_incident(
     let report = req.into_inner();
     if report.description.trim().is_empty() || report.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "description and location are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -1363,7 +1389,6 @@ pub async fn create_incident(
             .is_err()
         {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Patient '{}' not found", report.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
@@ -1380,8 +1405,8 @@ pub async fn create_incident(
         reporter_id: caller.wallet_address.clone(),
         incident_datetime: incident_at,
         discovery_datetime: now,
-        incident_type: report.incident_type.clone(),
-        severity: report.severity.clone(),
+        incident_type: canonical_term(&report.incident_type),
+        severity: canonical_term(&report.severity),
         location: report.location.trim().to_string(),
         department: Some(report.department.clone()).filter(|d| !d.is_empty()),
         description: report.description.trim().to_string(),
@@ -1422,7 +1447,6 @@ pub async fn create_incident(
         Err(e) => {
             log::error!("incident report persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the incident report".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -1450,116 +1474,214 @@ pub async fn get_incident(
     }
 }
 
+/// What `FallRiskPage` submits.
+///
+/// The page used to send the six Morse Fall Scale items nested under
+/// `morse_scale` with camelCase keys, plus its own `total_score` and
+/// `risk_level`. The handler read six *top-level* snake_case keys, found none
+/// of them, and scored every assessment 0 — which bands as "low". A patient
+/// scored 70 by the nurse at the bedside was filed as low risk, and low risk is
+/// the band that gets no bed alarm, no hourly rounding and no signage.
+///
+/// The six items are the contract now, at the top level under the names the
+/// database column set uses. `morse_scale` is accepted as an alias so a client
+/// that has not been redeployed is scored correctly rather than silently at 0.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct MorseFallScaleItems {
+    /// 0 or 25
+    #[serde(default, alias = "fallHistory")]
+    pub history_of_falling: i32,
+    /// 0 or 15
+    #[serde(default, alias = "secondaryDiagnosis")]
+    pub secondary_diagnosis: i32,
+    /// 0, 15 or 30
+    #[serde(default, alias = "ambulatoryAid")]
+    pub ambulatory_aid: i32,
+    /// 0 or 20
+    #[serde(default, alias = "ivTherapy")]
+    pub iv_therapy: i32,
+    /// 0, 10 or 20
+    #[serde(default, alias = "gait")]
+    pub gait_status: i32,
+    /// 0 or 15
+    #[serde(default, alias = "mentalStatus")]
+    pub mental_status: i32,
+}
+
+impl MorseFallScaleItems {
+    /// The Morse total *is* the sum of its six items. Nothing else is the total.
+    fn total(&self) -> i32 {
+        self.history_of_falling
+            + self.secondary_diagnosis
+            + self.ambulatory_aid
+            + self.iv_therapy
+            + self.gait_status
+            + self.mental_status
+    }
+}
+
+/// Create-fall-risk request body.
+///
+/// Deliberately does **not** carry `total_score` or `risk_level`. Both are
+/// derived here from the six items, and in PostgreSQL they are
+/// `GENERATED ALWAYS ... STORED` columns besides — a client cannot set them,
+/// so accepting them would only let a caller believe it had.
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct CreateFallRiskRequest {
+    pub patient_id: String,
+    /// The six scale items, flat. `morse_scale` is the legacy nesting.
+    #[serde(default, flatten)]
+    pub items: MorseFallScaleItems,
+    #[serde(default)]
+    pub morse_scale: Option<MorseFallScaleItems>,
+    #[serde(default)]
+    pub assessment_tool: Option<String>,
+    #[serde(default)]
+    pub additional_factors: Option<serde_json::Value>,
+    #[serde(default)]
+    pub interventions: Option<serde_json::Value>,
+    #[serde(default)]
+    pub environmental_hazards: Option<serde_json::Value>,
+    #[serde(default)]
+    pub medications: Option<serde_json::Value>,
+    #[serde(default)]
+    pub recent_fall: bool,
+    #[serde(default)]
+    pub mobility: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub assessed_at: Option<String>,
+    #[serde(default)]
+    pub next_assessment_due: Option<String>,
+    #[serde(default)]
+    pub facility_id: Option<String>,
+}
+
 /// Create fall risk assessment
 #[post("/api/emergency/fall-risk")]
 pub async fn create_fall_risk(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateFallRiskRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
 
     let body = req.into_inner();
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let id = format!("FRA-{}", uuid::Uuid::new_v4().simple());
 
-    // Sum of the six Morse Fall Scale items. Absent items score 0, which is the
-    // scale's own "not present" value, so a partial submission is scored as
-    // filled in rather than rejected — but the total always reflects what was
-    // actually recorded rather than what the client asserted.
-    let morse_item = |key: &str| body.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
-    let morse_total = (morse_item("history_of_falling")
-        + morse_item("secondary_diagnosis")
-        + morse_item("ambulatory_aid")
-        + morse_item("iv_therapy")
-        + morse_item("gait_status")
-        + morse_item("mental_status")) as i32;
+    // Flat items win; the nested legacy shape is the fallback. A caller sending
+    // both that disagree is a caller with a bug, and taking the flat one keeps
+    // "what the current contract says" as the answer.
+    let items = if body.items.total() > 0 {
+        body.items
+    } else {
+        body.morse_scale.unwrap_or(body.items)
+    };
+    let morse_total = items.total();
+
+    let parse_ts = |v: &Option<String>| {
+        v.as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc))
+    };
 
     let entity = FallRiskAssessmentEntity {
         id: id.clone(),
-        patient_id: body
-            .get("patient_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        assessment_tool: body
-            .get("assessment_tool")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        history_of_falling: body
-            .get("history_of_falling")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        secondary_diagnosis: body
-            .get("secondary_diagnosis")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        ambulatory_aid: body
-            .get("ambulatory_aid")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        iv_therapy: body
-            .get("iv_therapy")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        gait_status: body
-            .get("gait_status")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        mental_status: body
-            .get("mental_status")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        additional_factors: body.get("additional_factors").cloned(),
-        interventions: body.get("interventions").cloned(),
-        notes: body
-            .get("notes")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        assessed_by: body
-            .get("assessed_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        assessed_at: body
-            .get("assessed_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or(now),
-        next_assessment_due: body
-            .get("next_assessment_due")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
+        patient_id: body.patient_id,
+        assessment_tool: body.assessment_tool.or_else(|| Some("morse".to_string())),
+        history_of_falling: Some(items.history_of_falling),
+        secondary_diagnosis: Some(items.secondary_diagnosis),
+        ambulatory_aid: Some(items.ambulatory_aid),
+        iv_therapy: Some(items.iv_therapy),
+        gait_status: Some(items.gait_status),
+        mental_status: Some(items.mental_status),
+        additional_factors: body.additional_factors,
+        interventions: body.interventions,
+        environmental_hazards: body.environmental_hazards,
+        medications: body.medications,
+        recent_fall: body.recent_fall,
+        mobility: body.mobility,
+        notes: body.notes,
+        // The assessing clinician is whoever authenticated, not whoever the body
+        // names. A body-supplied `assessed_by` lets one clinician file an
+        // assessment under another's name.
+        assessed_by: current_user.wallet_address,
+        assessed_at: parse_ts(&body.assessed_at).unwrap_or(now),
+        next_assessment_due: parse_ts(&body.next_assessment_due),
         created_at: now,
         updated_at: now,
-        facility_id: body
-            .get("facility_id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        data: body.clone(),
+        facility_id: body.facility_id,
         // The Morse Fall Scale total drives the risk band, so derive the band
         // from the score rather than trusting a separate field that can
-        // disagree with it.
-        //
-        // The score itself is derived too. It was read straight off the body
-        // with `unwrap_or(0)`, so a submission carrying the six item scores but
-        // no `total_score` — or a client that computed it wrongly — filed a
-        // patient at 0, which bands as "low". A high-risk patient recorded as
-        // low risk does not get the bed alarm, the hourly rounding or the
-        // signage, and the assessment exists precisely to trigger those. The
-        // Morse total *is* the sum of its six items, so any supplied total that
-        // disagrees with them is wrong by definition.
-        total_score: morse_total,
-        risk_level: morse_risk_band(morse_total).to_string(),
+        // disagree with it. On PostgreSQL both are generated columns and these
+        // values are overwritten by the database with the same arithmetic; on
+        // the in-memory backend they are what the record carries.
+        total_score: Some(morse_total),
+        risk_level: Some(morse_risk_band(morse_total).to_string()),
+        data: serde_json::Value::Null,
     };
     match data.repositories.fall_risk_assessments.create(entity).await {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Ok(saved) => HttpResponse::Created().json(serde_json::json!({
+            "id": id,
+            "success": true,
+            // Return what was actually scored and stored. The page used to show
+            // its own arithmetic and never learn whether the server agreed.
+            // The stored values. `unwrap_or` is safe here and only here: this
+            // row was just written with both set, so a None would mean the
+            // database disagreed with the INSERT.
+            "total_score": saved.total_score.unwrap_or(morse_total),
+            "risk_level": saved
+                .risk_level
+                .unwrap_or_else(|| morse_risk_band(morse_total).to_string()),
+        })),
+        Err(e) => {
+            log::error!("fall risk assessment persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to save the fall risk assessment".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// A patient's fall-risk assessments, most recent first.
+///
+/// `FallRiskPage`'s History tab renders this list and could never populate it:
+/// the repository has had `get_by_patient` all along and no route reached it,
+/// so the tab was permanently empty and indistinguishable from a patient who
+/// has never been assessed.
+#[get("/api/emergency/fall-risk/patient/{patient_id}")]
+pub async fn list_patient_fall_risk(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+    let patient_id = path.into_inner();
+    match data
+        .repositories
+        .fall_risk_assessments
+        // An explicit page size: `Pagination` has no `Default` precisely
+        // because the derived one was `per_page: 0`, which returns nothing.
+        .get_by_patient(&patient_id, Pagination::first_page(50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(e) => {
+            log::error!("fall-risk history lookup failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to read the fall-risk history".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -1580,145 +1702,5 @@ pub async fn get_fall_risk(
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
-    }
-}
-
-#[cfg(test)]
-mod cds_wiring_tests {
-    use super::*;
-    use actix_web::test;
-
-    fn test_patient(
-        id: &str,
-        conditions: Vec<String>,
-        medications: Vec<String>,
-    ) -> crate::PatientProfile {
-        let now = chrono::Utc::now();
-        crate::PatientProfile {
-            patient_id: id.to_string(),
-            full_name: "Test Patient".to_string(),
-            date_of_birth: "1980-01-01".to_string(),
-            time_of_birth: None,
-            national_id: format!("NID-{id}"),
-            gender: None,
-            phone: "+27000000000".to_string(),
-            emergency_info: crate::EmergencyInfo {
-                patient_id: id.to_string(),
-                blood_type: crate::BloodType::OPositive,
-                allergies: Vec::new(),
-                current_medications: medications,
-                chronic_conditions: conditions,
-                emergency_contacts: Vec::new(),
-                organ_donor: false,
-                dnr_status: false,
-                dnr_verified_by: None,
-                dnr_verified_at: None,
-                dnr_document_ref: None,
-                languages: vec!["en".to_string()],
-                last_updated: now,
-            },
-            address: None,
-            insurance: None,
-            primary_doctor: None,
-            community_health_worker: None,
-            preferences: crate::PatientPreferences::default(),
-            advanced_directives: Vec::new(),
-            family_notifications: None,
-            created_at: now,
-            last_updated: now,
-        }
-    }
-
-    /// Creating a MAR entry that administers an NSAID to a patient with a documented
-    /// renal condition should trigger the CDS rules engine's "NSAID Use in Renal
-    /// Impairment" rule — proving `create_mar` really merges the record's own
-    /// medications into the CDS evaluation, not just the patient's stored list.
-    #[actix_web::test]
-    async fn create_mar_triggers_condition_and_medication_cds_rule() {
-        let state = crate::AppState::new();
-
-        // `create_mar` now RESOLVES the caller against the user store rather
-        // than trusting the presence of an X-User-Id header, so the test has to
-        // register the nurse it claims to be. Previously this passed with an id
-        // belonging to nobody — which is precisely the weakness being removed,
-        // and means this test was asserting CDS behaviour through an
-        // unauthenticated request.
-        state.users.write().unwrap().insert(
-            "nurse_wallet".to_string(),
-            crate::User {
-                wallet_address: "nurse_wallet".to_string(),
-                username: Some("testnurse".to_string()),
-                name: "Test Nurse".to_string(),
-                role: crate::Role::Nurse,
-                created_at: Utc::now(),
-                created_by: None,
-                linked_patient_id: None,
-                email: None,
-                phone: None,
-                department: None,
-                specialty: None,
-                license_number: None,
-                status: "active".to_string(),
-                last_login: None,
-            },
-        );
-
-        let patient_id = "PAT-CDS-MAR-1";
-        let profile = test_patient(
-            patient_id,
-            vec!["Chronic Kidney Disease".to_string()],
-            vec![],
-        );
-        state
-            .repositories
-            .patients
-            .create(crate::patient_profile_to_entity(
-                &profile,
-                &state.encryption_keyring,
-            ))
-            .await
-            .unwrap();
-
-        let app_state = web::Data::new(state);
-        let app = actix_web::App::new()
-            .app_data(app_state.clone())
-            .service(create_mar);
-        let app = test::init_service(app).await;
-
-        let req = test::TestRequest::post()
-            .uri("/api/emergency/mar")
-            .insert_header(("x-user-id", "nurse_wallet"))
-            .set_json(serde_json::json!({
-                "patient_id": patient_id,
-                "date": "2026-07-22",
-                "scheduled_medications": [{
-                    "medication_id": "MED-1",
-                    "name": "Ibuprofen",
-                    "dose": "400mg",
-                    "route": "Oral",
-                    "frequency": "TID",
-                    "scheduled_times": ["08:00"],
-                    "administrations": [],
-                    "instructions": null,
-                    "allergies_verified": true
-                }],
-                "prn_medications": [],
-                "infusions": []
-            }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert!(resp.status().is_success());
-
-        let alerts = app_state
-            .repositories
-            .cds_alerts
-            .get_by_patient(patient_id, true)
-            .await
-            .unwrap_or_default();
-        assert!(
-            alerts.iter().any(|a| a.alert_title.contains("NSAID")),
-            "expected an NSAID-in-renal-impairment CDS alert, got: {:?}",
-            alerts.iter().map(|a| &a.alert_title).collect::<Vec<_>>()
-        );
     }
 }

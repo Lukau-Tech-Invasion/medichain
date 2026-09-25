@@ -26,12 +26,6 @@ pub struct RegisterDeviceRequest {
 pub struct SyncRequest {
     #[serde(default)]
     pub device_id: String,
-    // Accepted from clients for a future incremental-sync optimization
-    // (bounding the conflict-candidate scan to changes since this point);
-    // not yet consumed — conflict detection currently scans the full queue.
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub last_sync_at: i64,
     #[serde(default)]
     pub items: Vec<SyncItemInput>,
 }
@@ -70,6 +64,37 @@ async fn device_queue_items(
 }
 
 /// Get current sync status for a device
+/// The devices this caller has registered for offline sync.
+///
+/// Registration has stored a record since the feature was built and nothing
+/// could list them back. That is not only an inconvenience: a device is a copy
+/// of clinical data walking around in someone's pocket, and a patient who loses
+/// a phone could not see that it was still registered, let alone say so.
+#[get("/api/sync/devices")]
+pub async fn list_sync_devices(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+
+    let records = data
+        .repositories
+        .sync_devices
+        .get_by_owner(&current_user_id)
+        .await
+        .unwrap_or_default();
+    let devices: Vec<serde_json::Value> = records.into_iter().map(|record| record.data).collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "count": devices.len(),
+        "devices": devices,
+    }))
+}
+
 #[get("/api/sync/status/{device_id}")]
 pub async fn get_sync_status(
     data: web::Data<crate::AppState>,
@@ -135,8 +160,15 @@ pub async fn register_sync_device(
         created_at: now,
         updated_at: now,
     };
-    let _ = data.repositories.sync_devices.create(entity).await;
-
+    // This repository is the record's persistence. Discarding the result
+    // returned success for something that was never stored.
+    if let Err(error) = data.repositories.sync_devices.create(entity).await {
+        log::error!("sync_devices persistence failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "The sync record could not be saved; please retry.".to_string(),
+            code: "SYNC_DEVICE_PERSISTENCE_FAILED".to_string(),
+        });
+    }
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "device_id": device_id,
@@ -198,8 +230,20 @@ async fn record_sync_conflict(
         created_at: Some(chrono::Utc::now()),
         ..Default::default()
     };
-    let _ = data.repositories.sync_conflicts.create(entity).await;
-
+    // A conflict the client is told to resolve must exist on the server, or the
+    // resolution it sends back will have nothing to attach to. Reported in the
+    // returned record rather than swallowed, so the caller can surface it.
+    if let Err(error) = data.repositories.sync_conflicts.create(entity).await {
+        log::error!("sync_conflicts persistence failed: {error}");
+        return serde_json::json!({
+            "id": conflict_id,
+            "entity_type": item.entity_type,
+            "entity_id": entity_id,
+            "persisted": false,
+            "error": "The conflict could not be recorded; resolve it again after retrying.",
+            "code": "SYNC_CONFLICT_PERSISTENCE_FAILED",
+        });
+    }
     serde_json::json!({
         "id": conflict_id,
         "entity_type": item.entity_type,
@@ -289,7 +333,15 @@ pub async fn perform_sync(
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data.repositories.sync_queue_items.create(entity).await;
+        // This repository is the record's persistence. Discarding the result
+        // returned success for something that was never stored.
+        if let Err(error) = data.repositories.sync_queue_items.create(entity).await {
+            log::error!("sync_queue_items persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The sync record could not be saved; please retry.".to_string(),
+                code: "SYNC_QUEUE_ITEM_PERSISTENCE_FAILED".to_string(),
+            });
+        }
         processed_count += 1;
     }
 
@@ -358,7 +410,6 @@ pub async fn resolve_sync_conflict(
         Ok(c) => c,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: format!("Sync conflict '{}' not found", conflict_id),
                 code: "CONFLICT_NOT_FOUND".to_string(),
             })
@@ -367,7 +418,6 @@ pub async fn resolve_sync_conflict(
 
     if conflict.patient_id.as_deref() != Some(current_user_id.as_str()) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -383,7 +433,6 @@ pub async fn resolve_sync_conflict(
             .unwrap_or_default(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "resolution must be one of UseLocal, UseServer, Merge".to_string(),
                 code: "INVALID_RESOLUTION".to_string(),
             })
@@ -398,7 +447,6 @@ pub async fn resolve_sync_conflict(
         .is_err()
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: "Failed to resolve conflict".to_string(),
             code: "RESOLVE_FAILED".to_string(),
         });
@@ -461,22 +509,44 @@ pub async fn download_offline_data(
     }
 
     // Bundle patient data
-    let patient = data.repositories.patients.get_by_id(&patient_id).await.ok();
+    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
+        Ok(value) => value,
+        Err(crate::repositories::RepositoryError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(crate::ErrorResponse {
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("Offline download patient lookup failed: {error}");
+            return sync_download_unavailable();
+        }
+    };
     let pagination = Pagination::new(0, 100);
     let records = data
         .repositories
         .medical_records
         .get_by_patient(&patient_id, pagination.clone())
-        .await
-        .map(|result| result.items)
-        .unwrap_or_default();
+        .await;
+    let records = match records {
+        Ok(result) => result.items,
+        Err(error) => {
+            log::error!("Offline download medical record read failed: {error}");
+            return sync_download_unavailable();
+        }
+    };
     let vitals = data
         .repositories
         .vital_signs
         .get_by_patient(&patient_id, pagination)
-        .await
-        .map(|result| result.items)
-        .unwrap_or_default();
+        .await;
+    let vitals = match vitals {
+        Ok(result) => result.items,
+        Err(error) => {
+            log::error!("Offline download vital-sign read failed: {error}");
+            return sync_download_unavailable();
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient": patient,
@@ -484,6 +554,13 @@ pub async fn download_offline_data(
         "vitals": vitals,
         "downloaded_at": chrono::Utc::now().timestamp()
     }))
+}
+
+fn sync_download_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(crate::ErrorResponse {
+        error: "Offline patient data is temporarily unavailable".to_string(),
+        code: "SYNC_DATA_UNAVAILABLE".to_string(),
+    })
 }
 
 #[cfg(test)]

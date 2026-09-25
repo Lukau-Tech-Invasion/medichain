@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, listBloodBank, createBloodTypeScreen, createTransfusion, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  listBloodBank,
+  createBloodTypeScreen,
+  createTransfusion,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  transfusionStartSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -73,10 +85,76 @@ interface BloodOrder {
   };
 }
 
+type BloodBankRecord = Record<string, unknown>;
+
+const BLOOD_PRODUCTS = new Set<BloodOrder['product']>([
+  'RBC',
+  'Platelets',
+  'FFP',
+  'Cryoprecipitate',
+  'Whole Blood',
+]);
+
+function readString(record: BloodBankRecord, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/** Convert persisted snake-case blood-bank records into this screen's view model. */
+function toBloodOrder(
+  value: unknown,
+  patientNames: Map<string, string>,
+): BloodOrder | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as BloodBankRecord;
+  const patientId = readString(record, 'patient_id') ?? readString(record, 'patientId');
+  const orderId =
+    readString(record, 'order_id') ??
+    readString(record, 'orderId') ??
+    readString(record, 'transfusion_id');
+  if (!patientId || !orderId) return null;
+
+  const rawProduct = readString(record, 'product');
+  const product = BLOOD_PRODUCTS.has(rawProduct as BloodOrder['product'])
+    ? (rawProduct as BloodOrder['product'])
+    : 'RBC';
+  const units = typeof record.units === 'number' && Number.isFinite(record.units)
+    ? record.units
+    : 0;
+  const rawStatus = readString(record, 'status') ?? 'ordered';
+  const status = [
+    'ordered', 'type-screen', 'crossmatch', 'ready', 'issued', 'transfusing', 'completed', 'cancelled',
+  ].includes(rawStatus)
+    ? rawStatus as BloodOrder['status']
+    : 'ordered';
+  const rawPriority = readString(record, 'priority') ?? 'routine';
+  const priority = ['routine', 'urgent', 'emergency'].includes(rawPriority)
+    ? rawPriority as BloodOrder['priority']
+    : 'routine';
+
+  return {
+    orderId,
+    patientId,
+    // A transfusion event does not duplicate the patient name. Resolve it from
+    // the already-authorized roster; falling back to the identifier is honest
+    // and searchable, unlike manufacturing a name.
+    patientName: readString(record, 'patient_name') ?? patientNames.get(patientId) ?? patientId,
+    bloodType: readString(record, 'blood_type') ?? 'Unknown',
+    orderDate: readString(record, 'order_date') ?? '',
+    orderTime: readString(record, 'order_time') ?? '',
+    orderedBy: readString(record, 'ordered_by') ?? readString(record, 'recorded_by') ?? '',
+    product,
+    units,
+    indication: readString(record, 'indication') ?? '',
+    priority,
+    status,
+  };
+}
+
 const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [orders, setOrders] = useState<BloodOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,16 +193,16 @@ const BloodBankPage: React.FC = () => {
       setError(null);
       const response = await listBloodBank();
       if (response.success) {
-        // Combine all blood bank records into orders array
+        const patientNames = new Map(patients.map((patient) => [patient.patient_id, patient.full_name]));
+        // The register uses persisted snake-case data while this screen uses
+        // camel-case view fields. Mapping at the boundary keeps a recorded
+        // transfusion visible instead of silently producing undefined table
+        // cells (or crashing the search filter).
         const typeScreenItems = response.type_screens?.items || [];
-        const crossmatchItems = response.crossmatches?.items || [];
         const transfusionItems = response.transfusions?.items || [];
-        
-        const allOrders: BloodOrder[] = [
-          ...typeScreenItems.map((item) => ({ ...(item as BloodOrder), orderType: 'type_screen' as const })),
-          ...crossmatchItems.map((item) => ({ ...(item as BloodOrder), orderType: 'crossmatch' as const })),
-          ...transfusionItems.map((item) => ({ ...(item as BloodOrder), orderType: 'transfusion' as const })),
-        ];
+        const allOrders = [...typeScreenItems, ...transfusionItems]
+          .map((item) => toBloodOrder(item, patientNames))
+          .filter((item): item is BloodOrder => item !== null);
         setOrders(allOrders);
       }
     } catch (err) {
@@ -133,7 +211,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [patients, t]);
 
   useEffect(() => {
     const loadPatients = async () => {
@@ -155,10 +233,18 @@ const BloodBankPage: React.FC = () => {
     if (!patient) return;
 
     const newOrder: BloodOrder = {
-      orderId: `BB-${String(orders.length + 1).padStart(3, '0')}`,
+      // Assigned by the server, which ignores any id sent.
+      orderId: '',
       patientId: selectedPatientId,
       patientName: patient.full_name,
-      bloodType: 'Unknown',
+      // The patient's blood type, which is already on file — this was
+      // hardcoded 'Unknown' while `patient` sat right here holding it. Every
+      // blood-product order was filed as an unknown type by a system that knew
+      // it, and blood type is what the crossmatch is against.
+      //
+      // Still 'Unknown' when the profile genuinely has none, which is a real
+      // state and the reason the order needs a type-and-screen first.
+      bloodType: patient.emergency_info?.blood_type || 'Unknown',
       orderDate: new Date().toISOString().split('T')[0],
       orderTime: new Date().toTimeString().slice(0, 5),
       orderedBy: user?.userId || 'Unknown',
@@ -172,10 +258,12 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string };
+      const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
-        setOrders([newOrder, ...orders]);
-        showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: newOrder.orderId }));
+        // The server assigns the order ID and signed orderer.  Reload those
+        // durable values instead of displaying the browser's provisional one.
+        await fetchBloodBankOrders();
+        showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: response.id ?? '' }));
         setSelectedPatientId('');
         setProduct('RBC');
         setUnits(1);
@@ -212,15 +300,42 @@ const BloodBankPage: React.FC = () => {
     setActiveTab('transfusion');
   };
 
+  // One hook for the whole transfusion form: the two-person check and the
+  // baseline observations are recorded together, and two hooks would mean two
+  // `errors` objects with each field bound to only one of them.
+  const { errors, validate, validateField, clearField } =
+    useValidatedForm(transfusionStartSchema);
+
+  /** The check and the baseline a reaction is judged against. */
+  const preTransfusionVitals = () => ({
+    preBP,
+    preHR,
+    preTemp,
+    preRR,
+    startTime,
+    administeredBy,
+    witnessedBy,
+  });
+
   const handleSubmitTransfusion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
+    // Transfusion is a two-person check: the administering nurse and the
+    // witness verify the unit against the patient independently. A record with
+    // one name is a record of a check that was not performed as designed, so
+    // both names are field errors rather than one shared toast.
+    if (!selectedOrder) {
       showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
+    if (!validate(preTransfusionVitals())) {
+      return;
+    }
 
-    if (!preBP || !preHR || !preTemp || !preRR) {
-      showError(t('docBloodBank.errorPreVitalsRequired'));
+    // Was one toast for four fields. A transfusion reaction is recognised by
+    // comparing observations taken during the transfusion against this
+    // baseline, so which of the four is missing is precisely what the nurse
+    // needs told -- and on the box, not above the form.
+    if (!validate(preTransfusionVitals())) {
       return;
     }
 
@@ -254,7 +369,9 @@ const BloodBankPage: React.FC = () => {
       setError(null);
       const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
-        setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
+        // A transfusion is a separate durable event. Re-read the register so
+        // the worklist reflects its server-generated event ID and audit data.
+        await fetchBloodBankOrders();
         showSuccess(endTime ? t('docBloodBank.successTransfusionCompleted') : t('docBloodBank.successTransfusionStarted'));
         setActiveTab('orders');
         setSelectedOrder(null);
@@ -304,8 +421,8 @@ const BloodBankPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      emergency: 'bg-critical text-white',
-      urgent: 'bg-orange-500 text-white',
+      emergency: 'bg-critical text-critical-fg',
+      urgent: 'bg-caution text-caution-fg',
       routine: 'bg-gray-500 text-white'
     };
     return styles[priority] || 'bg-gray-500 text-white';
@@ -314,21 +431,46 @@ const BloodBankPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-red-600 to-pink-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-red-700 to-pink-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Droplets className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docBloodBank.title')}</h1>
-              <p className="text-critical-fg">{t('docBloodBank.subtitle')}</p>
+              <p className="text-white">{t('docBloodBank.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-critical-fg">{t('docBloodBank.loggedInAs')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docBloodBank.loggedInAs')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchBloodBankOrders()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex space-x-1 mb-6 border-b">
@@ -474,7 +616,7 @@ const BloodBankPage: React.FC = () => {
                         {(order.status === 'ready' || order.status === 'issued' || order.status === 'transfusing') && (
                           <button
                             onClick={() => handleOpenTransfusion(order)}
-                            className="text-critical-subtle-fg hover:text-critical-subtle-fg text-sm font-medium flex items-center"
+                            className="text-critical-subtle-fg hover:text-critical-subtle-fg text-sm font-medium flex items-center min-h-[24px] py-1"
                           >
                             <Activity className="h-4 w-4 mr-1" />
                             {order.status === 'transfusing' ? t('docBloodBank.updateAction') : t('docBloodBank.startTransfusionBtn')}
@@ -498,29 +640,19 @@ const BloodBankPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
-                <label htmlFor="bloodbank-patient" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.patientLabel')} <span className="text-red-500">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="bloodbank-patient"
+                  label={t('docBloodBank.patientLabel')}
                   value={selectedPatientId}
-                  onChange={(e) => setSelectedPatientId(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
                   required
-                >
-                  <option value="">{t('docBloodBank.selectPatientPh')}</option>
-                  {patients.map((patient) => (
-                    <option key={patient.patient_id} value={patient.patient_id}>
-                      {patient.full_name} ({patient.patient_id})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Product */}
               <div>
                 <label htmlFor="bloodbank-product" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.bloodProductLabel')} <span className="text-red-500">*</span>
+                  {t('docBloodBank.bloodProductLabel')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="bloodbank-product"
@@ -540,7 +672,7 @@ const BloodBankPage: React.FC = () => {
               {/* Units */}
               <div>
                 <label htmlFor="bloodbank-units" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.unitsLabel')} <span className="text-red-500">*</span>
+                  {t('docBloodBank.unitsLabel')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="bloodbank-units"
@@ -557,7 +689,7 @@ const BloodBankPage: React.FC = () => {
               {/* Priority */}
               <div>
                 <label htmlFor="bloodbank-priority" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.priorityLabel')} <span className="text-red-500">*</span>
+                  {t('docBloodBank.priorityLabel')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="bloodbank-priority"
@@ -575,7 +707,7 @@ const BloodBankPage: React.FC = () => {
               {/* Indication */}
               <div className="md:col-span-2">
                 <label htmlFor="bloodbank-indication" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.indicationLabel')} <span className="text-red-500">*</span>
+                  {t('docBloodBank.indicationLabel')} <span className="text-critical">*</span>
                 </label>
                 <textarea
                   id="bloodbank-indication"
@@ -668,58 +800,62 @@ const BloodBankPage: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label htmlFor="bloodbank-pre-bp" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.bpLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.bpLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-bp"
+                  <Input
                     type="text"
-                    value={preBP}
-                    onChange={(e) => setPreBP(e.target.value)}
                     placeholder="120/80"
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-bp"
+                    value={preBP}
+                    onChange={(e) => { clearField('preBP'); setPreBP(e.target.value); }}
+                    onBlur={() => validateField('preBP', preTransfusionVitals())}
+                    error={errors.preBP}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-hr" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.hrLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.hrLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-hr"
+                  <Input
                     type="number"
-                    value={preHR}
-                    onChange={(e) => setPreHR(e.target.value)}
                     placeholder={t('docBloodBank.bpmPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-hr"
+                    value={preHR}
+                    onChange={(e) => { clearField('preHR'); setPreHR(e.target.value); }}
+                    onBlur={() => validateField('preHR', preTransfusionVitals())}
+                    error={errors.preHR}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-temp" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.tempLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.tempLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-temp"
+                  <Input
                     type="number"
                     step="0.1"
-                    value={preTemp}
-                    onChange={(e) => setPreTemp(e.target.value)}
                     placeholder={t('docBloodBank.celsiusPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-temp"
+                    value={preTemp}
+                    onChange={(e) => { clearField('preTemp'); setPreTemp(e.target.value); }}
+                    onBlur={() => validateField('preTemp', preTransfusionVitals())}
+                    error={errors.preTemp}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-rr" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.rrLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.rrLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-pre-rr"
+                  <Input
                     type="number"
-                    value={preRR}
-                    onChange={(e) => setPreRR(e.target.value)}
                     placeholder={t('docBloodBank.breathsPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-pre-rr"
+                    value={preRR}
+                    onChange={(e) => { clearField('preRR'); setPreRR(e.target.value); }}
+                    onBlur={() => validateField('preRR', preTransfusionVitals())}
+                    error={errors.preRR}
                     required
                   />
                 </div>
@@ -732,7 +868,7 @@ const BloodBankPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="bloodbank-start-time" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.startTimeLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.startTimeLabel')} <span className="text-critical">*</span>
                   </label>
                   <input
                     id="bloodbank-start-time"
@@ -762,29 +898,31 @@ const BloodBankPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="bloodbank-administered-by" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.administeredByLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.administeredByLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-administered-by"
+                  <Input
                     type="text"
-                    value={administeredBy}
-                    onChange={(e) => setAdministeredBy(e.target.value)}
                     placeholder={t('docBloodBank.administeredByPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-administered-by"
+                    value={administeredBy}
+                    onChange={(e) => { clearField('administeredBy'); setAdministeredBy(e.target.value); }}
+                    onBlur={() => validateField('administeredBy', preTransfusionVitals())}
+                    error={errors.administeredBy}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-witnessed-by" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('docBloodBank.witnessedByLabel')} <span className="text-red-500">*</span>
+                    {t('docBloodBank.witnessedByLabel')} <span className="text-critical">*</span>
                   </label>
-                  <input
-                    id="bloodbank-witnessed-by"
+                  <Input
                     type="text"
-                    value={witnessedBy}
-                    onChange={(e) => setWitnessedBy(e.target.value)}
                     placeholder={t('docBloodBank.witnessedByPh')}
-                    className="w-full px-3 py-2 border rounded-md"
+                    id="bloodbank-witnessed-by"
+                    value={witnessedBy}
+                    onChange={(e) => { clearField('witnessedBy'); setWitnessedBy(e.target.value); }}
+                    onBlur={() => validateField('witnessedBy', preTransfusionVitals())}
+                    error={errors.witnessedBy}
                     required
                   />
                 </div>
@@ -879,7 +1017,7 @@ const BloodBankPage: React.FC = () => {
               </div>
               {reactions.length > 0 && reactions[0] !== 'None' && (
                 <div className="mt-4 bg-critical-subtle border border-critical rounded p-3">
-                  <p className="text-sm text-critical-subtle-fg font-medium flex items-center">
+                  <p className="text-sm text-critical-subtle-fg font-medium flex items-center min-h-[24px] py-1">
                     <AlertTriangle className="h-4 w-4 mr-2" />
                     {t('docBloodBank.reactionWarning')}
                   </p>

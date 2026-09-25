@@ -1,5 +1,4 @@
 //! Notification service for Push (FCM) and SMS (Africa's Talking).
-#![allow(dead_code)]
 
 use crate::repositories::RepositoryContainer;
 use log::{info, warn};
@@ -21,9 +20,6 @@ pub enum NotificationError {
     #[error("API error: {0}")]
     Api(String),
 
-    #[error("Service disabled")]
-    Disabled,
-
     #[error("Repository error: {0}")]
     Repository(String),
 
@@ -32,7 +28,7 @@ pub enum NotificationError {
 }
 
 // ---------------------------------------------------------------------------
-// SMTP Structures (Phase 11.4)
+// Email
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,37 +38,151 @@ pub struct EmailNotification {
     pub body: String,
 }
 
-pub fn smtp_enabled() -> bool {
-    std::env::var("SMTP_ENABLED")
-        .ok()
-        .map(|v| v.trim().eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+/// How this deployment reaches an SMTP server, if it has one.
+///
+/// Read per send rather than cached: a deployment that fixes its mail
+/// configuration should not have to be restarted to notify a regulator, and
+/// these are read once per breach, not per request.
+struct SmtpSettings {
+    host: String,
+    port: u16,
+    from: String,
+    credentials: Option<(String, String)>,
+    /// `true` for implicit TLS on connect (port 465). `false` uses STARTTLS,
+    /// which is the usual submission path on 587.
+    implicit_tls: bool,
+    /// Plaintext, for a local capture or a trusted in-cluster relay. Never in
+    /// production: `validate_production_secrets` rejects it.
+    allow_plaintext: bool,
 }
 
-/// Send an email notification (Phase 33.1: SMTP Scaffold)
+fn smtp_settings() -> Option<SmtpSettings> {
+    let host = std::env::var("SMTP_HOST")
+        .ok()
+        .filter(|h| !h.trim().is_empty())?;
+    let from = std::env::var("SMTP_FROM")
+        .ok()
+        .filter(|f| !f.trim().is_empty())
+        // Falling back to a from-address derived from the host is worse than
+        // refusing: a regulator notification arriving from `noreply@` at a
+        // guessed domain is likely to be filtered before anyone reads it.
+        .or_else(|| {
+            warn!("[smtp] SMTP_HOST is set but SMTP_FROM is not; email cannot be sent");
+            None
+        })?;
+
+    let allow_plaintext = std::env::var("SMTP_ALLOW_PLAINTEXT")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let implicit_tls = std::env::var("SMTP_IMPLICIT_TLS")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let port = std::env::var("SMTP_PORT")
+        .ok()
+        .and_then(|p| p.trim().parse::<u16>().ok())
+        .unwrap_or(if implicit_tls { 465 } else { 587 });
+
+    let credentials = match (
+        std::env::var("SMTP_USER").ok(),
+        std::env::var("SMTP_PASS").ok(),
+    ) {
+        (Some(user), Some(pass)) if !user.trim().is_empty() => Some((user, pass)),
+        // A relay that authenticates by IP is a normal arrangement; a half-set
+        // pair is a misconfiguration and is said out loud rather than ignored.
+        (Some(_), None) | (None, Some(_)) => {
+            warn!("[smtp] only one of SMTP_USER / SMTP_PASS is set; connecting unauthenticated");
+            None
+        }
+        _ => None,
+    };
+
+    Some(SmtpSettings {
+        host,
+        port,
+        from,
+        credentials,
+        implicit_tls,
+        allow_plaintext,
+    })
+}
+
+/// Send an email notification.
+///
+/// **Unconfigured is a typed error, never a silent success.** The version of
+/// this function before the campaign slept 150ms, logged "Email successfully
+/// queued for delivery" and returned `Ok(())` with no SMTP client in the binary
+/// at all — so `dispatch_breach_notification`, its only caller, counted every
+/// simulated send as a delivered POPIA / HIPAA regulator notification and a
+/// statutory deadline was reported as met. That rule still holds here: a
+/// deployment with no `SMTP_HOST` gets an error it can act on.
+///
+/// TLS is required unless `SMTP_ALLOW_PLAINTEXT=true` is set deliberately. A
+/// breach notification names the breach, so sending it in clear text across an
+/// untrusted network is its own disclosure.
 pub async fn send_email(email: EmailNotification) -> Result<(), NotificationError> {
-    if !smtp_enabled() {
-        info!(
-            "[smtp] Email logged (SMTP disabled) for {}: {}",
+    use lettre::transport::smtp::authentication::Credentials;
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+
+    let Some(settings) = smtp_settings() else {
+        warn!(
+            "[smtp] No SMTP transport is configured; email to {} ({}) NOT sent. \
+             Set SMTP_HOST and SMTP_FROM.",
             email.to, email.subject
         );
-        return Ok(());
+        return Err(NotificationError::Smtp(
+            "no SMTP transport is configured (set SMTP_HOST and SMTP_FROM)".to_string(),
+        ));
+    };
+
+    let message =
+        Message::builder()
+            .from(settings.from.parse().map_err(|e| {
+                NotificationError::Smtp(format!("SMTP_FROM is not an address: {e}"))
+            })?)
+            .to(email.to.parse().map_err(|e| {
+                NotificationError::Smtp(format!("recipient is not an address: {e}"))
+            })?)
+            .subject(&email.subject)
+            .body(email.body.clone())
+            .map_err(|e| NotificationError::Smtp(format!("message could not be built: {e}")))?;
+
+    let mut builder = if settings.allow_plaintext {
+        warn!(
+            "[smtp] SMTP_ALLOW_PLAINTEXT is set; {} will be contacted without TLS. \
+             Intended for a local capture or a trusted in-cluster relay only.",
+            settings.host
+        );
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.host)
+    } else if settings.implicit_tls {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.host)
+            .map_err(|e| NotificationError::Smtp(format!("TLS relay setup failed: {e}")))?
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.host)
+            .map_err(|e| NotificationError::Smtp(format!("STARTTLS setup failed: {e}")))?
+    };
+
+    builder = builder.port(settings.port);
+    if let Some((user, pass)) = settings.credentials {
+        builder = builder.credentials(Credentials::new(user, pass));
     }
 
-    // In a production environment, this would use a crate like `lettre`
-    // combined with credentials from `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`.
-    info!("[smtp] Dispatching email to {} via SMTP...", email.to);
-
-    // Simulate SMTP network interaction
-    tokio::time::sleep(Duration::from_millis(150)).await;
-
-    // Log the successful dispatch
-    info!(
-        "[smtp] Email successfully queued for delivery to {}",
-        email.to
-    );
-
-    Ok(())
+    match builder.build().send(message).await {
+        Ok(response) => {
+            // The recipient is logged; the body is not. A breach notification
+            // names the breach, and the log is not where that belongs.
+            info!(
+                "[smtp] Delivered to {} ({}): {}",
+                email.to,
+                email.subject,
+                response.code()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            warn!("[smtp] Delivery to {} failed: {error}", email.to);
+            Err(NotificationError::Smtp(error.to_string()))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,10 +385,10 @@ pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
 #[derive(Debug, Clone)]
 pub enum SmsTemplate {
     MedicationReminder { medication: String },
-    AppointmentReminder { provider: String, when: String },
-    LabResultReady { test_name: String },
-    CriticalAlert { message: String },
-    VerificationCode { code: String },
+    // Only templates something sends. Critical-alert and verification-code
+    // templates were removed on 2026-09-24: nothing sends either by SMS, and a
+    // template for an SMS nothing sends is a claim about a channel that is not
+    // wired. Appointment reminders and lab results go by push.
 }
 
 /// Footer appended to non-critical, non-OTP messages so recipients always have
@@ -286,26 +396,14 @@ pub enum SmsTemplate {
 const SMS_OPT_OUT_FOOTER: &str = " Reply STOP to opt out.";
 
 impl SmsTemplate {
-    /// Render the SMS body, including the opt-out footer where appropriate.
-    /// Verification codes and critical alerts intentionally omit the footer.
+    /// Render the SMS body, including the opt-out footer every
+    /// non-critical message must carry.
     pub fn render(&self) -> String {
         match self {
             SmsTemplate::MedicationReminder { medication } => format!(
                 "MediChain: It's time to take your {}.{}",
                 medication, SMS_OPT_OUT_FOOTER
             ),
-            SmsTemplate::AppointmentReminder { provider, when } => format!(
-                "MediChain: Reminder — your appointment with {} is on {}.{}",
-                provider, when, SMS_OPT_OUT_FOOTER
-            ),
-            SmsTemplate::LabResultReady { test_name } => format!(
-                "MediChain: Your {} results are ready. Open the app to view.{}",
-                test_name, SMS_OPT_OUT_FOOTER
-            ),
-            SmsTemplate::CriticalAlert { message } => format!("MediChain ALERT: {}", message),
-            SmsTemplate::VerificationCode { code } => {
-                format!("MediChain verification code: {}. Do not share it.", code)
-            }
         }
     }
 }
@@ -475,10 +573,19 @@ pub async fn dispatch_breach_notification(
                 }
                 email_count += 1;
             }
-            info!(
-                "[breach] Dispatched breach email notification to {} regulator/compliance recipient(s)",
-                email_count
-            );
+            if email_count == 0 {
+                warn!(
+                    "[breach] NO regulator/compliance email was delivered. \
+                     Recipients are configured but this build has no SMTP transport: \
+                     the POPIA Information Regulator / HHS OCR notification due by {deadline} \
+                     must be sent by hand. See docs/INCIDENT_RESPONSE.md."
+                );
+            } else {
+                info!(
+                    "[breach] Dispatched breach email notification to {} regulator/compliance recipient(s)",
+                    email_count
+                );
+            }
         }
         _ => warn!(
             "[breach] REGULATOR_NOTIFICATION_EMAIL not set; regulator/data-subject email not dispatched"
@@ -495,83 +602,110 @@ pub async fn dispatch_breach_notification(
 // Convenience helpers for clinical event types
 // ---------------------------------------------------------------------------
 
-pub async fn notify_appointment(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    appointment_date: &str,
-    provider_name: &str,
-) {
-    let title = "Appointment Reminder";
-    let body = format!(
-        "Your appointment with {} is scheduled for {}.",
-        provider_name, appointment_date
-    );
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "appointment".to_string());
-    data.insert("appointment_date".to_string(), appointment_date.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
+/// Whether this patient has asked to receive notifications of this kind.
+///
+/// `SettingsPage` has saved a `notifications` block since it was written --
+/// `appointmentReminders`, `pushNotifications`, `emailNotifications` and the
+/// rest -- and until now nothing read it. Every dispatcher pushed regardless, so
+/// turning a toggle off changed a stored value and nothing else. A preference
+/// a system records and ignores is worse than one it does not offer: the
+/// patient believes they have opted out.
+///
+/// **Absent means yes.** A patient with no stored settings has not opted out of
+/// anything, and a reminder is the thing they came for; defaulting to silence
+/// would mean a deployment that had never shown the settings screen sent
+/// nobody anything. Only an explicit `false` suppresses.
+///
+/// Keyed by patient id because that is what a dispatcher has; settings are
+/// stored against the wallet, and `linked_patient_id` is the bridge.
+pub async fn patient_wants(data: &crate::AppState, patient_id: &str, keys: &[&str]) -> bool {
+    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+        // No account is linked to this record, so there is no one to have
+        // expressed a preference. Send.
+        return true;
+    };
+    let Ok(settings) = crate::handlers::load_settings(data, &wallet).await else {
+        // Storage is unavailable. Failing loud (sending) beats failing silent
+        // (not sending): a missed appointment reminder has a cost and a
+        // duplicate one does not.
+        log::warn!("notification preferences for {patient_id} could not be read; sending anyway");
+        return true;
+    };
+    let Some(block) = settings.get("notifications") else {
+        return true;
+    };
+    // Every named key must be on for the message to go. `appointmentReminders`
+    // says what this message is; `pushNotifications` says whether this channel
+    // is wanted at all, and off means off.
+    keys.iter()
+        .all(|key| block.get(key).and_then(serde_json::Value::as_bool) != Some(false))
 }
 
-pub async fn notify_prescription(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    medication_name: &str,
-) {
-    let title = "New Prescription";
-    let body = format!(
-        "A new prescription for {} has been issued. Please check MediChain.",
-        medication_name
-    );
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "prescription".to_string());
-    data.insert("medication".to_string(), medication_name.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
+/// Send a push to a patient, if they want it and we can address them.
+///
+/// The only correct way to notify a patient. Two things have to happen before
+/// a message can reach one, and every dispatcher used to get at least one of
+/// them wrong:
+///
+///   1. **Namespace.** Device tokens are registered under the caller's wallet
+///      address (`register_device` stores `require_registered_caller(..)
+///      .wallet_address`). A dispatcher holds a `PAT-...` record id. Passing
+///      the record id to `send_push_to_user` matches no token, logs
+///      "No device tokens for user", and returns `Ok(())` -- indistinguishable
+///      from a delivered message, which is why five dispatchers did it and the
+///      appointment reminder recorded `Sent`. `linked_patient_id` is the
+///      bridge and this is where it gets crossed.
+///   2. **Consent.** `keys` names the settings that have to be on: the
+///      category (`appointmentReminders`, `recordUpdates`, `emergencyAlerts`)
+///      and the channel (`pushNotifications`). Absent means yes; only an
+///      explicit `false` suppresses. See `patient_wants`.
+///
+/// Returns whether the push was attempted, so a caller that records a delivery
+/// status can record the truth. Never fails a request: a notification is not
+/// part of any clinical decision.
+pub async fn notify_patient(
+    data: &crate::AppState,
+    patient_id: &str,
+    keys: &[&str],
+    title: &str,
+    body: &str,
+    kind: &str,
+) -> bool {
+    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+        // Said out loud rather than dropped. A patient record with no linked
+        // account has nobody to notify, and an operator asking "why was this
+        // patient not told" needs to be able to find that out.
+        info!("[push] {patient_id} has no linked account; {kind} not delivered");
+        return false;
+    };
+    if !patient_wants(data, patient_id, keys).await {
+        info!("[push] {kind} suppressed for {patient_id}: opted out");
+        return false;
+    }
+    let notification = PushNotification {
+        user_id: wallet,
+        title: title.to_string(),
+        body: body.to_string(),
+        data: Some([("type".to_string(), kind.to_string())].into()),
+    };
+    if let Err(error) = send_push_to_user(&data.repositories, notification).await {
+        warn!("[push] {kind} for {patient_id} failed: {error}");
+        return false;
+    }
+    true
 }
 
-pub async fn notify_lab_result(
-    repos: &RepositoryContainer,
-    patient_user_id: &str,
-    test_name: &str,
-) {
-    let title = "Lab Results Available";
-    let body = format!("Results for {} are now available in MediChain.", test_name);
-
-    let mut data = HashMap::new();
-    data.insert("type".to_string(), "lab_result".to_string());
-    data.insert("test_name".to_string(), test_name.to_string());
-
-    let _ = send_push_to_user(
-        repos,
-        PushNotification {
-            user_id: patient_user_id.to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
-            data: Some(data),
-        },
-    )
-    .await;
+/// The wallet address of the account linked to this patient record.
+///
+/// Reads the authorization cache rather than the database: it is already in
+/// memory, it holds exactly the active accounts, and a dispatcher running every
+/// minute should not open a connection to answer this.
+fn wallet_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String> {
+    let users = data.users.read().ok()?;
+    users
+        .values()
+        .find(|user| user.linked_patient_id.as_deref() == Some(patient_id))
+        .map(|user| user.wallet_address.clone())
 }
 
 pub async fn notify_critical_alert(
@@ -618,23 +752,6 @@ mod tests {
         .render();
         assert!(body.contains("Metformin"));
         assert!(body.contains("Reply STOP to opt out"));
-    }
-
-    #[test]
-    fn test_otp_and_critical_templates_omit_footer() {
-        let otp = SmsTemplate::VerificationCode {
-            code: "123456".to_string(),
-        }
-        .render();
-        assert!(otp.contains("123456"));
-        assert!(!otp.contains("opt out"));
-
-        let alert = SmsTemplate::CriticalAlert {
-            message: "Code Blue, Ward 3".to_string(),
-        }
-        .render();
-        assert!(alert.starts_with("MediChain ALERT:"));
-        assert!(!alert.contains("opt out"));
     }
 
     #[test]
@@ -741,10 +858,27 @@ mod tests {
         assert_eq!(result.regulator_emails_notified, 0);
     }
 
+    /// Configured recipients, and no transport to reach them.
+    ///
+    /// This test used to assert `regulator_emails_notified == 2`, which is what
+    /// the old `send_email` reported: it slept 150ms, logged "Email
+    /// successfully queued for delivery", and returned `Ok(())` without an SMTP
+    /// client anywhere in the binary. So the test was pinning the fiction --
+    /// a POPIA / HIPAA regulator notification counted as delivered, and a
+    /// statutory deadline reported as met, by a function that had sent nothing.
+    ///
+    /// Zero is the honest count until a transport exists, and it is the number
+    /// an operator must see after declaring a breach: it tells them the
+    /// notification is still theirs to send.
     #[tokio::test]
-    async fn dispatch_breach_notification_dispatches_regulator_email_when_configured() {
+    async fn dispatch_breach_notification_reports_no_regulator_email_without_a_transport() {
         let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         std::env::remove_var("SECURITY_OFFICER_PHONE");
+        // Cleared explicitly. This test asserts the *unconfigured* case, and a
+        // developer with SMTP_HOST exported would otherwise see it fail for the
+        // best possible reason -- which is confusing rather than informative.
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
         std::env::set_var(
             "REGULATOR_NOTIFICATION_EMAIL",
             "privacy@example.test,dpo@example.test",
@@ -752,7 +886,176 @@ mod tests {
         let repos = RepositoryContainer::new_memory();
         let result = dispatch_breach_notification(&repos, "test breach", None).await;
         assert_eq!(result.security_officers_notified, 0);
-        assert_eq!(result.regulator_emails_notified, 2);
+        assert_eq!(
+            result.regulator_emails_notified, 0,
+            "no SMTP transport is linked into this binary, so nothing can be delivered;              reporting a delivery here is how the deadline came to be reported as met"
+        );
         std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
+    }
+
+    /// And the failure is a typed one, not a silent `Ok`.
+    #[tokio::test]
+    async fn an_unconfigured_transport_refuses_rather_than_reporting_success() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
+
+        let outcome = send_email(EmailNotification {
+            to: "privacy@example.test".to_string(),
+            subject: "Breach".to_string(),
+            body: "body".to_string(),
+        })
+        .await;
+        assert!(
+            matches!(outcome, Err(NotificationError::Smtp(_))),
+            "an unconfigured channel returns a typed error, never Ok"
+        );
+    }
+
+    /// A host with no from-address is a misconfiguration, not a default.
+    ///
+    /// Deriving one would send a regulator notification from a guessed
+    /// `noreply@` address, which is likely to be filtered before anybody reads
+    /// it -- a silent failure of exactly the message that must not fail
+    /// silently.
+    #[tokio::test]
+    async fn a_host_without_a_from_address_is_refused() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::set_var("SMTP_HOST", "localhost");
+        std::env::remove_var("SMTP_FROM");
+
+        let outcome = send_email(EmailNotification {
+            to: "privacy@example.test".to_string(),
+            subject: "Breach".to_string(),
+            body: "body".to_string(),
+        })
+        .await;
+        std::env::remove_var("SMTP_HOST");
+        assert!(matches!(outcome, Err(NotificationError::Smtp(_))));
+    }
+
+    /// TLS is not optional by accident.
+    ///
+    /// A breach notification names the breach, so sending it in clear text
+    /// across an untrusted network is its own disclosure. Plaintext requires
+    /// `SMTP_ALLOW_PLAINTEXT=true` to be set deliberately.
+    // Async and lock-taking like its neighbours: these read and write
+    // process-global environment variables, and Rust runs tests in parallel, so
+    // a sibling setting SMTP_IMPLICIT_TLS is visible here mid-assertion. That
+    // is what failed first time.
+    #[tokio::test]
+    async fn plaintext_is_off_unless_asked_for() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        let previous = std::env::var("SMTP_ALLOW_PLAINTEXT").ok();
+        std::env::remove_var("SMTP_ALLOW_PLAINTEXT");
+        std::env::remove_var("SMTP_IMPLICIT_TLS");
+        // These assert the *defaults*, so an explicit port has to be out of the
+        // way -- otherwise the test fails on any machine that exports one.
+        std::env::remove_var("SMTP_PORT");
+        std::env::set_var("SMTP_HOST", "mail.example.test");
+        std::env::set_var("SMTP_FROM", "breach@example.test");
+
+        let settings = smtp_settings().expect("configured");
+        assert!(!settings.allow_plaintext);
+        // STARTTLS submission, not implicit TLS, and the port follows.
+        assert!(!settings.implicit_tls);
+        assert_eq!(settings.port, 587);
+
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
+        if let Some(value) = previous {
+            std::env::set_var("SMTP_ALLOW_PLAINTEXT", value);
+        }
+    }
+
+    #[tokio::test]
+    async fn implicit_tls_moves_the_default_port() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
+        std::env::remove_var("SMTP_PORT");
+        std::env::set_var("SMTP_HOST", "mail.example.test");
+        std::env::set_var("SMTP_FROM", "breach@example.test");
+        std::env::set_var("SMTP_IMPLICIT_TLS", "true");
+
+        let settings = smtp_settings().expect("configured");
+        assert!(settings.implicit_tls);
+        assert_eq!(settings.port, 465);
+
+        std::env::remove_var("SMTP_IMPLICIT_TLS");
+        std::env::remove_var("SMTP_HOST");
+        std::env::remove_var("SMTP_FROM");
+    }
+}
+
+#[cfg(test)]
+mod preference_tests {
+    use super::*;
+    use crate::{AppState, Role, User};
+    use actix_web::web;
+
+    fn state_with_linked_patient(wallet: &str, patient_id: &str) -> web::Data<AppState> {
+        let state = AppState::new();
+        let user = User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Journey Patient".to_string(),
+            role: Role::Patient,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: Some(patient_id.to_string()),
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(wallet.to_string(), user);
+        web::Data::new(state)
+    }
+
+    /// A patient who has never opened the settings screen has not opted out.
+    #[actix_rt::test]
+    async fn absent_preferences_do_not_suppress() {
+        let data = state_with_linked_patient("5Wallet-A", "PAT-PREF-A");
+        assert!(patient_wants(&data, "PAT-PREF-A", &["appointmentReminders"]).await);
+    }
+
+    /// A record with no account linked to it has nobody to have expressed a
+    /// preference, so it must not be treated as an opt-out.
+    #[actix_rt::test]
+    async fn an_unlinked_patient_record_still_receives() {
+        let data = state_with_linked_patient("5Wallet-B", "PAT-PREF-B");
+        assert!(patient_wants(&data, "PAT-NOBODY", &["appointmentReminders"]).await);
+    }
+
+    /// An explicit `false` on any named key suppresses the message. This is the
+    /// behaviour the settings screen has been promising and nothing delivered.
+    #[actix_rt::test]
+    async fn an_explicit_opt_out_suppresses() {
+        let data = state_with_linked_patient("5Wallet-C", "PAT-PREF-C");
+        crate::handlers::persist_settings_for_test(
+            &data,
+            "5Wallet-C",
+            serde_json::json!({"notifications": {"appointmentReminders": false}}),
+        )
+        .await;
+
+        assert!(!patient_wants(&data, "PAT-PREF-C", &["appointmentReminders"]).await);
+        // A key that is not the one turned off still goes.
+        assert!(patient_wants(&data, "PAT-PREF-C", &["recordUpdates"]).await);
+        // Any `false` among the named keys is enough to suppress.
+        assert!(
+            !patient_wants(
+                &data,
+                "PAT-PREF-C",
+                &["pushNotifications", "appointmentReminders"]
+            )
+            .await
+        );
     }
 }

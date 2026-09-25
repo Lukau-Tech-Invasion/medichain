@@ -15,16 +15,21 @@ import {
   UserPlus,
   FileText,
   Settings,
-  Shield,
   Activity,
   FlaskConical,
   Stethoscope,
+  Video,
+  MessageSquare,
+  Microscope,
+  Syringe,
+  Network,
   Heart,
   Pill,
   Scissors,
   TestTube,
   Image,
   UserCog,
+  CreditCard,
   Calendar,
   ClipboardList,
   Siren,
@@ -38,10 +43,12 @@ import {
   Bell,
   Search,
   Clock,
-  Beaker,
   Package,
   ListChecks,
   ShieldAlert,
+  ShieldCheck,
+  Laptop,
+  Archive,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -82,6 +89,12 @@ export interface RoleTheme {
   primary: string;
   bg: string;
   bgLight: string;
+  /**
+   * The sidebar brand block, under white text in both themes. 700 to 800 on
+   * purpose: the 600 shades measured 2.6:1 (green) to 3.9:1 (blue) with the
+   * portal name on them -- the one line that tells a user which portal they
+   * are in. Every 700-800 pair here clears 5:1 against white.
+   */
   bgGradient: string;
   text: string;
   textLight: string;
@@ -98,9 +111,9 @@ export interface RoleTheme {
 export const ROLE_THEMES: Record<Role, RoleTheme> = {
   Admin: {
     primary: 'purple',
-    bg: 'bg-purple-600',
+    bg: 'bg-purple-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-purple-600 to-purple-700',
+    bgGradient: 'from-purple-700 to-purple-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-purple-200',
@@ -112,7 +125,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'blue',
     bg: 'bg-brand',
     bgLight: 'bg-brand-subtle',
-    bgGradient: 'from-primary-600 to-primary-700',
+    bgGradient: 'from-primary-700 to-primary-800',
     text: 'text-brand',
     textLight: 'text-brand',
     border: 'border-brand',
@@ -129,7 +142,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'green',
     bg: 'bg-ok',
     bgLight: 'bg-ok-subtle',
-    bgGradient: 'from-green-600 to-green-700',
+    bgGradient: 'from-green-700 to-green-800',
     text: 'text-ok-subtle-fg',
     textLight: 'text-ok-subtle-fg',
     border: 'border-ok',
@@ -141,7 +154,7 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     primary: 'amber',
     bg: 'bg-caution',
     bgLight: 'bg-caution-subtle',
-    bgGradient: 'from-amber-600 to-amber-700',
+    bgGradient: 'from-amber-700 to-amber-800',
     text: 'text-caution-subtle-fg',
     textLight: 'text-caution-subtle-fg',
     border: 'border-caution',
@@ -151,9 +164,9 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
   },
   Pharmacist: {
     primary: 'pink',
-    bg: 'bg-pink-600',
+    bg: 'bg-pink-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-pink-600 to-pink-700',
+    bgGradient: 'from-pink-700 to-pink-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-pink-200',
@@ -163,9 +176,9 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
   },
   Patient: {
     primary: 'teal',
-    bg: 'bg-teal-600',
+    bg: 'bg-teal-700',
     bgLight: 'bg-surface-sunken',
-    bgGradient: 'from-teal-600 to-teal-700',
+    bgGradient: 'from-teal-700 to-teal-800',
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-teal-200',
@@ -186,7 +199,8 @@ export const ADMIN_NAV: NavSection[] = [
     icon: Home,
     defaultExpanded: true,
     items: [
-      { id: 'dashboard', to: '/admin', label: 'Dashboard', icon: Home, priority: 'high' },
+      { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
+      { id: 'admin-console', to: '/admin', label: 'Admin Console', icon: Settings, priority: 'high' },
       { id: 'users', to: '/user-management', label: 'User Management', icon: UserCog, priority: 'high' },
       { id: 'patients', to: '/patients', label: 'Patient Search', icon: Search },
     ],
@@ -197,7 +211,12 @@ export const ADMIN_NAV: NavSection[] = [
     icon: ShieldAlert,
     items: [
       { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText, priority: 'high' },
-      { id: 'barcode', to: '/barcode', label: 'NFC/Barcode Registry', icon: FileCheck },
+      { id: 'security-incidents', to: '/security-incidents', label: 'Security Incidents', icon: ShieldAlert, priority: 'high' },
+      { id: 'national-id-reviews', to: '/national-id-reviews', label: 'National ID Reviews', icon: ShieldCheck, priority: 'high' },
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard, priority: 'high' },
+      // Renamed: this route is the barcode SCANNER. Calling it a registry
+      // is what hid the absence of an actual card registry for so long.
+      { id: 'barcode', to: '/barcode', label: 'Barcode Scanner', icon: FileCheck },
       { id: 'cds-alerts', to: '/cds-alerts', label: 'CDS Alerts', icon: Bell },
     ],
   },
@@ -208,6 +227,8 @@ export const ADMIN_NAV: NavSection[] = [
     items: [
       { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList },
       { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
+      { id: 'devices', to: '/devices', label: 'Approved Devices', icon: Laptop },
+      { id: 'retention', to: '/retention', label: 'Data Retention', icon: Archive },
     ],
   },
   {
@@ -261,7 +282,21 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'my-patients', to: '/patients', label: 'My Patients', icon: Users, priority: 'high' },
       { id: 'register', to: '/register', label: 'Register Patient', icon: UserPlus },
+      // Issued at registration, by the clinician in front of the patient --
+      // which is why this sits beside Register Patient rather than in an
+      // administrative section.
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard },
       { id: 'appointments', to: '/appointments', label: 'Appointments', icon: Calendar },
+      // The hours the slots on the Appointments screen are generated from.
+      // Without them booking falls back to a default grid that is the same for
+      // every provider, which is how a 09:00 gets offered with a surgeon whose
+      // list starts at 14:00.
+      { id: 'working-hours', to: '/working-hours', label: 'Working Hours', icon: Clock },
+      // Who opened a record is a clinician's question as much as an
+      // administrator's, and `get_all_access_logs` gates on
+      // is_healthcare_provider, not on Admin. Only ADMIN_NAV listed it, so
+      // every doctor and nurse was refused their own accountability trail.
+      { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText },
     ],
   },
   {
@@ -270,11 +305,27 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: ClipboardList,
     items: [
       { id: 'soap', to: '/soap', label: 'SOAP Notes', icon: FileText, priority: 'high' },
+      // `add_vital_signs` gates on can_edit_medical_records, which is Doctor,
+      // Nurse or Admin. Listing the route under NURSE_NAV alone meant the
+      // router refused a doctor a screen the API would have accepted from them.
+      { id: 'vitals', to: '/vitals', label: 'Vital Signs', icon: Activity },
       { id: 'progress', to: '/progress-note', label: 'Progress Notes', icon: FileText },
       { id: 'hp', to: '/history-physical', label: 'H&P', icon: Stethoscope },
       { id: 'discharge', to: '/discharge', label: 'Discharge', icon: FileCheck },
       { id: 'consult', to: '/consult', label: 'Consult', icon: Users },
       { id: 'ama', to: '/ama', label: 'AMA', icon: FileText },
+      // Doctors and nurses are who the templates API serves; this lived only
+      // in the admin navigation, which the router enforces, so the people who
+      // could use templates could not open the page and the one role that
+      // could open it was refused by the API.
+      { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
+      // A death certificate is signed by the attending physician -- that is
+      // what makes it a certificate -- and `create_death_certificate` gates on
+      // require_clinical_staff, which admits a doctor. Both routes were listed
+      // only under ADMIN_NAV, so the one professional qualified to complete
+      // them was the one the router turned away.
+      { id: 'death-cert', to: '/death-certificate', label: 'Death Certificates', icon: FileText },
+      { id: 'autopsy', to: '/autopsy', label: 'Autopsy Records', icon: FileText },
     ],
   },
   {
@@ -285,6 +336,10 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'orders', to: '/orders', label: 'Physician Orders', icon: ClipboardList, priority: 'high' },
       { id: 'prescribe', to: '/e-prescribe', label: 'E-Prescribe', icon: Pill, priority: 'high' },
       { id: 'interactions', to: '/drug-interactions', label: 'Drug Interactions', icon: AlertTriangle },
+      // A doctor drafts an order set and a pharmacist approves it, and this
+      // lived only in the admin navigation -- which the router enforces -- so
+      // neither party could open the page whose workflow is theirs.
+      { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList },
     ],
   },
   {
@@ -293,11 +348,30 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: Siren,
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
+      // `create_triage_assessment` accepts Doctor, Nurse or Admin, but the
+      // route was listed only under NURSE_NAV -- and the router authorizes
+      // from the nav config. The doctor dashboard offers "Triage Assessment"
+      // as a quick action, so a doctor pressed it and was told the screen is
+      // restricted to nurses, for work the API was willing to accept from them.
+      { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
       { id: 'trauma', to: '/trauma', label: 'Trauma', icon: AlertTriangle },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
       { id: 'stroke', to: '/stroke', label: 'Stroke', icon: Brain },
       { id: 'cardiac', to: '/cardiac', label: 'Cardiac', icon: Heart },
       { id: 'sepsis', to: '/sepsis', label: 'Sepsis', icon: Thermometer },
+      { id: 'protocols', to: '/emergency-protocols', label: 'Emergency Protocols', icon: Siren },
+    ],
+  },
+  {
+    // Consults, messages and video are how a clinician reaches another person.
+    // All three existed; only the consult had a way in.
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
+      { id: 'telehealth', to: '/telehealth', label: 'Telehealth', icon: Video },
     ],
   },
   {
@@ -310,6 +384,9 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'psych', to: '/psych', label: 'Psychiatry', icon: Brain },
       { id: 'burn', to: '/burn', label: 'Burn', icon: Flame },
       { id: 'toxicology', to: '/toxicology', label: 'Toxicology', icon: FlaskConical },
+      // A pedigree over three generations is a specialty assessment, and the
+      // page has been built and unreachable.
+      { id: 'family-history', to: '/family-history', label: 'Family History', icon: Network },
     ],
   },
   {
@@ -332,9 +409,16 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: FlaskConical,
     items: [
       { id: 'lab-results', to: '/lab-results', label: 'Lab Results', icon: FlaskConical },
+      // Distinct from "Lab Results", which is a read view. This is the queue of
+      // results waiting for a clinician's signature — the workflow had a
+      // dashboard tile and an API but no screen, so the queue was unreachable.
+      { id: 'lab-review', to: '/lab-review', label: 'Lab Review', icon: FileCheck, priority: 'high' },
       { id: 'critical', to: '/critical-value', label: 'Critical Values', icon: AlertTriangle, priority: 'high' },
       { id: 'imaging', to: '/imaging', label: 'Imaging', icon: Image },
       { id: 'radiology', to: '/radiology', label: 'Radiology', icon: Image },
+      // Histology sits with the other diagnostics a clinician reads, not with
+      // the laboratory's own bench work.
+      { id: 'pathology', to: '/pathology', label: 'Pathology', icon: Microscope },
     ],
   },
   {
@@ -362,6 +446,7 @@ export const NURSE_NAV: NavSection[] = [
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'my-patients', to: '/patients', label: 'My Patients', icon: Users, priority: 'high' },
       { id: 'register', to: '/register', label: 'Register Patient', icon: UserPlus },
+      { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard },
       { id: 'handoff', to: '/shift-handoff', label: 'Shift Handoff', icon: Clock, priority: 'high' },
     ],
   },
@@ -374,6 +459,11 @@ export const NURSE_NAV: NavSection[] = [
       { id: 'vitals', to: '/vitals', label: 'Vital Signs', icon: Activity, priority: 'high' },
       { id: 'mar', to: '/mar', label: 'MAR', icon: Pill, priority: 'high' },
       { id: 'care-plan', to: '/care-plan', label: 'Care Plan', icon: ClipboardList },
+      // The multi-patient view of the same care plans. Distinct from
+      // `/care-plan`, which writes one.
+      { id: 'nursing-care-plans', to: '/nursing-care-plan', label: 'Care Plan Board', icon: ClipboardList },
+      // Immunisations are a nursing task at the bedside and in the clinic.
+      { id: 'immunization', to: '/immunization', label: 'Immunisations', icon: Syringe },
       { id: 'io', to: '/intake-output', label: 'I/O Tracking', icon: Droplets },
       { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
     ],
@@ -402,7 +492,9 @@ export const NURSE_NAV: NavSection[] = [
     icon: FileText,
     items: [
       { id: 'progress', to: '/progress-note', label: 'Progress Notes', icon: FileText },
+      { id: 'templates', to: '/note-templates', label: 'Note Templates', icon: FileText },
       { id: 'nursing-hub', to: '/nursing', label: 'Nursing Hub', icon: Stethoscope },
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
     ],
   },
   {
@@ -412,6 +504,11 @@ export const NURSE_NAV: NavSection[] = [
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
+      // The protocol set itself — what to do, in order, when one of these is
+      // called. Reachable only by typing the URL until now, which is the worst
+      // possible property for a page nobody opens except in an emergency.
+      { id: 'protocols', to: '/emergency-protocols', label: 'Emergency Protocols', icon: Siren },
     ],
   },
   {
@@ -476,6 +573,22 @@ export const LAB_TECH_NAV: NavSection[] = [
     ],
   },
   {
+    id: 'histology',
+    label: 'Histology',
+    icon: Microscope,
+    items: [
+      { id: 'pathology', to: '/pathology', label: 'Pathology', icon: Microscope },
+    ],
+  },
+  {
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
+    ],
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: Settings,
@@ -518,6 +631,19 @@ export const PHARMACIST_NAV: NavSection[] = [
     icon: AlertTriangle,
     items: [
       { id: 'interactions', to: '/drug-interactions', label: 'Drug Interactions', icon: AlertTriangle, priority: 'high' },
+      // The pharmacist is the only role that can approve a drafted order set,
+      // and had no way to reach the screen that asks them to.
+      { id: 'order-sets', to: '/order-sets', label: 'Order Sets', icon: ClipboardList, priority: 'high' },
+    ],
+  },
+  {
+    // A pharmacist queries a prescription by messaging the prescriber. The
+    // screen existed; the pharmacist had no way to it.
+    id: 'communication',
+    label: 'Communication',
+    icon: MessageSquare,
+    items: [
+      { id: 'messages', to: '/messages', label: 'Messages', icon: MessageSquare },
     ],
   },
   {
@@ -598,22 +724,6 @@ export function getQuickActionsForRole(role: Role): QuickAction[] {
 }
 
 /**
- * Get all navigation items flattened (for search/command palette)
- */
-export function getAllNavItems(role: Role): NavItem[] {
-  const sections = getNavForRole(role);
-  return sections.flatMap(section => section.items);
-}
-
-/**
- * Find nav item by path
- */
-export function findNavItemByPath(role: Role, path: string): NavItem | undefined {
-  const items = getAllNavItems(role);
-  return items.find(item => item.to === path);
-}
-
-/**
  * Get default expanded sections for a role
  */
 export function getDefaultExpandedSections(role: Role): Set<string> {
@@ -622,4 +732,77 @@ export function getDefaultExpandedSections(role: Role): Set<string> {
     .filter(section => section.defaultExpanded)
     .map(section => section.id);
   return new Set(expanded);
+}
+
+// =============================================================================
+// Route ownership
+// =============================================================================
+
+/** The five staff navigations, paired with the role each belongs to. */
+const NAV_BY_ROLE: ReadonlyArray<readonly [Role, NavSection[]]> = [
+  ['Admin', ADMIN_NAV],
+  ['Doctor', DOCTOR_NAV],
+  ['Nurse', NURSE_NAV],
+  ['LabTechnician', LAB_TECH_NAV],
+  ['Pharmacist', PHARMACIST_NAV],
+];
+
+const pathsOf = (sections: NavSection[]): string[] =>
+  sections.flatMap(section => section.items.map(item => item.to));
+
+/** Every route that appears in at least one role's navigation. */
+const ASSIGNED_ROUTES: ReadonlySet<string> = new Set(
+  NAV_BY_ROLE.flatMap(([, sections]) => pathsOf(sections))
+);
+
+/**
+ * Which roles, if any, this route belongs to instead of `role`.
+ *
+ * Returns an empty array when the route is `role`'s own, and also when it
+ * belongs to nobody — deep routes (`/patients/:id`), the per-role dashboard
+ * aliases, and a handful of screens reachable only by link. Those are
+ * deliberately not judged here: the question this answers is narrow, and it is
+ * "has the product assigned this screen to somebody else?", not "should anyone
+ * be able to open it?".
+ *
+ * # Why this exists
+ *
+ * The navigation and the authorization disagreed. `ADMIN_NAV` is a curated
+ * fourteen routes — user management, access logs, analytics, and the
+ * medico-legal ones (emergency, MCI, death certificate, autopsy) — and pointedly
+ * not the bedside clinical screens. But nothing stopped an administrator typing
+ * `/mar` and getting a working medication administration record, because the
+ * router had no notion of who a route was for.
+ *
+ * That was found by `e2e/roles.spec.ts` signing in as each account. The first
+ * reading of it was that the screen would be harmless because the server would
+ * refuse the writes. It would not have: `Role::can_edit_medical_records` was
+ * `Admin | Doctor | Nurse`, so an administrator's clinical writes succeeded. The
+ * two halves of the product had different ideas about what an administrator
+ * does, and the permissive half was winning silently.
+ *
+ * Both halves have since been settled the same way. `Admin` has been removed
+ * from `can_edit_medical_records` in `api/src/types/domain.rs`, so the server
+ * refuses those writes too, and this guard is what stops the screen offering
+ * them in the first place. Neither is redundant: the API is the authority, and
+ * this is what keeps a clinician from being shown a control that will fail.
+ */
+/**
+ * Where every role lands after signing in.
+ *
+ * `LoginPage` sends all roles to `/dashboard`, and `SmartDashboardRouter`
+ * renders each one their own screen there. `ADMIN_NAV` links to `/admin`
+ * instead, so `/dashboard` was not among the administrator's routes and this
+ * guard refused the page they had just been sent to: an administrator signed
+ * in and was told "This screen is restricted to doctors, nurses, laboratory
+ * technicians". It is nobody's exclusive route; it belongs to all of them.
+ */
+const SHARED_ROUTES = new Set(['/dashboard']);
+
+export function rolesOwningRoute(role: Role, path: string): Role[] {
+  if (SHARED_ROUTES.has(path)) return [];
+  if (!ASSIGNED_ROUTES.has(path)) return [];
+  const own = new Set(pathsOf(getNavForRole(role)));
+  if (own.has(path)) return [];
+  return NAV_BY_ROLE.filter(([, sections]) => pathsOf(sections).includes(path)).map(([r]) => r);
 }

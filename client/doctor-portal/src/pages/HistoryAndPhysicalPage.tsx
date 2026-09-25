@@ -23,13 +23,17 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import {
-  apiUrl,
-  getPatients,
   createHistoryPhysical,
+  updateHistoryPhysicalDraft,
+  addHistoryPhysicalAddendum,
   listHistoryPhysicals,
   useTranslation,
-  type PatientProfile
+  Input,
+  useValidatedForm,
+  historyAndPhysicalSchema,
+  historyAndPhysicalDraftSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -44,16 +48,51 @@ import { useToastActions } from '../components/Toast';
 type HPStatus = 'in-progress' | 'complete' | 'signed' | 'addendum';
 type SystemReview = 'normal' | 'abnormal' | 'not-examined';
 
+/**
+ * One set of vitals on an H&P, in the shape that is actually written and read.
+ *
+ * Every field is a string because every one of them comes from a text input and
+ * goes to the server unchanged — `handleSaveHp` submits `formData.vitalSigns`
+ * verbatim, and `GET /api/clinical/hp` returns exactly that back. The only
+ * arithmetic is in `updateVital`, which parses height and weight to derive BMI
+ * and then stores the result as a string too.
+ *
+ * This interface used to declare `heartRate`, `respiratoryRate`, `temperature`,
+ * `oxygenSaturation` and `bmi` as numbers, and to call the last two fields
+ * `height` and `weight`. Nothing produced that shape. It survived because it was
+ * only ever applied to the *read* side (`HistoryAndPhysical.vitalSigns`) while
+ * the form's own literal was inferred and therefore never checked against it —
+ * so the two halves of the same record described different things and neither
+ * could tell.
+ *
+ * Metric names on purpose: `heightCm`/`weightKg` rather than bare `height` and
+ * `weight`. This form used to ask for Fahrenheit and pounds, which in the same
+ * record as kilogram-based vitals is a dosing hazard rather than a cosmetic
+ * quirk, and a unitless field name is how that comes back.
+ */
 interface VitalSigns {
   bloodPressure: string;
-  heartRate: number;
-  respiratoryRate: number;
-  temperature: number;
-  oxygenSaturation: number;
-  height: string;
-  weight: string;
-  bmi: number;
+  heartRate: string;
+  respiratoryRate: string;
+  temperature: string;
+  oxygenSaturation: string;
+  heightCm: string;
+  weightKg: string;
+  /** Derived from height and weight by `updateVital`; never typed by hand. */
+  bmi: string;
 }
+
+/** A blank set, so a record that carries no vitals renders empty rather than throwing. */
+const BLANK_VITALS: VitalSigns = {
+  bloodPressure: '',
+  heartRate: '',
+  respiratoryRate: '',
+  temperature: '',
+  oxygenSaturation: '',
+  heightCm: '',
+  weightKg: '',
+  bmi: '',
+};
 
 interface HistoryAndPhysical {
   id: string;
@@ -100,8 +139,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
-  const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
+  const { showSuccess, showError } = useToastActions();
+  // The roster existed only to fill a patient dropdown;
+  // `PatientSelect` queries the server as the clinician types.
+  const [editingHpId, setEditingHpId] = useState<string | null>(null);
+  const [addendumText, setAddendumText] = useState('');
+  const [isAppendingAddendum, setIsAppendingAddendum] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -124,19 +167,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
       exercise: 'moderate'
     },
     familyHistory: '',
-    // Metric throughout, matching triage and the vitals flowsheet. This form
-    // previously asked for Fahrenheit and pounds, which in the same record as
-    // kilogram-based vitals is a dosing hazard rather than a cosmetic quirk.
-    vitalSigns: {
-      bloodPressure: '',
-      heartRate: '',
-      respiratoryRate: '',
-      temperature: '',
-      oxygenSaturation: '',
-      heightCm: '',
-      weightKg: '',
-      bmi: ''
-    },
+    // Shares `VitalSigns` with the read side, so the form and the record it
+    // produces cannot describe different things — see the type.
+    vitalSigns: { ...BLANK_VITALS },
     reviewOfSystems: {} as Record<string, string>,
     physicalExam: {} as Record<string, { status: string; findings: string }>,
     assessment: '',
@@ -149,6 +182,49 @@ const HistoryAndPhysicalPage: React.FC = () => {
     'Endocrine', 'Hematologic/Lymphatic'
   ];
 
+  const useHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
+    setEditingHpId(null);
+    setFormData(current => ({ ...current, examType }));
+    setCurrentSection(0);
+    setExpandedSections(current => new Set(current).add('patient-info'));
+    setActiveTab('new');
+  };
+
+  /** Load an unsigned stored H&P into the draft form; signed records are immutable. */
+  const editDraft = (record: HistoryAndPhysical) => {
+    if (record.status === 'signed') return;
+    setEditingHpId(record.id);
+    setFormData({
+      patientId: record.patientId, patientName: record.patientName, mrn: record.mrn,
+      examType: record.examType, chiefComplaint: record.chiefComplaint,
+      hpi: record.historyOfPresentIllness, pmh: record.pastMedicalHistory.join('\n'),
+      psh: record.pastSurgicalHistory.join('\n'), medications: record.medications.join('\n'),
+      allergies: record.allergies.join('\n'), socialHistory: record.socialHistory,
+      familyHistory: record.familyHistory.join('\n'), vitalSigns: record.vitalSigns,
+      reviewOfSystems: record.reviewOfSystems,
+      physicalExam: Object.fromEntries(Object.entries(record.physicalExam).map(([system, value]) => [system, { status: value.status, findings: value.notes }])),
+      assessment: record.assessment, plan: record.plan,
+    });
+    setCurrentSection(0);
+    setExpandedSections(new Set(['patient-info', 'chief-complaint']));
+    setActiveTab('new');
+  };
+
+  const appendAddendum = async () => {
+    if (!selectedRecord || !addendumText.trim()) return;
+    setIsAppendingAddendum(true);
+    try {
+      await addHistoryPhysicalAddendum(selectedRecord.id, addendumText.trim());
+      setAddendumText('');
+      showSuccess(t('docHistoryPhysical.addendumAdded'));
+    } catch (error) {
+      console.error('Failed to append H&P addendum:', error);
+      showError(t('docHistoryPhysical.addendumFailed'));
+    } finally {
+      setIsAppendingAddendum(false);
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       if (!user?.walletAddress) {
@@ -157,20 +233,48 @@ const HistoryAndPhysicalPage: React.FC = () => {
       }
       
       try {
-        const [hpData, pts] = await Promise.all([
-          listHistoryPhysicals(),
-          getPatients()
-        ]);
-        
-        setAvailablePatients(pts);
+        // The roster is no longer read here; the picker fetches its own.
+        const [hpData] = await Promise.all([listHistoryPhysicals()]);
         
         const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
         if (Array.isArray(records)) {
-          setHpRecords(records.map((record: any) => ({
-            ...record,
-            dateOfExam: new Date(record.dateOfExam || record.date_of_exam || Date.now()),
-            signedAt: record.signedAt || record.signed_at ? new Date(record.signedAt || record.signed_at) : undefined
-          })));
+          setHpRecords(records.map((record) => {
+            // Snake_case off the wire, camelCase in the component.
+            //
+            // `GET /api/clinical/hp` returns `patient_name`; this page reads
+            // `record.patientName` and calls `.toLowerCase()` on it in the
+            // search filter. With one saved record that is
+            // `undefined.toLowerCase()`, which throws during render — so the
+            // ErrorBoundary replaced the whole screen with "An unexpected error
+            // occurred" the moment any H&P existed. An empty list rendered
+            // fine, which is why every unit test passed.
+            const row = record as HistoryAndPhysical & {
+              date_of_exam?: string;
+              signed_at?: string;
+              patient_name?: string;
+              patient_id?: string;
+              hp_id?: string;
+              vital_signs?: VitalSigns;
+            };
+            const signed = row.signedAt || row.signed_at;
+            return {
+              ...row,
+              id: row.id || row.hp_id || '',
+              patientId: row.patientId || row.patient_id || '',
+              patientName: row.patientName || row.patient_name || '',
+              mrn: row.mrn || '',
+              // `vital_signs` on the wire, `vitalSigns` in the component — and
+              // the summary strip below reads `record.vitalSigns.bloodPressure`
+              // directly. Undefined there is a second crash of the same shape as
+              // `patientName`, and it fires *after* the fetch resolves, so it
+              // took down whichever screen the clinician had moved on to.
+              // (Only the outer key differs; the vitals inside are already
+              // camelCase.)
+              vitalSigns: row.vitalSigns || row.vital_signs || BLANK_VITALS,
+              dateOfExam: new Date(row.dateOfExam || row.date_of_exam || Date.now()),
+              signedAt: signed ? new Date(signed) : undefined,
+            };
+          }));
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -181,7 +285,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
     };
     
     loadData();
-  }, [user]);
+  }, [user, t]);
 
   /** One history entry per line; blank lines are dropped. */
   const toLines = (text: string) =>
@@ -197,9 +301,18 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setFormData({ ...formData, vitalSigns });
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    historyAndPhysicalSchema
+  );
+  const { validate: validateDraft } = useValidatedForm(historyAndPhysicalDraftSchema);
+
   const handleSaveHp = async (status: 'in-progress' | 'signed') => {
-    if (!formData.patientId || !formData.chiefComplaint) {
-      showError(t('docHistoryPhysical.warningRequiredFields'));
+    // The same requirement used to apply to 'in-progress' and 'signed' alike,
+    // which made a work-in-progress save mean the same thing as signing. An H&P
+    // is written across an admission; saving what exists so far needs only to
+    // know whose document it is.
+    const ready = status === 'signed' ? validate(formData) : validateDraft(formData);
+    if (!ready) {
       return;
     }
     
@@ -229,18 +342,27 @@ const HistoryAndPhysicalPage: React.FC = () => {
         status,
       };
 
-      await createHistoryPhysical(payload);
+      if (editingHpId) {
+        await updateHistoryPhysicalDraft(editingHpId, payload);
+      } else {
+        await createHistoryPhysical(payload);
+      }
       showSuccess(status === 'signed' ? t('docHistoryPhysical.successSigned') : t('docHistoryPhysical.successDraft'));
       setActiveTab('list');
+      setEditingHpId(null);
       
       // Refresh list
       const hpData = await listHistoryPhysicals();
       const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
-      setHpRecords(records.map((record: any) => ({
-        ...record,
-        dateOfExam: new Date(record.dateOfExam || record.date_of_exam || Date.now()),
-        signedAt: record.signedAt || record.signed_at ? new Date(record.signedAt || record.signed_at) : undefined
-      })));
+      setHpRecords(records.map((record) => {
+        const row = record as HistoryAndPhysical & { date_of_exam?: string; signed_at?: string };
+        const signed = row.signedAt || row.signed_at;
+        return {
+          ...row,
+          dateOfExam: new Date(row.dateOfExam || row.date_of_exam || Date.now()),
+          signedAt: signed ? new Date(signed) : undefined,
+        };
+      }));
     } catch (err) {
       console.error('Failed to save H&P:', err);
       showError(t('docHistoryPhysical.errorSave'));
@@ -291,9 +413,13 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const translateSystem = (system: string) => t(`docHistoryPhysical.system_${system.toLowerCase().replace(/\//g, '-')}`);
 
   const filteredRecords = hpRecords.filter(record => {
-    const matchesSearch = record.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          record.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          record.mrn.includes(searchQuery);
+    // Defensive on purpose. The mapper above normalises these, but a search
+    // filter is not worth crashing a clinical screen over: a missing field
+    // should narrow the results, not replace the page with an error card.
+    const needle = searchQuery.toLowerCase();
+    const matchesSearch = (record.patientName ?? '').toLowerCase().includes(needle) ||
+                          (record.id ?? '').toLowerCase().includes(needle) ||
+                          (record.mrn ?? '').includes(searchQuery);
     const matchesStatus = statusFilter === 'all' || record.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -311,12 +437,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-700 to-violet-600 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docHistoryPhysical.title')}</h1>
         </div>
-        <p className="text-indigo-200">{t('docHistoryPhysical.subtitle')}</p>
+        <p className="text-white">{t('docHistoryPhysical.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -330,10 +456,10 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docHistoryPhysical.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docHistoryPhysical.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -391,7 +517,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <option value="addendum">{t('docHistoryPhysical.addendumFilterOption')}</option>
                 </select>
                 <button
-                  onClick={() => setActiveTab('new')}
+                  onClick={() => { setEditingHpId(null); setActiveTab('new'); }}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
@@ -424,11 +550,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         <Eye className="w-5 h-5 text-content-muted" />
                       </button>
                       {record.status !== 'signed' && (
-                        <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Edit">
+                        <button type="button" onClick={() => editDraft(record)} className="p-2 hover:bg-surface-sunken rounded-lg" title="Edit">
                           <Edit className="w-5 h-5 text-content-muted" />
                         </button>
                       )}
-                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
+                      <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
                         <Printer className="w-5 h-5 text-content-muted" />
                       </button>
                     </div>
@@ -452,29 +578,29 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   {/* Vitals Summary */}
                   <div className="flex gap-4 flex-wrap text-sm bg-surface-sunken rounded-lg p-3">
                     <div className="flex items-center gap-1">
-                      <Heart className="w-4 h-4 text-red-500" />
+                      <Heart className="w-4 h-4 text-critical" />
                       <span className="text-content-muted">{t('docHistoryPhysical.bpAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bloodPressure}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Activity className="w-4 h-4 text-blue-500" />
+                      <Activity className="w-4 h-4 text-notice-subtle-fg" />
                       <span className="text-content-muted">{t('docHistoryPhysical.hrAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.heartRate}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Thermometer className="w-4 h-4 text-orange-500" />
+                      <Thermometer className="w-4 h-4 text-caution" />
                       <span className="text-content-muted">{t('docHistoryPhysical.tempAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.temperature}°C</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Scale className="w-4 h-4 text-green-500" />
+                      <Scale className="w-4 h-4 text-ok" />
                       <span className="text-content-muted">{t('docHistoryPhysical.bmiAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bmi}</span>
                     </div>
                   </div>
 
                   {record.status === 'signed' && record.signedAt && (
-                    <div className="mt-4 pt-4 border-t flex items-center text-sm text-ok-subtle-fg">
+                    <div className="mt-4 pt-4 border-t flex items-center text-sm text-ok-subtle-fg min-h-[24px] py-1">
                       <CheckCircle className="w-4 h-4 mr-2" />
                       {t('docHistoryPhysical.signedByLine', { provider: record.provider, credentials: record.providerCredentials, date: record.signedAt.toLocaleString() })}
                     </div>
@@ -533,48 +659,35 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
                     <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
-                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
-                      <select
+                      {/* Search by name or id. This was a dropdown of whatever
+                          roster the page had fetched, with the id and the name
+                          also free-typed beside it -- so an H&P could be filed
+                          against an id nobody chose and a name that disagreed
+                          with it. */}
+                      <PatientSelect
                         id="hp-patient-select"
-                        onChange={(e) => {
-                          const p = availablePatients.find(p => p.patient_id === e.target.value);
-                          if (p) {
-                            setFormData({
-                              ...formData,
-                              patientId: p.patient_id,
-                              patientName: p.full_name,
-                              mrn: p.national_id || ''
-                            });
-                          }
+                        label={t('docHistoryPhysical.selectExistingPatient')}
+                        value={formData.patientId}
+                        onChange={(selectedPatientId, selectedPatient) => {
+                          setFormData({
+                            ...formData,
+                            patientId: selectedPatientId,
+                            patientName: selectedPatient?.full_name ?? formData.patientName,
+                            mrn: selectedPatient?.health_id ?? formData.mrn,
+                          });
                         }}
-                        className="w-full border-indigo-200 rounded-lg px-3 py-2 bg-surface"
-                      >
-                        <option value="">{t('docHistoryPhysical.selectPatientPlaceholder')}</option>
-                        {availablePatients.map(p => (
-                          <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
-                        ))}
-                      </select>
+                        required
+                      />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label htmlFor="hp-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientIdLabel')}</label>
-                        <input
-                          id="hp-patient-id"
-                          type="text"
-                          value={formData.patientId}
-                          onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2"
-                          placeholder={t('docHistoryPhysical.patientIdPh')}
-                        />
-                      </div>
                       <div>
                         <label htmlFor="hp-patient-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientNameLabel')}</label>
                         <input
                           id="hp-patient-name"
                           type="text"
                           value={formData.patientName}
-                          onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
+                          readOnly
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content-muted"
                         />
                       </div>
                       <div>
@@ -584,7 +697,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           type="text"
                           value={formData.mrn}
                           onChange={(e) => setFormData({ ...formData, mrn: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content"
                         />
                       </div>
                       <div className="md:col-span-3">
@@ -631,17 +744,20 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 </button>
                 {expandedSections.has('chief-complaint') && (
                   <div className="mt-4 space-y-4">
-                    <div>
-                      <label htmlFor="hp-chief-complaint" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.chiefComplaintRequiredLabel')}</label>
-                      <input
-                        id="hp-chief-complaint"
-                        type="text"
-                        value={formData.chiefComplaint}
-                        onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
-                        className="w-full border rounded-lg px-3 py-2"
-                        placeholder={t('docHistoryPhysical.chiefComplaintPh')}
-                      />
-                    </div>
+                    <Input
+                      id="hp-chief-complaint"
+                      type="text"
+                      label={t('docHistoryPhysical.chiefComplaintRequiredLabel')}
+                      value={formData.chiefComplaint}
+                      onChange={(e) => {
+                        clearField('chiefComplaint');
+                        setFormData({ ...formData, chiefComplaint: e.target.value });
+                      }}
+                      onBlur={() => validateField('chiefComplaint', formData)}
+                      error={errors.chiefComplaint}
+                      placeholder={t('docHistoryPhysical.chiefComplaintPh')}
+                      required
+                    />
                     <div>
                       <label htmlFor="hp-hpi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.hpiLabel')}</label>
                       <textarea
@@ -710,7 +826,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       </div>
                       <div>
                         <label htmlFor="hp-allergies" className="block text-sm font-medium text-content-secondary mb-1">
-                          <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
+                          <AlertTriangle className="w-4 h-4 inline mr-1 text-critical" />
                           {t('docHistoryPhysical.allergiesLabel')}
                         </label>
                         <textarea
@@ -834,7 +950,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     </div>
                     <div>
                       <label htmlFor="hp-bmi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.bmiCalcLabel')}</label>
-                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-surface-sunken" readOnly placeholder="24.5"
+                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-surface-sunken text-content" readOnly placeholder="24.5"
                         value={formData.vitalSigns.bmi} />
                     </div>
                   </div>
@@ -861,11 +977,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {systemsList.map(system => (
                       <div key={system} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
-                        <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-gray-700">{translateSystem(system)}</span>
+                        <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-content-secondary">{translateSystem(system)}</span>
                         <div className="flex gap-2" role="radiogroup" aria-labelledby={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`}>
                           {['normal', 'abnormal'].map(status => (
                             <label key={status} htmlFor={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600"
+                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-brand"
                                 checked={formData.reviewOfSystems[system] === status}
                                 onChange={() => setFormData({ ...formData, reviewOfSystems: { ...formData.reviewOfSystems, [system]: status } })} />
                               <span className="text-xs">{status === 'normal' ? t('docHistoryPhysical.negLabel') : t('docHistoryPhysical.posLabel')}</span>
@@ -978,15 +1094,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 >
                   {t('docHistoryPhysical.saveAsDraft')}
                 </button>
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => handleSaveHp('signed')}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
-                >
-                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
-                  {t('docHistoryPhysical.completeAndSign')}
-                </button>
+                {!editingHpId && (
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => handleSaveHp('signed')}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
+                  >
+                    {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {t('docHistoryPhysical.completeAndSign')}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1013,7 +1131,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1">
+                <button type="button" onClick={() => useHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -1058,6 +1176,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.planHeading')}</h3>
                 <pre className="whitespace-pre-wrap font-sans">{selectedRecord.plan}</pre>
               </div>
+              {selectedRecord.status === 'signed' && (
+                <div className="border rounded-lg p-4 space-y-3">
+                  <h3 className="font-semibold">{t('docHistoryPhysical.addendumHeading')}</h3>
+                  <p className="text-sm text-content-muted">{t('docHistoryPhysical.addendumExplainer')}</p>
+                  <label htmlFor="hp-addendum" className="sr-only">{t('docHistoryPhysical.addendumLabel')}</label>
+                  <textarea id="hp-addendum" value={addendumText} onChange={(event) => setAddendumText(event.target.value)} className="w-full border rounded-lg px-3 py-2 h-24" placeholder={t('docHistoryPhysical.addendumPlaceholder')} />
+                  <button type="button" disabled={isAppendingAddendum || !addendumText.trim()} onClick={appendAddendum} className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                    {isAppendingAddendum ? t('docHistoryPhysical.addendumSaving') : t('docHistoryPhysical.addendumSave')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

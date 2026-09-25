@@ -1,7 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listLabQc, createLabQc, useTranslation } from '@medichain/shared';
+import {
+  listLabQc,
+  createLabQc,
+  listLabCalibrations,
+  createLabCalibration,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  labQcSchema,
+  calibrationSchema,
+  formatDateOnly,
+  formatTimestamp,
+  getApiErrorMessage,
+} from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
+import { useStaffDirectory } from '../components/StaffName';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -30,12 +46,21 @@ interface QCTest {
   expectedSD: number;
   unit: string;
   result: 'pass' | 'fail' | 'warning';
+  /** As the server computed it; absent on runs stored before it did. */
+  zScore?: number;
+  /** Westgard rule codes (`1_3s`, `1_2s`). */
   violatedRules?: string[];
   performedBy: string;
   reviewedBy?: string;
   correctiveAction?: string;
   comments?: string;
 }
+
+/** Westgard rule codes the server stores, and how each is labelled. */
+const RULE_LABEL_KEYS: Record<string, string> = {
+  '1_3s': 'docLabQC.violatedRule13s',
+  '1_2s': 'docLabQC.violatedRule12s',
+};
 
 interface Calibration {
   calibrationId: string;
@@ -59,8 +84,10 @@ interface Calibration {
 
 const LabQCPage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showWarning } = useToastActions();
   const [qcTests, setQcTests] = useState<QCTest[]>([]);
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
   const [activeTab, setActiveTab] = useState<'qcTests' | 'newQC' | 'calibrations' | 'newCalibration'>('qcTests');
@@ -95,14 +122,19 @@ const LabQCPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await listLabQc();
+      const [response, calibrationResponse] = await Promise.all([
+        listLabQc(),
+        listLabCalibrations(),
+      ]);
       
       // Map API response to QCTest interface
       const items = (response.items || []) as Record<string, unknown>[];
       const mappedTests: QCTest[] = items.map((item) => ({
-        testId: (item.test_id || item.testId || '') as string,
-        date: (item.date || '') as string,
-        time: (item.time || '') as string,
+        testId: (item.qc_id || item.id || '') as string,
+        // The server records when the run was performed; the date and time
+        // the page used to send were its own clock, and are not stored.
+        date: formatDateOnly(item.performed_at as string | undefined),
+        time: formatTimestamp(item.performed_at as string | undefined, { timeStyle: 'short' }),
         instrument: (item.instrument || '') as string,
         analyte: (item.analyte || '') as string,
         level: (item.level || 'Level 1') as 'Level 1' | 'Level 2' | 'Level 3',
@@ -112,8 +144,11 @@ const LabQCPage: React.FC = () => {
         expectedMean: (item.expected_mean || item.expectedMean || 0) as number,
         expectedSD: (item.expected_sd || item.expectedSD || 0) as number,
         unit: (item.unit || '') as string,
-        result: (item.result || 'pass') as 'pass' | 'fail' | 'warning',
-        violatedRules: item.violated_rules || item.violatedRules,
+        // The server's verdict. A run stored before it recorded one carries
+        // only `passed`, which says pass or not-pass and nothing finer.
+        result: (item.result ?? (item.passed === true ? 'pass' : 'fail')) as 'pass' | 'fail' | 'warning',
+        zScore: typeof item.z_score === 'number' ? item.z_score : undefined,
+        violatedRules: item.violated_rules,
         performedBy: (item.performed_by || item.performedBy || '') as string,
         reviewedBy: item.reviewed_by || item.reviewedBy,
         correctiveAction: item.corrective_action || item.correctiveAction,
@@ -122,8 +157,7 @@ const LabQCPage: React.FC = () => {
       
       setQcTests(mappedTests);
       
-      // Calibrations are part of the same response or separate
-      const calItems = (response as { calibrations?: Record<string, unknown>[] }).calibrations || [];
+      const calItems = calibrationResponse.items as Record<string, unknown>[];
       const mappedCalibrations: Calibration[] = calItems.map((item: Record<string, unknown>) => ({
         calibrationId: (item.calibration_id || item.calibrationId || '') as string,
         date: (item.date || '') as string,
@@ -145,64 +179,55 @@ const LabQCPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData, user]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(labQcSchema);
+
+  const qcRun = () => ({ instrument, analyte, observedValue, expectedMean, expectedSD });
+
   const handleSubmitQC = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!instrument || !analyte || !observedValue || !expectedMean || !expectedSD) {
-      showWarning(t('docLabQC.warningRequiredFields'));
+    // QC decides whether every patient result from this analyser can be
+    // released. The Westgard rules are computed as (observed - mean) / SD, so a
+    // blank or non-numeric field makes the evaluation meaningless rather than
+    // merely incomplete -- and a zero SD divides by zero.
+    if (!validate(qcRun())) {
       return;
     }
 
-    const obs = parseFloat(observedValue);
-    const mean = parseFloat(expectedMean);
-    const sd = parseFloat(expectedSD);
-
-    // Westgard rules evaluation
-    const zScore = Math.abs((obs - mean) / sd);
-    let result: 'pass' | 'fail' | 'warning' = 'pass';
-    const violatedRules: string[] = [];
-
-    if (zScore > 3) {
-      result = 'fail';
-      violatedRules.push(t('docLabQC.violatedRule13s'));
-    } else if (zScore > 2) {
-      result = 'warning';
-      violatedRules.push(t('docLabQC.violatedRule12s'));
-    }
-
-    const newTest: QCTest = {
-      testId: `QC-${String(qcTests.length + 1).padStart(3, '0')}`,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
-      instrument,
-      analyte,
-      level,
-      lotNumber,
-      expiryDate,
-      observedValue: obs,
-      expectedMean: mean,
-      expectedSD: sd,
-      unit,
-      result,
-      violatedRules: violatedRules.length > 0 ? violatedRules : undefined,
-      performedBy: user?.userId || 'Unknown',
-      correctiveAction: correctiveAction || undefined,
-      comments: qcComments || undefined
-    };
-
-    // Persist to the backend (was: local state only)
+    // The run is judged by the server (`clinical_scoring::westgard_single_run`)
+    // and this page shows the verdict it returns. It used to evaluate the
+    // Westgard rules itself -- a clinical decision in the browser -- and the
+    // list then read a `result` field the server never stored, so every run,
+    // failed controls included, displayed as a pass.
     try {
-      await createLabQc(newTest);
-      showSuccess(t('docLabQC.qcRecordedSuccess', { id: newTest.testId, result: result.toUpperCase() }));
-    } catch {
-      showWarning(t('docLabQC.qcRecordedLocally', { id: newTest.testId }));
+      const created = await createLabQc({
+        instrument,
+        analyte,
+        level,
+        lotNumber: lotNumber || undefined,
+        expiryDate: expiryDate || undefined,
+        observedValue: parseFloat(observedValue),
+        expectedMean: parseFloat(expectedMean),
+        expectedSD: parseFloat(expectedSD),
+        unit,
+        correctiveAction: correctiveAction || undefined,
+        comments: qcComments || undefined,
+      });
+      showSuccess(t('docLabQC.qcRecordedSuccess', {
+        id: created.qc_id,
+        result: t(`docLabQC.result_${created.result}`).toUpperCase(),
+      }));
+      await fetchData();
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('docLabQC.errorRecordQc')));
+      showWarning(t('docLabQC.errorRecordQc'));
+      return;
     }
-    setQcTests([...qcTests, newTest]);
 
     // Reset form
     setInstrument('');
@@ -219,28 +244,45 @@ const LabQCPage: React.FC = () => {
     setActiveTab('qcTests');
   };
 
-  const handleSubmitCalibration = (e: React.FormEvent) => {
+  const {
+    errors: calErrors,
+    validate: validateCal,
+    validateField: validateCalField,
+    clearField: clearCalField,
+  } = useValidatedForm(calibrationSchema);
+
+  const calibrationRun = () => ({ calInstrument, calibratorLot, calExpiryDate });
+
+  const handleSubmitCalibration = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!calInstrument || !calibratorLot || !calExpiryDate) {
-      showWarning(t('docLabQC.warningRequiredFields'));
+    // The calibrator lot is how a bad calibrator is traced to every run that
+    // used it: without it, a recalled lot cannot be connected to the results it
+    // produced.
+    if (!validateCal(calibrationRun())) {
       return;
     }
 
-    const newCalibration: Calibration = {
-      calibrationId: `CAL-${String(calibrations.length + 1).padStart(3, '0')}`,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
+    const newCalibration = {
       instrument: calInstrument,
       calibrationType,
       calibratorLot,
       expiryDate: calExpiryDate,
       result: calResult,
-      performedBy: user?.userId || 'Unknown',
       comments: calComments || undefined
     };
 
-    setCalibrations([...calibrations, newCalibration]);
-    showSuccess(t('docLabQC.calibrationRecordedSuccess', { id: newCalibration.calibrationId }));
+    try {
+      const response = await createLabCalibration(newCalibration);
+      const calibration = response.calibration as Record<string, unknown>;
+      showSuccess(t('docLabQC.calibrationRecordedSuccess', {
+        id: (calibration.calibration_id || calibration.calibrationId || '') as string,
+      }));
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('docLabQC.errorRecordCalibration'));
+      showWarning(t('docLabQC.errorRecordCalibration'));
+      return;
+    }
 
     // Reset form
     setCalInstrument('');
@@ -291,21 +333,46 @@ const LabQCPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-green-700 to-emerald-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Beaker className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docLabQC.title')}</h1>
-              <p className="text-green-100">{t('docLabQC.subtitle')}</p>
+              <p className="text-white">{t('docLabQC.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-green-100">{t('docLabQC.loggedInAs')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docLabQC.loggedInAs')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchData()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex space-x-1 mb-6 border-b">
@@ -426,7 +493,7 @@ const LabQCPage: React.FC = () => {
                   {filteredQcTests.map((test) => (
                     <tr
                       key={test.testId}
-                      className={`${test.result === 'fail' ? 'bg-critical-subtle' : test.result === 'warning' ? 'bg-caution-subtle' : ''} hover:bg-surface-sunken`}
+                      className={`border-l-4 ${test.result === 'fail' ? 'border-l-critical' : test.result === 'warning' ? 'border-l-caution' : 'border-l-transparent'} hover:bg-surface-sunken`}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2">
@@ -450,15 +517,17 @@ const LabQCPage: React.FC = () => {
                         <div className="text-sm">
                           <div className="font-medium text-content">{t('docLabQC.obsLine', { value: test.observedValue, unit: test.unit })}</div>
                           <div className="text-xs text-content-muted">{t('docLabQC.meanSdLine', { mean: test.expectedMean, sd: test.expectedSD })}</div>
-                          <div className="text-xs text-content-muted">
-                            {t('docLabQC.zScoreLine', { score: ((test.observedValue - test.expectedMean) / test.expectedSD).toFixed(2) })}
-                          </div>
+                          {test.zScore !== undefined && (
+                            <div className="text-xs text-content-muted">
+                              {t('docLabQC.zScoreLine', { score: test.zScore.toFixed(2) })}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-content">{test.performedBy}</div>
+                        <div className="text-sm text-content">{staffName(test.performedBy)}</div>
                         {test.reviewedBy && (
-                          <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: test.reviewedBy })}</div>
+                          <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(test.reviewedBy) })}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -467,7 +536,7 @@ const LabQCPage: React.FC = () => {
                             {test.violatedRules.map((rule, idx) => (
                               <div key={idx} className="flex items-center">
                                 <AlertTriangle className="h-3 w-3 mr-1" />
-                                {rule}
+                                {RULE_LABEL_KEYS[rule] ? t(RULE_LABEL_KEYS[rule]) : rule}
                               </div>
                             ))}
                           </div>
@@ -505,7 +574,7 @@ const LabQCPage: React.FC = () => {
               {/* Instrument */}
               <div>
                 <label htmlFor="labqc-instrument" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.instrumentRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.instrumentRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="labqc-instrument"
@@ -526,7 +595,7 @@ const LabQCPage: React.FC = () => {
               {/* Analyte */}
               <div>
                 <label htmlFor="labqc-analyte" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.analyteRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.analyteRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-analyte"
@@ -542,7 +611,7 @@ const LabQCPage: React.FC = () => {
               {/* QC Level */}
               <div>
                 <label htmlFor="labqc-level" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.qcLevelRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.qcLevelRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="labqc-level"
@@ -560,7 +629,7 @@ const LabQCPage: React.FC = () => {
               {/* Lot Number */}
               <div>
                 <label htmlFor="labqc-lot-number" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.lotNumberRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.lotNumberRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-lot-number"
@@ -576,7 +645,7 @@ const LabQCPage: React.FC = () => {
               {/* Expiry Date */}
               <div>
                 <label htmlFor="labqc-expiry-date" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.expiryDateRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.expiryDateRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-expiry-date"
@@ -591,16 +660,17 @@ const LabQCPage: React.FC = () => {
               {/* Observed Value */}
               <div>
                 <label htmlFor="labqc-observed-value" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.observedValueRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.observedValueRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-observed-value"
                   type="number"
                   step="0.01"
                   value={observedValue}
-                  onChange={(e) => setObservedValue(e.target.value)}
+                  onChange={(e) => { clearField('observedValue'); setObservedValue(e.target.value); }}
+                  onBlur={() => validateField('observedValue', qcRun())}
+                  error={errors.observedValue}
                   placeholder={t('docLabQC.observedValuePh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>
@@ -608,16 +678,17 @@ const LabQCPage: React.FC = () => {
               {/* Expected Mean */}
               <div>
                 <label htmlFor="labqc-expected-mean" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.expectedMeanRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.expectedMeanRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-expected-mean"
                   type="number"
                   step="0.01"
                   value={expectedMean}
-                  onChange={(e) => setExpectedMean(e.target.value)}
+                  onChange={(e) => { clearField('expectedMean'); setExpectedMean(e.target.value); }}
+                  onBlur={() => validateField('expectedMean', qcRun())}
+                  error={errors.expectedMean}
                   placeholder={t('docLabQC.expectedMeanPh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>
@@ -625,7 +696,7 @@ const LabQCPage: React.FC = () => {
               {/* Expected SD */}
               <div>
                 <label htmlFor="labqc-expected-sd" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.expectedSdRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.expectedSdRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-expected-sd"
@@ -642,7 +713,7 @@ const LabQCPage: React.FC = () => {
               {/* Unit */}
               <div>
                 <label htmlFor="labqc-unit" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.unitRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.unitRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-unit"
@@ -759,9 +830,9 @@ const LabQCPage: React.FC = () => {
                       <div className="text-xs text-content-muted">{t('docLabQC.expLine', { date: cal.expiryDate })}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-content">{cal.performedBy}</div>
+                      <div className="text-sm text-content">{staffName(cal.performedBy)}</div>
                       {cal.reviewedBy && (
-                        <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: cal.reviewedBy })}</div>
+                        <div className="text-xs text-content-muted">{t('docLabQC.revLine', { name: staffName(cal.reviewedBy) })}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -798,7 +869,7 @@ const LabQCPage: React.FC = () => {
               {/* Instrument */}
               <div>
                 <label htmlFor="labqc-cal-instrument" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.instrumentRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.instrumentRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="labqc-cal-instrument"
@@ -819,7 +890,7 @@ const LabQCPage: React.FC = () => {
               {/* Calibration Type */}
               <div>
                 <label htmlFor="labqc-cal-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.calibrationTypeRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.calibrationTypeRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="labqc-cal-type"
@@ -837,15 +908,16 @@ const LabQCPage: React.FC = () => {
               {/* Calibrator Lot */}
               <div>
                 <label htmlFor="labqc-cal-lot" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.calibratorLotRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.calibratorLotRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="labqc-cal-lot"
                   type="text"
                   value={calibratorLot}
-                  onChange={(e) => setCalibratorLot(e.target.value)}
+                  onChange={(e) => { clearCalField('calibratorLot'); setCalibratorLot(e.target.value); }}
+                  onBlur={() => validateCalField('calibratorLot', calibrationRun())}
+                  error={calErrors.calibratorLot}
                   placeholder={t('docLabQC.calibratorLotPh')}
-                  className="w-full px-3 py-2 border rounded-md"
                   required
                 />
               </div>
@@ -853,7 +925,7 @@ const LabQCPage: React.FC = () => {
               {/* Expiry Date */}
               <div>
                 <label htmlFor="labqc-cal-expiry-date" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.expiryDateRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.expiryDateRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="labqc-cal-expiry-date"
@@ -868,7 +940,7 @@ const LabQCPage: React.FC = () => {
               {/* Result */}
               <div>
                 <label htmlFor="labqc-cal-result" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.resultRequired')} <span className="text-red-500">*</span>
+                  {t('docLabQC.resultRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="labqc-cal-result"

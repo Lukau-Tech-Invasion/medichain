@@ -22,9 +22,10 @@ interface CommandItem {
 const ALL_COMMANDS: CommandItem[] = [
   // Main
   { id: 'dashboard', label: 'Dashboard', to: '/dashboard', category: 'Main', icon: <Home size={16} />, keywords: ['home'] },
-  { id: 'patient-search', label: 'Patient Search', to: '/patient-search', category: 'Main', icon: <Users size={16} />, keywords: ['find', 'lookup'] },
-  { id: 'register', label: 'Register Patient', to: '/register-patient', category: 'Main', icon: <Users size={16} />, keywords: ['new', 'add'] },
+  { id: 'patient-search', label: 'Patient Search', to: '/patients', category: 'Main', icon: <Users size={16} />, keywords: ['find', 'lookup'] },
+  { id: 'register', label: 'Register Patient', to: '/register', category: 'Main', icon: <Users size={16} />, keywords: ['new', 'add'] },
   { id: 'appointments', label: 'Appointments', to: '/appointments', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule'] },
+  { id: 'working-hours', label: 'Working Hours', to: '/working-hours', category: 'Main', icon: <Activity size={16} />, keywords: ['schedule', 'availability', 'rota', 'hours', 'leave'] },
   
   // Clinical
   { id: 'triage', label: 'Triage', to: '/triage', category: 'Clinical', icon: <FileText size={16} />, keywords: ['esi'] },
@@ -35,7 +36,7 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'discharge', label: 'Discharge', to: '/discharge', category: 'Clinical', icon: <FileText size={16} /> },
   
   // Emergency
-  { id: 'emergency-access', label: 'Emergency Access', to: '/emergency-access', category: 'Emergency', icon: <Siren size={16} />, keywords: ['nfc'] },
+  { id: 'emergency-access', label: 'Emergency Access', to: '/emergency', category: 'Emergency', icon: <Siren size={16} />, keywords: ['nfc'] },
   { id: 'code-blue', label: 'Code Blue', to: '/code-blue', category: 'Emergency', icon: <Siren size={16} />, keywords: ['cardiac'] },
   { id: 'trauma', label: 'Trauma', to: '/trauma', category: 'Emergency', icon: <Siren size={16} /> },
   { id: 'stroke', label: 'Stroke', to: '/stroke', category: 'Emergency', icon: <Siren size={16} /> },
@@ -64,6 +65,9 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'user-management', label: 'User Management', to: '/user-management', category: 'Admin', icon: <Users size={16} /> },
   { id: 'analytics', label: 'Analytics', to: '/analytics', category: 'Admin', icon: <Activity size={16} /> },
   { id: 'access-logs', label: 'Access Logs', to: '/access-logs', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'devices', label: 'Approved Devices', to: '/devices', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'retention', label: 'Data Retention', to: '/retention', category: 'Admin', icon: <FileText size={16} /> },
+  { id: 'national-id-reviews', label: 'National ID Reviews', to: '/national-id-reviews', category: 'Admin', icon: <FileText size={16} />, keywords: ['identity', 'verification'] },
   
   // Settings
   { id: 'settings', label: 'Settings', to: '/settings', category: 'Settings', icon: <Settings size={16} /> },
@@ -139,7 +143,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
   return (
     <div className="fixed inset-0 z-[999] overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
+      <div aria-hidden="true" className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
 
       {/* Dialog */}
       <div className="fixed inset-0 flex items-start justify-center pt-[15vh] px-4">
@@ -149,13 +153,12 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
             <Search className="text-content-muted" size={20} />
             <input
               ref={inputRef}
-              autoFocus
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search pages..."
-              className="flex-1 outline-none text-content placeholder:text-content-muted"
+              className="flex-1 outline-none bg-transparent text-content placeholder:text-content-muted"
               aria-label="Command palette search"
             />
             <kbd className="hidden sm:inline-flex px-2 py-1 text-xs bg-surface-sunken text-content-muted rounded border">esc</kbd>
@@ -184,7 +187,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                       >
                         <span className={isSelected ? 'text-brand' : 'text-content-muted'}>{item.icon}</span>
                         <span className="flex-1 font-medium">{item.label}</span>
-                        <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-gray-300'} />
+                        <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-content-muted'} />
                       </button>
                     );
                   })}
@@ -211,24 +214,4 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
       </div>
     </div>
   );
-}
-
-/**
- * Hook to manage command palette state with keyboard shortcut
- */
-export function useCommandPalette() {
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsOpen(true);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  return { isOpen, open: () => setIsOpen(true), close: () => setIsOpen(false) };
 }

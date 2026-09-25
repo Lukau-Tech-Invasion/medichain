@@ -49,6 +49,247 @@ jobs:
             - name: State-changing handlers narrow beyond "any clinical staff"
               run: python scripts/check-write-authorization.py
 
+            # Both gates above look at the server. This one looks at the client:
+            # the legacy `X-User-Id` header is a caller-supplied wallet address,
+            # and the only module allowed to decide whether to send it is the
+            # shared session helper. A page writing that literal itself sends the
+            # identifier even when a Bearer session already carries it, and has
+            # to be found again the day the legacy path is withdrawn.
+            - name: Only the shared session helper emits the legacy identity header
+              run: python scripts/check-legacy-identity-headers.py
+
+            # The three gates above all ask whether a request was allowed to do
+            # something. This one asks whether what it did actually happened.
+            # `let _ = data.repositories.x.create(..)` type-checks, returns 200,
+            # and stores nothing when the write fails — the caller is told the
+            # lab result was filed, or the prescription transmitted to a
+            # pharmacy, and neither is true. A ratchet, not a clean bill of
+            # health: 55 such writes remain and the number may only fall.
+            - name: No new repository write discards its own failure
+              run: python scripts/check-discarded-writes.py
+
+            - name: Required audit persistence results are never ignored
+              run: python scripts/check-required-audit-results.py
+
+            # `access_logs.action` has a CHECK constraint. A handler writing a
+            # value outside it fails on PostgreSQL and nowhere else, because the
+            # in-memory repository enforces no constraints — which is how
+            # `lab_review_approve` went years without ever being a valid audit
+            # action while every test passed. This derives the written
+            # vocabulary from the Rust source rather than from a copy of the
+            # constraint, so an omission common to both is still caught.
+            - name: Every audit action the handlers write is permitted by the schema
+              run: python scripts/check-audit-action-vocabulary.py
+
+            # MediChain authenticates by proving control of a key. A "quick
+            # login" list short-circuits that by naming an identity and asking
+            # the app to become it — a bypass whether or not it currently
+            # works, and the patient app shipped five of them. This also
+            # asserts IS_DEVELOPMENT defaults to FALSE: it gates the
+            # demo-identity paths, so any context without `import.meta.env`
+            # would otherwise silently be a development build.
+            - name: No sign-in path can hand out an unproven identity
+              run: python scripts/check-quick-login-identities.py
+
+            # The nursing dashboard rendered four hardcoded tasks — a dressing
+            # change in 'Room 403', an IV assessment in 'ICU-2' — that existed
+            # nowhere in the backend. A task list is a work instruction, and no
+            # placeholder audit finds this: 'Room 403' matches no keyword and
+            # looks exactly like real data. IS_DEMO-gated fallbacks are fine
+            # (IS_DEMO defaults to false); ungated literals always render.
+            - name: No production screen renders data nobody supplied
+              run: python scripts/check-fabricated-ui-data.py
+
+            # The translator returns a key's raw text when a variable is
+            # missing, so `t('x.healthId')` against 'Health ID: {{id}}' puts the
+            # literal `{{id}}` on the clinician's screen. Nothing else sees it:
+            # the type checker sees a string and the linter sees a call.
+            - name: No screen renders a raw i18n placeholder
+              run: python scripts/check-uninterpolated-i18n.py
+
+            # The sibling failure: the translator returns the KEY when it cannot
+            # resolve one at all, so a t() call naming a key the bundle does not
+            # have puts `docWoundCare.savedOk` on screen where a save
+            # confirmation belongs. Ten screens were doing that when this gate
+            # was added, including an incident-type dropdown whose six options
+            # were all raw keys.
+            - name: No screen renders a raw i18n key
+              run: python scripts/check-missing-i18n-keys.py
+
+            # A foreground from a theme-flipping token over a fixed Tailwind
+            # background: the patient's critical-allergy panel measured 1.03:1
+            # in dark mode that way.
+            - name: No component pairs a flipping token with a fixed shade
+              run: python scripts/check-token-pairing.py
+
+            # An input's value is not a text node, so no text-contrast probe
+            # sees it; 88 controls were white-on-white in dark mode.
+            - name: No form control sets only one half of its colours
+              run: python scripts/check-form-control-contrast.py
+
+            # A suppressed native prompt returns null, read as "cancelled":
+            # the pharmacist's Dispense button did nothing at all.
+            - name: No client calls a native browser dialog
+              run: python scripts/check-native-dialogs.py
+
+            # `new Date(undefined).toLocaleString()` prints "Invalid Date";
+            # 83 sites did it before they moved onto the shared formatters.
+            - name: No client formats a timestamp without the shared guard
+              run: python scripts/check-invalid-date.py
+
+            # A class naming a colour the Tailwind config does not define
+            # compiles to nothing: the element keeps whatever it inherits.
+            - name: No client uses a colour class the theme does not define
+              run: python scripts/check-undefined-colour-classes.py
+
+            # The idempotency middleware requires a header on every
+            # authenticated mutation and was landed without migrating one
+            # caller. The breakage surfaced four separate times, days apart,
+            # each looking like an unrelated bug: the fixture seeder, thirty
+            # raw-fetch sites in the portals, the synthetic e2e harness (which
+            # is what failed hosted CI), and the demo setup script DEMO_SETUP.md
+            # tells a human to run, which created nothing and printed a success
+            # banner anyway. None of that fails at compile time or in a Rust
+            # test. Baseline is zero, so the next one fails here instead.
+            - name: Every authenticated mutation sends an idempotency key
+              run: python scripts/check-idempotency-callers.py
+
+            # A Prometheus job that scrapes /api/metrics without a credential
+            # does not fail loudly: the target sits at `down` with 401 and only
+            # somebody opening the Prometheus UI ever finds out. Metrics silence
+            # is the one failure that cannot page anybody about itself, and this
+            # deployment had been in exactly that state.
+            - name: Monitoring config presents a credential for protected endpoints
+              run: python scripts/check-metrics-scrape-auth.py
+
+            # ----------------------------------------------------------------
+            # Five gates below existed, passed, and ran NOWHERE. A ratchet that
+            # is not in CI is not a ratchet -- it is a script somebody has to
+            # remember, and the whole point of a baseline is that nobody has to.
+            # `check-state-durability.py` is the starkest: it is the guarantee
+            # that clinical handlers keep writing through repositories rather
+            # than into process memory, the single defect class this codebase
+            # has had most of, and nothing was enforcing it between commits.
+            # ----------------------------------------------------------------
+
+            # Clinical writes must reach a repository, never an AppState map.
+            # Baseline is 0 references; it may only stay there.
+            - name: No handler writes clinical state into process memory
+              run: python scripts/check-state-durability.py
+
+            # Its sibling, and the blind spot it left. The gate above ratchets
+            # `AppState`'s own fields; seven modules keep their own
+            # `RwLock<HashMap>` outside that scan, and `organization_keys` sat
+            # in the gap from 2026-07-27 to 2026-09-17 answering 201 Created
+            # over a table that stayed at zero rows. A store must have a
+            # durable seam or a written reason it does not need one.
+            - name: Every module store is durable or accounted for
+              run: python scripts/check-store-durability.py
+
+            # Frontend paths must match registered backend routes. Whole feature
+            # clusters once pointed at endpoints that did not exist.
+            - name: Frontend calls resolve to registered endpoints
+              run: python scripts/check-endpoint-drift.py
+
+            # A page must not assert a clinical value nobody entered. Until
+            # 2026-09-09 this only read `useState` initialisers and always
+            # exited 0, so it was advisory and it missed the whole worse half:
+            # literals in the object a page POSTs. Those included every child's
+            # vitals filed as 'Normal', textbook-normal observations on every
+            # trauma patient, and a child-protection screen recorded as finding
+            # no concerns when none was performed. The payload half is a gate
+            # now, against a triaged baseline in the script.
+            - name: No page asserts a clinical value nobody entered
+              run: python scripts/check-uncontrolled-defaults.py
+
+            # A handler that reads a body key its callers never send.
+            #
+            # `body.get("patient_id")...unwrap_or_default()` cannot fail: when
+            # the page posts `patientId`, the lookup misses, the default is
+            # `""`, and the handler stores a record whose clinical content is
+            # empty strings while answering 201. Seventeen handlers were doing
+            # this on 2026-09-10 — the consult request and the critical-value
+            # notification among them, both of which then hit a foreign-key
+            # constraint on PostgreSQL and SUCCEEDED in memory, storing a record
+            # attached to nobody.
+            #
+            # Nothing else in this file could see it: the method and path were
+            # right, so the drift gate passed; the body is an untyped `Value`,
+            # so the compiler saw nothing; and a unit test mocks `fetch`, so it
+            # never reached the handler.
+            - name: No handler reads a body key its callers never send
+              run: python scripts/check-untyped-body-keys.py
+
+            # A page whose payload cannot deserialise into the type its
+            # handler takes.
+            #
+            # `web::Json<T>` answers 400 before the handler runs, so nine
+            # clinical pages on 2026-09-16 could not save anything at all and
+            # nothing here could see it: the handler never executed, so no
+            # handler test fired; the route resolved, so the drift gate passed;
+            # and 83 of `endpoints.ts`'s wrappers take `data: unknown`, so
+            # TypeScript was blind. Two causes -- handlers deserialising
+            # `clinical.rs` domain types with a dozen required fields, and pages
+            # submitting camelCase against a module with no `rename_all`
+            # anywhere.
+            - name: Every page payload fits the type its handler takes
+              run: python scripts/check-payload-contracts.py
+
+            # An INSERT whose column list and bind chain have drifted apart.
+            #
+            # `QueryBuilder` joins a string literal to a sequence of method
+            # calls, so a column added without its bind compiles, lints clean,
+            # and passes every in-memory test -- the default backend for
+            # development -- while PostgreSQL rejects it at run time. Twenty-one
+            # of these statements gained a column by hand in 20260911000001.
+            - name: Every insert binds the columns it names
+              run: python scripts/check-insert-bind-arity.py
+
+            # A hand-rolled fetch that mutates but sends no Idempotency-Key.
+            #
+            # The middleware refuses an authenticated mutation without one, so
+            # such a call is a Save button that cannot work. Thirty-nine files
+            # still bypass the typed client that attaches it; this keeps the
+            # count from going up while they are migrated.
+            - name: Every mutating raw fetch sends what the API requires
+              run: python scripts/check-raw-fetch-mutations.py
+
+            # A repository read method nothing calls.
+            #
+            # `adherence_logs` had five methods and one caller -- `create` --
+            # so a patient ticking off doses filled a table no screen could
+            # open. The POST returned 201 and every test of the write passed.
+            # Ratcheted against a baseline rather than failing outright: most
+            # of the count is speculative surface, and the subset that loses
+            # data (written by a live handler, read by nothing) is zero.
+            - name: No new repository reads without callers
+              run: python scripts/check-unread-repositories.py
+
+            # A fetch whose response nobody looks at.
+            #
+            # `fetch` rejects only on a transport failure, so a 403 resolves
+            # like a 201. Four live call sites reported success for writes the
+            # server had refused, including a nurse marking a dose as given.
+            - name: Every fetch examines its response
+              run: python scripts/check-unchecked-fetch.py
+
+            # WCAG AA contrast, checked at the design tokens rather than at a
+            # rendered pixel, so it holds for both themes.
+            - name: Colour tokens meet WCAG AA contrast
+              run: python scripts/check-contrast.py
+
+            # Test files that no longer match the components they name.
+            - name: Frontend tests have not drifted from their components
+              run: python scripts/check-frontend-test-drift.py
+
+            # CLAUDE.md rule 3, made enforceable. Counted as branching and
+            # binding rather than raw lines: 326 functions broke the raw-line
+            # form of the rule and none of the worst three were hard to read --
+            # a route table, a struct literal and a reference table of lab
+            # panels. The script's header carries the full reasoning.
+            - name: No function carries more branching than one unit should
+              run: python scripts/check-function-length.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
@@ -102,11 +343,16 @@ jobs:
             - name: Check formatting
               run: cargo fmt --all -- --check
 
-            # Report-only until the lint cleanup lands (see docs/NEXT_WEEK_TODO.md,
-            # Stage 2 — ~238 clippy findings). Re-make this a hard gate (drop
-            # continue-on-error) once warnings are driven to zero.
-            - name: Run Clippy (linting, report-only)
-              continue-on-error: true
+            # BLOCKING as of 2026-08-27. It was report-only pending a ~238-finding
+            # cleanup; those are gone and `--all-targets --all-features -D warnings`
+            # exits 0.
+            #
+            # Leaving it advisory had a cost beyond untidiness. `--all-features`
+            # enables `tokio-console`, and the nine dead-code findings that
+            # combination produced were not dead code -- they were the privacy
+            # redaction module being switched off for that build. A lint nobody
+            # is required to read reported a disabled PHI control for days.
+            - name: Run Clippy (linting)
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Build
@@ -119,14 +365,15 @@ jobs:
             - name: Run tests
               run: cargo test
 
-            - name: Install cargo-audit
-              run: cargo install cargo-audit
-
-            # Report-only: the substrate/subxt transitive tree carries upstream
-            # advisories we don't directly control (mirrors the supply-chain job).
-            - name: Security audit (report-only)
-              continue-on-error: true
-              run: cargo audit
+            # `cargo audit` used to run here, report-only, because "the
+            # substrate/subxt transitive tree carries upstream advisories we
+            # don't directly control". Removed 2026-09-16: the Supply Chain job
+            # below runs `cargo-deny ... advisories` **enforced** against both
+            # workspaces, with the exceptions reviewed and written down in
+            # `deny.toml`. This step was a second scanner with no policy behind
+            # it, whose output nothing acted on, costing a `cargo install` on
+            # every run. Two advisory scanners where one is a gate and the other
+            # is noise is worse than one gate.
 
     # ============================================================================
     # Blockchain workspace (pallets + runtime + node)
@@ -233,18 +480,19 @@ jobs:
                   command: check
                   command-arguments: bans sources
 
-            # Advisories: curated (Horizon HZ-011) — every RUSTSEC ID in the
-            # dependency tree has been individually reviewed for reachability;
-            # see deny.toml's [advisories] section for the reasoning per ID.
-            # Still report-only: 5 reachable advisories (sqlx, 4x
-            # rustls-webpki) remain genuinely open with no safe fix available,
-            # so flipping to blocking now would fail every future PR on
-            # pre-existing issues rather than ones it introduces. Flip
-            # `continue-on-error` to `false` once those are resolved or
-            # explicitly risk-accepted.
-            - name: cargo-deny (advisories, report-only pending sqlx/webpki fixes)
+            # Advisories: ENFORCED as of 2026-08-25. Every RUSTSEC ID in the root
+            # tree is either absent, fixed, or an explicit reasoned acceptance
+            # with a removal criterion; deny.toml also fails on a stale
+            # acceptance, so that list can only describe the present.
+            #
+            # Understand the failure mode before relaxing this. The advisory
+            # database is fetched at run time, so a NEW advisory published
+            # against any dependency turns this red on a PR that changed
+            # nothing. That is the gate working, not a flake. The fix is the
+            # upgrade, or a reasoned entry with a removal criterion. It is not
+            # continue-on-error.
+            - name: cargo-deny (advisories, enforced)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
               with:
                   command: check
                   command-arguments: advisories
@@ -271,27 +519,73 @@ jobs:
                   command: check
                   command-arguments: sources
 
-            # Licences and advisories start report-only for the blockchain tree.
-            # The licence allow-list was derived offline from 1074 of the 1171
-            # locked packages (the rest were not in the local registry cache),
-            # so it is a discovery gate until a full CI run confirms it is
-            # complete. `bans` is warn-level by config, not a failure.
-            - name: cargo-deny blockchain (licences + advisories, report-only)
+            # Advisories: ENFORCED for the blockchain tree as of 2026-08-26.
+            #
+            # This was report-only while the graph reported 5 vulnerabilities
+            # and 2 unmaintained crates. It no longer does. One left by a
+            # precise lockfile bump (h2 0.4.15 -> 0.4.19, RUSTSEC-2026-0258);
+            # the remaining five are reasoned acceptances in
+            # blockchain/deny.toml, each quoting the upstream constraint that
+            # blocks it and naming the single condition that removes it.
+            #
+            # Enforcing it is now the cheaper option, not the stricter one: a
+            # report-only gate on a graph nobody can currently fix trains
+            # reviewers to scroll past it, and the root gate had to be rescued
+            # from exactly that. blockchain/deny.toml also now sets
+            # unused-ignored-advisory = "deny", so an acceptance whose crate
+            # leaves the tree fails the build instead of becoming a stale
+            # comment.
+            #
+            # Expect this to go red one day on a PR that changed nothing: the
+            # advisory database is fetched at run time. That is the gate
+            # working. The fix is an upgrade or a reasoned entry, never
+            # continue-on-error.
+            - name: cargo-deny blockchain (advisories, enforced)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
               with:
                   manifest-path: blockchain/Cargo.toml
                   command: check
-                  command-arguments: licenses advisories bans
+                  command-arguments: advisories
 
-            # Licenses: NOT part of the HZ-011 advisories review — separate,
-            # still-unaddressed issues (deprecated SPDX identifiers on the
-            # subxt crates, an unmatched Unicode-DFS-2016 allowance). Kept
-            # report-only and split from advisories so resolving one doesn't
-            # block on the other.
-            - name: cargo-deny (licenses, report-only)
+            # Licences stay report-only, and only licences.
+            #
+            # Blocking since 2026-09-16. The allow-list was derived offline
+            # from 1074 of the 1171 locked packages — the remaining 97 were not
+            # in the local registry cache — so this was report-only, on the
+            # stated condition: "flip it once a full CI run confirms the list
+            # covers all 1171."
+            #
+            # That condition is met. `cargo deny --manifest-path
+            # blockchain/Cargo.toml check licenses bans` now resolves the whole
+            # 1171-package graph and reports `bans ok, licenses ok` with zero
+            # errors; the only remaining diagnostics are `license-not-
+            # encountered` warnings for allowances nothing uses, which are the
+            # opposite of a gap.
+            #
+            # This matters more here than in most graphs: `medichain-node` links
+            # 17 strict GPL-3.0-only crates, and the obligation attaches on
+            # distribution. A report-only licence check is how that reaches a
+            # partner unnoticed.
+            - name: cargo-deny blockchain (licences and bans)
               uses: EmbarkStudios/cargo-deny-action@v2
-              continue-on-error: true
+              with:
+                  manifest-path: blockchain/Cargo.toml
+                  command: check
+                  command-arguments: licenses bans
+
+            # Licenses: ENFORCED as of 2026-08-25. Kept as its own step so a new
+            # licence problem and a new advisory fail separately and read
+            # separately.
+            #
+            # MediChain's own crates are proprietary and unpublished, so they
+            # carry license-file rather than an SPDX id and are skipped via
+            # private.ignore. Third-party policy is unchanged and permissive-
+            # only, with one reviewed package-scoped exception (the Mozilla CA
+            # dataset under CDLA-Permissive-2.0). deny.toml fails on an
+            # exception that no longer matches a crate, so an upgrade dropping
+            # that dependency also forces the exception out.
+            - name: cargo-deny (licenses, enforced)
+              uses: EmbarkStudios/cargo-deny-action@v2
               with:
                   command: check
                   command-arguments: licenses
@@ -309,6 +603,71 @@ jobs:
                   name: sbom-cyclonedx
                   path: "**/*.cdx.json"
                   if-no-files-found: warn
+
+    # The runtime image must identify the exact source revision it was built
+    # from. This job does not publish a release artifact; it validates the
+    # source-to-image link that a release workflow must preserve.
+    api-image-provenance:
+        name: API image provenance
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Build API image with source revision
+              run: >-
+                  docker build
+                  --build-arg SOURCE_REVISION=${{ github.sha }}
+                  --label org.opencontainers.image.revision=${{ github.sha }}
+                  -f api/Dockerfile
+                  -t medichain-api:${{ github.sha }}
+                  .
+
+            - name: Verify image revision label
+              run: |
+                  actual="$(docker image inspect medichain-api:${{ github.sha }} --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+                  test "$actual" = "${{ github.sha }}"
+
+            # Record the digest, not just the label.
+            #
+            # "The label says the right SHA" proves the build was TOLD its
+            # source revision. It does not identify the image that came out.
+            # Without a recorded digest there is nothing to point at later and
+            # say "this artifact is the one that passed these gates" — a
+            # release can only claim provenance for an artifact it can name.
+            #
+            # This job still does not publish. What it produces is the
+            # source-SHA-to-image-digest link that a publishing workflow must
+            # carry forward, written where a human and a later job can both
+            # read it.
+            - name: Record source revision to image digest
+              id: digest
+              run: |
+                  digest="$(docker image inspect medichain-api:${{ github.sha }} --format '{{ .Id }}')"
+                  echo "image_digest=${digest}" >> "$GITHUB_OUTPUT"
+                  printf '%s\n' \
+                    "source_revision=${{ github.sha }}" \
+                    "image_digest=${digest}" \
+                    "image_tag=medichain-api:${{ github.sha }}" \
+                    "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    "workflow_run=${{ github.run_id }}" \
+                    > image-provenance.txt
+                  {
+                    echo "### API image provenance"
+                    echo
+                    echo "| field | value |"
+                    echo "| --- | --- |"
+                    echo "| source revision | \`${{ github.sha }}\` |"
+                    echo "| image digest | \`${digest}\` |"
+                    echo "| workflow run | ${{ github.run_id }} |"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload image provenance record
+              uses: actions/upload-artifact@v4
+              with:
+                  name: api-image-provenance
+                  path: image-provenance.txt
+                  if-no-files-found: error
 
     # ============================================================================
     # Snyk (11.2) — dependency vulnerability scanning, Rust + frontend.
@@ -383,7 +742,7 @@ jobs:
                   cache-dependency-path: client/package-lock.json
 
             - name: Install dependencies
-              run: npm install
+              run: npm ci
 
             - name: Build doctor portal
               run: npm run build:doctor
@@ -420,7 +779,7 @@ jobs:
                   cache-dependency-path: client/package-lock.json
 
             - name: Install dependencies
-              run: npm install
+              run: npm ci
 
             - name: Build patient app
               run: npm run build:patient
@@ -550,8 +909,10 @@ jobs:
               if: matrix.backend == 'memory'
               env:
                   IS_DEMO: "true"
+                  MEDICHAIN_DEV_MODE: "true"
                   REQUIRE_SIGNATURES: "false"
                   BLOCKCHAIN_ENABLED: "false"
+                  DISPENSING_POLICY_PATH: api/data/dispensing_policy.example.json
                   MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
                   PORT: "8090"
                   HOST: 127.0.0.1
@@ -566,8 +927,10 @@ jobs:
               if: matrix.backend == 'postgres'
               env:
                   IS_DEMO: "true"
+                  MEDICHAIN_DEV_MODE: "true"
                   REQUIRE_SIGNATURES: "false"
                   BLOCKCHAIN_ENABLED: "false"
+                  DISPENSING_POLICY_PATH: api/data/dispensing_policy.example.json
                   MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
                   PORT: "8090"
                   HOST: 127.0.0.1

@@ -34,7 +34,6 @@ fn card_json(e: &crate::repositories::traits::JsonRecordEntity) -> serde_json::V
 fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
     get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
@@ -46,9 +45,8 @@ fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
 ///
 /// HZ-020 (resource-id IDOR): the card mutators previously gated on `require_auth`
 /// only — any authenticated account could update, image, or delete another
-/// patient's card by its id. `cancel_appointment` already applied owner-or-
-/// provider after fetching the resource; the card handlers had not. This
-/// centralises that check for the three mutators.
+/// patient's card by its id. This applies owner-or-provider after fetching the
+/// resource, centralised for the three mutators.
 async fn require_card_access(
     data: &web::Data<AppState>,
     caller: &str,
@@ -58,14 +56,12 @@ async fn require_card_access(
         Ok(Some(e)) => e,
         Ok(None) => {
             return Err(HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Insurance card not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             }))
         }
         Err(e) => {
             return Err(HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e.to_string(),
                 code: "REPOSITORY_ERROR".to_string(),
             }))
@@ -76,7 +72,6 @@ async fn require_card_access(
         .unwrap_or(false);
     if !is_provider && existing.owner_id != caller {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         }));
@@ -108,7 +103,6 @@ pub async fn list_insurance_cards(
             .unwrap_or(false);
         if !is_provider && uid != patient_id {
             return HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "Access denied".to_string(),
                 code: "ACCESS_DENIED".to_string(),
             });
@@ -135,7 +129,6 @@ pub async fn list_insurance_cards(
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),
@@ -159,7 +152,6 @@ pub async fn create_insurance_card(
         Some(p) if !p.is_empty() => p.to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "Missing required field: patient_id".to_string(),
                 code: "VALIDATION_ERROR".to_string(),
             })
@@ -174,7 +166,6 @@ pub async fn create_insurance_card(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -184,7 +175,6 @@ pub async fn create_insurance_card(
         caller.linked_patient_id.as_deref() == Some(patient_id.as_str()) || caller_id == patient_id;
     if !is_self && !caller.role.is_healthcare_provider() && !caller.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You may not create an insurance card for this patient".to_string(),
             code: "ACCESS_FORBIDDEN".to_string(),
         });
@@ -205,7 +195,6 @@ pub async fn create_insurance_card(
             "card": card_json(&saved),
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),
@@ -249,7 +238,6 @@ pub async fn update_insurance_card(
             "card": card_json(&saved),
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),
@@ -261,11 +249,37 @@ pub struct CardImageRequest {
     /// Base64-encoded image bytes (front/back of the card).
     pub image_base64: String,
     pub content_type: Option<String>,
+    pub side: CardImageSide,
+}
+
+/// A card side is part of the persistent record identity, not a presentation hint.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum CardImageSide {
+    Front,
+    Back,
+}
+
+impl CardImageSide {
+    fn field_name(self) -> &'static str {
+        match self {
+            Self::Front => "front_image",
+            Self::Back => "back_image",
+        }
+    }
+}
+
+/// The two hashes are inseparable: encrypted content cannot be opened without
+/// the separately encrypted metadata object that identifies its key version.
+#[derive(Debug, Deserialize, Serialize)]
+struct StoredCardImage {
+    content_hash: String,
+    metadata_hash: String,
+    content_type: String,
 }
 
 /// Upload an insurance-card image. The image is encrypted (ChaCha20-Poly1305)
-/// and stored on IPFS; the resulting hash is saved on the card as
-/// `image_ipfs_hash`.
+/// and stored on IPFS with its metadata hash under the named card side.
 ///
 /// POST /api/insurance/cards/{id}/image
 #[post("/api/insurance/cards/{id}/image")]
@@ -291,19 +305,26 @@ pub async fn upload_insurance_card_image(
         Ok(b) if !b.is_empty() => b,
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "image_base64 must be non-empty base64".to_string(),
                 code: "VALIDATION_ERROR".to_string(),
             })
         }
     };
 
+    let content_type = body
+        .content_type
+        .clone()
+        .unwrap_or_else(|| "image/jpeg".to_string());
+    if !content_type.starts_with("image/") {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "content_type must be an image type".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     let metadata = EncryptedMetadata {
         filename: format!("insurance-card-{}", id),
-        content_type: body
-            .content_type
-            .clone()
-            .unwrap_or_else(|| "image/jpeg".to_string()),
+        content_type: content_type.clone(),
         uploaded_at: Utc::now().timestamp(),
         patient_id: existing.owner_id.clone(),
         uploaded_by: uploader,
@@ -319,19 +340,23 @@ pub async fn upload_insurance_card_image(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("IPFS upload failed: {}", e),
                 code: "IPFS_ERROR".to_string(),
             })
         }
     };
 
-    // Persist the IPFS hash onto the card.
+    // Persist the complete, side-specific encrypted reference. A content hash
+    // alone is unreadable because metadata carries the encryption version.
     let mut new_data = existing.data.clone();
     if let Some(obj) = new_data.as_object_mut() {
         obj.insert(
-            "image_ipfs_hash".to_string(),
-            serde_json::json!(result.ipfs_hash),
+            body.side.field_name().to_string(),
+            serde_json::json!(StoredCardImage {
+                content_hash: result.ipfs_hash.clone(),
+                metadata_hash: result.metadata_hash.clone(),
+                content_type: content_type.clone(),
+            }),
         );
     }
     let entity = crate::repositories::traits::JsonRecordEntity {
@@ -343,7 +368,6 @@ pub async fn upload_insurance_card_image(
     };
     if let Err(e) = data.repositories.insurance_cards.create(entity).await {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         });
@@ -352,6 +376,61 @@ pub async fn upload_insurance_card_image(
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "image_ipfs_hash": result.ipfs_hash,
+        "metadata_ipfs_hash": result.metadata_hash,
+        "side": body.side,
+    }))
+}
+
+/// Decrypt one stored insurance-card image after the same owner-or-provider
+/// authorization applied to upload, replacement, and deletion.
+#[get("/api/insurance/cards/{id}/image/{side}")]
+pub async fn download_insurance_card_image(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<(String, CardImageSide)>,
+) -> impl Responder {
+    let caller = match require_auth(&req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let (id, side) = path.into_inner();
+    let card = match require_card_access(&data, &caller, &id).await {
+        Ok(card) => card,
+        Err(resp) => return resp,
+    };
+    let image = card
+        .data
+        .get(side.field_name())
+        .cloned()
+        .and_then(|value| serde_json::from_value::<StoredCardImage>(value).ok());
+    let Some(image) = image else {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            error: "Insurance card image not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        });
+    };
+    let result = match data
+        .ipfs_client
+        .download_decrypted(
+            &image.content_hash,
+            &image.metadata_hash,
+            &data.encryption_keyring,
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            log::error!("insurance card image download failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Insurance card image could not be read".to_string(),
+                code: "IMAGE_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "content_base64": base64::engine::general_purpose::STANDARD.encode(result.content),
+        "content_type": result.metadata.content_type,
     }))
 }
 
@@ -383,7 +462,6 @@ pub async fn delete_insurance_card(
             "message": "Insurance card deleted",
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),

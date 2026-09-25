@@ -32,7 +32,17 @@
  * credentials it prints are throwaway and belong in a test profile, never in a
  * production image.
  *
- *   npx vite-node scripts/seed-browser-test-fixtures.ts
+ * # Running it
+ *
+ * It must be started from `client/`. The script lives outside that workspace
+ * but imports from it, and `@polkadot/util-crypto` resolves only when the vite
+ * root is the workspace that installed it:
+ *
+ *   cd client
+ *   MEDICHAIN_API_URL=http://127.0.0.1:8090/api  *   MEDICHAIN_ADMIN_WALLET=<existing active admin>  *   MEDICHAIN_FIXTURE_SUFFIX=.1  *   ./node_modules/.bin/vite-node ../scripts/seed-browser-test-fixtures.ts
+ *
+ * The manifest is written to `.browser-test/fixtures.json` at the repository
+ * root regardless of where it is started from.
  */
 
 import {
@@ -40,6 +50,19 @@ import {
   createKeystore,
   generateWalletIdentity,
 } from '../client/shared/src/auth/credentials';
+// Statically imported, deliberately. This was a lazy `await import(...)` inside
+// `devAccount()`, and under vite-node on Windows the dev server tears down
+// while that request is in flight: the run dies with ERR_CLOSED_SERVER and a
+// libuv assertion, immediately after printing "using existing administrator",
+// which reads as an API failure rather than a module-loading one.
+import {
+  cryptoWaitReady,
+  mnemonicToMiniSecret,
+  sr25519PairFromSeed,
+  encodeAddress,
+  keyExtractPath,
+  keyFromPath,
+} from '@polkadot/util-crypto';
 
 /**
  * The mini-secret and address of a Substrate well-known development account.
@@ -55,10 +78,6 @@ import {
  * privileged role. Deriving it is safe *because* production cannot use it.
  */
 async function devAccount(suri: string): Promise<{ secretKey: Uint8Array; address: string }> {
-  const {
-    cryptoWaitReady, mnemonicToMiniSecret, sr25519PairFromSeed,
-    encodeAddress, keyExtractPath, keyFromPath,
-  } = await import('@polkadot/util-crypto');
   await cryptoWaitReady();
   // The canonical Substrate development phrase.
   const DEV_PHRASE = 'bottom drive obey lake curtain smoke basket hold race lonely fit walk';
@@ -79,11 +98,20 @@ const FORCE = process.argv.includes('--i-understand-this-writes-accounts');
 const PASSWORD = 'BrowserTest!2026';
 
 interface StaffFixture {
-  key: 'doctor' | 'nurse' | 'admin';
+  key:
+    | 'doctor'
+    | 'doctor2'
+    | 'nurse'
+    | 'nurse2'
+    | 'admin'
+    | 'pharmacist'
+    | 'pharmacist2'
+    | 'labtech'
+    | 'labtech2';
   loginId: string;
   name: string;
   username: string;
-  role: 'Doctor' | 'Nurse' | 'Admin';
+  role: 'Doctor' | 'Nurse' | 'Admin' | 'Pharmacist' | 'LabTechnician';
 }
 
 /**
@@ -104,8 +132,39 @@ const sfx = (base: string) => (SUFFIX ? `${base}${SUFFIX}` : base);
  */
 const STAFF: StaffFixture[] = [
   { key: 'doctor', loginId: sfx('bt.doctor'), name: 'Dr Browser Test', username: sfx('btdoctor'), role: 'Doctor' },
+  // A SECOND doctor, and not a convenience. Every maker-checker workflow in
+  // MediChain refuses self-approval, so a single clinician cannot exercise one:
+  // with one Doctor fixture, `/api/lab/review` correctly answers
+  // SELF_REVIEW_FORBIDDEN and the approval path stays untested. Proving the
+  // rule and proving the workflow need two people.
+  { key: 'doctor2', loginId: sfx('bt.doctor2'), name: 'Dr Browser Test Two', username: sfx('btdoctor2'), role: 'Doctor' },
   { key: 'nurse', loginId: sfx('bt.nurse'), name: 'Nurse Browser Test', username: sfx('btnurse'), role: 'Nurse' },
+  // A SECOND nurse, for the same reason there is a second doctor. A shift
+  // handoff is a transfer of responsibility between two people: with one nurse
+  // fixture the outgoing and incoming nurse are the same account, and "the
+  // ward was handed over" degrades into "the record I wrote is still there".
+  // The interesting failure — a handoff that persists but never reaches the
+  // person taking over — is invisible without a second identity.
+  { key: 'nurse2', loginId: sfx('bt.nurse2'), name: 'Nurse Browser Test Two', username: sfx('btnurse2'), role: 'Nurse' },
+  // Pharmacist and LabTechnician exist in `Role` and gate real endpoints, but
+  // had no fixture, so neither role had ever been exercised — the 2026-08-26
+  // campaign recorded both as untestable for exactly this reason.
+  { key: 'pharmacist', loginId: sfx('bt.pharm'), name: 'Pharm Browser Test', username: sfx('btpharm'), role: 'Pharmacist' },
+  { key: 'pharmacist2', loginId: sfx('bt.pharm2'), name: 'Pharm Browser Test Two', username: sfx('btpharm2'), role: 'Pharmacist' },
+  { key: 'labtech', loginId: sfx('bt.lab'), name: 'Lab Browser Test', username: sfx('btlab'), role: 'LabTechnician' },
+  // And a second lab technician, so specimen collection and the QC/rejection
+  // review that follows it can be performed by different people. Several lab
+  // controls are maker-checker in the same way the clinical ones are.
+  { key: 'labtech2', loginId: sfx('bt.lab2'), name: 'Lab Browser Test Two', username: sfx('btlab2'), role: 'LabTechnician' },
 ];
+
+// There is deliberately no 'EmergencyResponder' fixture.
+//
+// `Role` has six variants and that is not one of them: break-glass is a
+// *capability*, reached through `POST /api/emergency/access`, which requires
+// an `nfc_tag_id` and so binds itself to physical possession of the patient's
+// card rather than to a role anybody can hold. Seeding an emergency-responder
+// account would have invented a role the system does not model.
 
 /** The synthetic patient the patient fixture is bound to. */
 const PATIENT = {
@@ -125,6 +184,31 @@ const PATIENT = {
   languages: ['en'],
 };
 
+/**
+ * A second, unrelated patient.
+ *
+ * Every "wrong patient" test needs one. Without it, an authorization probe can
+ * only ask whether a clinician reaches *a* record, which passes whether or not
+ * the boundary exists — the interesting question is whether Patient A's wallet
+ * reaches Patient B's record, and that needs a B.
+ */
+const PATIENT_B = {
+  full_name: 'Naledi Browser-Test',
+  date_of_birth: '1975-11-30',
+  national_id: 'BT-PATIENT-0002',
+  phone: '+27000000200',
+  blood_type: 'A-',
+  allergies: ['sulfa'],
+  current_medications: ['amlodipine 5mg'],
+  chronic_conditions: ['hypertension'],
+  emergency_contact_name: 'Lerato Browser-Test',
+  emergency_contact_phone: '+27000000201',
+  emergency_contact_relationship: 'sibling',
+  organ_donor: false,
+  dnr_status: false,
+  languages: ['en'],
+};
+
 type Json = Record<string, unknown>;
 
 async function call(
@@ -135,6 +219,20 @@ async function call(
 ): Promise<{ status: number; json: Json }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (actor) headers['X-User-Id'] = actor;
+
+  // Every authenticated mutation needs one: `api/src/middleware/idempotency.rs`
+  // refuses a keyed-subject mutation without it (409 IDEMPOTENCY_KEY_REQUIRED).
+  // This script predates that middleware, so seeding had been failing at the
+  // first credential enrolment — reported as "that identifier is already in
+  // use", which sent every reader looking at the database instead of the
+  // headers.
+  //
+  // A fresh key per call is right here: these are one-shot provisioning
+  // requests, not retries, so replaying one would mean something has gone
+  // wrong and should surface rather than be absorbed.
+  if (method !== 'GET') {
+    headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
+  }
   const res = await fetch(`${API}${path}`, {
     method,
     headers,
@@ -160,9 +258,71 @@ function okOrExisting(status: number, json: Json): boolean {
   return status === 409 || /ALREADY|EXISTS|DUPLICATE|BOOTSTRAPPED/i.test(code);
 }
 
+/** Thrown by `fail` once its diagnostic is already on the console. */
+class SeedFailure extends Error {}
+
 function fail(what: string, status: number, json: Json): never {
   console.error(`\n  FAILED: ${what}\n    HTTP ${status}\n    ${JSON.stringify(json)}\n`);
-  process.exit(1);
+  // Deliberately a throw, not `process.exit(1)`. Exiting from inside an async
+  // call with sockets still open aborted Node mid-teardown on Windows:
+  //
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c
+  //
+  // printed directly beneath the diagnostic above, so the last thing on the
+  // console was a libuv crash rather than the reason the seed failed. Throwing
+  // lets the runtime unwind; the exit status is set at the top level.
+  throw new SeedFailure(what);
+}
+
+/** Create real server state used by the lab and pharmacy browser journeys. */
+async function seedClinicalWorkflows(
+  patientId: string,
+  doctorWallet: string,
+  labWallet: string,
+  pharmacistWallet: string
+): Promise<Json> {
+  const collect = async (label: string): Promise<string> => {
+    const result = await call('POST', '/clinical/specimen', {
+      patient_id: patientId, specimen_type: 'whole blood', tests_ordered: 'HbA1c',
+      collection_site: 'browser test clinic', notes: label,
+      checklist: ['identity confirmed', 'label applied'],
+    }, labWallet);
+    if (!ok(result.status)) fail(`collect ${label}`, result.status, result.json);
+    return String(result.json.collection_id ?? '');
+  };
+  const originalSpecimenId = await collect('Original specimen for recollection journey');
+  const replacementSpecimenId = await collect('Replacement specimen for recollection journey');
+  const rejected = await call('POST', '/clinical/specimen-rejection', {
+    specimen_id: originalSpecimenId, patient_id: patientId,
+    rejection_reason: 'Haemolysed synthetic sample', rejection_category: 'collection_error',
+    detailed_notes: 'Browser fixture: recollection must remain visible after completion',
+    rejected_by: labWallet, recollection_required: true,
+  }, labWallet);
+  if (!ok(rejected.status)) fail('reject original specimen', rejected.status, rejected.json);
+
+  const prescription = await call('POST', '/e-prescriptions', {
+    patient_id: patientId, medication_name: 'Synthetic Dual Check', strength: '1mg',
+    form: 'tablet', quantity: 20, days_supply: 10, directions: 'Synthetic test only',
+    refills_allowed: 0, is_controlled: false,
+    policy_category: 'organization-approved-category', force_secondary_verification: true,
+    pharmacy_ncpdp: 'BROWSER-001', pharmacy_name: 'Browser Test Pharmacy',
+    diagnosis_codes: ['Z00.0'], patient_instructions: 'Synthetic test only',
+  }, doctorWallet);
+  if (!ok(prescription.status)) fail('create dual-check prescription', prescription.status, prescription.json);
+  const prescriptionId = String(prescription.json.prescription_id ?? '');
+  for (const [path, body, actor, label] of [
+    [`/e-prescriptions/${prescriptionId}/sign`, { signature_method: 'electronic', attestation: 'Browser workflow fixture' }, doctorWallet, 'sign'],
+    [`/e-prescriptions/${prescriptionId}/transmit`, {}, doctorWallet, 'transmit'],
+    [`/e-prescriptions/${prescriptionId}/receive`, {}, pharmacistWallet, 'receive'],
+    [`/e-prescriptions/${prescriptionId}/start`, {}, pharmacistWallet, 'start'],
+  ] as const) {
+    const result = await call('POST', path, body, actor);
+    if (!ok(result.status)) fail(`${label} dual-check prescription`, result.status, result.json);
+  }
+  return {
+    lab: { rejection_id: String(rejected.json.rejection_id ?? ''), original_specimen_id: originalSpecimenId, replacement_specimen_id: replacementSpecimenId },
+    pharmacy: { prescription_id: prescriptionId, prescribed_quantity: 20 },
+  };
 }
 
 async function assertLocalDemoDeployment(): Promise<void> {
@@ -203,11 +363,19 @@ async function enrolCredentials(loginId: string, wallet: string, secret: Uint8Ar
     wallet
   );
 
+  // The server returns errors as `{ error: { code, message } }`; reading
+  // `res.json.code` alone always saw `undefined`, so this branch was really
+  // "any 409" and reported every one of them as a taken identifier — including
+  // 409s that are nothing of the sort.
+  const errorCode = String(
+    (res.json.error as Record<string, unknown> | undefined)?.code ?? res.json.code ?? ''
+  );
+
   // `LOGIN_ID_TAKEN` must NOT be treated as success. The identifier would still
   // resolve — to the wallet from a previous run — while this run's manifest
   // named the new one, so every fixture would sign in as somebody else and the
   // linked-patient assertions would fail somewhere far from the cause.
-  if (String(res.json.code ?? '') === 'LOGIN_ID_TAKEN' || res.status === 409) {
+  if (errorCode === 'LOGIN_ID_TAKEN') {
     console.error(
       `\n  '${loginId}' is already enrolled, from an earlier run.\n` +
         `  Credentials cannot be re-pointed at a new wallet (there is deliberately\n` +
@@ -218,7 +386,7 @@ async function enrolCredentials(loginId: string, wallet: string, secret: Uint8Ar
     process.exit(1);
   }
   if (!ok(res.status)) {
-    fail(`enrol credentials for ${loginId}`, res.status, res.json);
+    fail(`enrol credentials for ${loginId} (code ${errorCode || 'none'})`, res.status, res.json);
   }
 }
 
@@ -287,8 +455,61 @@ async function main(): Promise<void> {
   }
 
   // ---- Staff --------------------------------------------------------------
+  //
+  // Resumable, because a half-seeded database was previously a dead end.
+  //
+  // A staff credential cannot be re-pointed at a new wallet — there is
+  // deliberately no server-side reset — so the script used to `exit(1)` the
+  // moment it met a `LOGIN_ID_TAKEN`. That is the right refusal and the wrong
+  // response: this database had `bt.doctor` and `bt.nurse` from one run and no
+  // `bt.pharm`, `bt.pharm2` or `bt.lab` at all, and no invocation could ever
+  // add them. Every attempt died on the first fixture and left behind a second
+  // user row under the same username, because `/auth/register` had already
+  // succeeded with a freshly minted wallet before enrolment refused. That is
+  // where this database's duplicate `btdoctor` and its five `btpatient` rows
+  // came from.
+  //
+  // So: look first. A fixture whose username already exists is adopted at its
+  // existing wallet and never re-registered. Its manifest entry says so and
+  // carries no mnemonic, because this run does not hold that key — which is the
+  // exact confusion the original refusal existed to prevent.
+  // Page through it. `/api/users` answers 20 rows by default and caps `limit`
+  // at 100, and this database holds 208 accounts — reading page one and
+  // concluding a fixture is absent is how a second row under the same username
+  // gets created. `getUsers()` in the shared client pages for the same reason.
+  const existingByUsername = new Map<string, string>();
+  for (let page = 1; page <= 50; page++) {
+    const roster = await call('GET', `/users?page=${page}&limit=100`, undefined, adminWallet);
+    if (!ok(roster.status)) fail('read the user roster', roster.status, roster.json);
+    const rows = (roster.json.data ?? roster.json.users ?? []) as Array<Record<string, string>>;
+    for (const row of rows) {
+      // Oldest wins. A duplicate username means an earlier run registered a
+      // second wallet after its enrolment refused, and it is the FIRST row that
+      // carries the credential. Rows arrive newest-first and this overwrites,
+      // so the oldest is what remains.
+      if (row.username && row.wallet_address) existingByUsername.set(row.username, row.wallet_address);
+    }
+    if (rows.length < 100) break;
+  }
+
   const staffOut: Array<Record<string, string>> = [];
+  const adopted: string[] = [];
   for (const fixture of STAFF) {
+    const already = existingByUsername.get(fixture.username);
+    if (already) {
+      adopted.push(fixture.loginId);
+      console.log(`  · ${fixture.role.padEnd(6)} ${fixture.loginId}  ${already}  (from an earlier run)`);
+      staffOut.push({
+        role: fixture.role,
+        login_id: fixture.loginId,
+        password: PASSWORD,
+        wallet: already,
+        pre_existing: 'true',
+        sign_in: 'POST /api/auth/staff/login (employee identifier + password)',
+      });
+      continue;
+    }
+
     const identity = await generateWalletIdentity();
 
     const reg = await call(
@@ -323,7 +544,20 @@ async function main(): Promise<void> {
     });
   }
 
-  const doctorWallet = staffOut.find((s) => s.role === 'Doctor')!.wallet;
+  if (adopted.length) {
+    console.log(
+      `
+  ${adopted.length} fixture(s) already existed and were adopted: ${adopted.join(', ')}.
+` +
+        `  Their password is unchanged (it is a constant in this script), but this run
+` +
+        `  does not hold their keys, so the manifest carries no mnemonic for them.
+`
+    );
+  }
+
+  // `find` on role would match whichever Doctor is first; name the fixture.
+  const doctorWallet = staffOut.find((s) => s.login_id === sfx('bt.doctor'))!.wallet;
 
   // ---- Patient record + bound patient account -----------------------------
   const created = await call('POST', '/register', PATIENT, doctorWallet);
@@ -413,6 +647,50 @@ async function main(): Promise<void> {
   }
   console.log('  ✓ linked_patient_id matches the seeded record');
 
+  // ---- Second patient, for wrong-patient authorization tests --------------
+  const createdB = await call('POST', '/register', PATIENT_B, doctorWallet);
+  if (!ok(createdB.status)) fail('register second synthetic patient', createdB.status, createdB.json);
+  const patientBId = String(createdB.json.patient_id ?? '');
+  const nfcTagBId = String(createdB.json.nfc_tag_id ?? '');
+
+  const patientBIdentity = await generateWalletIdentity();
+  const pregB = await call(
+    'POST',
+    '/auth/register',
+    {
+      wallet_address: patientBIdentity.address,
+      name: PATIENT_B.full_name,
+      username: sfx('btpatientb'),
+      role: 'Patient',
+    },
+    adminWallet
+  );
+  if (!okOrExisting(pregB.status, pregB.json)) fail('register patient B account', pregB.status, pregB.json);
+
+  const pactB = await call('PUT', `/users/${patientBIdentity.address}`, { status: 'active' }, adminWallet);
+  if (!ok(pactB.status)) fail('activate patient B account', pactB.status, pactB.json);
+
+  const claimB = await call(
+    'POST',
+    '/identity/claim',
+    {
+      patient_id: patientBId,
+      national_id: PATIENT_B.national_id,
+      date_of_birth: PATIENT_B.date_of_birth,
+    },
+    patientBIdentity.address
+  );
+  if (!ok(claimB.status)) fail('claim patient B identity', claimB.status, claimB.json);
+
+  console.log(`  · Patient B ${patientBIdentity.address} -> ${patientBId}`);
+
+  const labWallet = staffOut.find((s) => s.login_id === sfx('bt.lab'))!.wallet;
+  const pharmacistWallet = staffOut.find((s) => s.login_id === sfx('bt.pharm'))!.wallet;
+  const workflows = await seedClinicalWorkflows(
+    patientId, doctorWallet, labWallet, pharmacistWallet
+  );
+  console.log('  ✓ seeded lab recollection and dual-pharmacist browser workflows');
+
   // ---- Fixture contract ---------------------------------------------------
   const manifest = {
     generated_at: new Date().toISOString(),
@@ -424,6 +702,19 @@ async function main(): Promise<void> {
       ? 'created'
       : 'unavailable — deployment was already bootstrapped, so this run does not hold the administrator key. Admin Dashboard, User Management and administrator Analytics cannot be browser-tested against this database.',
     staff: staffOut,
+    workflows,
+    patient_b: {
+      role: 'Patient',
+      wallet: patientBIdentity.address,
+      mnemonic: patientBIdentity.mnemonic,
+      linked_patient_id: patientBId,
+      nfc_tag_id: nfcTagBId,
+      purpose: 'the unrelated patient every wrong-patient authorization probe needs',
+      expected_dashboard: {
+        full_name: PATIENT_B.full_name,
+        blood_type: PATIENT_B.blood_type,
+      },
+    },
     patient: {
       role: 'Patient',
       wallet: patientIdentity.address,
@@ -442,8 +733,15 @@ async function main(): Promise<void> {
   };
 
   const { writeFileSync, mkdirSync } = await import('node:fs');
-  mkdirSync('.browser-test', { recursive: true });
-  writeFileSync('.browser-test/fixtures.json', JSON.stringify(manifest, null, 2));
+  const { dirname, join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  // Anchored to this file's location, not to the process's working directory.
+  // The runner has to start in `client/` (see the header), so a relative path
+  // silently wrote the manifest to `client/.browser-test/` while every reader
+  // looked for it at the repository root.
+  const outDir = join(dirname(dirname(fileURLToPath(import.meta.url))), '.browser-test');
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, 'fixtures.json'), JSON.stringify(manifest, null, 2));
 
   const rows = staffOut
     .map((s) => `  ${s.role.padEnd(7)}  ${s.login_id.padEnd(12)} / ${PASSWORD}`)
@@ -462,6 +760,10 @@ them into any image that serves real patients.
 }
 
 main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  // A `SeedFailure` has already printed the only useful thing about itself, and
+  // a stack trace through the fetch helpers adds nothing. Anything else is
+  // unexpected and gets printed in full.
+  if (!(err instanceof SeedFailure)) console.error(err);
+  // `process.exitCode`, not `process.exit()` — see the comment on `fail`.
+  process.exitCode = 1;
 });

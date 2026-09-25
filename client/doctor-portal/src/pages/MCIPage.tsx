@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
-import { createMci, useTranslation } from '@medichain/shared';
+import { createMci, useTranslation, useScoringCatalog } from '@medichain/shared';
 import {
   AlertTriangle,
   Users,
@@ -32,7 +31,10 @@ interface MCIPatient {
   chiefComplaint: string;
   injuries: string[];
   vitals: {
+    /** START's first question: did they walk to the collection point unaided? */
+    ambulatory: boolean;
     respiratoryRate: number;
+    /** Radial pulse rate. 0 means no palpable radial pulse. */
     pulse: number;
     capRefill: number;
     mentalStatus: string;
@@ -103,7 +105,9 @@ const INJURY_KEYS: Record<string, string> = {
 export default function MCIPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  // `user` is no longer read here: the server attributes each record to
+  // whoever authenticated the request, rather than to whatever `assessed_by`
+  // the body claimed.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -125,8 +129,9 @@ export default function MCIPage() {
   // MCI Patients
   const [patients, setPatients] = useState<MCIPatient[]>([]);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [_editingPatient, _setEditingPatient] = useState<MCIPatient | null>(null);
   const [tagCounter, setTagCounter] = useState(1);
+  // START's thresholds come from the API, not from this file.
+  const { catalog } = useScoringCatalog();
 
   // New Patient Form
   const [newPatient, setNewPatient] = useState<Partial<MCIPatient>>({
@@ -136,6 +141,7 @@ export default function MCIPage() {
     chiefComplaint: '',
     injuries: [],
     vitals: {
+      ambulatory: false,
       respiratoryRate: 16,
       pulse: 80,
       capRefill: 2,
@@ -146,12 +152,46 @@ export default function MCIPage() {
     notes: ''
   });
 
-  const triageCategories: { value: TriageCategory; label: string; color: string; bgColor: string; description: string }[] = [
-    { value: 'immediate', label: t('docMCI.category_immediate_label'), color: 'text-critical-subtle-fg', bgColor: 'bg-red-500', description: t('docMCI.category_immediate_desc') },
-    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-caution-subtle-fg', bgColor: 'bg-caution', description: t('docMCI.category_delayed_desc') },
-    { value: 'minor', label: t('docMCI.category_minor_label'), color: 'text-ok-subtle-fg', bgColor: 'bg-green-500', description: t('docMCI.category_minor_desc') },
-    { value: 'expectant', label: t('docMCI.category_expectant_label'), color: 'text-content-secondary', bgColor: 'bg-gray-500', description: t('docMCI.category_expectant_desc') },
-    { value: 'deceased', label: t('docMCI.category_deceased_label'), color: 'text-black', bgColor: 'bg-black', description: t('docMCI.category_deceased_desc') }
+  /**
+   * The five START triage categories.
+   *
+   * The hues are conventional and cannot change — a triage officer reads the
+   * colour before the word. The *shades* can, and had to: white on the previous
+   * `bg-green-500` measured 2.28:1 and white on the yellow measures 1.67:1, on a
+   * board whose entire purpose is to be counted at a glance across a room.
+   *
+   * `summaryFg` exists because a single foreground cannot serve all five. Yellow
+   * takes dark text — which is what a physical yellow triage tag uses — and the
+   * rest take white. Rendering `text-white` uniformly is what made the DELAYED
+   * count unreadable.
+   *
+   * The yellow is a fixed `bg-amber-500` rather than the `bg-caution` token on
+   * purpose. That token flips with the theme — amber-700 on light, amber-400 on
+   * dark — so no single foreground could pass in both, and more importantly a
+   * triage colour code must not change because the operator prefers dark mode.
+   * The five colours here mean the same thing on every screen in the building.
+   *
+   * And `text-black`, not `text-gray-900`: `src/index.css` used to carry
+   * `.dark .text-gray-900 { @apply text-white }`, a compatibility override at
+   * specificity (0,2,0) that beat the utility. On this card — whose background
+   * does *not* flip — that turned the dark text white and put it back at 2.15:1.
+   * The same layer repainted a green alert's text grey on the critical-value
+   * screen (WF-018). It was removed on 2026-09-23; `text-black` stays because it
+   * says what this card needs regardless.
+   */
+  const triageCategories: {
+    value: TriageCategory;
+    label: string;
+    color: string;
+    bgColor: string;
+    summaryFg: string;
+    description: string;
+  }[] = [
+    { value: 'immediate', label: t('docMCI.category_immediate_label'), color: 'text-critical-subtle-fg', bgColor: 'bg-red-600', summaryFg: 'text-white', description: t('docMCI.category_immediate_desc') },
+    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-caution-subtle-fg', bgColor: 'bg-amber-500', summaryFg: 'text-black', description: t('docMCI.category_delayed_desc') },
+    { value: 'minor', label: t('docMCI.category_minor_label'), color: 'text-ok-subtle-fg', bgColor: 'bg-green-700', summaryFg: 'text-white', description: t('docMCI.category_minor_desc') },
+    { value: 'expectant', label: t('docMCI.category_expectant_label'), color: 'text-content-secondary', bgColor: 'bg-gray-600', summaryFg: 'text-white', description: t('docMCI.category_expectant_desc') },
+    { value: 'deceased', label: t('docMCI.category_deceased_label'), color: 'text-black', bgColor: 'bg-black', summaryFg: 'text-white', description: t('docMCI.category_deceased_desc') }
   ];
 
   const incidentTypes = [
@@ -172,44 +212,41 @@ export default function MCIPage() {
     'Smoke Inhalation', 'Chemical Exposure', 'Internal Bleeding'
   ];
 
-  // START Triage Algorithm
-  const calculateSTARTCategory = (vitals: MCIPatient['vitals']): TriageCategory => {
-    // Can they walk? → Minor (Green)
-    // (We assume non-ambulatory if triaging)
-    
-    // Are they breathing?
-    if (vitals.respiratoryRate === 0) {
-      // Position airway - still not breathing → Deceased (Black)
-      return 'deceased';
-    }
-    
-    // RR > 30 → Immediate (Red)
-    if (vitals.respiratoryRate > 30) {
-      return 'immediate';
-    }
-    
-    // Cap refill > 2 seconds → Immediate (Red)
-    if (vitals.capRefill > 2) {
-      return 'immediate';
-    }
-    
-    // No radial pulse → Immediate (Red)
-    if (vitals.pulse === 0 || vitals.pulse > 120) {
-      return 'immediate';
-    }
-    
-    // Mental status - not following commands → Immediate (Red)
-    if (vitals.mentalStatus === 'unresponsive' || vitals.mentalStatus === 'confused') {
-      return 'immediate';
-    }
-    
-    // All criteria met → Delayed (Yellow)
+  /**
+   * START triage preview for the tag the responder is filling in.
+   *
+   * The stored category is the server's — `createMci` returns one per casualty
+   * and this page adopts them on save. This exists only so the tag colour
+   * appears as the observations are entered, and it uses the thresholds from
+   * `GET /api/clinical/scoring/catalog` rather than its own literals.
+   *
+   * What it replaces got START's shape wrong in two ways. It never asked
+   * whether the casualty could walk, which is the algorithm's first and most
+   * decisive question, and it treated a pulse over 120 as Immediate, which is
+   * not a START criterion at all — the perfusion check is capillary refill over
+   * two seconds *or* an absent radial pulse.
+   */
+  const previewSTARTCategory = (vitals: MCIPatient['vitals']): TriageCategory | null => {
+    const start = catalog?.start_triage;
+    if (!start) return null;
+    const { respiratory_rate_immediate_above, capillary_refill_immediate_above_secs } = start;
+
+    if (vitals.ambulatory) return 'minor';
+    if (vitals.respiratoryRate === 0) return 'deceased';
+    if (vitals.respiratoryRate > respiratory_rate_immediate_above) return 'immediate';
+    if (vitals.capRefill > capillary_refill_immediate_above_secs) return 'immediate';
+    if (vitals.pulse === 0) return 'immediate';
+    if (vitals.mentalStatus !== 'alert') return 'immediate';
     return 'delayed';
   };
 
   const addPatient = () => {
     const tagNum = `MCI-${tagCounter.toString().padStart(4, '0')}`;
-    const category = calculateSTARTCategory(newPatient.vitals!);
+    // The board shows this until the incident is filed; the server's category
+    // replaces it on save. `immediate` is the fallback when the catalog has not
+    // loaded, because over-triage costs a transport slot and under-triage costs
+    // the casualty.
+    const category = previewSTARTCategory(newPatient.vitals!) ?? 'immediate';
     
     const patient: MCIPatient = {
       id: `P-${Date.now()}`,
@@ -235,7 +272,7 @@ export default function MCIPage() {
       gender: 'unknown',
       chiefComplaint: '',
       injuries: [],
-      vitals: { respiratoryRate: 16, pulse: 80, capRefill: 2, mentalStatus: 'alert' },
+      vitals: { ambulatory: false, respiratoryRate: 16, pulse: 80, capRefill: 2, mentalStatus: 'alert' },
       location: '',
       destination: '',
       notes: ''
@@ -278,22 +315,45 @@ export default function MCIPage() {
     setError('');
 
     try {
+      // The incident and its casualty board, as the API reads them. The old
+      // payload wrapped everything in `mci_id` / `documented_by` / a
+      // `category_counts` the server recomputes, and the handler — which read
+      // flat top-level keys — matched none of it. What got written was one row
+      // for a nameless incident of type `natural_disaster` with a single `red`
+      // casualty who did not exist, and the whole board was dropped.
+      //
+      // `category` is still sent per casualty, but as an *override*: the server
+      // scores START itself and stores both, so the record shows the decision
+      // that was made and the algorithm it departed from.
       const mciData = {
-        mci_id: `MCI-${Date.now()}`,
-        incident: {
-          ...incident,
-          total_patients: patients.length,
-          category_counts: counts
-        },
-        patients: patients.map(p => ({
-          ...p,
-          documented_by: user?.userId
+        incident,
+        patients: patients.map((p) => ({
+          tagNumber: p.tagNumber,
+          age: p.age,
+          gender: p.gender,
+          chiefComplaint: p.chiefComplaint,
+          injuries: p.injuries,
+          vitals: p.vitals,
+          location: p.location,
+          destination: p.destination,
+          triageTime: p.triageTime,
+          notes: p.notes,
+          category: p.category,
         })),
-        documented_by: user?.userId || 'unknown',
-        documented_at: Math.floor(Date.now() / 1000)
       };
 
-      await createMci(mciData);
+      const saved = await createMci(mciData);
+      // Adopt the server's triage. If it disagrees with the board, the record
+      // is the one that matters and the responder should see it before the
+      // patients move.
+      setPatients((prev) =>
+        prev.map((patient) => {
+          const scored = saved.triage.find((row) => row.tag_number === patient.tagNumber);
+          return scored
+            ? { ...patient, category: scored.triage_category as TriageCategory }
+            : patient;
+        }),
+      );
       setSuccess(true);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -308,7 +368,7 @@ export default function MCIPage() {
     <div className="min-h-screen bg-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header - Alert Banner */}
-        <div className="bg-gradient-to-r from-red-700 to-orange-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full animate-pulse">
@@ -316,11 +376,11 @@ export default function MCIPage() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">{t('docMCI.title')}</h1>
-                <p className="text-orange-100">{t('docMCI.subtitle')}</p>
+                <p className="text-white">{t('docMCI.subtitle')}</p>
               </div>
             </div>
             <div className="text-right text-white">
-              <p className="text-sm opacity-75">{t('docMCI.totalPatients')}</p>
+              <p className="text-sm">{t('docMCI.totalPatients')}</p>
               <p className="text-4xl font-bold">{patients.length}</p>
             </div>
           </div>
@@ -330,8 +390,8 @@ export default function MCIPage() {
         <div className="grid grid-cols-5 gap-2 mb-6">
           {triageCategories.map(cat => (
             <div key={cat.value} className={`${cat.bgColor} rounded-lg p-4 text-center`}>
-              <p className="text-white text-4xl font-bold">{counts[cat.value] || 0}</p>
-              <p className="text-white/90 text-sm font-medium">{cat.label}</p>
+              <p className={`${cat.summaryFg} text-4xl font-bold`}>{counts[cat.value] || 0}</p>
+              <p className={`${cat.summaryFg} text-sm font-medium`}>{cat.label}</p>
             </div>
           ))}
         </div>
@@ -395,13 +455,35 @@ export default function MCIPage() {
                 {showAddPatient && (
                   <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-notice">
                     <h3 className="text-lg font-bold mb-4 flex items-center">
-                      <Tag className="h-5 w-5 mr-2 text-blue-500" />
+                      <Tag className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                       {t('docMCI.newPatientTagHeading', { num: tagCounter.toString().padStart(4, '0') })}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {/* Quick Vitals for START */}
                       <div className="md:col-span-3 bg-caution-subtle p-4 rounded-lg">
                         <p className="font-medium text-caution-subtle-fg mb-3">{t('docMCI.startTriageVitalsLabel')}</p>
+                        {/* START asks this first, and the answer ends the
+                            algorithm: anyone who can walk is Minor, whatever
+                            their vitals say. The page used to skip the question
+                            entirely — a comment in the old in-browser START
+                            implementation read "we assume non-ambulatory if
+                            triaging" — so every walking-wounded casualty was
+                            triaged as if they could not walk, which in a real
+                            incident spends a transport slot on someone who does
+                            not need one. */}
+                        <label className="flex items-center gap-2 mb-3 text-sm font-medium text-caution-subtle-fg cursor-pointer">
+                          <input
+                            id="mci-ambulatory"
+                            type="checkbox"
+                            checked={newPatient.vitals?.ambulatory ?? false}
+                            onChange={(e) => setNewPatient({
+                              ...newPatient,
+                              vitals: { ...newPatient.vitals!, ambulatory: e.target.checked }
+                            })}
+                            className="h-4 w-4 rounded border-border-interactive"
+                          />
+                          {t('docMCI.ambulatoryLabel')}
+                        </label>
                         <div className="grid grid-cols-4 gap-4">
                           <div>
                             <label htmlFor="mci-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.respiratoryRateLabel')}</label>
@@ -524,7 +606,7 @@ export default function MCIPage() {
                               }}
                               className={`text-xs px-2 py-1 rounded ${
                                 newPatient.injuries?.includes(injury)
-                                  ? 'bg-red-500 text-white'
+                                  ? 'bg-red-700 text-white'
                                   : 'bg-surface-sunken text-content-secondary'
                               }`}
                             >
@@ -563,7 +645,7 @@ export default function MCIPage() {
                     <div key={cat.value} className="mb-6">
                       <div className={`${cat.bgColor} text-white px-4 py-2 rounded-t-lg flex items-center justify-between`}>
                         <span className="font-bold">{cat.label} ({categoryPatients.length})</span>
-                        <span className="text-sm opacity-75">{cat.description}</span>
+                        <span className="text-sm">{cat.description}</span>
                       </div>
                       <div className="bg-surface-sunken rounded-b-lg border border-t-0">
                         {categoryPatients.map(patient => (
@@ -650,7 +732,7 @@ export default function MCIPage() {
                       value={incident.incidentName}
                       onChange={(e) => setIncident({ ...incident, incidentName: e.target.value })}
                       placeholder={t('docMCI.incidentNamePh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                       required
                     />
                   </div>
@@ -660,7 +742,7 @@ export default function MCIPage() {
                       id="mci-incident-type"
                       value={incident.incidentType}
                       onChange={(e) => setIncident({ ...incident, incidentType: e.target.value })}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     >
                       <option value="">{t('docMCI.selectTypePh')}</option>
                       {incidentTypes.map(type => (
@@ -669,7 +751,7 @@ export default function MCIPage() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label htmlFor="mci-location" className="flex items-center text-sm font-medium text-content-secondary mb-1">
+                    <label htmlFor="mci-location" className="flex items-center text-sm font-medium text-content-secondary mb-1 min-h-[24px] py-1">
                       <MapPin className="h-4 w-4 mr-1" /> {t('docMCI.locationLabel')}
                     </label>
                     <input
@@ -678,7 +760,7 @@ export default function MCIPage() {
                       value={incident.location}
                       onChange={(e) => setIncident({ ...incident, location: e.target.value })}
                       placeholder={t('docMCI.locationPh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
@@ -690,7 +772,7 @@ export default function MCIPage() {
                       type="datetime-local"
                       value={incident.startTime}
                       onChange={(e) => setIncident({ ...incident, startTime: e.target.value })}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
@@ -702,7 +784,7 @@ export default function MCIPage() {
                       type="number"
                       value={incident.estimatedCasualties}
                       onChange={(e) => setIncident({ ...incident, estimatedCasualties: parseInt(e.target.value) })}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
@@ -715,7 +797,7 @@ export default function MCIPage() {
                       value={incident.commandPost}
                       onChange={(e) => setIncident({ ...incident, commandPost: e.target.value })}
                       placeholder={t('docMCI.commandPostLocationPh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
@@ -728,7 +810,7 @@ export default function MCIPage() {
                       value={incident.incidentCommander}
                       onChange={(e) => setIncident({ ...incident, incidentCommander: e.target.value })}
                       placeholder={t('docMCI.incidentCommanderPh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
@@ -741,7 +823,7 @@ export default function MCIPage() {
                       value={incident.contactNumber}
                       onChange={(e) => setIncident({ ...incident, contactNumber: e.target.value })}
                       placeholder={t('docMCI.contactNumberPh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                 </div>
@@ -765,7 +847,7 @@ export default function MCIPage() {
                             setIncident({ ...incident, resourcesRequested: incident.resourcesRequested.filter(r => r !== resource) });
                           }
                         }}
-                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500 h-5 w-5"
+                        className="rounded border-border-interactive text-content-secondary focus:ring-orange-500 h-5 w-5"
                       />
                       <span className="font-medium text-content-secondary">{t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}</span>
                     </label>
@@ -800,7 +882,7 @@ export default function MCIPage() {
             <button
               type="submit"
               disabled={isSubmitting || patients.length === 0}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

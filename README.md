@@ -8,9 +8,10 @@
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 MediChain is a national health-ID and emergency medical records system for African
-healthcare. Patients control who reads their records through blockchain-verified
-consent; first responders get the handful of facts that decide whether someone
-lives, without waiting on a network or a login.
+healthcare. Patient consent and role enforcement are durable PostgreSQL controls;
+the blockchain anchors emergency-capsule commitments and audit evidence when a
+qualified chain is configured. First responders get the handful of facts that
+decide whether someone lives, without waiting on a network or a login.
 
 > **Origin:** Rust Africa Hackathon 2026 (2nd place). Now being engineered toward
 > production, including a formal POPIA legal review and a multi-week internal
@@ -165,8 +166,9 @@ Migrations run on boot. The isolated compose project is deliberately separate
 from any local dev stack — distinct container names, volume, credentials, and
 loopback-only port `55432`.
 
-> **Port note:** the API defaults to 8080, which collides with the IPFS gateway.
-> The Postgres script uses 8091 to avoid the ambiguity.
+> **Port note:** the standalone API defaults to 8090. Port 8080 is reserved for
+> the IPFS gateway. The isolated PostgreSQL script uses 8091 so it cannot be
+> mistaken for the ordinary local API.
 
 ### Frontend
 

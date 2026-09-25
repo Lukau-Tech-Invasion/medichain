@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ClipboardList,
@@ -17,9 +17,6 @@ import {
   Activity,
   RefreshCw,
   ArrowRight,
-  Heart,
-  Brain,
-  Shield,
   Stethoscope
 } from 'lucide-react';
 
@@ -57,15 +54,19 @@ interface Intervention {
   notes?: string;
 }
 
-interface _CarePlan {
+
+/** Compact representation returned by the emergency care-plan register. */
+type CarePlanSummary = {
   id: string;
-  patientId: string;
-  diagnoses: NursingDiagnosis[];
-  goals: Goal[];
-  interventions: Intervention[];
-  createdAt: string;
-  updatedAt: string;
-  createdBy: string;
+  patient_id?: string;
+  status?: string;
+  created_at?: string;
+};
+
+function formatCarePlanDate(value?: string): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString();
 }
 
 export default function CarePlanPage() {
@@ -82,7 +83,7 @@ export default function CarePlanPage() {
   const [activeTab, setActiveTab] = useState<'diagnoses' | 'goals' | 'interventions' | 'summary'>('diagnoses');
 
   // Care plan list
-  const [carePlans, setCarePlans] = useState<Array<{id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number}>>([]);
+  const [carePlans, setCarePlans] = useState<CarePlanSummary[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
 
   // Care plan data
@@ -160,16 +161,8 @@ export default function CarePlanPage() {
     const fetchCarePlans = async () => {
       setPlansLoading(true);
       try {
-        const res = await fetch(apiUrl('/api/nursing/care-plans'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Nurse',
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCarePlans(Array.isArray(data) ? data : (data.care_plans || data.plans || []));
-        }
+        const data = await getApiClient().get<CarePlanSummary[]>('/api/emergency/care-plan/list');
+        setCarePlans(data);
       } catch (err) {
         console.error('Failed to fetch care plans:', err);
       } finally {
@@ -189,24 +182,15 @@ export default function CarePlanPage() {
 
   const getStatusColor = (status: GoalStatus) => {
     switch (status) {
-      case 'met': return 'bg-green-500 text-white';
+      case 'met': return 'bg-green-700 text-white';
       case 'partially-met': return 'bg-caution text-white';
-      case 'in-progress': return 'bg-blue-500 text-white';
-      case 'not-met': return 'bg-red-500 text-white';
-      case 'revised': return 'bg-purple-500 text-white';
+      case 'in-progress': return 'bg-blue-600 text-white';
+      case 'not-met': return 'bg-red-700 text-white';
+      case 'revised': return 'bg-purple-700 text-white';
       default: return 'bg-gray-300 text-content-secondary';
     }
   };
 
-  const _getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'Safety': return <Shield className="h-4 w-4" />;
-      case 'Cardiac': return <Heart className="h-4 w-4" />;
-      case 'Cognition': return <Brain className="h-4 w-4" />;
-      case 'Activity': return <Activity className="h-4 w-4" />;
-      default: return <Stethoscope className="h-4 w-4" />;
-    }
-  };
 
   const addDiagnosis = () => {
     if (!newDiagnosis.diagnosis) return;
@@ -304,7 +288,7 @@ export default function CarePlanPage() {
         diagnoses,
         goals,
         interventions,
-        created_by: user?.userId || 'unknown',
+        created_by: user?.userId,
         created_at: Math.floor(Date.now() / 1000),
         updated_at: Math.floor(Date.now() / 1000)
       };
@@ -324,7 +308,7 @@ export default function CarePlanPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-teal-600 to-cyan-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-teal-700 to-cyan-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -332,7 +316,7 @@ export default function CarePlanPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docCarePlan.title')}</h1>
-                <p className="text-teal-100">{t('docCarePlan.subtitle')}</p>
+                <p className="text-white">{t('docCarePlan.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -362,7 +346,7 @@ export default function CarePlanPage() {
         {carePlans.length > 0 && (
           <div className="bg-surface rounded-lg shadow mb-6 p-4">
             <h2 className="font-bold text-content mb-3 flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-teal-500" />
+              <ClipboardList className="h-5 w-5 text-brand" />
               {t('docCarePlan.recentCarePlansTitle')}
               {plansLoading && <span className="text-sm text-content-muted ml-2">{t('docCarePlan.loading')}</span>}
             </h2>
@@ -390,7 +374,7 @@ export default function CarePlanPage() {
                           {t(`docCarePlan.status_${plan.status || 'active'}`)}
                         </span>
                       </td>
-                      <td className="px-4 py-2">{plan.created_at ? new Date(plan.created_at * 1000).toLocaleDateString() : '-'}</td>
+                      <td className="px-4 py-2">{formatCarePlanDate(plan.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -404,7 +388,7 @@ export default function CarePlanPage() {
           <div className="lg:col-span-1">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-bold text-content mb-4 flex items-center">
-                <User className="h-5 w-5 mr-2 text-teal-500" />
+                <User className="h-5 w-5 mr-2 text-brand" />
                 {t('docCarePlan.selectPatientTitle')}
               </h2>
               <div className="relative mb-4">
@@ -414,7 +398,7 @@ export default function CarePlanPage() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docCarePlan.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div className="max-h-96 overflow-y-auto space-y-2">
@@ -508,7 +492,7 @@ export default function CarePlanPage() {
                         <h2 className="text-xl font-bold text-content">{t('docCarePlan.diagnosesTitle')}</h2>
                         <button
                           onClick={() => setShowAddDiagnosis(true)}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addDiagnosisBtn')}</span>
@@ -525,7 +509,7 @@ export default function CarePlanPage() {
                                 id="careplan-diagnosis"
                                 value={newDiagnosis.diagnosis}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, diagnosis: e.target.value })}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectDiagnosis')}</option>
                                 {commonDiagnoses.map(cat => (
@@ -545,7 +529,7 @@ export default function CarePlanPage() {
                                 value={newDiagnosis.relatedTo}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, relatedTo: e.target.value })}
                                 placeholder={t('docCarePlan.relatedToPh')}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                             <div>
@@ -556,7 +540,7 @@ export default function CarePlanPage() {
                                 value={newDiagnosis.evidencedBy}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, evidencedBy: e.target.value })}
                                 placeholder={t('docCarePlan.evidencedByPh')}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                             <fieldset>
@@ -586,7 +570,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addDiagnosis}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addDiagnosisBtn')}
                             </button>
@@ -644,7 +628,7 @@ export default function CarePlanPage() {
                         <button
                           onClick={() => setShowAddGoal(true)}
                           disabled={diagnoses.length === 0}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addGoalBtn')}</span>
@@ -668,7 +652,7 @@ export default function CarePlanPage() {
                                 id="careplan-goal-diagnosis"
                                 value={newGoal.diagnosisId}
                                 onChange={(e) => setNewGoal({ ...newGoal, diagnosisId: e.target.value })}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectDiagnosis')}</option>
                                 {diagnoses.map(dx => (
@@ -684,7 +668,7 @@ export default function CarePlanPage() {
                                 onChange={(e) => setNewGoal({ ...newGoal, description: e.target.value })}
                                 placeholder={t('docCarePlan.goalDescriptionPh')}
                                 rows={2}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                             <div>
@@ -695,7 +679,7 @@ export default function CarePlanPage() {
                                 value={newGoal.measurableOutcome}
                                 onChange={(e) => setNewGoal({ ...newGoal, measurableOutcome: e.target.value })}
                                 placeholder={t('docCarePlan.measurableOutcomePh')}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                             <div>
@@ -705,7 +689,7 @@ export default function CarePlanPage() {
                                 type="date"
                                 value={newGoal.targetDate}
                                 onChange={(e) => setNewGoal({ ...newGoal, targetDate: e.target.value })}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                           </div>
@@ -718,7 +702,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addGoal}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addGoalBtn')}
                             </button>
@@ -788,7 +772,7 @@ export default function CarePlanPage() {
                         <button
                           onClick={() => setShowAddIntervention(true)}
                           disabled={goals.length === 0}
-                          className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                          className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           <Plus className="h-5 w-5" />
                           <span>{t('docCarePlan.addInterventionBtn')}</span>
@@ -812,7 +796,7 @@ export default function CarePlanPage() {
                                 id="careplan-intervention-goal"
                                 value={newIntervention.goalId}
                                 onChange={(e) => setNewIntervention({ ...newIntervention, goalId: e.target.value })}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectGoal')}</option>
                                 {goals.map(g => (
@@ -828,7 +812,7 @@ export default function CarePlanPage() {
                                 onChange={(e) => setNewIntervention({ ...newIntervention, description: e.target.value })}
                                 placeholder={t('docCarePlan.interventionPh')}
                                 rows={2}
-                                className="w-full p-3 border border-border-strong rounded-lg"
+                                className="w-full p-3 border border-border-interactive rounded-lg"
                               />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -838,7 +822,7 @@ export default function CarePlanPage() {
                                   id="careplan-intervention-frequency"
                                   value={newIntervention.frequency}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, frequency: e.target.value })}
-                                  className="w-full p-3 border border-border-strong rounded-lg"
+                                  className="w-full p-3 border border-border-interactive rounded-lg"
                                 >
                                   <option value="">{t('docCarePlan.selectFrequency')}</option>
                                   {frequencies.map(f => (
@@ -852,7 +836,7 @@ export default function CarePlanPage() {
                                   id="careplan-responsible-party"
                                   value={newIntervention.responsibleParty}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, responsibleParty: e.target.value })}
-                                  className="w-full p-3 border border-border-strong rounded-lg"
+                                  className="w-full p-3 border border-border-interactive rounded-lg"
                                 >
                                   <option value="">{t('docCarePlan.selectOption')}</option>
                                   <option value="RN">RN</option>
@@ -874,7 +858,7 @@ export default function CarePlanPage() {
                             </button>
                             <button
                               onClick={addIntervention}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                              className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
                               {t('docCarePlan.addInterventionBtn')}
                             </button>
@@ -892,7 +876,7 @@ export default function CarePlanPage() {
                                   {t('docCarePlan.forPrefix', { value: relatedGoal?.description.slice(0, 40) || t('docCarePlan.unknownGoal') })}...
                                 </p>
                                 <p className="font-medium text-content">{int.description}</p>
-                                <div className="flex items-center space-x-4 mt-2 text-sm text-content-muted">
+                                <div className="flex items-center space-x-4 mt-2 text-sm text-content-muted min-h-[24px] py-1">
                                   <span><Clock className="h-4 w-4 inline mr-1" />{int.frequency}</span>
                                   <span><User className="h-4 w-4 inline mr-1" />{int.responsibleParty}</span>
                                 </div>
@@ -945,7 +929,7 @@ export default function CarePlanPage() {
                               return (
                                 <div key={goal.id} className="ml-4 mb-4">
                                   <div className="flex items-center space-x-2 mb-2">
-                                    <ArrowRight className="h-4 w-4 text-teal-500" />
+                                    <ArrowRight className="h-4 w-4 text-brand" />
                                     <span className="font-medium">{goal.description}</span>
                                     <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(goal.status)}`}>
                                       {t(`docCarePlan.goalStatus_${goal.status}`)}
@@ -953,7 +937,7 @@ export default function CarePlanPage() {
                                   </div>
                                   <div className="ml-6 space-y-1">
                                     {goalInts.map(int => (
-                                      <div key={int.id} className="flex items-center text-sm text-content-muted">
+                                      <div key={int.id} className="flex items-center text-sm text-content-muted min-h-[24px] py-1">
                                         <CheckCircle2 className="h-4 w-4 mr-2 text-teal-400" />
                                         {int.description} ({int.frequency})
                                       </div>
@@ -980,7 +964,7 @@ export default function CarePlanPage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting || diagnoses.length === 0}
-                    className="bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center"
+                    className="bg-teal-700 text-white px-6 py-3 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -998,7 +982,7 @@ export default function CarePlanPage() {
               </div>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
-                <ClipboardList className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <ClipboardList className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                 <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docCarePlan.selectPatientEmptyTitle')}</h2>
                 <p className="text-content-muted">{t('docCarePlan.selectPatientEmptyHint')}</p>
               </div>

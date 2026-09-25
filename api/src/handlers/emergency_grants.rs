@@ -36,35 +36,30 @@ fn provider_and_device(
 ) -> Result<(String, String, Option<String>), HttpResponse> {
     let user_id = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required for emergency access".into(),
             code: "UNAUTHORIZED".into(),
         })
     })?;
     let user = get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".into(),
             code: "USER_NOT_FOUND".into(),
         })
     })?;
     if !user.role.is_healthcare_provider() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can request emergency access".into(),
             code: "INSUFFICIENT_ROLE".into(),
         }));
     }
     let device = data.device_lifecycle.get(device_id).ok_or_else(|| {
         HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Approved device not found".into(),
             code: "DEVICE_NOT_FOUND".into(),
         })
     })?;
     if !data.device_lifecycle.can_access(device_id, Utc::now()) {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Device is not approved for emergency access".into(),
             code: "DEVICE_NOT_APPROVED".into(),
         }));
@@ -84,41 +79,86 @@ pub async fn issue_emergency_grant(
             Ok(values) => values,
             Err(response) => return response,
         };
-    match data.emergency_grants.issue(
-        crate::emergency_grants::EmergencyGrantBinding {
-            patient_id: body.patient_id.clone(),
-            person_id,
-            organization_id,
-            facility_id,
-            device_id: body.device_id.clone(),
-        },
-        body.reason_code.clone(),
-        body.reason_text.clone(),
-        body.scopes.clone(),
-        Utc::now(),
-    ) {
-        Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                "emergency_grant_issued".into(),
-                "emergency_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-                Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+    match data
+        .emergency_grants
+        .issue_with_audit(
+            crate::emergency_grants::EmergencyGrantBinding {
+                patient_id: body.patient_id.clone(),
+                person_id,
+                organization_id,
+                facility_id,
+                device_id: body.device_id.clone(),
+            },
+            crate::emergency_grants::AuditedEmergencyGrantRequest {
+                reason_code: body.reason_code.clone(),
+                reason_text: body.reason_text.clone(),
+                scopes: body.scopes.clone(),
+                event_type: "emergency_grant_issued".into(),
+                payload: serde_json::json!({"device_id": body.device_id}),
+                now: Utc::now(),
+            },
+        )
+        .await
+    {
+        Ok((grant, event)) => {
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Created().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "EMERGENCY_GRANT_REJECTED".into(),
         }),
+    }
+}
+
+/// Every emergency grant issued recently.
+///
+/// # Why this exists
+///
+/// A grant could be read only as `GET /api/emergency/grants/{id}` -- an id
+/// nobody holds unless they issued it -- so an administrator had no way to
+/// answer "who is inside a record right now", and the revoke endpoint was
+/// effectively unreachable because finding the grant required already knowing
+/// its id. Break-glass access that cannot be reviewed or cut short is not
+/// oversight; it is a log nobody reads.
+///
+/// Administrators only. This is the whole deployment's break-glass activity,
+/// which names patients and the clinicians who opened their records; a
+/// clinician reviewing their own grants is a different, narrower question than
+/// the one this answers.
+///
+/// Revoked and expired grants are included. "Who has emergency access" and
+/// "who had it" are the same question during an incident review, and dropping
+/// the closed ones hides exactly the history an audit is looking for.
+#[get("/api/emergency/grants")]
+pub async fn list_emergency_grants(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    if current_user.role != Role::Admin {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only an administrator may review emergency access grants".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data.emergency_grants.list_recent(200).await {
+        Ok(grants) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "grants": grants,
+            "count": grants.len(),
+        })),
+        Err(message) => {
+            log::error!("emergency grant listing failed: {message}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: message.to_string(),
+                code: "GRANT_STORE_UNAVAILABLE".to_string(),
+            })
+        }
     }
 }
 
@@ -133,23 +173,24 @@ pub async fn get_emergency_grant(
         Some(value) => value,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required".into(),
                 code: "UNAUTHORIZED".into(),
             })
         }
     };
-    match data.emergency_grants.get(&path.into_inner()) {
-        Some(grant) if grant.requesting_person_id == user_id => HttpResponse::Ok().json(grant),
-        Some(_) => HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
+    match data.emergency_grants.get(&path.into_inner()).await {
+        Ok(Some(grant)) if grant.requesting_person_id == user_id => HttpResponse::Ok().json(grant),
+        Ok(Some(_)) => HttpResponse::Forbidden().json(ErrorResponse {
             error: "Emergency grant belongs to another professional".into(),
             code: "GRANT_OWNER_MISMATCH".into(),
         }),
-        None => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
+        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "Emergency grant not found".into(),
             code: "GRANT_NOT_FOUND".into(),
+        }),
+        Err(_) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Emergency grant store is unavailable".into(),
+            code: "STORE_UNAVAILABLE".into(),
         }),
     }
 }
@@ -166,19 +207,23 @@ pub async fn revoke_emergency_grant(
         Some(value) => value,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Authentication required".into(),
                 code: "UNAUTHORIZED".into(),
             })
         }
     };
-    let existing = match data.emergency_grants.get(&path.into_inner()) {
-        Some(grant) => grant,
-        None => {
+    let existing = match data.emergency_grants.get(&path.into_inner()).await {
+        Ok(Some(grant)) => grant,
+        Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Emergency grant not found".into(),
                 code: "GRANT_NOT_FOUND".into(),
+            })
+        }
+        Err(_) => {
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Emergency grant store is unavailable".into(),
+                code: "STORE_UNAVAILABLE".into(),
             })
         }
     };
@@ -187,34 +232,28 @@ pub async fn revoke_emergency_grant(
         .unwrap_or(false);
     if existing.requesting_person_id != user_id && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the grant owner or an administrator can revoke this grant".into(),
             code: "GRANT_REVOKE_FORBIDDEN".into(),
         });
     }
     match data
         .emergency_grants
-        .revoke(&existing.id, body.reason.clone(), Utc::now())
+        .revoke_with_audit(
+            &existing.id,
+            body.reason.clone(),
+            "emergency_grant_revoked".into(),
+            serde_json::json!({"organization_id": existing.organization_id, "device_id": existing.device_id}),
+            Utc::now(),
+        )
+        .await
     {
-        Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                "emergency_grant_revoked".into(),
-                "emergency_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-                Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+        Ok((grant, event)) => {
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: error.into(),
             code: "GRANT_REVOCATION_REJECTED".into(),
         }),

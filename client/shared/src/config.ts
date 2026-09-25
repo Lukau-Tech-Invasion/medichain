@@ -14,16 +14,32 @@
 /**
  * Environment mode detection
  */
-export const IS_DEVELOPMENT = import.meta.env?.DEV ?? true;
-export const IS_PRODUCTION = import.meta.env?.PROD ?? false;
+/**
+ * Development mode.
+ *
+ * Defaults to **false**, not true. This gates `DEMO_WALLET_GENERATION`,
+ * `NFC_SIMULATION` and the demo-wallet branch of both auth stores — controls
+ * that mint an identity — so the question it answers is "may this build hand
+ * out a session without a real credential". A gate on that question has to
+ * fail closed.
+ *
+ * It previously read `?? true`, so any context where `import.meta.env` is
+ * absent — a non-Vite bundler, SSR, a test harness, an embedded webview —
+ * silently became a development build with the demo-identity paths switched
+ * on. Vite defines `DEV` explicitly in a real dev server, so nothing about
+ * ordinary development changes.
+ */
+export const IS_DEVELOPMENT = import.meta.env?.DEV ?? false;
+export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
 
 /**
- * Demo mode. When enabled, pages may fall back to bundled sample/demo data for
- * features that don't have real backend wiring yet. Driven by the
- * `VITE_DEMO_MODE` env var and defaults to **false**, so production builds never
- * surface fabricated data to clinicians or patients.
+ * Explicit build-time opt-in for the local presentation stack's seeded
+ * credential buttons. The server independently refuses the credentials unless
+ * it is both a demo deployment and in developer mode, so this flag cannot
+ * create a sign-in path on its own.
  */
-export const IS_DEMO = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
+const DEMO_CREDENTIALS_ENABLED =
+  (import.meta.env?.VITE_DEMO_CREDENTIALS_ENABLED ?? 'false') === 'true';
 
 /**
  * Detect the best API URL based on environment
@@ -91,7 +107,16 @@ export const API_CONFIG = {
   /** WebSocket URL for Substrate node */
   SUBSTRATE_WS_URL: detectSubstrateWsUrl(),
   
-  /** Health check endpoint */
+  /**
+   * Health check endpoint.
+   *
+   * `/api/health`, not `/health`: a browser only ever reaches the API through
+   * the one path prefix each deployment proxies — nginx has `location /api/`,
+   * the Vite dev server proxies `/api`. `/health` exists on the API for
+   * orchestration probes, but from a page it resolved to nginx's 404 and to the
+   * dev server's own `index.html` (a 200, so "healthy" whatever the API was
+   * doing). The API answers this path too; see `api_health_check`.
+   */
   HEALTH_ENDPOINT: '/api/health',
 };
 
@@ -103,7 +128,7 @@ export const FEATURES = {
   WALLET_CONNECT: true,
   
   /** Allow demo wallet generation (for testing) */
-  DEMO_WALLET_GENERATION: IS_DEVELOPMENT,
+  DEMO_WALLET_GENERATION: IS_DEVELOPMENT || DEMO_CREDENTIALS_ENABLED,
   
   /** Log debug information */
   DEBUG_LOGGING: IS_DEVELOPMENT,
@@ -218,15 +243,6 @@ export const setProviderAuth = (data: { address: string; role: string; name: str
   localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: data.address, role: data.role }));
 };
 
-/**
- * Clear all auth data (logout)
- */
-export const clearAuth = (): void => {
-  localStorage.removeItem(STORAGE_KEYS.WALLET);
-  localStorage.removeItem(STORAGE_KEYS.PATIENT_AUTH);
-  localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
-};
-
 /** Clear only the clinician session and preserve a patient portal session. */
 export const clearProviderAuth = (): void => {
   localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
@@ -249,21 +265,9 @@ export const clearPatientAuth = (): void => {
   }
 };
 
-/**
- * Check if user is authenticated
- */
-export const isAuthenticated = (): boolean => {
-  return getConnectedWalletAddress() !== null;
-};
-
 // ============================================================================
 // CONNECTION HEALTH UTILITIES
 // ============================================================================
-
-/**
- * Connection status types
- */
-export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';
 
 /**
  * Check if the API server is reachable

@@ -18,6 +18,10 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  listDeathCertificates: vi.fn(),
+  createDeathCertificate: vi.fn(),
+  updateDeathCertificateDraft: vi.fn(),
+  fileDeathCertificate: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -41,10 +45,11 @@ describe('DeathCertificatePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listDeathCertificates).mockResolvedValue([]);
   });
 
   it('renders death certificate page', () => {
@@ -71,5 +76,41 @@ describe('DeathCertificatePage', () => {
     const input = screen.getByLabelText(/Immediate Cause/i);
     fireEvent.change(input, { target: { value: 'Septic Shock' } });
     expect(input).toHaveValue('Septic Shock');
+  });
+
+  it('reopens a draft with what it holds, and files that draft rather than a new certificate', async () => {
+    vi.mocked(shared.listDeathCertificates).mockResolvedValue([
+      {
+        certificate_id: 'DC-DRAFT-1',
+        patient_id: 'PAT-1',
+        status: 'draft',
+        deceased_name: 'Thabo Sipho Mokoena',
+        date_of_death: '2026-09-20',
+        place_of_death: 'Ward 3',
+        manner_of_death: 'natural',
+        cause_of_death: 'Myocardial infarction',
+        certifier_name: 'Dr Naidoo',
+        certifier_license: 'MP123',
+      },
+    ]);
+    vi.mocked(shared.updateDeathCertificateDraft).mockResolvedValue({ success: true, id: 'DC-DRAFT-1', status: 'draft' });
+    vi.mocked(shared.fileDeathCertificate).mockResolvedValue({ success: true, id: 'DC-DRAFT-1', status: 'filed' });
+    render(<DeathCertificatePage />);
+
+    fireEvent.click(await screen.findByTitle('Edit'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    // It used to open an empty form, and saving that overwrote the draft.
+    expect(screen.getByLabelText(/Immediate Cause/i)).toHaveValue('Myocardial infarction');
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    fireEvent.click(screen.getByText(/Click to add digital signature/i));
+    fireEvent.click(screen.getByRole('button', { name: /Sign & Submit/i }));
+
+    await waitFor(() => expect(shared.fileDeathCertificate).toHaveBeenCalledWith('DC-DRAFT-1'));
+    expect(shared.updateDeathCertificateDraft).toHaveBeenCalledWith(
+      'DC-DRAFT-1',
+      expect.objectContaining({ patient_id: 'PAT-1', deceased_name: 'Thabo Sipho Mokoena' }),
+    );
+    expect(shared.createDeathCertificate).not.toHaveBeenCalled();
   });
 });

@@ -19,7 +19,6 @@ pub async fn create_discharge_summary(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -28,7 +27,6 @@ pub async fn create_discharge_summary(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -187,12 +185,10 @@ pub async fn create_discharge_summary(
             "summary_id": summary_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -211,7 +207,6 @@ pub async fn get_discharge_summary(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -220,7 +215,6 @@ pub async fn get_discharge_summary(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -232,14 +226,18 @@ pub async fn get_discharge_summary(
         .get_by_id(&summary_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        Ok(entity) => {
+            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
+            // on every one of these entities, so on PostgreSQL it is always
+            // `Value::Null` — this endpoint returned a literal `null` with a
+            // 200 for every record ever saved. The typed columns are the record.
+            HttpResponse::Ok().json(entity)
+        }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge summary not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -253,7 +251,6 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -262,29 +259,41 @@ pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
+    // `get_by_patient("all", ...)` was a literal patient id.
+    //
+    // In memory that happened to behave like a wildcard; on PostgreSQL it is
+    // `WHERE patient_id = 'all'`, which matches nothing — so the discharge list
+    // was empty for every deployment that used a database, no matter how many
+    // summaries had been written. A summary that is stored and cannot be listed
+    // is a summary nobody signs.
     let pagination = Pagination::new(0, 100);
     match data
         .repositories
         .discharge_summaries
-        .get_by_patient("all", pagination)
+        .list_all(pagination)
         .await
     {
         Ok(result) => {
-            let discharge_list: Vec<serde_json::Value> =
-                result.items.into_iter().map(|e| e.data).collect();
+            // The stored records, not `e.data`. `data` is the payload the
+            // screen composed, and the screen does not know the id -- that is
+            // server-assigned. So every row in this list arrived without one,
+            // React keyed the list on `undefined` and warned about duplicate
+            // keys, and the approve and export actions had no id to act on.
+            //
+            // The single-record reads on this file already learned this
+            // (`get_discharge_summary`, `get_discharge_instructions`); the list
+            // was missed. The typed columns are the record.
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "discharges": discharge_list
+                "discharges": result.items
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -304,7 +313,6 @@ pub async fn approve_discharge(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -313,7 +321,6 @@ pub async fn approve_discharge(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -350,19 +357,16 @@ pub async fn approve_discharge(
                     "signed_by": current_user.wallet_address
                 })),
                 Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: e.to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 }),
             }
         }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge summary not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -380,7 +384,6 @@ pub async fn create_discharge_instructions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -389,7 +392,6 @@ pub async fn create_discharge_instructions(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -533,12 +535,10 @@ pub async fn create_discharge_instructions(
             "instructions_id": instructions_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -557,7 +557,6 @@ pub async fn get_discharge_instructions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -566,7 +565,6 @@ pub async fn get_discharge_instructions(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -578,14 +576,18 @@ pub async fn get_discharge_instructions(
         .get_by_id(&instructions_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        Ok(entity) => {
+            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
+            // on every one of these entities, so on PostgreSQL it is always
+            // `Value::Null` — this endpoint returned a literal `null` with a
+            // 200 for every record ever saved. The typed columns are the record.
+            HttpResponse::Ok().json(entity)
+        }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Discharge instructions not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

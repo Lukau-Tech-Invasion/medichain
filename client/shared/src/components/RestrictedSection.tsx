@@ -7,6 +7,15 @@ interface RestrictedSectionProps {
   audience: string;
   /** The role the current user actually holds, when known. */
   currentRole?: string;
+  /**
+   * What to do about it, replacing the default "Ask an administrator".
+   *
+   * That default is wrong for exactly one reader: the administrator. Telling
+   * the person who grants access to go and ask for access is worse than saying
+   * nothing, and it is the case this component now meets most often, since the
+   * route guard refuses more screens to an administrator than to anyone else.
+   */
+  guidance?: string;
 }
 
 /**
@@ -18,7 +27,7 @@ interface RestrictedSectionProps {
  * the role that holds it is both kinder and less noisy than a silent empty
  * screen or a generic "failed to load".
  */
-export function RestrictedSection({ title, audience, currentRole }: RestrictedSectionProps) {
+export function RestrictedSection({ title, audience, currentRole, guidance }: RestrictedSectionProps) {
   return (
     <div className="p-8">
       <div
@@ -34,7 +43,7 @@ export function RestrictedSection({ title, audience, currentRole }: RestrictedSe
             {currentRole
               ? `You are signed in as ${currentRole}, which cannot open this section.`
               : 'Your role cannot open this section.'}{' '}
-            Ask an administrator if you need access.
+            {guidance ?? 'Ask an administrator if you need access.'}
           </p>
         </div>
       </div>

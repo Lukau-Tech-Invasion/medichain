@@ -18,6 +18,7 @@ const am_ET: TranslationRecord = {
     search: 'ፈልግ',
     filter: 'አጣራ',
     loading: 'በመጫን ላይ...',
+    saveFailed: 'ማስቀመጥ አልተቻለም። መዝገቡ አልተቀመጠም — እባክዎ እንደገና ይሞክሩ።',
     error: 'ስህተት',
     success: 'ተሳክቷል',
     warning: 'ማስጠንቀቂያ',

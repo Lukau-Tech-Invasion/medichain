@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PsychPage from './PsychPage';
+import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -30,11 +32,11 @@ describe('PsychPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
-    (shared.getPsychForPatient as any).mockResolvedValue({ assessments: [] });
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.getPsychForPatient).mockResolvedValue({ assessments: [] });
   });
 
   /**
@@ -46,10 +48,10 @@ describe('PsychPage', () => {
    * "no assessments on file" for a patient who has one.
    */
   it('renders a stored assessment in the History tab without crashing', async () => {
-    (shared.getPatients as any).mockResolvedValue([
-      { patient_id: 'PAT-001', full_name: 'Stored Patient' },
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientProfile({ full_name: 'Stored Patient' }),
     ]);
-    (shared.getPsychForPatient as any).mockResolvedValue({
+    vi.mocked(shared.getPsychForPatient).mockResolvedValue({
       assessments: [
         {
           assessment_id: 'PSYCH-1',
@@ -80,7 +82,7 @@ describe('PsychPage', () => {
       ],
     });
 
-    const { container } = render(<PsychPage />);
+    render(<PsychPage />);
 
     // Two chained fetches (roster, then history) with the suite running files
     // in parallel, so the 1s waitFor default is not reliably enough on a loaded
@@ -95,14 +97,8 @@ describe('PsychPage', () => {
     // option must exist before the change fires: the roster arrives from an
     // async fetch, and selecting a value the <select> does not yet offer is a
     // silent no-op.
-    const select = await waitFor(() => {
-      const el = container.querySelector<HTMLSelectElement>('#psych-patient');
-      if (!el?.querySelector('option[value="PAT-001"]')) {
-        throw new Error('patient roster not loaded yet');
-      }
-      return el;
-    }, slow);
-    fireEvent.change(select, { target: { value: 'PAT-001' } });
+    // The chooser is a searchable combobox; a test picks the way a person does.
+    await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
 
     // The tab, not the "Psychiatric History" section heading on the form.
     fireEvent.click(screen.getByRole('button', { name: 'History' }));

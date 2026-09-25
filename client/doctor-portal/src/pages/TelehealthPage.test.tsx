@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { selectPatient } from '../test/selectPatient';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TelehealthPage from './TelehealthPage';
 import { useAuthStore } from '../store/authStore';
@@ -32,7 +33,7 @@ describe('TelehealthPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
@@ -84,6 +85,38 @@ describe('TelehealthPage', () => {
     await waitFor(() =>
       expect(screen.getByText(/View Sessions for Patient ID/i)).toBeInTheDocument()
     );
-    expect(screen.getByPlaceholderText(/Enter patient ID/i)).toBeInTheDocument();
+    // The lookup is a searchable picker now; nobody types a patient id.
+    expect(screen.getByLabelText(/View Sessions for Patient/i)).toBeInTheDocument();
+  });
+
+  it('shows the QR a patient scans to join from their phone', async () => {
+    const respond = (body: unknown, status = 200) => Promise.resolve({
+      ok: status < 400,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(body),
+    });
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/patients')) {
+        return respond({ data: [{ patient_id: 'PAT-001', full_name: 'Sibusiso Ndlovu', health_id: 'HID-1', date_of_birth: '1980-01-01' }] });
+      }
+      if (url.includes('/qr')) {
+        return respond({ success: true, session_id: 'TS-001', join_url: 'https://patients.example.org/telehealth?session=TS-001&join=1', qr_png_base64: 'iVBORw0KGgo=' });
+      }
+      return respond({ sessions: [{
+        session_id: 'TS-001', patient_id: 'PAT-001', provider_id: '5GrwvaEF...mock',
+        scheduled_start: Math.floor(Date.now() / 1000), duration_minutes: 30,
+        session_type: 'consultation', status: 'scheduled', join_url: 'https://meet.example.invalid/TS-001',
+      }] });
+    });
+    render(<TelehealthPage />);
+
+    await selectPatient(/View Sessions for Patient/i, 'Sibusiso Ndlovu');
+    fireEvent.click(await screen.findByRole('button', { name: /Patient join QR/i }));
+
+    const panel = await screen.findByTestId('join-qr');
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=');
+    expect(panel.textContent).toContain('patients.example.org/telehealth?session=TS-001');
   });
 });

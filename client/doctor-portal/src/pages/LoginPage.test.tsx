@@ -11,7 +11,7 @@ vi.mock('../store', () => ({
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
-  const actual: any = await vi.importActual('react-router-dom');
+  const actual = await vi.importActual<Record<string, unknown>>('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -32,7 +32,7 @@ describe('LoginPage', () => {
   const mockClearError = vi.fn();
 
   function mockStore(overrides: Record<string, unknown> = {}) {
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       login: mockLogin,
       loginWithCredentials: mockLoginWithCredentials,
       loginWithExtension: mockLoginWithExtension,

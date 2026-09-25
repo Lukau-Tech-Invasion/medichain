@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { getDoctorDashboard, useTranslation, formatDateOnly } from '@medichain/shared';
 import { 
   Users, 
   AlertTriangle, 
@@ -193,7 +193,7 @@ function StatCard({
 function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout, restoreSession } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const { recentPatients, setRecentPatients } = usePatientStore();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,21 +210,33 @@ function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     
+    /**
+     * Read the dashboard through the shared client, not a bare `fetch`.
+     *
+     * Two things were wrong with the hand-rolled request. It sent only the
+     * legacy `X-User-Id` session headers, so it never carried the bearer token
+     * the rest of the app uses and never took the client's refresh-once-on-401
+     * path. And its 401 branch called `restoreSession()` and, when that failed,
+     * `logout()` -- but `restoreSession` fails closed **by design** (no access
+     * or refresh token is persisted, see the comment on it), so it can only
+     * ever fail, which made a single 401 on this one panel a forced sign-out.
+     *
+     * This runs on mount and then every 30 seconds, so a clinician reading a
+     * chart could be returned to the login screen by a request they never made,
+     * on a panel they were not looking at. Two browser suites caught it as
+     * "never reached /orders" and "never reached /splint" -- the same event,
+     * seen from the next page along.
+     *
+     * A 401 that survives the client's own refresh does mean the session is
+     * over, and the sign-in screen is then the honest answer.
+     */
     const fetchDashboard = async () => {
       try {
         setLoading(true);
         setError(null);
-        
-        const response = await fetch(apiUrl('/api/dashboard/doctor'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const data: DashboardResponse = await response.json();
+
+        const data = (await getDoctorDashboard()) as unknown as DashboardResponse;
+        {
           setDashboard(data);
           setApiConnected(true);
           
@@ -245,20 +257,15 @@ function DashboardPage() {
             }));
             setRecentPatients(mappedPatients);
           }
-        } else if (response.status === 401) {
-          // Session invalid - try to restore or logout
-          const restored = await restoreSession();
-          if (!restored) {
-            logout();
-            navigate('/login');
-          }
-          return;
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          setError(errData.error || `API Error: ${response.status}`);
-          setApiConnected(false);
         }
       } catch (err) {
+        // 401 after the client already tried its one refresh: the session is
+        // genuinely over. 403 is a role refusal on this panel, and is not.
+        if ((err as { status?: number })?.status === 401) {
+          logout();
+          navigate('/login');
+          return;
+        }
         setError(t('docDashboard.errorCannotConnect'));
         setApiConnected(false);
       } finally {
@@ -271,7 +278,7 @@ function DashboardPage() {
     // Refresh dashboard every 30 seconds
     const interval = setInterval(fetchDashboard, 30000);
     return () => clearInterval(interval);
-  }, [user, setRecentPatients]);
+  }, [user, setRecentPatients, logout, navigate, t]);
 
   return (
     <div className="p-8">
@@ -317,7 +324,7 @@ function DashboardPage() {
               </p>
             </div>
           </div>
-          <Link to="/alerts" className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle">
+          <Link to="/critical-value" className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle">
             {t('docDashboard.viewAlertsBtn')}
           </Link>
         </div>
@@ -360,14 +367,14 @@ function DashboardPage() {
         {/* Emergency Access Card */}
         <Link
           to="/emergency"
-          className="bg-gradient-to-r from-emergency-500 to-emergency-600 rounded-xl p-6 text-white hover:from-emergency-600 hover:to-emergency-700 transition-all group"
+          className="bg-gradient-to-r from-emergency-700 to-emergency-800 rounded-xl p-6 text-white hover:from-emergency-800 hover:to-emergency-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <Siren size={20} aria-hidden="true" /> {t('docDashboard.emergencyAccessTitle')}
               </h3>
-              <p className="text-emergency-100 text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.emergencyAccessDesc')}
               </p>
             </div>
@@ -378,14 +385,14 @@ function DashboardPage() {
         {/* Register Patient Card */}
         <Link
           to="/register"
-          className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl p-6 text-white hover:from-primary-600 hover:to-primary-700 transition-all group"
+          className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-xl p-6 text-white hover:from-primary-800 hover:to-primary-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <UserPlus size={20} aria-hidden="true" /> {t('docDashboard.registerPatientTitle')}
               </h3>
-              <p className="text-brand-fg text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.registerPatientDesc')}
               </p>
             </div>
@@ -396,14 +403,14 @@ function DashboardPage() {
         {/* Triage Card */}
         <Link
           to="/triage"
-          className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl p-6 text-white hover:from-amber-600 hover:to-orange-600 transition-all group"
+          className="bg-gradient-to-r from-amber-700 to-orange-800 rounded-xl p-6 text-white hover:from-amber-800 hover:to-orange-900 transition-all group"
         >
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <ClipboardList size={20} aria-hidden="true" /> {t('docDashboard.triageAssessmentTitle')}
               </h3>
-              <p className="text-amber-100 text-sm">
+              <p className="text-white text-sm">
                 {t('docDashboard.triageAssessmentDesc')}
               </p>
             </div>
@@ -474,21 +481,26 @@ function DashboardPage() {
             {dashboard.pending_lab_approvals.slice(0, 5).map((lab) => (
               <Link
                 key={lab.id}
-                to={`/lab-results?id=${lab.id}`}
+                // `/lab-review`, not `/lab-results`. This tile exists to say
+                // "these need your signature", and it linked to the read-only
+                // results view, where signing one off is not possible. The
+                // review queue had no screen at all until 2026-08-26, so the
+                // link had nowhere better to go; now it does.
+                to="/lab-review"
                 className="flex items-center justify-between p-4 hover:bg-caution-subtle transition-colors"
               >
                 <div>
                   <p className="font-medium text-content">{lab.patient_name}</p>
-                  <p className="text-sm text-content-muted">{lab.test_name}</p>
+                  <p className="text-sm text-caution-subtle-fg">{lab.test_name}</p>
                 </div>
-                <span className="text-xs text-content-muted">
-                  {new Date(lab.submitted_at).toLocaleDateString()}
+                <span className="text-xs text-caution-subtle-fg">
+                  {formatDateOnly(lab.submitted_at)}
                 </span>
               </Link>
             ))}
           </div>
           <div className="p-3 bg-caution-subtle rounded-b-xl">
-            <Link to="/lab-results" className="text-caution-subtle-fg text-sm font-medium flex items-center gap-1 justify-center">
+            <Link to="/lab-review" className="text-caution-subtle-fg text-sm font-medium flex items-center gap-1 justify-center min-h-[24px] py-1">
               {t('docDashboard.viewAllPendingLabs')} <ArrowRight size={14} />
             </Link>
           </div>
@@ -497,14 +509,14 @@ function DashboardPage() {
 
       {/* Recent Code Blues */}
       {dashboard?.recent_code_blues && dashboard.recent_code_blues.length > 0 && (
-        <div className="bg-notice-subtle border border-notice rounded-xl mb-8 dark:bg-slate-800 dark:border-slate-600">
-          <div className="p-4 border-b border-notice dark:border-slate-600">
+        <div className="bg-notice-subtle border border-notice rounded-xl mb-8">
+          <div className="p-4 border-b border-notice">
             <div className="flex items-center gap-2">
               <Heart className="text-notice-subtle-fg dark:text-blue-400" size={20} />
               <h2 className="font-semibold text-notice-subtle-fg dark:text-blue-300">{t('docDashboard.recentCodeBluesTitle')}</h2>
             </div>
           </div>
-          <div className="divide-y divide-blue-200 dark:divide-slate-600">
+          <div className="divide-y divide-blue-200">
             {dashboard.recent_code_blues.slice(0, 3).map((code) => {
               // Handle both API field names (event_id/code_leader) and legacy names (record_id/team_leader)
               const recordId = code.event_id || code.record_id || 'unknown';
@@ -529,7 +541,7 @@ function DashboardPage() {
                   return 'bg-caution-subtle text-caution-subtle-fg dark:bg-yellow-900/30 dark:text-yellow-300';
                 if (outcomeValue === 'ROSC') 
                   return 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900/30 dark:text-green-300';
-                return 'bg-surface-sunken text-content-secondary dark:bg-gray-700 dark:text-gray-300';
+                return 'bg-surface-sunken text-content-secondary';
               })();
 
               return (
@@ -538,11 +550,11 @@ function DashboardPage() {
                   className="flex items-center justify-between p-4"
                 >
                   <div>
-                    <p className="font-medium text-content dark:text-white">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
-                    <p className="text-sm text-content-muted dark:text-gray-400">{t('docDashboard.locationLabel', { value: code.location })}</p>
+                    <p className="font-medium text-content">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
+                    <p className="text-sm text-content-muted">{t('docDashboard.locationLabel', { value: code.location })}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-content-muted dark:text-gray-400">{teamLeader || t('docDashboard.noTeamLeader')}</p>
+                    <p className="text-sm text-content-muted">{teamLeader || t('docDashboard.noTeamLeader')}</p>
                     <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
                       {outcomeDisplay}
                     </p>
@@ -613,7 +625,7 @@ function DashboardPage() {
 
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+            <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
             <p className="text-content-muted">{t('docDashboard.loadingPatients')}</p>
           </div>
         ) : dashboard?.patients?.list && dashboard.patients.list.length > 0 ? (
@@ -666,16 +678,16 @@ function DashboardPage() {
                     <p className="text-sm text-content-muted">{patient.patientId}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-content-muted">
+                <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                   <Clock size={14} />
-                  <span>{patient.lastAccessed ? new Date(patient.lastAccessed).toLocaleDateString() : t('docDashboard.naLabel')}</span>
+                  <span>{patient.lastAccessed ? formatDateOnly(patient.lastAccessed) : t('docDashboard.naLabel')}</span>
                 </div>
               </Link>
             ))}
           </div>
         ) : (
           <div className="p-8 text-center text-content-muted">
-            <Users className="mx-auto mb-3 text-gray-300" size={48} />
+            <Users className="mx-auto mb-3 text-content-muted" size={48} />
             <p>{t('docDashboard.noPatientsFound')}</p>
             <p className="text-sm mt-1">{t('docDashboard.noPatientsHint')}</p>
           </div>

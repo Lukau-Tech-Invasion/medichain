@@ -234,6 +234,7 @@ mod tests {
             requires_isolation: false,
             disposition: None,
             assigned_bed: None,
+            notes: None,
             triage_time: Utc::now(),
             seen_by_provider_at: None,
             performed_by: "RN-001".to_string(),

@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listImmunizations, createImmunization, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  listImmunizations,
+  createImmunization,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  immunizationSchema,
+  formatDateOnly,
+  formatTimestamp,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -16,7 +28,9 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
+import StaffName from '../components/StaffName';
 type VaccineType =
   | 'covid-19'
   | 'influenza'
@@ -150,7 +164,7 @@ interface VaccineScheduleItem {
 const ImmunizationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning } = useToastActions();
+  const { showSuccess } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -194,7 +208,7 @@ const ImmunizationPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -274,9 +288,13 @@ const ImmunizationPage: React.FC = () => {
     },
   ];
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
   const handleAdminister = async () => {
-    if (!newVaccine.patientId || !newVaccine.vaccineName || !newVaccine.lotNumber) {
-      showWarning(t('docImmunization.warningRequiredFields'));
+    // The lot number is how a recall reaches the people who received that lot;
+    // without it a batch withdrawal cannot identify anybody. Worth naming on
+    // the field rather than in a toast listing three.
+    if (!validate(newVaccine)) {
       return;
     }
 
@@ -284,7 +302,8 @@ const ImmunizationPage: React.FC = () => {
     if (!patient) return;
 
     const newAdmin: VaccineAdministration = {
-      administrationId: `VAC-${String(administrations.length + 1).padStart(3, '0')}`,
+      // Assigned by the server; this was `VAC-001`, numbered from this list.
+      administrationId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
       vaccineType: newVaccine.vaccineType,
@@ -295,7 +314,9 @@ const ImmunizationPage: React.FC = () => {
       dose: newVaccine.dose,
       route: newVaccine.route,
       site: newVaccine.site,
-      administeredBy: user?.userId || 'USER-001',
+      // Display only: the server records the authenticated caller as the
+      // administering clinician, whatever this says.
+      administeredBy: user?.userId ?? '',
       administeredAt: new Date().toISOString(),
       status: 'administered',
       doseNumber: newVaccine.doseNumber,
@@ -335,9 +356,10 @@ const ImmunizationPage: React.FC = () => {
         registry_reported: newAdmin.insuranceReported,
         adverse_reaction: newAdmin.adverseReactions,
         notes: newAdmin.notes,
-      }) as { success?: boolean; error?: string };
+      }) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
-        setAdministrations([newAdmin, ...administrations]);
+        // Read back: the stored dose carries the server's id and attribution.
+        void fetchImmunizations();
         setNewVaccine({
           patientId: '',
           vaccineType: 'covid-19',
@@ -358,7 +380,7 @@ const ImmunizationPage: React.FC = () => {
           vfcEligible: false,
         });
         setActiveTab('records');
-        showSuccess(t('docImmunization.administeredSuccess', { id: newAdmin.administrationId }));
+        showSuccess(t('docImmunization.administeredSuccess', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docImmunization.errorRecord'));
       }
@@ -411,19 +433,44 @@ const ImmunizationPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   const formatDateTime = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-purple-600 to-violet-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-purple-700 to-violet-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docImmunization.title')}</h1>
-        <p className="text-purple-100">{t('docImmunization.subtitle')}</p>
+        <p className="text-white">{t('docImmunization.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchImmunizations()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b">
         <button
@@ -474,7 +521,7 @@ const ImmunizationPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docImmunization.searchPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -484,7 +531,7 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as VaccinationStatus | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docImmunization.allStatuses')}</option>
                   <option value="scheduled">{t('docImmunization.status_scheduled')}</option>
@@ -509,7 +556,7 @@ const ImmunizationPage: React.FC = () => {
                         {t(`docImmunization.status_${admin.status}`).toUpperCase()}
                       </span>
                       {admin.consentObtained && (
-                        <span className="text-ok-subtle-fg flex items-center gap-1 text-sm">
+                        <span className="text-ok-subtle-fg flex items-center gap-1 text-sm min-h-[24px] py-1">
                           <Shield className="w-4 h-4" />
                           {t('docImmunization.consentBadge')}
                         </span>
@@ -556,7 +603,7 @@ const ImmunizationPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-content-muted mb-1">{t('docImmunization.administeredByLabel')}</p>
-                    <p className="font-semibold text-content">{admin.administeredBy}</p>
+                    <p className="font-semibold text-content"><StaffName id={admin.administeredBy} /></p>
                   </div>
                 </div>
 
@@ -610,22 +657,12 @@ const ImmunizationPage: React.FC = () => {
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="imm-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.patientRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="imm-patient"
+                  label={t('docImmunization.patientRequired')}
                   value={newVaccine.patientId}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, patientId: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docImmunization.selectPatientPh')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewVaccine({ ...newVaccine, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>
@@ -636,7 +673,7 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-vaccine-type"
                   value={newVaccine.vaccineType}
                   onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="covid-19">{t('docImmunization.vaccineType_covid-19')}</option>
                   <option value="influenza">{t('docImmunization.vaccineType_influenza')}</option>
@@ -669,7 +706,7 @@ const ImmunizationPage: React.FC = () => {
                   value={newVaccine.vaccineName}
                   onChange={(e) => setNewVaccine({ ...newVaccine, vaccineName: e.target.value })}
                   placeholder={t('docImmunization.vaccineNamePh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -683,7 +720,7 @@ const ImmunizationPage: React.FC = () => {
                   value={newVaccine.manufacturer}
                   onChange={(e) => setNewVaccine({ ...newVaccine, manufacturer: e.target.value })}
                   placeholder={t('docImmunization.manufacturerPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -691,13 +728,15 @@ const ImmunizationPage: React.FC = () => {
                 <label htmlFor="imm-lot-number" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docImmunization.lotNumberRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="imm-lot-number"
                   type="text"
                   value={newVaccine.lotNumber}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, lotNumber: e.target.value })}
+                  onChange={(e) => { clearField('lotNumber'); setNewVaccine({ ...newVaccine, lotNumber: e.target.value }); }}
+                  onBlur={() => validateField('lotNumber', newVaccine)}
+                  error={errors.lotNumber}
                   placeholder={t('docImmunization.lotNumberPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  required
                 />
               </div>
 
@@ -710,7 +749,7 @@ const ImmunizationPage: React.FC = () => {
                   type="date"
                   value={newVaccine.expiryDate}
                   onChange={(e) => setNewVaccine({ ...newVaccine, expiryDate: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -724,7 +763,7 @@ const ImmunizationPage: React.FC = () => {
                   value={newVaccine.dose}
                   onChange={(e) => setNewVaccine({ ...newVaccine, dose: e.target.value })}
                   placeholder={t('docImmunization.dosePh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -736,7 +775,7 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-route"
                   value={newVaccine.route}
                   onChange={(e) => setNewVaccine({ ...newVaccine, route: e.target.value as AdministrationRoute })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="intramuscular">{t('docImmunization.route_intramuscular')}</option>
                   <option value="subcutaneous">{t('docImmunization.route_subcutaneous')}</option>
@@ -754,7 +793,7 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-site"
                   value={newVaccine.site}
                   onChange={(e) => setNewVaccine({ ...newVaccine, site: e.target.value as AdministrationSite })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="left-deltoid">{t('docImmunization.site_left-deltoid')}</option>
                   <option value="right-deltoid">{t('docImmunization.site_right-deltoid')}</option>
@@ -773,7 +812,7 @@ const ImmunizationPage: React.FC = () => {
                   min="1"
                   value={newVaccine.doseNumber}
                   onChange={(e) => setNewVaccine({ ...newVaccine, doseNumber: parseInt(e.target.value) })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -785,7 +824,7 @@ const ImmunizationPage: React.FC = () => {
                   min="1"
                   value={newVaccine.totalDoses}
                   onChange={(e) => setNewVaccine({ ...newVaccine, totalDoses: parseInt(e.target.value) })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -796,7 +835,7 @@ const ImmunizationPage: React.FC = () => {
                   type="date"
                   value={newVaccine.nextDueDate}
                   onChange={(e) => setNewVaccine({ ...newVaccine, nextDueDate: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -833,7 +872,7 @@ const ImmunizationPage: React.FC = () => {
                     value={newVaccine.consentBy}
                     onChange={(e) => setNewVaccine({ ...newVaccine, consentBy: e.target.value })}
                     placeholder={t('docImmunization.consentGivenByPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               )}
@@ -846,7 +885,7 @@ const ImmunizationPage: React.FC = () => {
                   value={newVaccine.adverseReactions}
                   onChange={(e) => setNewVaccine({ ...newVaccine, adverseReactions: e.target.value })}
                   placeholder={t('docImmunization.adverseReactionsPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -857,7 +896,7 @@ const ImmunizationPage: React.FC = () => {
                   value={newVaccine.notes}
                   onChange={(e) => setNewVaccine({ ...newVaccine, notes: e.target.value })}
                   placeholder={t('docImmunization.notesPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -965,20 +1004,12 @@ const ImmunizationPage: React.FC = () => {
       {activeTab === 'history' && (
         <div className="space-y-4">
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
-            <label htmlFor="imm-select-patient" className="block text-sm font-semibold text-content-secondary mb-2">{t('docImmunization.selectPatientLabel')}</label>
-            <select
+            <PatientSelect
               id="imm-select-patient"
+              label={t('docImmunization.selectPatientLabel')}
               value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
-              className="w-full border border-border-strong rounded-lg px-3 py-2"
-            >
-              <option value="">{t('docImmunization.allPatients')}</option>
-              {patients.map((p) => (
-                <option key={p.patient_id} value={p.patient_id}>
-                  {p.full_name} ({p.patient_id})
-                </option>
-              ))}
-            </select>
+              onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+            />
           </div>
 
           {selectedPatient && (

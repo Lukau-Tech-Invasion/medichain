@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
+use crate::repositories::patient_search::PatientSearchCriteria;
 use crate::repositories::{
     PaginatedResult, Pagination, PatientEntity, PatientRepository, RepositoryError,
     RepositoryResult,
@@ -22,11 +23,32 @@ impl PgPatientRepository {
     }
 }
 
+/// The `WHERE` clause for a patient search: `PatientSearchCriteria::matches`,
+/// in SQL. Every value is bound; nothing from the query is spliced into text.
+fn push_search_predicate<'a>(
+    qb: &mut QueryBuilder<'a, Postgres>,
+    criteria: &'a PatientSearchCriteria,
+) {
+    qb.push("is_active = true AND (LOWER(id) = LOWER(")
+        .push_bind(&criteria.identifier)
+        .push(") OR LOWER(health_id) = LOWER(")
+        .push_bind(&criteria.identifier)
+        .push(") OR wallet_address = ")
+        .push_bind(&criteria.identifier)
+        .push(" OR national_id_hash = ")
+        .push_bind(&criteria.national_id_hash);
+    if !criteria.name_tokens.is_empty() {
+        qb.push(" OR name_search_tokens @> ")
+            .push_bind(&criteria.name_tokens);
+    }
+    qb.push(")");
+}
+
 #[async_trait]
 impl PatientRepository for PgPatientRepository {
     async fn create(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, dnr_verified_by, dnr_verified_at, dnr_document_ref, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, key_version) "
+            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, dnr_verified_by, dnr_verified_at, dnr_document_ref, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, name_search_tokens, key_version) "
         );
 
         qb.push_values([&patient], |mut b, p| {
@@ -56,6 +78,7 @@ impl PatientRepository for PgPatientRepository {
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)
                 .push_bind(&p.profile_extras_encrypted)
+                .push_bind(&p.name_search_tokens)
                 .push_bind(p.key_version);
         });
 
@@ -168,6 +191,8 @@ impl PatientRepository for PgPatientRepository {
         qb.push(", is_active = ").push_bind(patient.is_active);
         qb.push(", profile_extras_encrypted = ")
             .push_bind(&patient.profile_extras_encrypted);
+        qb.push(", name_search_tokens = ")
+            .push_bind(&patient.name_search_tokens);
         qb.push(", key_version = ").push_bind(patient.key_version);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&patient.id);
@@ -226,37 +251,56 @@ impl PatientRepository for PgPatientRepository {
         Ok(PaginatedResult::new(patients, count as u64, &pagination))
     }
 
+    async fn list_keyset(
+        &self,
+        cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM patients WHERE is_active = true")
+            .fetch_one(&self.pool)
+            .await?;
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM patients WHERE is_active = true");
+        if let Some((updated_at, id)) = cursor {
+            qb.push(" AND (updated_at < ")
+                .push_bind(updated_at)
+                .push(" OR (updated_at = ")
+                .push_bind(updated_at)
+                .push(" AND id > ")
+                .push_bind(id)
+                .push("))");
+        }
+        qb.push(" ORDER BY updated_at DESC, id ASC LIMIT ")
+            .push_bind(limit as i64);
+        let patients = qb
+            .build_query_as::<PatientEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(PaginatedResult::new(
+            patients,
+            count as u64,
+            &Pagination::new(0, limit),
+        ))
+    }
+
     async fn search(
         &self,
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let search_pattern = format!("%{}%", query);
+        let criteria = PatientSearchCriteria::new(query);
 
-        let mut count_qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT COUNT(*) FROM patients WHERE is_active = true AND (health_id ILIKE ",
-        );
-        count_qb.push_bind(&search_pattern);
-        count_qb.push(" OR wallet_address ILIKE ");
-        count_qb.push_bind(&search_pattern);
-        count_qb.push(" OR national_id_hash ILIKE ");
-        count_qb.push_bind(&search_pattern);
-        count_qb.push(")");
-
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM patients WHERE ");
+        push_search_predicate(&mut count_qb, &criteria);
         let count = count_qb
             .build_query_scalar::<i64>()
             .fetch_one(&self.pool)
             .await?;
 
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM patients WHERE is_active = true AND (health_id ILIKE ",
-        );
-        qb.push_bind(&search_pattern);
-        qb.push(" OR wallet_address ILIKE ");
-        qb.push_bind(&search_pattern);
-        qb.push(" OR national_id_hash ILIKE ");
-        qb.push_bind(&search_pattern);
-        qb.push(") ORDER BY created_at DESC LIMIT ");
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM patients WHERE ");
+        push_search_predicate(&mut qb, &criteria);
+        qb.push(" ORDER BY created_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i64);
@@ -267,6 +311,45 @@ impl PatientRepository for PgPatientRepository {
             .await?;
 
         Ok(PaginatedResult::new(patients, count as u64, &pagination))
+    }
+
+    async fn search_keyset(
+        &self,
+        query: &str,
+        cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
+        limit: u32,
+    ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
+        let criteria = PatientSearchCriteria::new(query);
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM patients WHERE ");
+        push_search_predicate(&mut count_qb, &criteria);
+        let count = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM patients WHERE ");
+        push_search_predicate(&mut qb, &criteria);
+        if let Some((updated_at, id)) = cursor {
+            qb.push(" AND (updated_at < ")
+                .push_bind(updated_at)
+                .push(" OR (updated_at = ")
+                .push_bind(updated_at)
+                .push(" AND id > ")
+                .push_bind(id)
+                .push("))");
+        }
+        qb.push(" ORDER BY updated_at DESC, id ASC LIMIT ")
+            .push_bind(limit as i64);
+        let patients = qb
+            .build_query_as::<PatientEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(PaginatedResult::new(
+            patients,
+            count as u64,
+            &Pagination::new(0, limit),
+        ))
     }
 
     async fn get_by_provider(
@@ -308,6 +391,34 @@ impl PatientRepository for PgPatientRepository {
         let count = qb.build_query_scalar::<i64>().fetch_one(&self.pool).await?;
 
         Ok(count as u64)
+    }
+
+    async fn list_unindexed_names(
+        &self,
+        after_id: Option<&str>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<PatientEntity>> {
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM patients WHERE cardinality(name_search_tokens) = 0");
+        if let Some(after_id) = after_id {
+            qb.push(" AND id > ").push_bind(after_id);
+        }
+        qb.push(" ORDER BY id ASC LIMIT ").push_bind(limit as i64);
+        Ok(qb
+            .build_query_as::<PatientEntity>()
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    async fn set_name_search_tokens(&self, id: &str, tokens: &[String]) -> RepositoryResult<()> {
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("UPDATE patients SET name_search_tokens = ");
+        qb.push_bind(tokens).push(" WHERE id = ").push_bind(id);
+        let result = qb.build().execute(&self.pool).await?;
+        if result.rows_affected() == 0 {
+            return Err(RepositoryError::NotFound(format!("Patient {id} not found")));
+        }
+        Ok(())
     }
 
     async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>> {

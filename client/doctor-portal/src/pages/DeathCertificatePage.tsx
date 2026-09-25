@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useToastActions } from '../components/Toast';
 import {
   User,
   Calendar,
@@ -7,13 +8,25 @@ import {
   AlertCircle,
   PenTool,
   Search,
-  Eye,
   Edit,
   FileSignature,
   Heart
 } from 'lucide-react';
-import { createDeathCertificate } from '../../../shared/src/api/endpoints';
-import { useTranslation } from '@medichain/shared';
+import {
+  createDeathCertificate,
+  listDeathCertificates,
+  draftDeathCertificate,
+  updateDeathCertificateDraft,
+  fileDeathCertificate,
+  getApiErrorMessage,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  deathCertificateSchema,
+  formatDateOnly,
+} from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * DeathCertificatePage
@@ -27,6 +40,8 @@ type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'pending'
 
 interface DeathCertificate {
   id: string;
+  /** The deceased's record; a reopened draft is re-bound to it. */
+  patientId: string;
   deceasedName: string;
   dateOfBirth: string;
   dateOfDeath: string;
@@ -38,6 +53,7 @@ interface DeathCertificate {
   otherConditions: string[];
   certifyingPhysician: string;
   certifyingPhysicianLicense: string;
+  certifierType: string;
   status: CertificateStatus;
   createdAt: Date;
   filedAt?: Date;
@@ -49,16 +65,69 @@ interface CauseOfDeathEntry {
   duration: string;
 }
 
+/** Map one stored certificate onto what this page renders.
+ *
+ * The register returns the record as filed, which is the flat shape
+ * `CreateDeathCertificateRequest` accepts -- not this page's camelCase view
+ * model. Unset fields stay empty rather than being invented: a blank cause of
+ * death is a certificate that is not finished, and filling it in would be the
+ * same mistake as the sample data this replaced.
+ */
+function toCertificate(row: Record<string, unknown>): DeathCertificate {
+  const text = (key: string): string => {
+    const value = row[key];
+    return typeof value === 'string' ? value : '';
+  };
+  const conditions = row.other_conditions;
+  return {
+    id: text('certificate_id') || text('id'),
+    patientId: text('patient_id'),
+    deceasedName: text('deceased_name'),
+    dateOfBirth: text('date_of_birth'),
+    dateOfDeath: text('date_of_death'),
+    timeOfDeath: text('time_of_death'),
+    placeOfDeath: text('place_of_death'),
+    // The register carries no county field. Empty, not invented — this page's
+    // previous sample data is exactly what filling it in would recreate.
+    countyOfDeath: '',
+    mannerOfDeath: (text('manner_of_death') || 'pending') as MannerOfDeath,
+    causeOfDeath: text('cause_of_death'),
+    otherConditions: Array.isArray(conditions) ? (conditions as string[]) : [],
+    certifyingPhysician: text('certifier_name'),
+    certifyingPhysicianLicense: text('certifier_license'),
+    certifierType: text('certifier_type'),
+    status: (text('status') || 'draft') as CertificateStatus,
+    // No created_at on the record; a filed certificate has `filed_at`. Using
+    // `new Date()` for an unfiled one would date it to whenever the page
+    // happened to load.
+    createdAt: row.filed_at ? new Date(String(row.filed_at)) : new Date(0),
+    filedAt: row.filed_at ? new Date(String(row.filed_at)) : undefined,
+    caseNumber: undefined,
+  };
+}
+
 const DeathCertificatePage: React.FC = () => {
+  // Toasts, not `alert()`. A native alert is a blocking modal: it freezes the
+  // tab until dismissed, ignores the app's styling and focus handling, and
+  // interrupts a clinician mid-form. `Toast.tsx` says in its own header that it
+  // exists "to replace browser alert() calls"; these three pages were missed.
+  const { showSuccess, showError } = useToastActions();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'certificates' | 'new'>('certificates');
   const [certificates, setCertificates] = useState<DeathCertificate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CertificateStatus | 'all'>('all');
   const [currentStep, setCurrentStep] = useState(1);
-  const [_selectedCertificate, _setSelectedCertificate] = useState<DeathCertificate | null>(null);
 
   // Form state
+  // The person the certificate is for.
+  //
+  // The payload used to carry the literal string "DEMO_PATIENT" with the
+  // comment "In real app, get from context", and this page had no patient
+  // selector at all — so every death certificate the system could produce was
+  // filed against an id belonging to nobody, and none of them could be found
+  // from the deceased's own record.
+  const [patientId, setPatientId] = useState('');
   const [deceasedInfo, setDeceasedInfo] = useState({
     firstName: '',
     middleName: '',
@@ -112,60 +181,55 @@ const DeathCertificatePage: React.FC = () => {
     signature: ''
   });
 
+  // The register, as filed.
+  //
+  // This effect used to push three invented certificates into state -- names,
+  // dates of death, causes and certifying physicians for people who do not
+  // exist. On a death register that is not harmless placeholder content: a
+  // registrar reading this screen would have seen a filed certificate for
+  // "Robert James Wilson, acute myocardial infarction" and had no way to tell
+  // it from a real one.
+  //
+  // `GET /api/platform/list/death-certificates` is what the page needed and
+  // already existed with no caller. Until it had one, a certificate could be
+  // filed and then found only by somebody who already knew its id -- which is
+  // not a register, and registrars, coroners and families all arrive without
+  // one.
+  const [registerUnknown, setRegisterUnknown] = useState(false);
+  const [registerLoaded, setRegisterLoaded] = useState(false);
+  // The draft being revised, when the clinician reopened one. Null means the
+  // form is composing a new certificate.
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+
+  const loadCertificates = React.useCallback(async () => {
+    try {
+      const rows = await listDeathCertificates();
+      setCertificates(rows.map(toCertificate));
+      setRegisterUnknown(false);
+    } catch {
+      setRegisterUnknown(true);
+    }
+  }, []);
+
   useEffect(() => {
-    // Sample certificates
-    setCertificates([
-      {
-        id: 'DC-2024-00123',
-        deceasedName: 'Robert James Wilson',
-        dateOfBirth: '1942-05-15',
-        dateOfDeath: '2024-01-14',
-        timeOfDeath: '14:32',
-        placeOfDeath: 'Memorial General Hospital',
-        countyOfDeath: 'Riyadh',
-        mannerOfDeath: 'natural',
-        causeOfDeath: 'Acute myocardial infarction',
-        otherConditions: ['Coronary artery disease', 'Hypertension', 'Type 2 diabetes'],
-        certifyingPhysician: 'Dr. Sarah Ahmed',
-        certifyingPhysicianLicense: 'MD-456789',
-        status: 'filed',
-        createdAt: new Date('2024-01-14'),
-        filedAt: new Date('2024-01-15'),
-        caseNumber: 'RC-2024-00045'
-      },
-      {
-        id: 'DC-2024-00122',
-        deceasedName: 'Margaret Anne Thompson',
-        dateOfBirth: '1938-11-22',
-        dateOfDeath: '2024-01-13',
-        timeOfDeath: '08:15',
-        placeOfDeath: 'Sunrise Care Facility',
-        countyOfDeath: 'Jeddah',
-        mannerOfDeath: 'natural',
-        causeOfDeath: 'Respiratory failure',
-        otherConditions: ['COPD', 'Pneumonia'],
-        certifyingPhysician: 'Dr. Mohammed Al-Faisal',
-        certifyingPhysicianLicense: 'MD-234567',
-        status: 'pending-signature',
-        createdAt: new Date('2024-01-13')
-      },
-      {
-        id: 'DC-2024-00121',
-        deceasedName: 'Charles Edward Brown',
-        dateOfBirth: '1955-03-08',
-        dateOfDeath: '2024-01-12',
-        timeOfDeath: '22:45',
-        placeOfDeath: 'King Fahd Medical City',
-        countyOfDeath: 'Riyadh',
-        mannerOfDeath: 'pending',
-        causeOfDeath: 'Under investigation',
-        otherConditions: [],
-        certifyingPhysician: 'Dr. Ahmed Hassan',
-        certifyingPhysicianLicense: 'MD-345678',
-        status: 'pending-review',
-        createdAt: new Date('2024-01-12')
-      }
-    ]);
+    let cancelled = false;
+    listDeathCertificates()
+      .then((rows) => {
+        if (cancelled) return;
+        setCertificates(rows.map(toCertificate));
+        setRegisterUnknown(false);
+      })
+      .catch(() => {
+        // An empty register and an unreadable one are different findings, and
+        // "no certificates have been filed" is a claim about the dead.
+        if (!cancelled) setRegisterUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setRegisterLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const getStatusBadge = (status: CertificateStatus) => {
@@ -203,63 +267,161 @@ const DeathCertificatePage: React.FC = () => {
     }
   };
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    deathCertificateSchema
+  );
+
+  /** The fields a registrar checks, from this page's separate section state. */
+  const certificateCore = () => ({
+    lastName: deceasedInfo.lastName,
+    dateOfDeath: deathInfo.dateOfDeath,
+    immediateCause: causeInfo.immediateCause,
+    certifierName: certifierInfo.certifierName,
+    licenseNumber: certifierInfo.licenseNumber,
+  });
+  /** The certificate as it stands, with nothing required. */
+  const draftPayload = () => ({
+    patient_id: patientId,
+    deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`.trim(),
+    date_of_birth: deceasedInfo.dateOfBirth,
+    date_of_death: deathInfo.dateOfDeath,
+    time_of_death: deathInfo.timeOfDeath,
+    place_of_death: deathInfo.placeOfDeath,
+    manner_of_death: causeInfo.mannerOfDeath,
+    cause_of_death: causeInfo.immediateCause,
+    other_conditions: causeInfo.underlyingCauses.map((c) => c.cause).filter(Boolean),
+    certifier_name: certifierInfo.certifierName,
+    certifier_license: certifierInfo.licenseNumber,
+    certifier_type: certifierInfo.certifierType,
+  });
+
+  /**
+   * Save without filing.
+   *
+   * A draft is a different record from a certificate: filing runs the
+   * legal-instrument checks (deceased name, date, place, cause, certifier),
+   * and a draft requires only the patient it concerns. Completing a
+   * certificate spans a shift, and until this existed the only way to keep
+   * partial work was not to leave the page.
+   */
+  const handleSaveDraft = async () => {
+    if (!patientId) {
+      showError(t('docDeathCertificate.errorSelectPatient'));
+      return;
+    }
+    try {
+      if (editingDraftId) {
+        await updateDeathCertificateDraft(editingDraftId, draftPayload());
+      } else {
+        const created = await draftDeathCertificate(draftPayload());
+        setEditingDraftId(created.id);
+      }
+      showSuccess(t('docDeathCertificate.draftSaved'));
+      await loadCertificates();
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docDeathCertificate.draftFailed')));
+    }
+  };
+
+  /**
+   * Reopen a draft in the form it was written in.
+   *
+   * This used to switch to an EMPTY form under the draft's id, so "Save draft"
+   * overwrote the stored draft with blanks. The form is now loaded from the
+   * draft. The draft stores the name as one string; the last word is taken as
+   * the surname, which is what the form joined it from.
+   */
+  const handleEditDraft = (cert: DeathCertificate) => {
+    const words = cert.deceasedName.trim().split(/\s+/).filter(Boolean);
+    const lastName = words.length > 1 ? words[words.length - 1] : words[0] ?? '';
+    const firstName = words.length > 1 ? words.slice(0, -1).join(' ') : '';
+    setPatientId(cert.patientId);
+    setDeceasedInfo((d) => ({ ...d, firstName, lastName, dateOfBirth: cert.dateOfBirth }));
+    setDeathInfo((d) => ({
+      ...d,
+      dateOfDeath: cert.dateOfDeath,
+      timeOfDeath: cert.timeOfDeath,
+      placeOfDeath: cert.placeOfDeath,
+    }));
+    setCauseInfo((c) => ({
+      ...c,
+      immediateCause: cert.causeOfDeath,
+      mannerOfDeath: cert.mannerOfDeath,
+      underlyingCauses: cert.otherConditions.length > 0
+        ? cert.otherConditions.map((cause) => ({ cause, duration: '' }))
+        : [{ cause: '', duration: '' }],
+    }));
+    setCertifierInfo((c) => ({
+      ...c,
+      certifierName: cert.certifyingPhysician,
+      licenseNumber: cert.certifyingPhysicianLicense,
+      certifierType: (cert.certifierType || c.certifierType) as typeof c.certifierType,
+    }));
+    setEditingDraftId(cert.id);
+    setActiveTab('new');
+    setCurrentStep(1);
+  };
+
+  const resetForm = () => {
+    setEditingDraftId(null);
+    setPatientId('');
+    setDeceasedInfo({
+      firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
+      sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
+    });
+    setDeathInfo({
+      dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
+      countyOfDeath: '', cityOfDeath: '', stateOfDeath: '',
+      pronouncedBy: '', pronouncedDate: '', pronouncedTime: ''
+    });
+    setCauseInfo({
+      immediateCause: '', immediateDuration: '',
+      underlyingCauses: [{ cause: '', duration: '' }],
+      mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
+      tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
+      injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
+    });
+    setCertifierInfo({
+      certifierType: 'physician', certifierName: '', licenseNumber: '',
+      certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
+    });
+  };
+
   const handleSignAndSubmit = async () => {
     // Basic validation
-    if (!deceasedInfo.lastName || !deathInfo.dateOfDeath || !causeInfo.immediateCause || !certifierInfo.certifierName || !certifierInfo.licenseNumber) {
-      alert(t('docDeathCertificate.errorRequiredFields'));
+    if (!patientId) {
+      showError(t('docDeathCertificate.errorSelectPatient'));
+      return;
+    }
+
+    // Was one toast for five fields spread across four collapsible sections.
+    // These are the fields a registrar checks: a certificate missing any of
+    // them cannot be registered, and the family finds that out at the registry
+    // office.
+    if (!validate(certificateCore())) {
       return;
     }
 
     try {
-      const payload = {
-        id: `DC-${Date.now()}`,
-        patient_id: "DEMO_PATIENT", // In real app, get from context
-        deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`,
-        date_of_birth: deceasedInfo.dateOfBirth,
-        date_of_death: deathInfo.dateOfDeath,
-        time_of_death: deathInfo.timeOfDeath,
-        place_of_death: deathInfo.placeOfDeath,
-        manner_of_death: causeInfo.mannerOfDeath,
-        cause_of_death: causeInfo.immediateCause,
-        other_conditions: causeInfo.underlyingCauses.map(c => c.cause).filter(Boolean),
-        certifier_name: certifierInfo.certifierName,
-        certifier_license: certifierInfo.licenseNumber,
-        certifier_type: certifierInfo.certifierType,
-        signature: certifierInfo.signature,
-        status: 'filed'
-      };
+      if (editingDraftId) {
+        // The draft becomes the certificate: bring it up to date, then file
+        // it. Posting a new certificate instead left the finished draft on
+        // the register beside it, for ever.
+        await updateDeathCertificateDraft(editingDraftId, draftPayload());
+        await fileDeathCertificate(editingDraftId);
+      } else {
+        // The server mints the id and records the certificate as filed.
+        await createDeathCertificate({ ...draftPayload(), signature: certifierInfo.signature });
+      }
 
-      await createDeathCertificate(payload);
-
-      alert(t('docDeathCertificate.successSubmitted'));
+      showSuccess(t('docDeathCertificate.successSubmitted'));
       setActiveTab('certificates');
       setCurrentStep(1);
-      
-      // Reset form
-      setDeceasedInfo({
-        firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
-        sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
-      });
-      setDeathInfo({
-        dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
-        countyOfDeath: '', cityOfDeath: '', stateOfDeath: '',
-        pronouncedBy: '', pronouncedDate: '', pronouncedTime: ''
-      });
-      setCauseInfo({
-        immediateCause: '', immediateDuration: '',
-        underlyingCauses: [{ cause: '', duration: '' }],
-        mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
-        tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
-        injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
-      });
-      setCertifierInfo({
-        certifierType: 'physician', certifierName: '', licenseNumber: '',
-        certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
-      });
-
+      resetForm();
+      await loadCertificates();
     } catch (error) {
-      console.error('Failed to submit death certificate:', error);
-      alert(t('docDeathCertificate.errorSubmitFailed'));
+      showError(getApiErrorMessage(error, t('docDeathCertificate.errorSubmitFailed')));
     }
   };
 
@@ -324,6 +486,20 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Certificates */}
           <div className="space-y-4">
+            {/* An unreadable register and an empty one are different findings,
+                and "no certificate has been filed" is a claim about the dead. */}
+            {registerUnknown && (
+              <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">
+                  {t('docDeathCertificate.registerUnknown')}
+                </p>
+              </div>
+            )}
+            {registerLoaded && !registerUnknown && filteredCertificates.length === 0 && (
+              <p className="text-sm text-content-muted">
+                {t('docDeathCertificate.registerEmpty')}
+              </p>
+            )}
             {filteredCertificates.map(cert => (
               <div key={cert.id} className="bg-surface rounded-lg shadow border p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -335,15 +511,17 @@ const DeathCertificatePage: React.FC = () => {
                     <p className="text-sm text-content-muted mt-1">{t('docDeathCertificate.certificateIdLabel', { id: cert.id })}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.viewTitle')}>
-                      <Eye className="w-5 h-5 text-content-muted" />
-                    </button>
                     {cert.status !== 'filed' && (
-                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.editTitle')}>
+                      <button
+                        type="button"
+                        onClick={() => handleEditDraft(cert)}
+                        className="p-2 hover:bg-surface-sunken rounded-lg"
+                        title={t('docDeathCertificate.editTitle')}
+                      >
                         <Edit className="w-5 h-5 text-content-muted" />
                       </button>
                     )}
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
+                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
@@ -352,11 +530,11 @@ const DeathCertificatePage: React.FC = () => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblDateOfBirth')}</p>
-                    <p className="font-medium">{new Date(cert.dateOfBirth).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateOnly(cert.dateOfBirth)}</p>
                   </div>
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblDateOfDeath')}</p>
-                    <p className="font-medium">{new Date(cert.dateOfDeath).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateOnly(cert.dateOfDeath)}</p>
                   </div>
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblTimeOfDeath')}</p>
@@ -387,7 +565,7 @@ const DeathCertificatePage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-4 pt-4 border-t flex items-center justify-between text-sm">
+                <div className="mt-4 pt-4 border-t flex items-center justify-between text-sm min-h-[24px] py-1">
                   <div>
                     <p className="text-content-muted">{t('docDeathCertificate.lblCertifyingPhysician')}</p>
                     <p className="font-medium">{cert.certifyingPhysician}</p>
@@ -445,6 +623,17 @@ const DeathCertificatePage: React.FC = () => {
                 {t('docDeathCertificate.decedentInfoTitle')}
               </h2>
 
+              <div className="mb-4">
+                <label htmlFor="death-patient" className="block text-sm font-medium text-content-secondary mb-1">
+                  {t('docDeathCertificate.patientLabel')}
+                </label>
+                <PatientSelect
+                  id="death-patient"
+                  value={patientId}
+                  onChange={setPatientId}
+                  placeholder={t('docDeathCertificate.patientPlaceholder')}
+                />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label htmlFor="death-first-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.firstNameLabel')}</label>
@@ -469,12 +658,13 @@ const DeathCertificatePage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="death-last-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.lastNameLabel')}</label>
-                  <input
+                  <Input
                     id="death-last-name"
                     type="text"
                     value={deceasedInfo.lastName}
-                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, lastName: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
+                    onChange={(e) => { clearField('lastName'); setDeceasedInfo({ ...deceasedInfo, lastName: e.target.value }); }}
+                    onBlur={() => validateField('lastName', certificateCore())}
+                    error={errors.lastName}
                     required
                   />
                 </div>
@@ -749,13 +939,15 @@ const DeathCertificatePage: React.FC = () => {
                       <label htmlFor="death-immediate-cause" className="block text-sm font-medium text-content-secondary mb-1">
                         {t('docDeathCertificate.immediateCauseLabel')}
                       </label>
-                      <input
+                      <Input
                         id="death-immediate-cause"
                         type="text"
                         value={causeInfo.immediateCause}
-                        onChange={(e) => setCauseInfo({ ...causeInfo, immediateCause: e.target.value })}
-                        className="w-full border rounded-lg px-3 py-2"
+                        onChange={(e) => { clearField('immediateCause'); setCauseInfo({ ...causeInfo, immediateCause: e.target.value }); }}
+                        onBlur={() => validateField('immediateCause', certificateCore())}
+                        error={errors.immediateCause}
                         placeholder={t('docDeathCertificate.immediateCausePh')}
+                        required
                       />
                     </div>
                     <div>
@@ -965,10 +1157,10 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-6 cursor-pointer hover:bg-surface-sunken transition-colors"
-                   onClick={() => setCertifierInfo({ ...certifierInfo, signature: 'DIGITAL_SIG_' + Date.now() })}>
+                   {...clickable(() => setCertifierInfo({ ...certifierInfo, signature: 'DIGITAL_SIG_' + Date.now() }))}>
                 {certifierInfo.signature ? (
                   <div className="flex flex-col items-center">
-                    <CheckCircle className="w-8 h-8 text-green-500 mb-2" />
+                    <CheckCircle className="w-8 h-8 text-ok mb-2" />
                     <p className="text-ok-subtle-fg font-medium">{t('docDeathCertificate.signedDigitallyLabel')}</p>
                     <p className="text-xs text-content-muted mt-1">{certifierInfo.signature}</p>
                   </div>
@@ -989,7 +1181,11 @@ const DeathCertificatePage: React.FC = () => {
                   {t('docDeathCertificate.backBtn')}
                 </button>
                 <div className="flex gap-3">
-                  <button className="px-6 py-2 border border-border-strong rounded-lg font-medium">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraft}
+                    className="px-6 py-2 border border-border-strong rounded-lg font-medium"
+                  >
                     {t('docDeathCertificate.saveAsDraftBtn')}
                   </button>
                   <button

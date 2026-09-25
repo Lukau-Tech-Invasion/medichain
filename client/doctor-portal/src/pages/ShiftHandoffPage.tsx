@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createShiftHandoff, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import {
+  createShiftHandoff,
+  getApiClient,
+  getPatients,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  shiftHandoffSchema,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ArrowRightLeft,
@@ -106,6 +115,21 @@ const CODE_STATUS_KEYS: Record<string, string> = {
   'Limited Code': 'limited-code'
 };
 
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type HandoffList = { handoffs?: ShiftHandoff[] } | ShiftHandoff[];
+
+/** How far back the History tab reaches. The API caps it at 30. */
+const HANDOFF_HISTORY_DAYS = 14;
+
 export default function ShiftHandoffPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -200,16 +224,13 @@ export default function ShiftHandoffPage() {
         setHistoryLoading(true);
         try {
           // Fetch recent handoffs (use user ID as the handoff ID reference)
-          const res = await fetch(apiUrl(`/api/clinical/shift-handoff/${user.walletAddress}`), {
-            headers: {
-              'X-User-Id': user.walletAddress,
-              'X-Provider-Role': user.role || 'Nurse',
-            },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
-          }
+          // The history tab asked for today only, because that was all the
+          // endpoint could answer -- so yesterday's handover, the one a
+          // clinician starting a shift most needs, was never on it.
+          const data = await getApiClient().get<HandoffList>(
+            `/api/clinical/shift-handoff/${user.walletAddress}?days=${HANDOFF_HISTORY_DAYS}`
+          );
+          setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
         } catch (err) {
           console.error('Failed to fetch handoff history:', err);
         } finally {
@@ -227,9 +248,9 @@ export default function ShiftHandoffPage() {
 
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
-      case 'critical': return 'bg-red-500 text-white';
+      case 'critical': return 'bg-red-700 text-white';
       case 'urgent': return 'bg-caution text-white';
-      default: return 'bg-green-500 text-white';
+      default: return 'bg-green-700 text-white';
     }
   };
 
@@ -335,9 +356,12 @@ export default function ShiftHandoffPage() {
     }
   };
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(shiftHandoffSchema);
   const handleSave = async () => {
-    if (!handoff.incomingNurse) {
-      setError(t('docShiftHandoff.errorIncomingNurseRequired'));
+    // A handover with nobody named as receiving it records that care was handed
+    // to no one, which is the gap a handover exists to close.
+    if (!validate(handoff)) {
       return;
     }
 
@@ -360,7 +384,7 @@ export default function ShiftHandoffPage() {
         unit: handoff.unit,
         patients: patientHandoffs,
         status: 'pending',
-        created_by: user?.userId || 'unknown',
+        created_by: user?.userId,
         created_at: Math.floor(Date.now() / 1000)
       };
 
@@ -379,7 +403,7 @@ export default function ShiftHandoffPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-purple-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -387,12 +411,12 @@ export default function ShiftHandoffPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docShiftHandoff.title')}</h1>
-                <p className="text-purple-100">{t('docShiftHandoff.subtitle')}</p>
+                <p className="text-white">{t('docShiftHandoff.subtitle')}</p>
               </div>
             </div>
             <div className="text-right text-white">
               <p className="font-medium">{new Date().toLocaleDateString()}</p>
-              <p className="text-sm opacity-75">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
+              <p className="text-sm">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
             </div>
           </div>
         </div>
@@ -456,7 +480,7 @@ export default function ShiftHandoffPage() {
                       id="handoff-shift-type"
                       value={handoff.shiftType}
                       onChange={(e) => setHandoff({ ...handoff, shiftType: e.target.value as ShiftType })}
-                      className="w-full p-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full p-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
                     >
                       {Object.entries(shiftTypes).map(([value, { label }]) => (
                         <option key={value} value={value}>{label}</option>
@@ -472,7 +496,7 @@ export default function ShiftHandoffPage() {
                         type="date"
                         value={handoff.handoffDate}
                         onChange={(e) => setHandoff({ ...handoff, handoffDate: e.target.value })}
-                        className="w-full p-2 border border-border-strong rounded-lg"
+                        className="w-full p-2 border border-border-interactive rounded-lg"
                       />
                     </div>
                     <div>
@@ -482,7 +506,7 @@ export default function ShiftHandoffPage() {
                         type="time"
                         value={handoff.handoffTime}
                         onChange={(e) => setHandoff({ ...handoff, handoffTime: e.target.value })}
-                        className="w-full p-2 border border-border-strong rounded-lg"
+                        className="w-full p-2 border border-border-interactive rounded-lg"
                       />
                     </div>
                   </div>
@@ -493,7 +517,7 @@ export default function ShiftHandoffPage() {
                       id="handoff-unit"
                       value={handoff.unit}
                       onChange={(e) => setHandoff({ ...handoff, unit: e.target.value })}
-                      className="w-full p-2 border border-border-strong rounded-lg"
+                      className="w-full p-2 border border-border-interactive rounded-lg"
                     >
                       {units.map(u => (
                         <option key={u} value={u}>{t(`docShiftHandoff.unit_${UNIT_KEYS[u]}`)}</option>
@@ -508,20 +532,22 @@ export default function ShiftHandoffPage() {
                       type="text"
                       value={handoff.outgoingNurse}
                       onChange={(e) => setHandoff({ ...handoff, outgoingNurse: e.target.value })}
-                      className="w-full p-2 border border-border-strong rounded-lg bg-surface-sunken"
+                      className="w-full p-2 border border-border-interactive rounded-lg bg-surface-sunken text-content"
                       readOnly
                     />
                   </div>
 
                   <div>
                     <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.incomingNurseLabel')}</label>
-                    <input
+                    <Input
                       id="handoff-incoming-nurse"
                       type="text"
                       value={handoff.incomingNurse}
-                      onChange={(e) => setHandoff({ ...handoff, incomingNurse: e.target.value })}
+                      onChange={(e) => { clearField('incomingNurse'); setHandoff({ ...handoff, incomingNurse: e.target.value }); }}
+                      onBlur={() => validateField('incomingNurse', handoff)}
+                      error={errors.incomingNurse}
                       placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
-                      className="w-full p-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
+                      required
                     />
                   </div>
                 </div>
@@ -589,7 +615,7 @@ export default function ShiftHandoffPage() {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder={t('docShiftHandoff.searchPatientsPlaceholder')}
-                      className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                      className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                     />
                   </div>
                   <div className="max-h-48 overflow-y-auto space-y-2 mb-4">
@@ -623,7 +649,7 @@ export default function ShiftHandoffPage() {
                             value={newPatientHandoff.room}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, room: e.target.value })}
                             placeholder={t('docShiftHandoff.roomPlaceholder')}
-                            className="w-full p-2 border border-border-strong rounded"
+                            className="w-full p-2 border border-border-interactive rounded"
                           />
                         </div>
                         <div>
@@ -632,7 +658,7 @@ export default function ShiftHandoffPage() {
                             id="handoff-new-patient-priority"
                             value={newPatientHandoff.priority}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, priority: e.target.value as Priority })}
-                            className="w-full p-2 border border-border-strong rounded"
+                            className="w-full p-2 border border-border-interactive rounded"
                           >
                             <option value="routine">{t('docShiftHandoff.priority_routine')}</option>
                             <option value="urgent">{t('docShiftHandoff.priority_urgent')}</option>
@@ -648,7 +674,7 @@ export default function ShiftHandoffPage() {
                           value={newPatientHandoff.diagnosis}
                           onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, diagnosis: e.target.value })}
                           placeholder={t('docShiftHandoff.diagnosisPlaceholder')}
-                          className="w-full p-2 border border-border-strong rounded"
+                          className="w-full p-2 border border-border-interactive rounded"
                         />
                       </div>
                       <button
@@ -676,7 +702,7 @@ export default function ShiftHandoffPage() {
                         patient.priority === 'urgent' ? 'bg-caution-subtle border-l-4 border-yellow-500' :
                         'bg-ok-subtle border-l-4 border-green-500'
                       }`}
-                      onClick={() => setExpandedPatient(expandedPatient === patient.patientId ? null : patient.patientId)}
+                      {...clickable(() => setExpandedPatient(expandedPatient === patient.patientId ? null : patient.patientId))}
                     >
                       <div className="flex justify-between items-start">
                         <div>
@@ -699,7 +725,7 @@ export default function ShiftHandoffPage() {
                           </span>
                           <button
                             onClick={(e) => { e.stopPropagation(); removePatientFromHandoff(patient.patientId); }}
-                            className="text-red-500 hover:text-critical-subtle-fg p-1"
+                            className="text-critical hover:text-critical-subtle-fg p-1"
                           >
                             ×
                           </button>
@@ -772,7 +798,7 @@ export default function ShiftHandoffPage() {
                               id={`handoff-code-status-${patient.patientId}`}
                               value={patient.codeStatus}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { codeStatus: e.target.value })}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             >
                               {codeStatuses.map(s => (
                                 <option key={s} value={s}>{t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[s]}`)}</option>
@@ -787,7 +813,7 @@ export default function ShiftHandoffPage() {
                               value={patient.ivAccess}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { ivAccess: e.target.value })}
                               placeholder={t('docShiftHandoff.ivAccessPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                           <div>
@@ -798,7 +824,7 @@ export default function ShiftHandoffPage() {
                               value={patient.diet}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { diet: e.target.value })}
                               placeholder={t('docShiftHandoff.dietPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                           <div>
@@ -809,7 +835,7 @@ export default function ShiftHandoffPage() {
                               value={patient.activity}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { activity: e.target.value })}
                               placeholder={t('docShiftHandoff.activityPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                           <div>
@@ -820,7 +846,7 @@ export default function ShiftHandoffPage() {
                               value={patient.pendingLabs}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingLabs: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingLabsPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                           <div>
@@ -831,7 +857,7 @@ export default function ShiftHandoffPage() {
                               value={patient.pendingTests}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingTests: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingTestsPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                         </div>
@@ -893,8 +919,8 @@ export default function ShiftHandoffPage() {
                                 onClick={() => toggleSafetyRisk(patient.patientId, risk)}
                                 className={`px-2 py-1 rounded text-xs ${
                                   patient.safetyRisks.includes(risk)
-                                    ? 'bg-orange-500 text-white'
-                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-200'
+                                    ? 'bg-orange-700 text-white'
+                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-800'
                                 }`}
                               >
                                 {t(`docShiftHandoff.risk_${SAFETY_RISK_KEYS[risk]}`)}
@@ -913,7 +939,7 @@ export default function ShiftHandoffPage() {
                               value={patient.pendingOrders}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingOrders: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingOrdersPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                           <div>
@@ -924,7 +950,7 @@ export default function ShiftHandoffPage() {
                               value={patient.familyUpdates}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { familyUpdates: e.target.value })}
                               placeholder={t('docShiftHandoff.familyUpdatesPlaceholder')}
-                              className="w-full p-2 border border-border-strong rounded text-sm"
+                              className="w-full p-2 border border-border-interactive rounded text-sm"
                             />
                           </div>
                         </div>
@@ -937,7 +963,7 @@ export default function ShiftHandoffPage() {
                             onChange={(e) => updatePatientHandoff(patient.patientId, { additionalNotes: e.target.value })}
                             placeholder={t('docShiftHandoff.additionalNotesPlaceholder')}
                             rows={2}
-                            className="w-full p-2 border border-border-strong rounded text-sm"
+                            className="w-full p-2 border border-border-interactive rounded text-sm"
                           />
                         </div>
                       </div>
@@ -947,7 +973,7 @@ export default function ShiftHandoffPage() {
 
                 {patientHandoffs.length === 0 && !showAddPatient && (
                   <div className="bg-surface rounded-lg shadow p-12 text-center">
-                    <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                    <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                     <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
                     <p className="text-content-muted mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
                     <button
@@ -966,7 +992,7 @@ export default function ShiftHandoffPage() {
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting}
-                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center"
+                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                   >
                     {isSubmitting ? (
                       <>

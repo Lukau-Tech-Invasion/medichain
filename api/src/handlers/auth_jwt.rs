@@ -13,10 +13,10 @@ use crate::security::{jwt, mfa};
 #[derive(Debug, Deserialize)]
 pub struct JwtIssueRequest {
     pub wallet_address: String,
-    /// Hex-encoded sr25519 signature over `<timestamp>:<wallet_address>`.
-    pub signature: Option<String>,
-    /// Unix timestamp that was signed.
-    pub timestamp: Option<i64>,
+    pub challenge_id: String,
+    pub nonce: String,
+    /// Hex-encoded sr25519 signature over the issued login challenge message.
+    pub signature: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,19 +32,15 @@ pub struct JwtIssueResponse {
     pub mfa_required: bool,
 }
 
-fn wallet_login_proof(signature: Option<&str>, timestamp: Option<i64>) -> Option<(&str, i64)> {
-    match (signature.map(str::trim), timestamp) {
-        (Some(signature), Some(timestamp)) if !signature.is_empty() => Some((signature, timestamp)),
-        _ => None,
-    }
+fn valid_login_proof(challenge_id: &str, nonce: &str, signature: &str) -> bool {
+    !challenge_id.trim().is_empty() && !nonce.trim().is_empty() && !signature.trim().is_empty()
 }
 
-/// Issue access + refresh JWTs after verifying a wallet signature challenge.
+/// Issue access + refresh JWTs after verifying a durable single-use challenge.
 ///
 /// POST /api/auth/jwt
 ///
-/// The signed message format matches the challenge from `/api/auth/challenge`:
-/// `<timestamp>:<wallet_address>`. Demo mode does not bypass wallet ownership.
+/// Demo mode does not bypass wallet ownership or replay protection.
 #[post("/api/auth/jwt")]
 pub async fn issue_jwt(
     data: web::Data<AppState>,
@@ -52,41 +48,62 @@ pub async fn issue_jwt(
 ) -> impl Responder {
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format".to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
     }
 
-    // JWTs always prove wallet ownership. Demo mode may relax per-request
-    // middleware for synthetic data, but it never mints a bearer token for a
-    // caller that cannot sign the login challenge.
-    match wallet_login_proof(body.signature.as_deref(), body.timestamp) {
-        Some((signature, timestamp)) => {
-            let message = format!("{}:{}", timestamp, body.wallet_address);
-            let now = Utc::now().timestamp();
-            if let Err(error) = medichain_crypto::signature::verify_wallet_signature(
-                signature,
-                &message,
-                &body.wallet_address,
-                now,
-            ) {
-                data.security
-                    .observe_failed_auth(&data.ws_manager, &body.wallet_address)
-                    .await;
-                log::warn!("JWT wallet signature verification failed: {error}");
-                return HttpResponse::Unauthorized().json(ErrorResponse {
-                    success: false,
-                    error: "Signature verification failed".to_string(),
-                    code: "SIGNATURE_VERIFICATION_FAILED".to_string(),
-                });
-            }
-        }
-        _ => {
+    if !valid_login_proof(&body.challenge_id, &body.nonce, &body.signature) {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Invalid authentication challenge".to_string(),
+            code: "INVALID_AUTH_CHALLENGE".to_string(),
+        });
+    }
+    let message = crate::auth_challenges::login_message(
+        &body.challenge_id,
+        &body.wallet_address,
+        &body.nonce,
+    );
+    if let Err(error) = medichain_crypto::signature::verify_wallet_message_signature(
+        &body.signature,
+        &message,
+        &body.wallet_address,
+    ) {
+        data.security
+            .observe_failed_auth(&data.ws_manager, &body.wallet_address)
+            .await;
+        log::warn!("JWT wallet signature verification failed: {error}");
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Invalid authentication challenge".to_string(),
+            code: "INVALID_AUTH_CHALLENGE".to_string(),
+        });
+    }
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_challenges::consume(
+        pool,
+        &body.challenge_id,
+        &body.wallet_address,
+        &body.nonce,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "signature and timestamp are required".to_string(),
-                code: "SIGNATURE_REQUIRED".to_string(),
+                error: "Invalid authentication challenge".to_string(),
+                code: "INVALID_AUTH_CHALLENGE".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("Could not consume authentication challenge: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Authentication is temporarily unavailable".to_string(),
+                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
             });
         }
     }
@@ -96,29 +113,25 @@ pub async fn issue_jwt(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Wallet not registered".to_string(),
                 code: "WALLET_NOT_REGISTERED".to_string(),
             });
         }
     };
 
-    issue_token_pair(&data, &body.wallet_address, &user.role.to_string())
+    issue_token_pair(&data, &body.wallet_address, &user.role.to_string(), None).await
 }
 
 #[cfg(test)]
 mod jwt_issue_tests {
-    use super::wallet_login_proof;
+    use super::valid_login_proof;
 
     #[test]
-    fn wallet_proof_is_mandatory_even_for_demo_runtime_configuration() {
-        assert!(wallet_login_proof(None, None).is_none());
-        assert!(wallet_login_proof(Some(""), Some(1)).is_none());
-        assert!(wallet_login_proof(Some("signature"), None).is_none());
-        assert_eq!(
-            wallet_login_proof(Some(" signature "), Some(42)),
-            Some(("signature", 42))
-        );
+    fn wallet_challenge_fields_are_mandatory_even_for_demo_runtime_configuration() {
+        assert!(!valid_login_proof("", "nonce", "signature"));
+        assert!(!valid_login_proof("challenge", "", "signature"));
+        assert!(!valid_login_proof("challenge", "nonce", ""));
+        assert!(valid_login_proof("challenge", "nonce", "signature"));
     }
 }
 
@@ -139,7 +152,6 @@ pub async fn refresh_jwt(
         Ok(c) if c.typ == jwt::TYP_REFRESH => c,
         _ => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Invalid or expired refresh token".to_string(),
                 code: "INVALID_REFRESH_TOKEN".to_string(),
             });
@@ -149,27 +161,110 @@ pub async fn refresh_jwt(
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Account is inactive or no longer registered".to_string(),
                 code: "ACCOUNT_INACTIVE".to_string(),
             });
         }
     };
-    issue_token_pair(&data, &claims.sub, &user.role.to_string())
+    issue_token_pair(
+        &data,
+        &claims.sub,
+        &user.role.to_string(),
+        Some((&body.refresh_token, &claims.jti)),
+    )
+    .await
 }
 
 /// Issue an access+refresh pair for a wallet. The access token's `mfa` claim is
 /// `true` only when the wallet has *not* enrolled MFA; enrolled wallets receive
 /// `mfa=false` and must step up via `/api/auth/mfa/challenge`.
-fn issue_token_pair(data: &web::Data<AppState>, wallet: &str, role: &str) -> HttpResponse {
+async fn issue_token_pair(
+    data: &web::Data<AppState>,
+    wallet: &str,
+    role: &str,
+    previous_refresh: Option<(&str, &str)>,
+) -> HttpResponse {
     let mfa_enabled = data.security.mfa_enabled(wallet);
     let mfa_satisfied = !mfa_enabled;
 
-    let access = match jwt::issue_access_token(wallet, role, mfa_satisfied) {
+    // Order matters (ADR-0008). The access token carries the login session's
+    // `sid`, so the session has to be persisted before the token can be minted --
+    // and a token must never be handed out for a session that failed to persist.
+    // The refresh token is minted first only because its digest and JTI are what
+    // the generation row stores.
+    let refresh = match jwt::issue_refresh_token(wallet, role) {
         Ok(t) => t,
         Err(e) => return jwt_error(e),
     };
-    let refresh = match jwt::issue_refresh_token(wallet, role) {
+    let refresh_claims = match jwt::decode_token(&refresh) {
+        Ok(claims) => claims,
+        Err(error) => return jwt_error(error),
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let expires_at = match chrono::DateTime::from_timestamp(refresh_claims.exp, 0) {
+        Some(time) => time,
+        None => return jwt_error(jsonwebtoken::errors::ErrorKind::InvalidToken.into()),
+    };
+    let persisted = match previous_refresh {
+        // A rotation continues the existing login: the successor generation
+        // inherits the same `sid`, which is the whole point of the split.
+        Some((token, jti)) => crate::auth_sessions::rotate(
+            pool,
+            wallet,
+            token,
+            jti,
+            &refresh,
+            &refresh_claims.jti,
+            expires_at,
+        )
+        .await
+        .and_then(|rotated| {
+            rotated
+                .ok_or_else(|| sqlx::Error::Protocol("refresh session is no longer active".into()))
+        }),
+        None => {
+            crate::auth_sessions::create(pool, wallet, &refresh, &refresh_claims.jti, expires_at)
+                .await
+        }
+    };
+    let login_session_id = match persisted {
+        Ok(id) => id,
+        Err(error) => {
+            log::error!("Refresh-session persistence failed: {error}");
+            let mut status = if previous_refresh.is_some() {
+                HttpResponse::Unauthorized()
+            } else {
+                HttpResponse::ServiceUnavailable()
+            };
+            return status.json(ErrorResponse {
+                error: if previous_refresh.is_some() {
+                    "Invalid or expired refresh token".to_string()
+                } else {
+                    "Authentication is temporarily unavailable".to_string()
+                },
+                code: if previous_refresh.is_some() {
+                    "INVALID_REFRESH_TOKEN".to_string()
+                } else {
+                    "AUTH_SESSION_UNAVAILABLE".to_string()
+                },
+            });
+        }
+    };
+
+    // The session exists now, so the access token can name it. If this fails the
+    // caller gets an error and the unused session row simply expires -- that is
+    // operational debris, not an issued credential for an unpersisted session.
+    let access = match jwt::issue_access_token(
+        wallet,
+        role,
+        mfa_satisfied,
+        Some(&login_session_id.to_string()),
+    ) {
         Ok(t) => t,
         Err(e) => return jwt_error(e),
     };
@@ -188,7 +283,6 @@ fn issue_token_pair(data: &web::Data<AppState>, wallet: &str, role: &str) -> Htt
 fn jwt_error(e: jsonwebtoken::errors::Error) -> HttpResponse {
     log::error!("JWT issuance failed: {}", e);
     HttpResponse::InternalServerError().json(ErrorResponse {
-        success: false,
         error: "Failed to issue authentication token".to_string(),
         code: "TOKEN_ISSUE_FAILED".to_string(),
     })
@@ -211,6 +305,86 @@ pub struct MfaEnrollResponse {
 ///
 /// POST /api/auth/mfa/enroll
 /// The enrollment is not active until a code is confirmed via `/mfa/verify`.
+/// End the caller's current login session.
+///
+/// ADR-0008 makes the database authoritative for revocation: an access token
+/// stays cryptographically valid until it expires, so signing out has to revoke
+/// the session rather than merely discard the token client-side. Revoking the
+/// parent revokes every refresh generation beneath it, which is what stops a
+/// still-intact refresh token from reopening the login.
+#[post("/api/auth/logout")]
+pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    let Some(claims) = get_current_claims(&req) else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    };
+    // Tokens issued before ADR-0008 carry no session to revoke. Report that
+    // plainly rather than returning a success the caller cannot rely on.
+    let Some(session_id) = claims.sid.as_deref().and_then(|s| Uuid::parse_str(s).ok()) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "This session cannot be ended; sign in again".to_string(),
+            code: "SESSION_NOT_REVOCABLE".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_sessions::revoke_session(pool, session_id, "logout").await {
+        // `false` means the session was already ended. Logging out twice is not
+        // an error worth surfacing to a user who wanted to be signed out.
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "Session ended",
+        })),
+        Err(error) => {
+            log::error!("Session revocation failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Could not end the session".to_string(),
+                code: "SESSION_REVOCATION_FAILED".to_string(),
+            })
+        }
+    }
+}
+
+/// End every login session for the caller's wallet ("sign out everywhere").
+///
+/// This is the control a user reaches for after losing a device, so it must not
+/// depend on the lost device cooperating: it revokes by subject, not by the
+/// session presenting the request.
+#[post("/api/auth/logout-all")]
+pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    let Some(claims) = get_current_claims(&req) else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_sessions::revoke_all_for_wallet(pool, &claims.sub, "logout_all").await {
+        Ok(ended) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "sessions_ended": ended,
+        })),
+        Err(error) => {
+            log::error!("Bulk session revocation failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Could not end the sessions".to_string(),
+                code: "SESSION_REVOCATION_FAILED".to_string(),
+            })
+        }
+    }
+}
+
 #[post("/api/auth/mfa/enroll")]
 pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
@@ -223,7 +397,6 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         Ok(u) => u,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "MFA_ENROLL_FAILED".to_string(),
             })
@@ -235,9 +408,8 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
     // success response for a memory-only enrollment would disappear on restart
     // and make server-side assurance checks disagree across replicas.
     if let Err(error) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
-        log::error!("Failed to persist MFA enrollment for {}: {}", wallet, error);
+        log::error!("Failed to persist MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA enrollment is temporarily unavailable".to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
         });
@@ -252,9 +424,8 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
             enrollments.insert(wallet.clone(), record);
         }
         Err(_) => {
-            log::error!("MFA cache is unavailable after persisting enrollment for {wallet}");
+            log::error!("MFA cache is unavailable after persisting enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error:
                     "MFA enrollment was stored but cannot be activated until the service recovers"
                         .to_string(),
@@ -300,7 +471,6 @@ pub async fn mfa_verify(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "No MFA enrollment in progress. Call /api/auth/mfa/enroll first."
                     .to_string(),
                 code: "MFA_NOT_ENROLLED".to_string(),
@@ -313,16 +483,14 @@ pub async fn mfa_verify(
             .observe_failed_auth(&data.ws_manager, &wallet)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
     }
 
     if let Err(error) = data.update_mfa_enabled(&wallet, true).await {
-        log::error!("Failed to persist MFA activation for {}: {}", wallet, error);
+        log::error!("Failed to persist MFA activation: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA activation is temporarily unavailable".to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
         });
@@ -331,9 +499,8 @@ pub async fn mfa_verify(
         Ok(mut enrollments) => match enrollments.get_mut(&wallet) {
             Some(record) => record.enabled = true,
             None => {
-                log::error!("Persisted MFA activation has no cache record for {wallet}");
+                log::error!("Persisted MFA activation has no cache record");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "MFA was stored but cannot be used until the service recovers"
                         .to_string(),
                     code: "MFA_CACHE_UNAVAILABLE".to_string(),
@@ -341,9 +508,8 @@ pub async fn mfa_verify(
             }
         },
         Err(_) => {
-            log::error!("MFA cache is unavailable after activation for {wallet}");
+            log::error!("MFA cache is unavailable after activation");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "MFA was stored but cannot be used until the service recovers".to_string(),
                 code: "MFA_CACHE_UNAVAILABLE".to_string(),
             });
@@ -379,7 +545,6 @@ pub async fn mfa_challenge(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "MFA is not enabled for this account".to_string(),
                 code: "MFA_NOT_ENABLED".to_string(),
             })
@@ -391,7 +556,6 @@ pub async fn mfa_challenge(
             .observe_failed_auth(&data.ws_manager, &wallet)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
@@ -401,7 +565,12 @@ pub async fn mfa_challenge(
         .map(|u| u.role.to_string())
         .unwrap_or_else(|| "Patient".to_string());
 
-    match jwt::issue_access_token(&wallet, &role, true) {
+    // MFA step-up replaces the access token but not the login. Carrying the
+    // existing `sid` forward is what keeps step-up state, and any challenge bound
+    // to this session, attached to the same login rather than orphaned.
+    let login_session_id = get_current_claims(&req).and_then(|claims| claims.sid.clone());
+
+    match jwt::issue_access_token(&wallet, &role, true, login_session_id.as_deref()) {
         Ok(access) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "access_token": access,
@@ -459,7 +628,6 @@ pub async fn mfa_disable(
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "MFA is not enabled for this account".to_string(),
                 code: "MFA_NOT_ENABLED".to_string(),
             })
@@ -468,16 +636,14 @@ pub async fn mfa_disable(
 
     if !mfa::verify_code(&secret, &wallet, &body.code) {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
     }
 
     if let Err(error) = data.delete_mfa_enrollment(&wallet).await {
-        log::error!("Failed to delete MFA enrollment for {}: {}", wallet, error);
+        log::error!("Failed to delete MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "MFA could not be disabled because the durable record is unavailable"
                 .to_string(),
             code: "MFA_PERSISTENCE_REQUIRED".to_string(),
@@ -488,9 +654,8 @@ pub async fn mfa_disable(
             enrollments.remove(&wallet);
         }
         Err(_) => {
-            log::error!("MFA cache is unavailable after disabling enrollment for {wallet}");
+            log::error!("MFA cache is unavailable after disabling enrollment");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "MFA was disabled but the local session cache has not recovered".to_string(),
                 code: "MFA_CACHE_UNAVAILABLE".to_string(),
             });
@@ -583,7 +748,6 @@ pub async fn declare_breach(
 
 pub(crate) fn unauthorized_missing_user() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        success: false,
         error: "Authentication required (Bearer JWT or X-User-Id)".to_string(),
         code: "UNAUTHORIZED".to_string(),
     })
@@ -597,14 +761,12 @@ pub(crate) fn require_admin(
     let wallet = get_current_user_id(req).ok_or_else(unauthorized_missing_user)?;
     let user = get_user(data, &wallet).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
     })?;
     if !user.role.is_admin() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Admin role required".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
@@ -731,13 +893,11 @@ pub(crate) fn require_privileged_assurance(
     match privileged_assurance_decision(crate::support::is_demo_mode(), enrolled, assurance) {
         Ok(()) => None,
         Err(AssuranceDenial::NoCaller) => Some(HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
             error: "Authentication required for this operation.".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })),
         Err(AssuranceDenial::EnrollmentRequired) => Some(
             HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "This operation requires MFA. Enroll via /api/auth/mfa/enroll, then \
                         step up via /api/auth/mfa/challenge."
                     .to_string(),
@@ -746,7 +906,6 @@ pub(crate) fn require_privileged_assurance(
         ),
         Err(AssuranceDenial::StepUpRequired) => Some(
             HttpResponse::Forbidden().json(ErrorResponse {
-                success: false,
                 error: "MFA step-up required for this operation. Call /api/auth/mfa/challenge."
                     .to_string(),
                 code: "MFA_REQUIRED".to_string(),

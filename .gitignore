@@ -124,6 +124,8 @@ __pycache__/
 # non-globbed patterns matched neither, and .last-run.json was committed.
 client/**/test-results/
 client/**/playwright-report/
+# Console logs captured by the Playwright CLI helper; a debugging artefact.
+.playwright-cli/
 client/**/*.png
 *.png
 fix-results.tsv
@@ -132,3 +134,9 @@ fix-results.tsv
 # recovery phrases. Regenerate with scripts/seed-browser-test-fixtures.ts;
 # never commit them.
 .browser-test/
+
+# Playwright saved sign-in state (contains a live session token)
+client/**/.auth/
+
+# Jitsi generates its own configuration and certificates into this tree.
+.jitsi-config/

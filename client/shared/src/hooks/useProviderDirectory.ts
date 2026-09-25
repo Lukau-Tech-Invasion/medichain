@@ -1,13 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiUrl } from '../config';
-
-interface ProviderRow {
-  name: string;
-  role: string;
-  specialty: string | null;
-  username: string | null;
-  wallet_address: string;
-}
+import { getProviders } from '../api/endpoints';
 
 /**
  * Resolve a wallet address to the clinician's name.
@@ -27,14 +19,11 @@ export function useProviderDirectory(walletAddress: string | undefined) {
   useEffect(() => {
     if (!walletAddress) return;
     let cancelled = false;
-    fetch(apiUrl('/api/providers'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': walletAddress },
-    })
-      .then(response => (response.ok ? response.json() : { providers: [] }))
-      .then((body: { providers?: ProviderRow[] }) => {
+    getProviders()
+      .then(({ providers }) => {
         if (cancelled) return;
         const map: Record<string, string> = {};
-        for (const provider of body.providers || []) {
+        for (const provider of providers) {
           if (provider.wallet_address && provider.name) {
             map[provider.wallet_address] = provider.name;
           }

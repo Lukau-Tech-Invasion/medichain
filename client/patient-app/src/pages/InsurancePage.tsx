@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CreditCard,
   Plus,
@@ -10,13 +10,12 @@ import {
   Clock,
   Trash2,
   Eye,
-  Download,
   Phone,
   FileText,
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { getPatientInsuranceClaims, uploadInsuranceCardImage, IS_DEMO, useTranslation, formatCurrency, DEFAULT_CURRENCY } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -142,6 +141,18 @@ function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
   };
 }
 
+/** Load a persisted encrypted card image into a browser-safe data URL. */
+async function loadCardImage(cardId: string, side: 'front' | 'back'): Promise<string | null> {
+  try {
+    const image = await downloadInsuranceCardImage(cardId, side);
+    return `data:${image.content_type};base64,${image.content_base64}`;
+  } catch {
+    // A missing side is expected for cards that have only one image. The card
+    // itself remains usable; only an authorised existing image is displayed.
+    return null;
+  }
+}
+
 const InsurancePage: React.FC = () => {
   const { t, locale } = useTranslation();
   const [activeTab, setActiveTab] = useState<'cards' | 'claims' | 'add'>('cards');
@@ -158,6 +169,8 @@ const InsurancePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
   const { patient } = usePatientAuthStore();
 
   // New insurance form state
@@ -177,16 +190,22 @@ const InsurancePage: React.FC = () => {
     outOfPocketMax: '6000'
   });
 
-  useEffect(() => {
-    loadInsuranceData();
-  }, [patient]);
-
-  const loadInsuranceData = async () => {
+  const loadInsuranceData = useCallback(async () => {
     setLoading(true);
     
     // Try to load from API first
     if (patient?.healthId) {
       try {
+        const cardsResponse = await getInsuranceCards(patient.healthId);
+        const cards = cardsResponse.cards.map((card) => card as unknown as InsuranceCard);
+        const cardsWithImages = await Promise.all(cards.map(async (card) => {
+          const [frontImageUrl, backImageUrl] = await Promise.all([
+            loadCardImage(card.id, 'front'),
+            loadCardImage(card.id, 'back'),
+          ]);
+          return { ...card, frontImageUrl, backImageUrl };
+        }));
+        setInsuranceCards(cardsWithImages);
         const response = await getPatientInsuranceClaims(patient.healthId, { limit: 20 });
         const apiClaims = (response.claims ?? []).map(mapApiClaim);
 
@@ -194,41 +213,21 @@ const InsurancePage: React.FC = () => {
           setClaims(apiClaims);
           setClaimsCursor(response.next_cursor ?? null);
           setClaimsHasMore(!!response.next_cursor);
-        } else if (IS_DEMO) {
-          await loadDemoClaims();
         }
 
-        // Insurance cards have no API endpoint yet — only show sample cards in demo mode
-        if (IS_DEMO) {
-          await loadDemoCards();
-        }
         setLoading(false);
         return;
       } catch (err) {
-        console.warn('No insurance data from API, using demo data:', err);
+        console.warn('No insurance data from API:', err);
       }
     }
 
-    // Fallback to demo data (demo mode only — production shows an empty state)
-    if (IS_DEMO) {
-      await loadDemoCards();
-      await loadDemoClaims();
-    }
     setLoading(false);
-  };
+  }, [patient?.healthId]);
 
-  // Dynamically imported so the sample data isn't bundled into production
-  // builds (demo mode is gated by IS_DEMO, but the bundler can't statically
-  // prove that across a module boundary unless the import itself is dynamic).
-  const loadDemoCards = async () => {
-    const { getDemoInsuranceCards } = await import('./InsurancePage.demoData');
-    setInsuranceCards(getDemoInsuranceCards());
-  };
-
-  const loadDemoClaims = async () => {
-    const { getDemoInsuranceClaims } = await import('./InsurancePage.demoData');
-    setClaims(getDemoInsuranceClaims());
-  };
+  useEffect(() => {
+    loadInsuranceData();
+  }, [patient, loadInsuranceData]);
 
   const handleLoadMoreClaims = async () => {
     if (!patient?.healthId || !claimsCursor || loadingMoreClaims) return;
@@ -258,21 +257,6 @@ const InsurancePage: React.FC = () => {
     }
   };
 
-  const _getTypeBadge = (type: InsuranceType) => {
-    const colors: Record<InsuranceType, string> = {
-      medical: 'bg-notice-subtle text-notice-subtle-fg',
-      dental: 'bg-ok-subtle text-ok-subtle-fg',
-      vision: 'bg-surface-sunken text-content-secondary',
-      pharmacy: 'bg-surface-sunken text-content-secondary',
-      supplemental: 'bg-surface-sunken text-content-secondary'
-    };
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[type]}`}>
-        {type.charAt(0).toUpperCase() + type.slice(1)}
-      </span>
-    );
-  };
-
   const getStatusBadge = (status: CoverageStatus) => {
     const config: Record<CoverageStatus, { color: string; icon: React.ReactNode }> = {
       active: { color: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
@@ -280,10 +264,14 @@ const InsurancePage: React.FC = () => {
       expired: { color: 'bg-critical-subtle text-critical-subtle-fg', icon: <XCircle className="w-3 h-3" /> },
       cancelled: { color: 'bg-surface-sunken text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
     };
-    const c = config[status];
+    // Stored JSON cards can outlive a vocabulary change. A malformed or
+    // unknown status must be visibly non-active, never crash the whole screen
+    // or be promoted to active coverage.
+    const knownStatus = status in config;
+    const c = config[status] ?? config.pending;
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${c.color}`}>
-        {c.icon} {t(`insurance.status_${status}`)}
+        {c.icon} {t(`insurance.status_${knownStatus ? status : 'pending'}`)}
       </span>
     );
   };
@@ -314,10 +302,8 @@ const InsurancePage: React.FC = () => {
         card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
       ));
     } catch (err) {
-      console.warn('Verification API failed, updating locally:', err);
-      setInsuranceCards(prev => prev.map(card =>
-        card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
-      ));
+      console.warn('Insurance verification failed:', err);
+      setCardError(t('insurance.verificationFailed'));
     } finally {
       setVerifying(null);
     }
@@ -352,7 +338,7 @@ const InsurancePage: React.FC = () => {
       });
       const base64 = dataUrl.split(',')[1] ?? '';
 
-      await uploadInsuranceCardImage(cardId, base64, file.type);
+      await uploadInsuranceCardImage(cardId, side, base64, file.type);
 
       setInsuranceCards(prev => prev.map(card =>
         card.id === cardId
@@ -368,8 +354,10 @@ const InsurancePage: React.FC = () => {
     }
   };
 
-  const handleAddInsurance = () => {
-    if (!newInsurance.providerName || !newInsurance.memberId) return;
+  const handleAddInsurance = async () => {
+    if (!patient?.healthId || !newInsurance.providerName || !newInsurance.memberId) return;
+    setSavingCard(true);
+    setCardError(null);
 
     const newCard: InsuranceCard = {
       id: `INS-${Date.now()}`,
@@ -410,7 +398,18 @@ const InsurancePage: React.FC = () => {
       lastVerified: ''
     };
 
-    setInsuranceCards(prev => [...prev, newCard]);
+    try {
+      const response = await createInsuranceCard({
+        ...newCard,
+        patient_id: patient.healthId,
+      });
+      setInsuranceCards(prev => [...prev, response.card as unknown as InsuranceCard]);
+    } catch (error) {
+      setCardError(error instanceof Error ? error.message : t('insurance.addFailed'));
+      return;
+    } finally {
+      setSavingCard(false);
+    }
     setNewInsurance({
       type: 'medical',
       providerName: '',
@@ -429,9 +428,14 @@ const InsurancePage: React.FC = () => {
     setActiveTab('cards');
   };
 
-  const handleDeleteCard = (cardId: string) => {
-    if (confirm(t('insurance.confirmDeleteCard'))) {
+  const handleDeleteCard = async (cardId: string) => {
+    if (!(await confirmDialog({ message: t('insurance.confirmDeleteCard'), destructive: true }))) return;
+    setCardError(null);
+    try {
+      await deleteInsuranceCard(cardId);
       setInsuranceCards(prev => prev.filter(c => c.id !== cardId));
+    } catch (error) {
+      setCardError(error instanceof Error ? error.message : t('insurance.deleteFailed'));
     }
   };
 
@@ -448,12 +452,12 @@ const InsurancePage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <CreditCard className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('insurance.title')}</h1>
         </div>
-        <p className="text-teal-100">{t('insurance.subtitle')}</p>
+        <p className="text-white">{t('insurance.subtitle')}</p>
       </div>
 
       {/* Summary Cards */}
@@ -499,6 +503,11 @@ const InsurancePage: React.FC = () => {
 
       {/* Content */}
       <div className="p-4">
+        {cardError && (
+          <div role="alert" className="mb-4 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
+            {cardError}
+          </div>
+        )}
         {/* Cards Tab */}
         {activeTab === 'cards' && (
           <div className="space-y-4">
@@ -634,7 +643,7 @@ const InsurancePage: React.FC = () => {
                       <button
                         onClick={() => handleVerifyCoverage(card.id)}
                         disabled={verifying === card.id}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                       >
                         {verifying === card.id ? (
                           <><RefreshCw className="w-4 h-4 animate-spin" /> {t('insurance.verifying')}</>
@@ -649,7 +658,7 @@ const InsurancePage: React.FC = () => {
                         <Phone className="w-4 h-4" />
                       </a>
                       <button
-                        onClick={() => handleDeleteCard(card.id)}
+                        onClick={() => void handleDeleteCard(card.id)}
                         className="flex items-center justify-center px-3 py-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -699,11 +708,6 @@ const InsurancePage: React.FC = () => {
                         {formatCurrency(claim.patientResponsibility, claim.currency, locale)}
                       </span>
                     </div>
-                    {claim.eobUrl && (
-                      <button className="flex items-center gap-1 text-content-secondary text-sm">
-                        <Download className="w-4 h-4" /> {t('insurance.eobButton')}
-                      </button>
-                    )}
                   </div>
                 </div>
               ))
@@ -712,7 +716,7 @@ const InsurancePage: React.FC = () => {
               <button
                 onClick={handleLoadMoreClaims}
                 disabled={loadingMoreClaims}
-                className="w-full py-3 text-center text-sm font-medium text-content-secondary bg-surface rounded-lg shadow hover:bg-surface-sunken disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 text-center text-sm font-medium text-content-secondary bg-surface rounded-lg shadow hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-2"
               >
                 {loadingMoreClaims ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> {t('insurance.loadingMoreClaims')}</>
@@ -732,13 +736,13 @@ const InsurancePage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceTypeLabel')} <span className="text-red-500">*</span>
+                  {t('insurance.insuranceTypeLabel')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="insurance-type"
                   value={newInsurance.type}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, type: e.target.value as InsuranceType }))}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="medical">{t('insurance.type_medical')}</option>
                   <option value="dental">{t('insurance.type_dental')}</option>
@@ -750,7 +754,7 @@ const InsurancePage: React.FC = () => {
 
               <div>
                 <label htmlFor="insurance-provider" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceProviderLabel')} <span className="text-red-500">*</span>
+                  {t('insurance.insuranceProviderLabel')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="insurance-provider"
@@ -758,7 +762,7 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.providerName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, providerName: e.target.value }))}
                   placeholder={t('insurance.insuranceProviderPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -772,14 +776,14 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.planName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, planName: e.target.value }))}
                   placeholder={t('insurance.planNamePlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="insurance-member-id" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('insurance.memberIdLabel')} <span className="text-red-500">*</span>
+                    {t('insurance.memberIdLabel')} <span className="text-critical">*</span>
                   </label>
                   <input
                     id="insurance-member-id"
@@ -787,7 +791,7 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.memberId}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, memberId: e.target.value }))}
                     placeholder={t('insurance.memberIdPlaceholder')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -800,7 +804,7 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.groupNumber}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, groupNumber: e.target.value }))}
                     placeholder={t('insurance.groupNumberPlaceholder')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -815,7 +819,7 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.subscriberName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, subscriberName: e.target.value }))}
                   placeholder={t('insurance.subscriberNamePlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -829,7 +833,7 @@ const InsurancePage: React.FC = () => {
                     type="date"
                     value={newInsurance.effectiveDate}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, effectiveDate: e.target.value }))}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -842,7 +846,7 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.customerServicePhone}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, customerServicePhone: e.target.value }))}
                     placeholder={t('insurance.customerServicePlaceholder')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -857,7 +861,7 @@ const InsurancePage: React.FC = () => {
                       type="number"
                       value={newInsurance.copayPrimary}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copayPrimary: e.target.value }))}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
@@ -867,7 +871,7 @@ const InsurancePage: React.FC = () => {
                       type="number"
                       value={newInsurance.copaySpecialist}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copaySpecialist: e.target.value }))}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
@@ -877,7 +881,7 @@ const InsurancePage: React.FC = () => {
                       type="number"
                       value={newInsurance.deductible}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, deductible: e.target.value }))}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
@@ -887,16 +891,16 @@ const InsurancePage: React.FC = () => {
                       type="number"
                       value={newInsurance.outOfPocketMax}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, outOfPocketMax: e.target.value }))}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                 </div>
               </div>
 
               <button
-                onClick={handleAddInsurance}
-                disabled={!newInsurance.providerName || !newInsurance.memberId}
-                className="w-full py-3 bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg font-medium hover:from-teal-700 hover:to-cyan-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => void handleAddInsurance()}
+                disabled={savingCard || !newInsurance.providerName || !newInsurance.memberId}
+                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
               >
                 {t('insurance.addInsuranceCardButton')}
               </button>
@@ -915,7 +919,7 @@ const InsurancePage: React.FC = () => {
 
             <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-4">
               {uploadingImage ? (
-                <Loader2 className="w-12 h-12 mx-auto text-teal-500 mb-3 animate-spin" />
+                <Loader2 className="w-12 h-12 mx-auto text-brand mb-3 animate-spin" />
               ) : (
                 <Upload className="w-12 h-12 mx-auto text-content-muted mb-3" />
               )}
@@ -931,13 +935,13 @@ const InsurancePage: React.FC = () => {
               />
               <label
                 htmlFor="card-upload"
-                className={`mt-4 inline-block px-4 py-2 bg-teal-600 text-white rounded-lg cursor-pointer hover:bg-teal-700 transition-colors ${uploadingImage ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`mt-4 inline-block px-4 py-2 rounded-lg transition-colors ${uploadingImage ? 'bg-disabled text-disabled-fg pointer-events-none' : 'bg-teal-700 text-white hover:bg-teal-800 cursor-pointer'}`}
               >
                 {uploadingImage ? t('insurance.uploadingButton') : t('insurance.chooseFileButton')}
               </label>
             </div>
 
-            {uploadError ? <p className="text-sm text-red-600 mb-4 text-center">{uploadError}</p> : null}
+            {uploadError ? <p className="text-sm text-critical mb-4 text-center">{uploadError}</p> : null}
 
             <div className="flex items-center justify-center gap-2 mb-4 text-gray-500">
               <span className="h-px flex-1 bg-gray-200" />
@@ -956,7 +960,7 @@ const InsurancePage: React.FC = () => {
             />
             <label
               htmlFor="card-upload-camera"
-              className={`w-full flex items-center justify-center gap-2 py-3 border border-teal-600 text-teal-600 rounded-lg font-medium hover:bg-teal-50 transition-colors cursor-pointer ${uploadingImage ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`w-full flex items-center justify-center gap-2 py-3 border rounded-lg font-medium transition-colors ${uploadingImage ? 'border-border bg-disabled text-disabled-fg pointer-events-none' : 'border-brand text-brand hover:bg-brand-subtle cursor-pointer'}`}
             >
               <Camera className="w-5 h-5" /> {t('insurance.takePhotoButton')}
             </label>
@@ -967,7 +971,7 @@ const InsurancePage: React.FC = () => {
                 setUploadError(null);
               }}
               disabled={uploadingImage}
-              className="w-full mt-3 py-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+              className="w-full mt-3 py-2 text-gray-500 hover:text-gray-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
             >
               {t('insurance.cancelButton')}
             </button>

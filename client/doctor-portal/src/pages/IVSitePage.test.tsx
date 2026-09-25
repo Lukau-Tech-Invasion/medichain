@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import IVSitePage from './IVSitePage';
 import { useAuthStore } from '../store/authStore';
@@ -37,13 +38,13 @@ describe('IVSitePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
     // IV sites hang off a patient: with no patient chosen the page shows only
     // the picker, so the assessment tabs never render.
-    (shared.getPatients as any).mockResolvedValue([
-      { patient_id: 'PAT-001', full_name: 'Test Patient', health_id: 'MCHI-1' },
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientProfile(),
     ]);
   });
 

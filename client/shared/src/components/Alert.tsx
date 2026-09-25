@@ -23,19 +23,19 @@ export function Alert({
   const variants = {
     info: {
       container: 'bg-notice-subtle border-notice text-notice-subtle-fg',
-      icon: <Info className="w-5 h-5 text-blue-500" />,
+      icon: <Info className="w-5 h-5 text-brand" />,
     },
     success: {
       container: 'bg-ok-subtle border-ok text-ok-subtle-fg',
-      icon: <CheckCircle2 className="w-5 h-5 text-green-500" />,
+      icon: <CheckCircle2 className="w-5 h-5 text-ok" />,
     },
     warning: {
       container: 'bg-caution-subtle border-caution text-caution-subtle-fg',
-      icon: <AlertCircle className="w-5 h-5 text-yellow-500" />,
+      icon: <AlertCircle className="w-5 h-5 text-caution" />,
     },
     error: {
       container: 'bg-critical-subtle border-critical text-critical-subtle-fg',
-      icon: <XCircle className="w-5 h-5 text-red-500" />,
+      icon: <XCircle className="w-5 h-5 text-critical" />,
     },
   };
 

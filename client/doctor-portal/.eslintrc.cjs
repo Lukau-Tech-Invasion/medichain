@@ -14,11 +14,37 @@ module.exports = {
     'plugin:jsx-a11y/recommended',
   ],
   ignorePatterns: ['dist', '.eslintrc.cjs'],
+  overrides: [
+    {
+      // The service worker runs in a ServiceWorkerGlobalScope, where `clients`,
+      // `skipWaiting` and `registration` are globals. Linting it as a `browser`
+      // script reported `clients` as an undefined variable, which reads like a
+      // typo in offline-cache code rather than a missing env declaration.
+      files: ['public/sw.js'],
+      env: { serviceworker: true, browser: true },
+    },
+  ],
   parser: '@typescript-eslint/parser',
   plugins: ['react-refresh', 'jsx-a11y'],
   rules: {
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-    '@typescript-eslint/no-unused-vars': 'warn',
+    // Honour the leading underscore, which this codebase already uses to mark a
+    // binding as deliberately unused (`_getCategoryIcon`, `_showEditModal`, the
+    // half-built modal state on several pages). Without this the convention was
+    // decorative: the rename signalled intent to a reader and nothing to the
+    // linter, so 40 warnings sat in the backlog saying only what the name
+    // already said.
+    //
+    // This is not an amnesty. Every one of those bindings is genuinely dead
+    // code, catalogued under "Underscore-marked dead bindings" in
+    // docs/TECHNICAL_DEBT_REGISTER.md; the rule change makes the backlog
+    // legible, the register keeps it from being forgotten.
+    '@typescript-eslint/no-unused-vars': ['warn', {
+      argsIgnorePattern: '^_',
+      varsIgnorePattern: '^_',
+      caughtErrorsIgnorePattern: '^_',
+      destructuredArrayIgnorePattern: '^_',
+    }],
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/ban-ts-comment': 'warn',
     'react-hooks/exhaustive-deps': 'warn',

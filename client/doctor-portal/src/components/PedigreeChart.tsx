@@ -248,7 +248,7 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
     });
     
     // Add family members
-    familyMembers.forEach((member, index) => {
+    familyMembers.forEach((member) => {
       const hasConditions = member.conditions.length > 0;
       const matchesFilter = !filterCondition || 
         member.conditions.some(c => 

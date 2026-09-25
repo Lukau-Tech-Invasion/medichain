@@ -46,7 +46,6 @@ pub async fn create_order(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -55,7 +54,6 @@ pub async fn create_order(
 
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -64,7 +62,6 @@ pub async fn create_order(
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() || record.order_text.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "patient_id and order details are required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
         });
@@ -77,7 +74,6 @@ pub async fn create_order(
         .is_err()
     {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: format!("Patient '{}' not found", record.patient_id),
             code: "PATIENT_NOT_FOUND".to_string(),
         });
@@ -148,14 +144,12 @@ pub async fn create_order(
             "order_id": order_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
         Err(e) => {
             log::error!("physician order persistence failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "Failed to save the order".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
@@ -175,7 +169,6 @@ pub async fn get_order(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -184,7 +177,6 @@ pub async fn get_order(
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -196,14 +188,18 @@ pub async fn get_order(
         .get_by_id(&order_id)
         .await
     {
-        Ok(entity) => HttpResponse::Ok().json(entity.data),
+        Ok(entity) => {
+            // The stored record, not `entity.data`. `data` is `#[sqlx(skip)]`
+            // on every one of these entities, so on PostgreSQL it is always
+            // `Value::Null` — this endpoint returned a literal `null` with a
+            // 200 for every record ever saved. The typed columns are the record.
+            HttpResponse::Ok().json(entity)
+        }
         Err(RepositoryError::NotFound(_)) => HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "Physician order not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -216,11 +212,31 @@ pub struct UpdateOrderStatusRequest {
     pub status: String,
 }
 
-/// Update a physician order's status (doctor-portal OrdersPage).
+/// Convert UI and API status spellings into the database lifecycle vocabulary.
+fn canonical_order_status(status: &str) -> Option<&'static str> {
+    match status
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "pending" => Some("pending"),
+        // The portal historically called this `in_progress`; the database and
+        // all durable readers call the same state `active`.
+        "in_progress" | "active" => Some("active"),
+        "completed" => Some("completed"),
+        "discontinued" => Some("discontinued"),
+        "cancelled" => Some("cancelled"),
+        "on_hold" => Some("on_hold"),
+        _ => None,
+    }
+}
+
+/// Update a physician order's durable lifecycle status (doctor-portal OrdersPage).
 ///
-/// The status lives inside the order's `data` blob; this reads the order,
-/// rewrites `status` (stamping `completed_at` on completion), and persists via
-/// the repository's `update`. Edit-medical-records role required.
+/// The typed `status` column is the source of truth. The legacy JSON payload is
+/// updated as a compatibility mirror, and completion time is stamped there for
+/// readers that still need it. Edit-medical-records role required.
 #[actix_web::put("/api/clinical/orders/{order_id}/status")]
 pub async fn update_order_status(
     data: web::Data<AppState>,
@@ -233,7 +249,6 @@ pub async fn update_order_status(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -241,7 +256,6 @@ pub async fn update_order_status(
     };
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -249,7 +263,6 @@ pub async fn update_order_status(
     let new_status = body.status.trim().to_string();
     if new_status.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "status is required".to_string(),
             code: "INVALID_STATUS".to_string(),
         });
@@ -263,25 +276,45 @@ pub async fn update_order_status(
         Ok(e) => e,
         Err(RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Physician order not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: e.to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
         }
     };
+    // The COLUMN is what every reader uses.
+    //
+    // This used to write the new status only into the `data` blob, and
+    // `list_orders` reads `entity.status` — with a comment right there saying
+    // `data` is always null on PostgreSQL. So the endpoint answered
+    // `{"success": true, "status": "completed"}` and the order stayed
+    // `pending` on the ward list forever, which is how two clinicians action
+    // one order twice.
+    //
+    // Normalised to the vocabulary the CHECK permits (`pending`, `active`,
+    // `completed`, `discontinued`, `cancelled`, `on_hold`): `OrdersPage` sends
+    // "Completed" with a capital, and the constraint is lowercase.
+    let canonical_status = match canonical_order_status(&new_status) {
+        Some(status) => status.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "Unsupported order status".to_string(),
+                code: "INVALID_STATUS".to_string(),
+            });
+        }
+    };
+    entity.status = canonical_status.clone();
     if let Some(obj) = entity.data.as_object_mut() {
         obj.insert(
             "status".to_string(),
-            serde_json::Value::String(new_status.clone()),
+            serde_json::Value::String(canonical_status.clone()),
         );
-        if new_status == "completed" {
+        if canonical_status == "completed" {
             obj.insert(
                 "completed_at".to_string(),
                 serde_json::json!(Utc::now().timestamp_millis()),
@@ -293,13 +326,29 @@ pub async fn update_order_status(
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "order_id": order_id,
-            "status": new_status
+            "status": canonical_status
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod order_status_tests {
+    use super::canonical_order_status;
+
+    #[test]
+    fn maps_legacy_in_progress_to_the_persisted_active_state() {
+        assert_eq!(canonical_order_status("In Progress"), Some("active"));
+        assert_eq!(canonical_order_status("active"), Some("active"));
+    }
+
+    #[test]
+    fn rejects_statuses_outside_the_order_lifecycle() {
+        assert_eq!(canonical_order_status("ready"), None);
+        assert_eq!(canonical_order_status(""), None);
     }
 }
 
@@ -310,7 +359,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -319,7 +367,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
 
     if !current_user.role.can_view_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -363,7 +410,6 @@ pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> im
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),

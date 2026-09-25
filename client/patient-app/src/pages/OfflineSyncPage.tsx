@@ -20,19 +20,23 @@ import {
   Loader2
 } from 'lucide-react';
 import {
+  listSyncDevices,
   getAllCachedItems,
   getAllSyncItems,
   getStorageInfo,
   clearStore,
+  clearCachedDataByCategory,
   clearCompletedSyncItems,
   clearExpiredCache,
   STORES,
   type SyncQueueItem as IndexedDBSyncItem,
   type CachedDataItem,
-  performSync,
+  replayQueue,
+  type ReplayOutcome,
   downloadOfflineData,
   getSyncConflicts,
   resolveSyncConflict,
+  formatTimestamp,
 } from '@medichain/shared';
 import { useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -111,8 +115,45 @@ const OfflineSyncPage: React.FC = () => {
   const [syncQueue, setSyncQueue] = useState<SyncQueue[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo>({ used: 0, available: 0, quota: 0 });
   const [lastFullSync, setLastFullSync] = useState<string | null>(null);
+  // What the last pass actually did. Shown instead of a bare "synced",
+  // because "3 sent, 1 already applied, 2 still waiting" is the answer to
+  // the question a patient on a poor connection is really asking.
+  const [lastReplay, setLastReplay] = useState<ReplayOutcome | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
+  const [offlineDataUnavailable, setOfflineDataUnavailable] = useState(false);
+
+  // --- Devices holding a copy of my records ----------------------------------
+  //
+  // Sync registration has stored a record since the feature was built and
+  // nothing could list them back. A registered device is a copy of clinical
+  // data walking around in someone's pocket; a patient who lost a phone could
+  // not see that it was still registered, let alone say so.
+  const [syncDevices, setSyncDevices] = useState<Record<string, unknown>[]>([]);
+  const [syncDevicesLoaded, setSyncDevicesLoaded] = useState(false);
+  // "No device is registered" is the reassuring answer, and the wrong one to
+  // guess when the read failed.
+  const [syncDevicesUnknown, setSyncDevicesUnknown] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    listSyncDevices()
+      .then((body) => {
+        if (cancelled) return;
+        setSyncDevices(body.devices ?? []);
+        setSyncDevicesUnknown(false);
+      })
+      .catch(() => {
+        if (!cancelled) setSyncDevicesUnknown(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSyncDevicesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
 
   // Load data from IndexedDB
@@ -145,8 +186,9 @@ const OfflineSyncPage: React.FC = () => {
       // Load storage info
       const storage = await getStorageInfo();
       
-      setCachedItems(mappedItems.length > 0 ? mappedItems : getDefaultCachedItems());
+      setCachedItems(mappedItems);
       setSyncQueue(mappedQueue);
+      setOfflineDataUnavailable(false);
       setStorageInfo({
         used: storage.used || storage.cachedItemsSize + storage.syncQueueSize + storage.documentsSize,
         available: storage.available,
@@ -159,40 +201,26 @@ const OfflineSyncPage: React.FC = () => {
 
     } catch (error) {
       console.error('Failed to load offline data:', error);
-      // Use demo data as fallback
-      setCachedItems(getDefaultCachedItems());
-      setSyncQueue(getDefaultSyncQueue());
+      // A read failure is not evidence that this device contains demo records
+      // or no pending clinical updates. Keep the screen empty and state the
+      // uncertainty instead of rendering made-up health data.
+      setCachedItems([]);
+      setSyncQueue([]);
+      setOfflineDataUnavailable(true);
       
       // Estimate storage
       if (navigator.storage && navigator.storage.estimate) {
         const estimate = await navigator.storage.estimate();
         setStorageInfo({
-          used: estimate.usage || 2500000,
-          available: (estimate.quota || 50000000) - (estimate.usage || 2500000),
-          quota: estimate.quota || 50000000
+          used: estimate.usage ?? 0,
+          available: Math.max(0, (estimate.quota ?? 0) - (estimate.usage ?? 0)),
+          quota: estimate.quota ?? 0
         });
       }
     } finally {
       setLoading(false);
     }
   }, []);
-
-  // Default demo data helpers
-  const getDefaultCachedItems = (): CachedItem[] => [
-    { id: '1', category: 'medical-records', name: 'Medical History Summary', size: 256000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '2', category: 'medications', name: 'Current Medications List', size: 12000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '3', category: 'appointments', name: 'Upcoming Appointments', size: 8000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
-    { id: '4', category: 'lab-results', name: 'Recent Lab Results', size: 145000, lastSynced: '2026-01-25T09:00:00Z', status: 'pending', priority: 'medium' },
-    { id: '5', category: 'documents', name: 'Insurance Cards', size: 320000, lastSynced: '2026-01-24T15:00:00Z', status: 'synced', priority: 'medium' },
-    { id: '6', category: 'images', name: 'Profile Photo', size: 180000, lastSynced: '2026-01-20T12:00:00Z', status: 'synced', priority: 'low' },
-    { id: '7', category: 'documents', name: 'Vaccination Records', size: 95000, lastSynced: '2026-01-22T08:00:00Z', status: 'synced', priority: 'medium' },
-    { id: '8', category: 'medical-records', name: 'Allergy Information', size: 5000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' }
-  ];
-
-  const getDefaultSyncQueue = (): SyncQueue[] => [
-    { id: 'q1', action: 'upload', description: 'Symptom diary entry', timestamp: '2026-01-25T11:00:00Z', status: 'pending', retryCount: 0 },
-    { id: 'q2', action: 'download', description: 'Lab results update', timestamp: '2026-01-25T10:45:00Z', status: 'pending', retryCount: 0 }
-  ];
 
   // Load server-detected sync conflicts (last-write-wins, from /api/sync/conflicts)
   const loadConflicts = useCallback(async () => {
@@ -255,16 +283,19 @@ const OfflineSyncPage: React.FC = () => {
     setSyncStatus('syncing');
 
     try {
-      // Call backend sync API if patient is authenticated
-      if (patient?.healthId) {
-        try {
-          await performSync({ patient_id: patient.healthId });
-        } catch (apiErr) {
-          console.warn('Backend sync API failed, continuing with local sync:', apiErr);
-        }
-      }
+      // Actually send what this device could not send.
+      //
+      // This used to call `performSync({ patient_id })`. Every field of the
+      // server's `SyncRequest` carries `#[serde(default)]`, so that body was
+      // accepted as `device_id: ""` with `items: []`, synced nothing, and
+      // answered 200 — and the page reported "synced". `replayQueue` sends each
+      // queued item as the request it actually is, keyed by the item's own id
+      // so the server's idempotency guard cannot apply it twice.
+      const outcome = await replayQueue();
+      setLastReplay(outcome);
 
-      // Clear completed sync items from IndexedDB
+      // Only now is there anything to clear: an item reaches `completed` by
+      // being accepted, not by the sync button being pressed.
       await clearCompletedSyncItems();
 
       // Clear expired cache entries
@@ -274,7 +305,11 @@ const OfflineSyncPage: React.FC = () => {
       await loadOfflineData();
 
       setLastFullSync(new Date().toISOString());
-      setSyncStatus('synced');
+      // "Synced" only when the queue is empty. An item the server refused, or
+      // one still waiting for a reachable network, is not a completed sync, and
+      // a green tick over unsent clinical data is the failure this whole change
+      // exists to remove.
+      setSyncStatus(outcome.deferred > 0 || outcome.rejected > 0 ? 'error' : 'synced');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
@@ -300,8 +335,8 @@ const OfflineSyncPage: React.FC = () => {
   const handleClearCache = async (category?: DataCategory) => {
     try {
       if (category) {
+        await clearCachedDataByCategory(category);
         setCachedItems(prev => prev.filter(item => item.category !== category));
-        // Note: Would need to implement category-specific clearing in IndexedDB
       } else {
         await clearStore(STORES.CACHED_DATA);
         setCachedItems([]);
@@ -313,10 +348,10 @@ const OfflineSyncPage: React.FC = () => {
 
   const getCategoryIcon = (category: DataCategory) => {
     switch (category) {
-      case 'medical-records': return <FileText className="w-5 h-5 text-blue-500" />;
+      case 'medical-records': return <FileText className="w-5 h-5 text-notice-subtle-fg" />;
       case 'appointments': return <Clock className="w-5 h-5 text-purple-500" />;
-      case 'medications': return <Shield className="w-5 h-5 text-green-500" />;
-      case 'lab-results': return <Database className="w-5 h-5 text-orange-500" />;
+      case 'medications': return <Shield className="w-5 h-5 text-ok" />;
+      case 'lab-results': return <Database className="w-5 h-5 text-caution" />;
       case 'documents': return <FileText className="w-5 h-5 text-content-muted" />;
       case 'images': return <Image className="w-5 h-5 text-pink-500" />;
     }
@@ -324,22 +359,24 @@ const OfflineSyncPage: React.FC = () => {
 
   const getStatusIcon = (status: SyncStatus) => {
     switch (status) {
-      case 'synced': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
-      case 'syncing': return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
-      case 'error': return <AlertTriangle className="w-4 h-4 text-red-500" />;
+      case 'synced': return <CheckCircle className="w-4 h-4 text-ok" />;
+      case 'pending': return <Clock className="w-4 h-4 text-caution" />;
+      case 'syncing': return <RefreshCw className="w-4 h-4 text-notice-subtle-fg animate-spin" />;
+      case 'error': return <AlertTriangle className="w-4 h-4 text-critical" />;
       case 'offline': return <CloudOff className="w-4 h-4 text-content-muted" />;
     }
   };
 
   const pendingCount = cachedItems.filter(i => i.status === 'pending').length + syncQueue.length;
-  const storagePercent = (storageInfo.used / storageInfo.quota) * 100;
+  const storagePercent = storageInfo.quota > 0
+    ? Math.min(100, (storageInfo.used / storageInfo.quota) * 100)
+    : 0;
 
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-sunken flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-sky-500 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-12 h-12 text-brand animate-spin mx-auto mb-4" />
           <p className="text-content-muted">{t('offlineSync.loading')}</p>
         </div>
       </div>
@@ -348,8 +385,45 @@ const OfflineSyncPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {/* Devices holding a copy of my records */}
+      <div className="patient-card mb-4">
+        <h2 className="text-lg font-semibold text-content mb-1">{t('offlineSync.devicesHeading')}</h2>
+        <p className="text-sm text-content-muted mb-4">{t('offlineSync.devicesSubtitle')}</p>
+        {!syncDevicesLoaded ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesLoading')}</p>
+        ) : syncDevicesUnknown ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesUnknown')}</p>
+        ) : syncDevices.length === 0 ? (
+          <p className="text-sm text-content-muted">{t('offlineSync.devicesNone')}</p>
+        ) : (
+          <ul className="space-y-2" data-testid="sync-device-list">
+            {syncDevices.map((device, index) => (
+              <li
+                key={String(device.device_id ?? device.id ?? index)}
+                className="border border-border rounded-lg p-3"
+              >
+                <p className="text-sm text-content">
+                  {String(device.device_name ?? device.device_id ?? t('offlineSync.deviceUnnamed'))}
+                </p>
+                {device.last_sync_at ? (
+                  <p className="text-xs text-content-muted">
+                    {t('offlineSync.deviceLastSync', {
+                      when: formatTimestamp(String(device.last_sync_at)),
+                    })}
+                  </p>
+                ) : (
+                  // Never synced is not "synced a long time ago": one means the
+                  // device holds nothing, the other that it holds something old.
+                  <p className="text-xs text-content-muted">{t('offlineSync.deviceNeverSynced')}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Header */}
-      <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-600 to-blue-500' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
+      <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-700 to-blue-800' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             {isOnline ? <Cloud className="w-8 h-8" /> : <CloudOff className="w-8 h-8" />}
@@ -360,7 +434,7 @@ const OfflineSyncPage: React.FC = () => {
             <span className="text-sm font-medium">{isOnline ? t('offlineSync.online') : t('offlineSync.offline')}</span>
           </div>
         </div>
-        <p className="text-sky-100">{t('offlineSync.subtitle')}</p>
+        <p className="text-white">{t('offlineSync.subtitle')}</p>
       </div>
 
       {/* Sync Buttons */}
@@ -409,7 +483,7 @@ const OfflineSyncPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id as typeof activeTab)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-sky-500 text-white'
+                  ? 'bg-brand text-brand-fg'
                   : 'text-content-muted hover:bg-surface-sunken'
               }`}
             >
@@ -426,7 +500,7 @@ const OfflineSyncPage: React.FC = () => {
           {conflicts.length > 0 && (
             <div className="bg-surface rounded-lg shadow p-4 border border-caution">
               <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <AlertTriangle className="w-5 h-5 text-caution" />
                 <h3 className="font-medium text-content">{t('offlineSync.conflictsTitle', { count: conflicts.length })}</h3>
               </div>
               <p className="text-sm text-content-muted mb-3">
@@ -469,11 +543,28 @@ const OfflineSyncPage: React.FC = () => {
           )}
 
           {/* Last Sync Info */}
+          {offlineDataUnavailable && (
+            <div className="bg-critical-subtle text-critical-subtle-fg rounded-lg p-4" role="alert">
+              {t('offlineSync.dataUnavailable')}
+            </div>
+          )}
           <div className="bg-surface rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.lastFullSync')}</h3>
                 <p className="text-sm text-content-muted">{lastFullSync ? formatDate(lastFullSync) : t('offlineSync.never')}</p>
+                {/* What the pass actually did, counted. "Synced" alone was the
+                    old lie: it appeared over a call that sent nothing. */}
+                {lastReplay && (
+                  <p className="text-sm text-content-secondary mt-1">
+                    {t('offlineSync.replaySummary', {
+                      sent: lastReplay.sent,
+                      alreadyApplied: lastReplay.alreadyApplied,
+                      rejected: lastReplay.rejected,
+                      deferred: lastReplay.deferred,
+                    })}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {getStatusIcon(syncStatus)}
@@ -511,9 +602,9 @@ const OfflineSyncPage: React.FC = () => {
                   <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex items-center gap-3">
                       {item.action === 'upload' ? (
-                        <Upload className="w-4 h-4 text-blue-500" />
+                        <Upload className="w-4 h-4 text-notice-subtle-fg" />
                       ) : (
-                        <Download className="w-4 h-4 text-green-500" />
+                        <Download className="w-4 h-4 text-ok" />
                       )}
                       <div>
                         <p className="text-sm font-medium text-content">{item.description}</p>
@@ -594,7 +685,9 @@ const OfflineSyncPage: React.FC = () => {
               <h3 className="font-medium text-content">{t('offlineSync.allCached')}</h3>
             </div>
             <div className="divide-y divide-border">
-              {cachedItems.map(item => (
+              {cachedItems.length === 0 ? (
+                <p className="p-4 text-sm text-content-muted">{t('offlineSync.noCachedData')}</p>
+              ) : cachedItems.map(item => (
                 <div key={item.id} className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {getCategoryIcon(item.category)}
@@ -670,7 +763,7 @@ const OfflineSyncPage: React.FC = () => {
           {/* Service Worker Info */}
           <div className="bg-notice-subtle rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <Settings className="w-5 h-5 text-blue-500 mt-0.5" />
+              <Settings className="w-5 h-5 text-notice-subtle-fg mt-0.5" />
               <div>
                 <h4 className="font-medium text-notice-subtle-fg">{t('offlineSync.swActive')}</h4>
                 <p className="text-sm text-notice-subtle-fg mt-1">

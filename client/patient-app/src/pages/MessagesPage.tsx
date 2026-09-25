@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { getMessages, getProviders, markMessageRead, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
+import type { BookableProvider, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
   Send,
   User,
   Search,
-  Paperclip,
   ChevronLeft,
   Clock,
   CheckCheck,
@@ -40,20 +40,17 @@ interface Conversation {
   messages: Message[];
 }
 
-interface Provider {
-  wallet_address: string;
-  name: string;
-  role: string;
-  specialty?: string;
-}
-
 function messageTimestamp(value: number | string): string {
   return typeof value === 'number'
     ? new Date(value * 1000).toISOString()
     : value;
 }
 
-function normalizeConversation(raw: Record<string, any>, patientWallet: string): Conversation {
+/**
+ * Convert the persisted API contract into presentation state. Timestamps are
+ * Unix seconds on the wire and must not be handed to `Date` as milliseconds.
+ */
+function normalizeConversation(raw: MessageConversation, patientWallet: string): Conversation {
   return {
     id: raw.id,
     providerId: raw.providerId,
@@ -61,17 +58,17 @@ function normalizeConversation(raw: Record<string, any>, patientWallet: string):
     providerRole: raw.providerRole || 'Provider',
     specialty: raw.specialty || raw.providerRole || 'Healthcare provider',
     lastMessage: raw.lastMessage || '',
-    lastMessageTime: messageTimestamp(raw.lastMessageTime),
-    unreadCount: raw.unreadCount || 0,
-    messages: (raw.messages || []).map((message: Record<string, any>) => ({
-      id: message.id || message.message_id,
-      senderId: message.senderId || message.sender_id,
-      senderName: message.senderName || message.sender_name,
-      senderRole: message.senderRole || message.sender_role,
+    lastMessageTime: messageTimestamp(raw.lastMessageTime ?? ''),
+    unreadCount: raw.unreadCount,
+    messages: raw.messages.map((message: SecureMessage) => ({
+      id: message.message_id,
+      senderId: message.sender_id,
+      senderName: message.sender_name,
+      senderRole: message.sender_role,
       content: message.content,
-      timestamp: messageTimestamp(message.timestamp || message.sent_at),
+      timestamp: messageTimestamp(message.sent_at),
       read: Boolean(message.read),
-      isPatient: (message.senderId || message.sender_id) === patientWallet,
+      isPatient: message.sender_id === patientWallet,
     })),
   };
 }
@@ -82,7 +79,6 @@ function normalizeConversation(raw: Record<string, any>, patientWallet: string):
  * Features:
  * - View conversations with providers
  * - Send/receive messages
- * - Attach documents
  * - Message history
  * 
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
@@ -97,7 +93,7 @@ export function MessagesPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [showProviders, setShowProviders] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -109,44 +105,35 @@ export function MessagesPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  useEffect(() => {
-    if (patient) {
-      loadConversations();
+  const loadConversations = useCallback(async () => {
+    if (!patient) return [];
+    
+    setLoading(true);
+    try {
+      const data = await getMessages('all');
+      setApiConnected(true);
+      const loaded = data.conversations.map(
+        (conversation) => normalizeConversation(conversation, patient.walletAddress)
+      );
+      setConversations(loaded);
+      return loaded;
+    } catch {
+      setApiConnected(false);
+      return [];
+    } finally {
+      setLoading(false);
     }
   }, [patient]);
 
   useEffect(() => {
+    if (patient) {
+      loadConversations();
+    }
+  }, [patient, loadConversations]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedConversation?.messages]);
-
-  const loadConversations = async () => {
-    if (!patient) return;
-    
-    setLoading(true);
-    try {
-      const response = await fetch(apiUrl('/api/messages?folder=all'), {
-        headers: { 
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        // Transform API data to conversations format
-        setConversations((data.conversations || []).map(
-          (conversation: Record<string, any>) => normalizeConversation(conversation, patient.walletAddress)
-        ));
-      } else {
-        setApiConnected(false);
-      }
-    } catch {
-      setApiConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !selectedConversation || !patient) return;
@@ -154,36 +141,17 @@ export function MessagesPage() {
     setSendError(null);
     const content = newMessage.trim();
     try {
-      const response = await fetch(apiUrl('/api/messages/send'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-        body: JSON.stringify({
-          recipient_id: selectedConversation.providerId,
-          subject: 'Patient message',
-          content,
-          related_patient_id: patient.healthId,
-        }),
+      await sendSecureMessage({
+        recipient_id: selectedConversation.providerId,
+        subject: 'Patient message',
+        content,
+        related_patient_id: patient.healthId,
       });
-      if (!response.ok) throw new Error('The message could not be sent. Please try again.');
       setNewMessage('');
-      await loadConversations();
-      setSelectedConversation(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, {
-          id: `MSG-${Date.now()}`,
-          senderId: patient.walletAddress,
-          senderName: patient.fullName,
-          senderRole: 'Patient',
-          content,
-          timestamp: new Date().toISOString(),
-          read: false,
-          isPatient: true,
-        }],
-      } : null);
+      const loaded = await loadConversations();
+      setSelectedConversation(
+        loaded.find((conversation) => conversation.providerId === selectedConversation.providerId) ?? null
+      );
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
     }
@@ -191,19 +159,16 @@ export function MessagesPage() {
 
   const startConversation = async () => {
     if (!patient) return;
-    const response = await fetch(apiUrl('/api/providers'), {
-      headers: { 'X-User-Id': patient.walletAddress, 'X-Health-Id': patient.healthId },
-    });
-    if (!response.ok) {
+    try {
+      const data = await getProviders();
+      setProviders(data.providers);
+      setShowProviders(true);
+    } catch {
       setSendError('The provider directory could not be loaded.');
-      return;
     }
-    const data = await response.json();
-    setProviders(data.providers || []);
-    setShowProviders(true);
   };
 
-  const selectProvider = (provider: Provider) => {
+  const selectProvider = (provider: BookableProvider) => {
     setSelectedConversation({
       id: provider.wallet_address,
       providerId: provider.wallet_address,
@@ -216,6 +181,30 @@ export function MessagesPage() {
       messages: [],
     });
     setShowProviders(false);
+  };
+
+  const selectConversation = async (conversation: Conversation) => {
+    setSelectedConversation(conversation);
+    const unreadIds = conversation.messages
+      .filter(message => !message.isPatient && !message.read)
+      .map(message => message.id);
+    if (unreadIds.length === 0) return;
+    try {
+      await Promise.all(unreadIds.map(markMessageRead));
+      const markConversationRead = (candidate: Conversation): Conversation =>
+        candidate.id === conversation.id
+          ? {
+              ...candidate,
+              unreadCount: 0,
+              messages: candidate.messages.map(message => ({ ...message, read: true })),
+            }
+          : candidate;
+      setConversations(current => current.map(markConversationRead));
+      setSelectedConversation(current => current ? markConversationRead(current) : current);
+      window.dispatchEvent(new Event('medichain:sidebar-refresh'));
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'The message could not be marked as read.');
+    }
   };
 
   const formatTime = (timestamp: string) => {
@@ -241,7 +230,7 @@ export function MessagesPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -277,7 +266,7 @@ export function MessagesPage() {
               <div className={`max-w-[80%] ${message.isPatient ? 'order-2' : 'order-1'}`}>
                 <div className={`rounded-2xl px-4 py-3 ${
                   message.isPatient
-                    ? 'bg-primary-500 text-white rounded-br-md'
+                    ? 'bg-primary-500 text-brand-fg rounded-br-md'
                     : 'bg-surface text-content rounded-bl-md shadow-sm'
                 }`}>
                   <p className="text-sm">{message.content}</p>
@@ -300,22 +289,23 @@ export function MessagesPage() {
         {/* Input */}
         <div className="bg-surface border-t border-border p-4">
           {sendError && <p role="alert" className="mb-2 text-sm text-critical-subtle-fg">{sendError}</p>}
+          <p className="mb-2 text-xs text-content-muted">
+            {t('messages.attachmentsUnavailable')}
+          </p>
           <div className="flex items-center gap-3">
-            <button className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg" aria-label="Attach file">
-              <Paperclip className="w-5 h-5" />
-            </button>
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void sendMessage()}
               placeholder={t('messages.typePlaceholder')}
-              className="flex-1 px-4 py-2 border border-border rounded-full focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+              className="flex-1 px-4 py-2 border border-border-interactive rounded-full focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
             <button
               onClick={() => void sendMessage()}
               disabled={!newMessage.trim()}
-              className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label={t('messages.send')}
+              className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-5 h-5" />
             </button>
@@ -341,7 +331,7 @@ export function MessagesPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
           </span>
         </div>
       </div>
@@ -354,7 +344,7 @@ export function MessagesPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('messages.searchPlaceholder')}
-          className="w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+          className="w-full pl-12 pr-4 py-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
         />
       </div>
 
@@ -391,13 +381,7 @@ export function MessagesPage() {
         {filteredConversations.map(conversation => (
           <button
             key={conversation.id}
-            onClick={() => {
-              setSelectedConversation(conversation);
-              // Mark as read
-              setConversations(prev => prev.map(c =>
-                c.id === conversation.id ? { ...c, unreadCount: 0 } : c
-              ));
-            }}
+            onClick={() => void selectConversation(conversation)}
             className="w-full patient-card flex items-center gap-4 p-4 hover:border-brand border-2 border-transparent text-left"
           >
             <div className="relative">
@@ -425,7 +409,7 @@ export function MessagesPage() {
 
         {filteredConversations.length === 0 && (
           <div className="text-center py-12">
-            <MessageCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <MessageCircle className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">{t('messages.noConversations')}</p>
           </div>
         )}

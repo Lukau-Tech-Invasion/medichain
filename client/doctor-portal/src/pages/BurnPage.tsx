@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
-import { createBurn, getPatients, useTranslation } from '@medichain/shared';
+import {
+  createBurn,
+  getPatients,
+  useTranslation,
+  useScoringCatalog,
+  yearsSince,
+  lundBrowderBand,
+  lundBrowderRegionPercent,
+  lundBrowderTbsa,
+  parklandPreview,
+  burnSeverityPreview,
+} from '@medichain/shared';
+import type { BurnCreateResult, ParklandPreview } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Flame,
@@ -27,82 +38,20 @@ import {
 type BurnDepth = 'superficial' | 'partial-superficial' | 'partial-deep' | 'full-thickness';
 type BurnMechanism = 'thermal' | 'chemical' | 'electrical' | 'radiation' | 'friction' | 'frostbite';
 
-interface BodyRegion {
-  id: string;
-  name: string;
-  adultPercentage: number;
-  childPercentage: number; // For Rule of 9s adjustments in children
-}
-
 interface BurnArea {
   regionId: string;
-  percentage: number;
+  /** How much of THIS region is burned, 0-100 — not a share of the whole body. */
+  percentOfRegion: number;
   depth: BurnDepth;
 }
-
-interface _BurnAssessment {
-  id: string;
-  patientId: string;
-  assessmentDate: string;
-  assessmentTime: string;
-  assessedBy: string;
-  mechanism: BurnMechanism;
-  agentSource: string;
-  injuryTime: string;
-  weight: number;
-  burnAreas: BurnArea[];
-  totalBSA: number;
-  parklandFluid: {
-    total24h: number;
-    first8h: number;
-    next16h: number;
-    hourlyFirst8h: number;
-    hourlyNext16h: number;
-  };
-  inhalationInjury: {
-    suspected: boolean;
-    singedHairs: boolean;
-    sootInAirway: boolean;
-    hoarseness: boolean;
-    stridor: boolean;
-    carbonMonoxide: boolean;
-    coLevel?: number;
-  };
-  circumferential: {
-    present: boolean;
-    locations: string[];
-    escharotomyNeeded: boolean;
-  };
-  associatedInjuries: string[];
-  tetanusStatus: string;
-  painLevel: number;
-  interventions: string[];
-  fluidStartTime?: string;
-  urineOutput?: number;
-  notes: string;
-}
-
-const bodyRegions: BodyRegion[] = [
-  { id: 'head', name: 'Head (Front)', adultPercentage: 4.5, childPercentage: 9 },
-  { id: 'head-back', name: 'Head (Back)', adultPercentage: 4.5, childPercentage: 9 },
-  { id: 'chest', name: 'Chest', adultPercentage: 9, childPercentage: 9 },
-  { id: 'abdomen', name: 'Abdomen', adultPercentage: 9, childPercentage: 9 },
-  { id: 'upper-back', name: 'Upper Back', adultPercentage: 9, childPercentage: 9 },
-  { id: 'lower-back', name: 'Lower Back', adultPercentage: 9, childPercentage: 9 },
-  { id: 'right-arm', name: 'Right Arm (Entire)', adultPercentage: 9, childPercentage: 9 },
-  { id: 'left-arm', name: 'Left Arm (Entire)', adultPercentage: 9, childPercentage: 9 },
-  { id: 'genitalia', name: 'Genitalia/Perineum', adultPercentage: 1, childPercentage: 1 },
-  { id: 'right-leg-front', name: 'Right Leg (Front)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'right-leg-back', name: 'Right Leg (Back)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'left-leg-front', name: 'Left Leg (Front)', adultPercentage: 9, childPercentage: 6.5 },
-  { id: 'left-leg-back', name: 'Left Leg (Back)', adultPercentage: 9, childPercentage: 6.5 }
-];
 
 export default function BurnPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user } = useAuthStore();
+  // `user` is no longer read here: the server attributes each record to
+  // whoever authenticated the request, rather than to whatever `assessed_by`
+  // the body claimed.
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -110,13 +59,19 @@ export default function BurnPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'assessment' | 'calculator' | 'history'>('assessment');
-  const [isChild, setIsChild] = useState(false);
+  const { catalog } = useScoringCatalog();
+  // What the server computed and stored: the TBSA, the fluid order and the
+  // severity band. Shown in place of the preview once the assessment is filed.
+  const [savedBurn, setSavedBurn] = useState<BurnCreateResult | null>(null);
 
   // Form state
   const [mechanism, setMechanism] = useState<BurnMechanism>('thermal');
   const [agentSource, setAgentSource] = useState('');
   const [injuryTime, setInjuryTime] = useState('');
-  const [weight, setWeight] = useState<number>(70);
+  // Empty, not 70. This drives the Parkland volume, and a default adult weight
+  // on a burned child is a fluid order roughly three times too large. No
+  // weight now means no fluid order, on this page and on the server.
+  const [weight, setWeight] = useState<number | undefined>(undefined);
   const [burnAreas, setBurnAreas] = useState<BurnArea[]>([]);
   const [painLevel, setPainLevel] = useState(5);
   const [tetanusStatus, setTetanusStatus] = useState('unknown');
@@ -200,60 +155,81 @@ export default function BurnPage() {
     p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const calculateTotalBSA = (): number => {
-    return burnAreas.reduce((sum, area) => sum + area.percentage, 0);
-  };
+  // Previews. The stored TBSA, Parkland volumes and severity band are computed
+  // by the server from the weight and the charted regions, and come back from
+  // `createBurn` — see `savedBurn` below, which is what the page shows once the
+  // assessment is filed.
+  //
+  // The formula constants and the severity cut-points come from
+  // `GET /api/clinical/scoring/catalog`. They used to be literals here — `4 *`,
+  // `>= 25`, `>= 10` — posted under names the handler did not read, so the
+  // database has never held a burn assessment with a TBSA above 0.00 or a
+  // fluid volume at all.
+  // The Lund-Browder column, from the selected patient's date of birth.
+  //
+  // This replaces an `isChild` checkbox over a Rule of 9s chart. A boolean
+  // cannot express a proportion that changes at five points between birth and
+  // adulthood: a newborn's head is 19% of its body surface, a five-year-old's
+  // 13%, an adult's 7%. Every child between the bands was charted against the
+  // wrong denominator, and TBSA is what the Parkland volume is computed from.
+  //
+  // `null` when no patient is selected or the date of birth will not parse. It
+  // is never defaulted to the adult column — the server refuses such a
+  // submission outright, for the same reason.
+  const patientAgeYears = selectedPatient?.date_of_birth
+    ? yearsSince(selectedPatient.date_of_birth)
+    : null;
+  const ageBand = lundBrowderBand(patientAgeYears, catalog);
+  const bandLabel =
+    ageBand === null ? null : catalog?.burn?.lund_browder?.age_band_labels?.[ageBand] ?? null;
+  const regions = catalog?.burn?.lund_browder?.regions ?? [];
 
-  const calculateParklandFluid = (bsa: number, patientWeight: number) => {
-    // Parkland Formula: 4mL x weight(kg) x %BSA
-    const total24h = 4 * patientWeight * bsa;
-    const first8h = total24h / 2;
-    const next16h = total24h / 2;
-    const hourlyFirst8h = first8h / 8;
-    const hourlyNext16h = next16h / 16;
+  const totalBSA = lundBrowderTbsa(burnAreas, ageBand, catalog) ?? 0;
+  const parklandFluid = parklandPreview(weight, totalBSA, catalog);
+  const previewSeverity = burnSeverityPreview(
+    totalBSA,
+    inhalationInjury.suspected,
+    circumferential.present,
+    catalog,
+  );
+  const severityLevel = savedBurn?.severity ?? previewSeverity;
+  // The stored order once it exists, the preview until then. One shape either
+  // way so the schedule below does not have to know which it is showing.
+  const fluidOrder: ParklandPreview | null = savedBurn?.parkland_fluid
+    ? {
+        total24hMl: savedBurn.parkland_fluid.total_24h_ml,
+        first8hMl: savedBurn.parkland_fluid.first_8h_ml,
+        next16hMl: savedBurn.parkland_fluid.next_16h_ml,
+        hourlyFirst8hMl: savedBurn.parkland_fluid.hourly_first_8h_ml,
+        hourlyNext16hMl: savedBurn.parkland_fluid.hourly_next_16h_ml,
+        urineTargetMlHr: savedBurn.parkland_fluid.urine_output_target_ml_hr,
+      }
+    : parklandFluid;
+  const severityColor =
+    severityLevel === 'major'
+      ? 'text-critical-subtle-fg bg-critical-subtle border-red-500'
+      : severityLevel === 'moderate'
+        ? 'text-caution-subtle-fg bg-caution-subtle border-yellow-500'
+        : 'text-ok-subtle-fg bg-ok-subtle border-green-500';
 
-    return {
-      total24h: Math.round(total24h),
-      first8h: Math.round(first8h),
-      next16h: Math.round(next16h),
-      hourlyFirst8h: Math.round(hourlyFirst8h),
-      hourlyNext16h: Math.round(hourlyNext16h)
-    };
-  };
-
-  const totalBSA = calculateTotalBSA();
-  const parklandFluid = calculateParklandFluid(totalBSA, weight);
-
-  const getBurnSeverity = () => {
-    if (totalBSA >= 25 || inhalationInjury.suspected || circumferential.present) {
-      return { level: 'Major', color: 'text-critical-subtle-fg bg-critical-subtle border-red-500' };
-    }
-    if (totalBSA >= 10) {
-      return { level: 'Moderate', color: 'text-caution-subtle-fg bg-caution-subtle border-yellow-500' };
-    }
-    return { level: 'Minor', color: 'text-ok-subtle-fg bg-ok-subtle border-green-500' };
-  };
-
-  const severity = getBurnSeverity();
-
-  const updateBurnArea = (regionId: string, field: 'percentage' | 'depth', value: number | BurnDepth) => {
+  const updateBurnArea = (regionId: string, field: 'percentOfRegion' | 'depth', value: number | BurnDepth) => {
     setBurnAreas(prev => {
       const existing = prev.find(a => a.regionId === regionId);
       if (existing) {
-        if (field === 'percentage' && value === 0) {
+        if (field === 'percentOfRegion' && value === 0) {
           return prev.filter(a => a.regionId !== regionId);
         }
         return prev.map(a => a.regionId === regionId ? { ...a, [field]: value } : a);
-      } else if (field === 'percentage' && typeof value === 'number' && value > 0) {
-        return [...prev, { regionId, percentage: value, depth: 'partial-superficial' as BurnDepth }];
+      } else if (field === 'percentOfRegion' && typeof value === 'number' && value > 0) {
+        return [...prev, { regionId, percentOfRegion: value, depth: 'partial-superficial' as BurnDepth }];
       }
       return prev;
     });
   };
 
-  const getBurnAreaValue = (regionId: string, field: 'percentage' | 'depth') => {
+  const getBurnAreaValue = (regionId: string, field: 'percentOfRegion' | 'depth') => {
     const area = burnAreas.find(a => a.regionId === regionId);
-    if (!area) return field === 'percentage' ? 0 : 'partial-superficial';
+    if (!area) return field === 'percentOfRegion' ? 0 : 'partial-superficial';
     return area[field];
   };
 
@@ -288,19 +264,24 @@ export default function BurnPage() {
     setError('');
 
     try {
+      // Inputs only. `total_bsa` and `parkland_fluid` are gone: the server
+      // computes both from `weight` and `burn_areas`, and it is the only place
+      // that does now. `assessment_id` and `assessed_by` are gone too — the
+      // server generates the id and attributes the record to whoever
+      // authenticated.
       const assessmentData = {
-        assessment_id: `BURN-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
-        assessment_date: new Date().toISOString().split('T')[0],
-        assessment_time: new Date().toTimeString().slice(0, 5),
-        assessed_by: user?.userId || 'unknown',
         mechanism,
         agent_source: agentSource,
         injury_time: injuryTime,
         weight,
-        burn_areas: burnAreas,
-        total_bsa: totalBSA,
-        parkland_fluid: parklandFluid,
+        // Region id and how much of THAT region is burned. The server applies
+        // the Lund-Browder size for the patient's age; nothing here multiplies.
+        burn_areas: burnAreas.map((area) => ({
+          regionId: area.regionId,
+          percent_of_region: area.percentOfRegion,
+          depth: area.depth,
+        })),
         inhalation_injury: inhalationInjury,
         circumferential,
         associated_injuries: associatedInjuries,
@@ -309,11 +290,14 @@ export default function BurnPage() {
         interventions,
         fluid_start_time: fluidStartTime,
         urine_output: urineOutput,
-        notes,
-        created_at: Math.floor(Date.now() / 1000)
+        notes
       };
 
-      await createBurn(assessmentData);
+      const saved = await createBurn(assessmentData);
+      // Show the order that was actually filed. This is a fluid prescription
+      // for a burned patient; the clinician needs to see the number the record
+      // holds, not the one this page arrived at.
+      setSavedBurn(saved);
       setSuccess(t('docBurn.successSaved'));
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -328,7 +312,7 @@ export default function BurnPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -336,13 +320,13 @@ export default function BurnPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docBurn.title')}</h1>
-                <p className="text-orange-100">{t('docBurn.subtitle')}</p>
+                <p className="text-white">{t('docBurn.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                <p className="text-sm">{selectedPatient.patient_id}</p>
               </div>
             )}
           </div>
@@ -364,21 +348,33 @@ export default function BurnPage() {
 
         {/* Severity Banner */}
         {selectedPatient && totalBSA > 0 && (
-          <div className={`mb-6 rounded-lg border-2 p-6 ${severity.color}`}>
+          <div className={`mb-6 rounded-lg border-2 p-6 ${severityColor}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <Flame className="h-8 w-8" />
                 <div>
-                  <h2 className="text-2xl font-bold">{t('docBurn.totalBSA', { value: totalBSA.toFixed(1) })}</h2>
-                  <p className="text-lg font-medium">{t('docBurn.severityBurnSuffix', { level: t(`docBurn.severity_${severity.level}`) })}</p>
+                  <h2 className="text-2xl font-bold">
+                    {t('docBurn.totalBSA', {
+                      value: (savedBurn?.total_bsa_percent ?? totalBSA).toFixed(1)
+                    })}
+                  </h2>
+                  {/* No band until the cut-points are known. A dash says "not
+                      yet"; a guessed band would say "minor". */}
+                  <p className="text-lg font-medium">
+                    {severityLevel
+                      ? t('docBurn.severityBurnSuffix', {
+                          level: t(`docBurn.severity_${severityLevel}`)
+                        })
+                      : '—'}
+                  </p>
                 </div>
               </div>
               <div className="text-right">
                 {inhalationInjury.suspected && (
-                  <span className="px-3 py-1 bg-red-500 text-white rounded-full text-sm mr-2">{t('docBurn.inhalationInjuryBadge')}</span>
+                  <span className="px-3 py-1 bg-red-700 text-white rounded-full text-sm mr-2">{t('docBurn.inhalationInjuryBadge')}</span>
                 )}
                 {circumferential.present && (
-                  <span className="px-3 py-1 bg-purple-500 text-white rounded-full text-sm">{t('docBurn.circumferentialBadge')}</span>
+                  <span className="px-3 py-1 bg-purple-700 text-white rounded-full text-sm">{t('docBurn.circumferentialBadge')}</span>
                 )}
               </div>
             </div>
@@ -430,7 +426,7 @@ export default function BurnPage() {
             <div className="lg:col-span-1 space-y-4">
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2 text-red-500" />
+                  <User className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.selectPatientTitle')}
                 </h2>
                 <div className="relative mb-4">
@@ -442,7 +438,7 @@ export default function BurnPage() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docBurn.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2">
@@ -466,7 +462,7 @@ export default function BurnPage() {
               {/* Injury Details */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-red-500" />
+                  <Clock className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.injuryDetailsTitle')}
                 </h3>
                 <div className="space-y-3">
@@ -476,7 +472,7 @@ export default function BurnPage() {
                       id="burn-mechanism"
                       value={mechanism}
                       onChange={(e) => setMechanism(e.target.value as BurnMechanism)}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       {mechanismOptions.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -491,7 +487,7 @@ export default function BurnPage() {
                       value={agentSource}
                       onChange={(e) => setAgentSource(e.target.value)}
                       placeholder={t('docBurn.agentSourcePh')}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <div>
@@ -501,7 +497,7 @@ export default function BurnPage() {
                       type="time"
                       value={injuryTime}
                       onChange={(e) => setInjuryTime(e.target.value)}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <div>
@@ -509,21 +505,35 @@ export default function BurnPage() {
                     <input
                       id="burn-patient-weight"
                       type="number"
-                      value={weight}
-                      onChange={(e) => setWeight(Number(e.target.value))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      value={weight ?? ''}
+                      onChange={(e) =>
+                        setWeight(e.target.value === '' ? undefined : Number(e.target.value))
+                      }
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
-                  <label htmlFor="burn-is-child" className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      id="burn-is-child"
-                      type="checkbox"
-                      checked={isChild}
-                      onChange={() => setIsChild(!isChild)}
-                      className="rounded border-border-strong text-critical-subtle-fg"
-                    />
-                    <span className="text-sm">{t('docBurn.pediatricPatientLabel')}</span>
-                  </label>
+                  {/* Which Lund-Browder column the body is charted against.
+                      Read-only: it comes from the patient's date of birth, not
+                      from a checkbox. The chart it replaces was Rule of 9s with
+                      an `isChild` toggle, which cannot express a proportion
+                      that changes at five points before adulthood. */}
+                  <div className="text-sm">
+                    <span className="block font-medium text-content-secondary mb-1">
+                      {t('docBurn.ageBandLabel')}
+                    </span>
+                    {bandLabel ? (
+                      <span className="text-content">
+                        {t('docBurn.ageBandValue', {
+                          band: bandLabel,
+                          age: patientAgeYears ?? '?'
+                        })}
+                      </span>
+                    ) : (
+                      <span className="text-critical-subtle-fg">
+                        {t('docBurn.ageBandUnknown')}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -536,7 +546,7 @@ export default function BurnPage() {
                       id="burn-tetanus-status"
                       value={tetanusStatus}
                       onChange={(e) => setTetanusStatus(e.target.value)}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       <option value="unknown">{t('docBurn.tetanus_unknown')}</option>
                       <option value="current">{t('docBurn.tetanus_current')}</option>
@@ -555,7 +565,7 @@ export default function BurnPage() {
                       max="10"
                       value={painLevel}
                       onChange={(e) => setPainLevel(Number(e.target.value))}
-                      className="w-full"
+                      className="w-full h-6"
                     />
                     <div className="flex justify-between text-xs text-content-muted">
                       <span>{t('docBurn.painNone')}</span>
@@ -572,42 +582,60 @@ export default function BurnPage() {
               {/* Rule of 9s Body Map */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
-                  <Ruler className="h-6 w-6 mr-2 text-red-500" />
-                  {t('docBurn.ruleOfNinesTitle')}
+                  <Ruler className="h-6 w-6 mr-2 text-critical" />
+                  {t('docBurn.lundBrowderTitle')}
                 </h2>
                 <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
-                  <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <Info className="h-5 w-5 mr-2 text-notice-subtle-fg flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-notice-subtle-fg">
-                    {t('docBurn.ruleOfNinesInfo')}
-                    {isChild && t('docBurn.pediatricAdjustmentNote')}
+                    {t('docBurn.lundBrowderInfo')}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {bodyRegions.map(region => {
-                    const maxPercent = isChild ? region.childPercentage : region.adultPercentage;
-                    const currentPercent = getBurnAreaValue(region.id, 'percentage') as number;
+                  {regions.map(region => {
+                    // What this region is worth on the whole body at this
+                    // patient's age, shown so the clinician can see the chart
+                    // they are working against.
+                    const regionPercent = lundBrowderRegionPercent(region.id, ageBand, catalog);
+                    const currentPercent = getBurnAreaValue(region.id, 'percentOfRegion') as number;
                     const currentDepth = getBurnAreaValue(region.id, 'depth') as BurnDepth;
+                    // The share of the whole body this entry contributes.
+                    const contribution =
+                      regionPercent === null ? null : (regionPercent * currentPercent) / 100;
 
                     return (
                       <div key={region.id} className={`p-3 rounded-lg border ${currentPercent > 0 ? 'border-critical bg-critical-subtle' : 'border-border'}`}>
                         <div className="flex justify-between items-center mb-2">
                           <span className="font-medium text-content">{region.name}</span>
-                          <span className="text-sm text-content-muted">{t('docBurn.maxPercent', { value: maxPercent })}</span>
+                          <span className="text-sm text-content-muted">
+                            {regionPercent === null
+                              ? '—'
+                              : t('docBurn.regionIsPercentOfBody', { value: regionPercent })}
+                          </span>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label htmlFor={`burn-percent-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.percentAffectedLabel')}</label>
+                            {/* Percent of THIS region, not of the body. The
+                                clinician charts "half the left forearm" and the
+                                multiplication happens on the server. */}
+                            <label htmlFor={`burn-percent-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.percentOfRegionLabel')}</label>
                             <input
                               id={`burn-percent-${region.id}`}
                               type="number"
                               min="0"
-                              max={maxPercent}
-                              step="0.5"
+                              max="100"
+                              step="5"
+                              disabled={ageBand === null}
                               value={currentPercent}
-                              onChange={(e) => updateBurnArea(region.id, 'percentage', Math.min(maxPercent, Number(e.target.value)))}
-                              className="w-full p-1 border border-border-strong rounded text-sm"
+                              onChange={(e) => updateBurnArea(region.id, 'percentOfRegion', Math.min(100, Math.max(0, Number(e.target.value))))}
+                              className="w-full p-1 border border-border-interactive rounded text-sm"
                             />
+                            {contribution !== null && currentPercent > 0 && (
+                              <p className="text-xs text-content-muted mt-1">
+                                {t('docBurn.contributesToTbsa', { value: contribution.toFixed(1) })}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <label htmlFor={`burn-depth-${region.id}`} className="block text-xs text-content-muted mb-1">{t('docBurn.depthLabel')}</label>
@@ -616,7 +644,7 @@ export default function BurnPage() {
                               value={currentDepth}
                               onChange={(e) => updateBurnArea(region.id, 'depth', e.target.value as BurnDepth)}
                               disabled={currentPercent === 0}
-                              className="w-full p-1 border border-border-strong rounded text-sm"
+                              className="w-full p-1 border border-border-interactive rounded text-sm"
                             >
                               {depthOptions.map(d => (
                                 <option key={d.value} value={d.value}>{d.label}</option>
@@ -646,16 +674,16 @@ export default function BurnPage() {
               {/* Inhalation Injury */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
+                  <AlertTriangle className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.inhalationInjuryTitle')}
                 </h3>
-                <label htmlFor="burn-inhalation-suspected" className="flex items-center space-x-2 mb-4 cursor-pointer">
+                <label htmlFor="burn-inhalation-suspected" className="flex items-center space-x-2 mb-4 min-h-[24px] py-1 cursor-pointer">
                   <input
                     id="burn-inhalation-suspected"
                     type="checkbox"
                     checked={inhalationInjury.suspected}
                     onChange={() => setInhalationInjury(prev => ({ ...prev, suspected: !prev.suspected }))}
-                    className="rounded border-border-strong text-critical-subtle-fg"
+                    className="rounded border-border-interactive text-critical-subtle-fg"
                   />
                   <span className="font-medium">{t('docBurn.inhalationSuspectedLabel')}</span>
                 </label>
@@ -668,13 +696,13 @@ export default function BurnPage() {
                       { key: 'stridor', label: t('docBurn.inhal_stridor') },
                       { key: 'carbonMonoxide', label: t('docBurn.inhal_carbonMonoxide') }
                     ].map(({ key, label }) => (
-                      <label key={key} htmlFor={`burn-inhalation-${key}`} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={key} htmlFor={`burn-inhalation-${key}`} className="flex items-center space-x-2 min-h-[24px] py-1 cursor-pointer">
                         <input
                           id={`burn-inhalation-${key}`}
                           type="checkbox"
                           checked={inhalationInjury[key as keyof typeof inhalationInjury] as boolean}
                           onChange={() => setInhalationInjury(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
-                          className="rounded border-border-strong text-critical-subtle-fg"
+                          className="rounded border-border-interactive text-critical-subtle-fg"
                         />
                         <span className="text-sm">{label}</span>
                       </label>
@@ -688,7 +716,7 @@ export default function BurnPage() {
                           value={inhalationInjury.coLevel || ''}
                           onChange={(e) => setInhalationInjury(prev => ({ ...prev, coLevel: Number(e.target.value) }))}
                           placeholder={t('docBurn.coLevelPh')}
-                          className="w-full p-2 border border-border-strong rounded"
+                          className="w-full p-2 border border-border-interactive rounded"
                         />
                       </div>
                     )}
@@ -702,13 +730,13 @@ export default function BurnPage() {
                   <AlertCircle className="h-5 w-5 mr-2 text-purple-500" />
                   {t('docBurn.circumferentialTitle')}
                 </h3>
-                <label htmlFor="burn-circumferential" className="flex items-center space-x-2 mb-4 cursor-pointer">
+                <label htmlFor="burn-circumferential" className="flex items-center space-x-2 mb-4 min-h-[24px] py-1 cursor-pointer">
                   <input
                     id="burn-circumferential"
                     type="checkbox"
                     checked={circumferential.present}
                     onChange={() => setCircumferential(prev => ({ ...prev, present: !prev.present }))}
-                    className="rounded border-border-strong text-content-secondary"
+                    className="rounded border-border-interactive text-content-secondary"
                   />
                   <span className="font-medium">{t('docBurn.circumferentialPresentLabel')}</span>
                 </label>
@@ -724,7 +752,7 @@ export default function BurnPage() {
                             onClick={() => toggleCircumferentialLocation(loc)}
                             className={`px-3 py-1 rounded-full text-sm ${
                               circumferential.locations.includes(loc)
-                                ? 'bg-purple-500 text-white'
+                                ? 'bg-purple-700 text-white'
                                 : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                             }`}
                           >
@@ -733,13 +761,13 @@ export default function BurnPage() {
                         ))}
                       </div>
                     </div>
-                    <label htmlFor="burn-escharotomy-needed" className="flex items-center space-x-2 cursor-pointer">
+                    <label htmlFor="burn-escharotomy-needed" className="flex items-center space-x-2 min-h-[24px] py-1 cursor-pointer">
                       <input
                         id="burn-escharotomy-needed"
                         type="checkbox"
                         checked={circumferential.escharotomyNeeded}
                         onChange={() => setCircumferential(prev => ({ ...prev, escharotomyNeeded: !prev.escharotomyNeeded }))}
-                        className="rounded border-border-strong text-critical-subtle-fg"
+                        className="rounded border-border-interactive text-critical-subtle-fg"
                       />
                       <span className="text-sm font-medium text-critical-subtle-fg">{t('docBurn.escharotomyNeededLabel')}</span>
                     </label>
@@ -773,13 +801,13 @@ export default function BurnPage() {
                   <h3 className="font-bold text-content mb-3">{t('docBurn.interventionsTitle')}</h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {interventionOptions.map(intervention => (
-                      <label key={intervention} htmlFor={`burn-intervention-${intervention.toLowerCase().replace(/\s+/g, '-')}`} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={intervention} htmlFor={`burn-intervention-${intervention.toLowerCase().replace(/\s+/g, '-')}`} className="flex items-center space-x-2 min-h-[24px] py-1 cursor-pointer">
                         <input
                           id={`burn-intervention-${intervention.toLowerCase().replace(/\s+/g, '-')}`}
                           type="checkbox"
                           checked={interventions.includes(intervention)}
                           onChange={() => toggleIntervention(intervention)}
-                          className="rounded border-border-strong text-ok-subtle-fg"
+                          className="rounded border-border-interactive text-ok-subtle-fg"
                         />
                         <span className="text-sm">{intervention}</span>
                       </label>
@@ -797,7 +825,7 @@ export default function BurnPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t('docBurn.notesPh')}
                   rows={4}
-                  className="w-full p-3 border border-border-strong rounded-lg"
+                  className="w-full p-3 border border-border-interactive rounded-lg"
                 />
               </div>
 
@@ -806,7 +834,7 @@ export default function BurnPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:opacity-50 flex items-center"
+                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -828,7 +856,7 @@ export default function BurnPage() {
         {activeTab === 'calculator' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <Calculator className="h-6 w-6 mr-2 text-red-500" />
+              <Calculator className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.parklandCalcTitle')}
             </h2>
 
@@ -842,9 +870,11 @@ export default function BurnPage() {
                       <input
                         id="burn-calc-weight"
                         type="number"
-                        value={weight}
-                        onChange={(e) => setWeight(Number(e.target.value))}
-                        className="w-full p-2 border border-border-strong rounded"
+                        value={weight ?? ''}
+                        onChange={(e) =>
+                          setWeight(e.target.value === '' ? undefined : Number(e.target.value))
+                        }
+                        className="w-full p-2 border border-border-interactive rounded"
                       />
                     </div>
                     <div>
@@ -854,7 +884,7 @@ export default function BurnPage() {
                         type="number"
                         value={totalBSA}
                         readOnly
-                        className="w-full p-2 border border-border-interactive rounded bg-surface-sunken"
+                        className="w-full p-2 border border-border-interactive rounded bg-surface-sunken text-content"
                       />
                       <p className="text-xs text-content-muted mt-1">{t('docBurn.totalBSAHint')}</p>
                     </div>
@@ -865,7 +895,7 @@ export default function BurnPage() {
                         type="time"
                         value={fluidStartTime}
                         onChange={(e) => setFluidStartTime(e.target.value)}
-                        className="w-full p-2 border border-border-strong rounded"
+                        className="w-full p-2 border border-border-interactive rounded"
                       />
                     </div>
                   </div>
@@ -873,34 +903,48 @@ export default function BurnPage() {
 
                 <div className="bg-notice-subtle rounded-lg p-4">
                   <h4 className="font-bold text-notice-subtle-fg mb-2">{t('docBurn.parklandFormulaTitle')}</h4>
-                  <p className="text-notice-subtle-fg font-mono text-lg">
-                    {t('docBurn.parklandFormulaCalc', { weight, bsa: totalBSA })}
-                  </p>
-                  <p className="text-notice-subtle-fg mt-2">
-                    = <strong>{t('docBurn.parklandFormulaResult', { total: parklandFluid.total24h.toLocaleString() })}</strong>
-                  </p>
+                  {/* No weight, no burn charted, or no catalog -> no number.
+                      A fluid order computed from a default 70 kg is the failure
+                      this replaces, and it is worst in exactly the patient
+                      least able to absorb it. */}
+                  {fluidOrder ? (
+                    <>
+                      <p className="text-notice-subtle-fg font-mono text-lg">
+                        {t('docBurn.parklandFormulaCalc', { weight: weight ?? 0, bsa: totalBSA })}
+                      </p>
+                      <p className="text-notice-subtle-fg mt-2">
+                        = <strong>{t('docBurn.parklandFormulaResult', { total: fluidOrder.total24hMl.toLocaleString() })}</strong>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-notice-subtle-fg">{t('docBurn.parklandNeedsWeight')}</p>
+                  )}
                 </div>
               </div>
 
               <div>
                 <div className="bg-ok-subtle rounded-lg p-4 mb-4">
                   <h3 className="font-bold text-ok-subtle-fg mb-3">{t('docBurn.fluidScheduleTitle')}</h3>
-                  <div className="space-y-4">
-                    <div className="border-b border-ok pb-3">
-                      <p className="text-ok-subtle-fg font-medium">{t('docBurn.first8Hours')}</p>
-                      <p className="text-2xl font-bold text-ok-subtle-fg">{parklandFluid.first8h.toLocaleString()} mL</p>
-                      <p className="text-ok-subtle-fg">
-                        <strong>{t('docBurn.rateLabel', { value: parklandFluid.hourlyFirst8h })}</strong>
-                      </p>
+                  {fluidOrder ? (
+                    <div className="space-y-4">
+                      <div className="border-b border-ok pb-3">
+                        <p className="text-ok-subtle-fg font-medium">{t('docBurn.first8Hours')}</p>
+                        <p className="text-2xl font-bold text-ok-subtle-fg">{fluidOrder.first8hMl.toLocaleString()} mL</p>
+                        <p className="text-ok-subtle-fg">
+                          <strong>{t('docBurn.rateLabel', { value: fluidOrder.hourlyFirst8hMl })}</strong>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-ok-subtle-fg font-medium">{t('docBurn.next16Hours')}</p>
+                        <p className="text-2xl font-bold text-ok-subtle-fg">{fluidOrder.next16hMl.toLocaleString()} mL</p>
+                        <p className="text-ok-subtle-fg">
+                          <strong>{t('docBurn.rateLabel', { value: fluidOrder.hourlyNext16hMl })}</strong>
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-ok-subtle-fg font-medium">{t('docBurn.next16Hours')}</p>
-                      <p className="text-2xl font-bold text-ok-subtle-fg">{parklandFluid.next16h.toLocaleString()} mL</p>
-                      <p className="text-ok-subtle-fg">
-                        <strong>{t('docBurn.rateLabel', { value: parklandFluid.hourlyNext16h })}</strong>
-                      </p>
-                    </div>
-                  </div>
+                  ) : (
+                    <p className="text-ok-subtle-fg">{t('docBurn.parklandNeedsWeight')}</p>
+                  )}
                 </div>
 
                 <div className="bg-caution-subtle rounded-lg p-4">
@@ -908,6 +952,17 @@ export default function BurnPage() {
                     <AlertTriangle className="h-4 w-4 mr-2" />
                     {t('docBurn.monitoringTitle')}
                   </h4>
+                  {/* Parkland is titrated against urine output, so the target is
+                      the reason the number below is measured at all. The server
+                      computes and stores it as `urine_output_goal`; the page had
+                      the input and no target to compare it against. */}
+                  {fluidOrder && (
+                    <p className="text-sm text-caution-subtle-fg mb-2">
+                      {t('docBurn.urineTargetLabel', {
+                        value: Math.round(fluidOrder.urineTargetMlHr)
+                      })}
+                    </p>
+                  )}
                   <div>
                     <label htmlFor="burn-urine-output" className="block text-sm font-medium text-caution-subtle-fg mb-1">{t('docBurn.urineOutputLabel')}</label>
                     <input
@@ -944,7 +999,7 @@ export default function BurnPage() {
         {activeTab === 'history' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-red-500" />
+              <History className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.assessmentHistoryTitle')}
             </h2>
             <div className="text-center py-12 text-content-muted">

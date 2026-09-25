@@ -67,6 +67,13 @@ pub struct Claims {
     pub exp: i64,
     /// Unique identifier used for traceability and future revocation support.
     pub jti: String,
+    /// Stable login-session identifier (ADR-0008). Identifies one login, not one
+    /// token: it survives refresh-token rotation, so step-up elevation and
+    /// transaction-authorization challenges can bind to the session rather than
+    /// to a token generation that is replaced every few minutes. Absent on
+    /// refresh tokens and on tokens issued before ADR-0008.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sid: Option<String>,
     /// Time the second factor was verified. Absent when MFA was not verified.
     #[serde(default)]
     pub auth_time: Option<i64>,
@@ -89,6 +96,7 @@ fn issue(
     mfa: bool,
     typ: &str,
     ttl_secs: i64,
+    session_id: Option<&str>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
@@ -107,6 +115,7 @@ fn issue(
         nbf: now,
         exp: now + ttl_secs,
         jti: uuid::Uuid::new_v4().to_string(),
+        sid: session_id.map(str::to_string),
         auth_time: mfa.then_some(now),
     };
     encode(
@@ -122,6 +131,7 @@ fn issue(
 pub fn issue_context_access_token(
     context: &crate::federation_identity::LoginContext,
     mfa: bool,
+    session_id: Option<&str>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
@@ -146,6 +156,7 @@ pub fn issue_context_access_token(
         nbf: now,
         exp: now + ACCESS_TOKEN_TTL_SECS,
         jti: uuid::Uuid::new_v4().to_string(),
+        sid: session_id.map(str::to_string),
         auth_time: mfa.then_some(now),
     };
     encode(
@@ -156,20 +167,43 @@ pub fn issue_context_access_token(
 }
 
 /// Issue a short-lived access token.
+///
+/// `session_id` is the stable login session this token belongs to. It must
+/// already be persisted: a token is never returned for a session that failed to
+/// persist, so the caller creates the session first and mints afterwards.
 pub fn issue_access_token(
     wallet: &str,
     role: &str,
     mfa: bool,
+    session_id: Option<&str>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    issue(wallet, role, mfa, TYP_ACCESS, ACCESS_TOKEN_TTL_SECS)
+    issue(
+        wallet,
+        role,
+        mfa,
+        TYP_ACCESS,
+        ACCESS_TOKEN_TTL_SECS,
+        session_id,
+    )
 }
 
 /// Issue a longer-lived refresh token.
+///
+/// Refresh tokens carry no `sid`. The refresh token *is* the generation, and the
+/// session it belongs to is resolved from the stored generation row rather than
+/// from a claim the holder presents.
 pub fn issue_refresh_token(
     wallet: &str,
     role: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    issue(wallet, role, false, TYP_REFRESH, REFRESH_TOKEN_TTL_SECS)
+    issue(
+        wallet,
+        role,
+        false,
+        TYP_REFRESH,
+        REFRESH_TOKEN_TTL_SECS,
+        None,
+    )
 }
 
 /// Decode and validate a token (signature + expiry). Returns the claims on success.
@@ -215,6 +249,7 @@ mod tests {
             "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
             "Doctor",
             true,
+            None,
         )
         .unwrap();
         let claims = decode_token(&t).unwrap();
@@ -240,7 +275,7 @@ mod tests {
 
     #[test]
     fn tampered_token_is_rejected() {
-        let mut t = issue_access_token("5Grw", "Admin", false).unwrap();
+        let mut t = issue_access_token("5Grw", "Admin", false, None).unwrap();
         t.push('x');
         assert!(decode_token(&t).is_err());
     }
@@ -248,7 +283,7 @@ mod tests {
     #[test]
     fn bearer_subject_extracts_wallet() {
         let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let t = issue_access_token(wallet, "Patient", false).unwrap();
+        let t = issue_access_token(wallet, "Patient", false, None).unwrap();
         let claims = bearer_access_subject(&format!("Bearer {}", t)).unwrap();
         assert_eq!(claims.sub, wallet);
     }

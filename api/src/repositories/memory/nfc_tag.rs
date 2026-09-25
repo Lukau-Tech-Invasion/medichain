@@ -192,6 +192,7 @@ mod tests {
             last_used_at: None,
             use_count: 0,
             issued_by: Some("ADMIN-001".to_string()),
+            status: "Active".to_string(),
         }
     }
 

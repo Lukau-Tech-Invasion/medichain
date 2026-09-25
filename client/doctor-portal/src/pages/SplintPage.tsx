@@ -1,7 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createSplint, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  createSplint,
+  fromStoredRecord,
+  getApiClient,
+  rowsOfResponse,
+  useTranslation,
+  formatTimestamp,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -53,7 +62,7 @@ const returnPrecautionsList = [
 const SplintPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const typeLabel = (v: string): string => ({
     splint: t('docSplint.typeSplint'), cast: t('docSplint.typeCast'), sling: t('docSplint.typeSling'),
     brace: t('docSplint.typeBrace'), boot: t('docSplint.typeBoot'),
@@ -63,6 +72,37 @@ const SplintPage: React.FC = () => {
   }[v] ?? v);
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<SplintRecord[]>([]);
+
+  /**
+   * Read the ward's records back from the API.
+   *
+   * This screen had no read path at all: it posted, then did
+   * `setRecords([...])` with its own local object. What it displayed was
+   * this session's typing, and a reload emptied it -- while every record was
+   * safely in the database, reachable only by an id the screen never showed.
+   *
+   * The stored rows carry the whole submission in `data`, so they come back
+   * in this screen's own shape; `fromStoredRecord` overlays the
+   * server-assigned id and the column the server stamped rather than
+   * accepted.
+   */
+  const loadSplintRecords = useCallback(async () => {
+    try {
+      const body = await getApiClient().get<unknown>('/api/clinical/splint-records');
+      setRecords(
+        rowsOfResponse(body).map((row) =>
+          fromStoredRecord<SplintRecord>(row, { appliedBy: 'applied_by' })
+        )
+      );
+    } catch (err) {
+      // A failed read must not look like an empty ward.
+      console.error('Failed to load records:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSplintRecords();
+  }, [loadSplintRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
 
@@ -101,7 +141,7 @@ const SplintPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient || !bodyPart) {
-      showWarning(t('docSplint.warnSelect'));
+      showError(t('docSplint.errorSelect'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -121,20 +161,27 @@ const SplintPage: React.FC = () => {
       await createSplint(record);
     } catch (err) {
       console.error('Failed to save splint record:', err);
+      // Stop here. Falling through added the record to the local list
+      // and toasted success for a write that never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
-    setRecords([record, ...records]);
+    // Re-read through the endpoint rather than pushing the local object:
+    // this list used to be local state only, so it emptied on reload while
+    // the record sat in the database.
+    await loadSplintRecords();
     showSuccess(t('docSplint.saved'));
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white p-6">
+      <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Bone className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docSplint.title')}</h1>
-            <p className="text-blue-100">{t('docSplint.subtitle')}</p>
+            <p className="text-white">{t('docSplint.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -174,18 +221,12 @@ const SplintPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-patient" className="text-sm text-content-muted">{t('docSplint.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="splint-patient"
+                    label={t('docSplint.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docSplint.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="splint-type" className="text-sm text-content-muted">{t('docSplint.type')}</label>
@@ -466,12 +507,12 @@ const SplintPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(r.appliedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{r.appliedAt ? formatTimestamp(r.appliedAt) : ""}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className="px-2 py-1 text-xs rounded bg-notice-subtle text-notice-subtle-fg capitalize">{typeLabel(r.type)}</span>
-                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV.intact ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
-                        {t('docSplint.nvLabel')} {r.postApplicationNV.intact ? t('docSplint.intact') : t('docSplint.compromised')}
+                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV?.intact ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
+                        {t('docSplint.nvLabel')} {r.postApplicationNV?.intact ? t('docSplint.intact') : t('docSplint.compromised')}
                       </span>
                     </div>
                   </div>

@@ -19,6 +19,8 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listLabQc: vi.fn(),
   createLabQc: vi.fn(),
+  listLabCalibrations: vi.fn(),
+  createLabCalibration: vi.fn(),
 }));
 
 // Mock toast actions
@@ -37,6 +39,8 @@ describe('LabQCPage', () => {
   };
 
   const mockQcData = {
+    success: true,
+    total: 1,
     items: [
       {
         test_id: '1',
@@ -52,10 +56,15 @@ describe('LabQCPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.listLabQc as any).mockResolvedValue(mockQcData);
+    vi.mocked(shared.listLabQc).mockResolvedValue(mockQcData);
+    vi.mocked(shared.listLabCalibrations).mockResolvedValue({
+      success: true,
+      total: 0,
+      items: [],
+    });
   });
 
   it('renders lab QC page', async () => {

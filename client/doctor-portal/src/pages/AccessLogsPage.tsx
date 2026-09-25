@@ -1,6 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import {
+  getApiClient,
+  getApiErrorMessage,
+  listEmergencyGrants,
+  revokeEmergencyGrant,
+  useTranslation,
+  formatTimestamp as formatStamp,
+} from '@medichain/shared';
+import type { EmergencyAccessGrant } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -15,6 +23,7 @@ import {
   Loader2,
   Download
 } from 'lucide-react';
+import StaffName, { useStaffDirectory } from '../components/StaffName';
 
 interface AccessLog {
   access_id: string;
@@ -30,12 +39,68 @@ interface AccessLog {
 function AccessLogsPage() {
   const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
-  const { user: _user } = useAuthStore();
+  const { user } = useAuthStore();
+  // Resolves a wallet to the person's name for the CSV export; the table
+  // itself renders `<StaffName>`, which cannot be called inside a `.map()`.
+  const staffName = useStaffDirectory();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // "Nobody has accessed any record" and "the audit trail could not be read"
+  // are opposite findings, and an empty list asserts the first.
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'emergency' | 'regular'>('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // --- Break-glass grants ----------------------------------------------------
+  //
+  // An emergency grant could be read only as `GET /api/emergency/grants/{id}`,
+  // an id nobody holds unless they issued it. So an administrator could not
+  // answer "who is inside a record right now", and the revoke endpoint was
+  // effectively unreachable -- finding the grant required already knowing its
+  // id. Break-glass access that cannot be reviewed or cut short is not
+  // oversight; it is a log nobody reads. `GET /api/emergency/grants` is new.
+  //
+  // Revoked and expired grants are shown too: during an incident review "who
+  // has emergency access" and "who had it" are the same question.
+  const [grants, setGrants] = useState<EmergencyAccessGrant[]>([]);
+  const [grantsLoaded, setGrantsLoaded] = useState(false);
+  const [grantsError, setGrantsError] = useState<string | null>(null);
+  const [grantBusy, setGrantBusy] = useState<string | null>(null);
+
+  const isAdmin = user?.role === 'Admin';
+
+  const loadGrants = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const body = await listEmergencyGrants();
+      setGrants(body.grants ?? []);
+      setGrantsError(null);
+    } catch (err) {
+      // An empty list and a failed read are opposite answers to "is anyone
+      // inside a record right now".
+      setGrantsError(getApiErrorMessage(err, t('docAccessLogs.grantsLoadFailed')));
+    } finally {
+      setGrantsLoaded(true);
+    }
+  }, [isAdmin, t]);
+
+  useEffect(() => {
+    void loadGrants();
+  }, [loadGrants]);
+
+  const endGrant = async (grantId: string) => {
+    setGrantsError(null);
+    setGrantBusy(grantId);
+    try {
+      await revokeEmergencyGrant(grantId, 'Ended from access review');
+      await loadGrants();
+    } catch (err) {
+      setGrantsError(getApiErrorMessage(err, t('docAccessLogs.grantRevokeFailed')));
+    } finally {
+      setGrantBusy(null);
+    }
+  };
   const logsPerPage = 10;
 
   useEffect(() => {
@@ -49,34 +114,30 @@ function AccessLogsPage() {
         }
         
         // Fetch all access logs from the access logs endpoint
-        const response = await fetch(apiUrl('/api/access/logs'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Handle both direct array and object with access_logs property
-          const logsArray = Array.isArray(data)
-            ? data
-            : (data.access_logs || data.data || []);
-          setLogs(logsArray);
-        } else {
-          console.error('Failed to fetch access logs:', response.status);
-          setLogs([]);
-        }
+        const data = await getApiClient().get<
+          { access_logs?: AccessLog[]; data?: AccessLog[] } | AccessLog[]
+        >('/api/access/logs');
+        // Handle both direct array and object with access_logs property
+        const logsArray = Array.isArray(data)
+          ? data
+          : (data.access_logs ?? data.data ?? []);
+        setLogs(logsArray);
+        setLoadError('');
       } catch (error) {
         console.error('Error fetching access logs:', error);
+        // An empty list here reads as "nobody has accessed any record", which
+        // on an audit screen is the opposite of "the audit trail could not be
+        // read". The `else` branch this replaces set exactly that, silently.
         setLogs([]);
+        setLoadError(t('docAccessLogs.loadFailed'));
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchLogs();
-  }, []);
+    // `t` is now read inside, for the load-failure message.
+  }, [t]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -144,12 +205,16 @@ function AccessLogsPage() {
   );
 
   const handleExport = () => {
-    // In production, this would generate a CSV/PDF report
+    // The accessor's NAME as well as their wallet. This file is the artefact
+    // somebody reads during an access review, and a column of SS58 addresses
+    // answers "was this access appropriate?" for nobody. The wallet stays
+    // beside it because it is the unambiguous identifier.
     const csvContent = [
-      'Access ID,Patient ID,Accessor ID,Role,Access Type,Location,Timestamp,Emergency',
-      ...filteredLogs.map(log => 
-        `${log.access_id},${log.patient_id},${log.accessor_id},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`
-      )
+      'Access ID,Patient ID,Accessor ID,Accessor Name,Role,Access Type,Location,Timestamp,Emergency',
+      ...filteredLogs.map(log => {
+        const name = (staffName(log.accessor_id) || '').replace(/,/g, ' ');
+        return `${log.access_id},${log.patient_id},${log.accessor_id},${name},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`;
+      })
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -186,6 +251,90 @@ function AccessLogsPage() {
         </button>
       </div>
 
+      {/* Break-glass grants. Administrators only -- this is the whole
+          deployment's emergency activity, naming patients and the clinicians
+          who opened their records. */}
+      {isAdmin && (
+        <div className="bg-surface rounded-xl shadow p-6 mb-8">
+          <h2 className="font-semibold text-content mb-1">{t('docAccessLogs.grantsHeading')}</h2>
+          <p className="text-sm text-content-muted mb-4">{t('docAccessLogs.grantsSubtitle')}</p>
+
+          {grantsError && (
+            <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
+              <p className="text-sm text-critical-subtle-fg">{grantsError}</p>
+            </div>
+          )}
+
+          {!grantsLoaded ? (
+            <p className="text-sm text-content-muted">{t('docAccessLogs.grantsLoading')}</p>
+          ) : grants.length === 0 ? (
+            <p className="text-sm text-content-muted">{t('docAccessLogs.grantsNone')}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="grant-table">
+                <thead>
+                  <tr className="text-left text-content-muted">
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantPatient')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantClinician')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantReason')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantExpires')}</th>
+                    <th scope="col" className="py-2 pr-4">{t('docAccessLogs.grantStatus')}</th>
+                    <th scope="col" className="py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {grants.map((grant) => {
+                    // The server's own status, not a time comparison made here:
+                    // a grant is active, expired or revoked because the store
+                    // says so.
+                    const open = grant.status === 'Active' || grant.status === 'active';
+                    return (
+                      <tr key={grant.id} className="border-t border-border">
+                        <td className="py-2 pr-4 text-content">{grant.patient_id}</td>
+                        <td className="py-2 pr-4 text-content-secondary break-all">
+                          {grant.requesting_person_id}
+                        </td>
+                        <td className="py-2 pr-4 text-content-secondary">
+                          {grant.reason_text || grant.reason_code}
+                        </td>
+                        <td className="py-2 pr-4 text-content-muted">
+                          {formatStamp(grant.expires_at)}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs ${
+                              open
+                                ? 'bg-critical-subtle text-critical-subtle-fg'
+                                : 'bg-surface-sunken text-content-secondary'
+                            }`}
+                          >
+                            {grant.status}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          {open && (
+                            <button
+                              type="button"
+                              onClick={() => void endGrant(grant.id)}
+                              disabled={grantBusy === grant.id}
+                              className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
+                            >
+                              {grantBusy === grant.id
+                                ? t('docAccessLogs.grantWorking')
+                                : t('docAccessLogs.grantEnd')}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-surface rounded-xl shadow p-4">
@@ -208,7 +357,7 @@ function AccessLogsPage() {
                 {logs.filter(l => l.emergency).length}
               </p>
             </div>
-            <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-critical-subtle rounded-lg flex items-center justify-center">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
             </div>
           </div>
@@ -222,8 +371,8 @@ function AccessLogsPage() {
                 {new Set(logs.map(l => l.patient_id)).size}
               </p>
             </div>
-            <div className="w-10 h-10 bg-success-100 rounded-lg flex items-center justify-center">
-              <User className="text-success-600" size={20} />
+            <div className="w-10 h-10 bg-ok-subtle rounded-lg flex items-center justify-center">
+              <User className="text-ok-subtle-fg" size={20} />
             </div>
           </div>
         </div>
@@ -256,7 +405,7 @@ function AccessLogsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docAccessLogs.searchPlaceholder')}
-              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+              className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
           </div>
           
@@ -265,7 +414,7 @@ function AccessLogsPage() {
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-              className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+              className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             >
               <option value="all">{t('docAccessLogs.filterAll')}</option>
               <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
@@ -277,13 +426,18 @@ function AccessLogsPage() {
 
       {/* Logs Table */}
       <div className="bg-surface rounded-xl shadow overflow-hidden">
+        {loadError && (
+          <div role="alert" className="mb-4 p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+            {loadError}
+          </div>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-brand" size={32} />
           </div>
         ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-12">
-            <FileText className="mx-auto mb-4 text-gray-300" size={48} />
+            <FileText className="mx-auto mb-4 text-content-muted" size={48} />
             <p className="text-content-muted">{t('docAccessLogs.noneFound')}</p>
           </div>
         ) : (
@@ -330,7 +484,7 @@ function AccessLogsPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div>
-                            <span className="text-sm font-mono text-content">{log.accessor_id}</span>
+                            <StaffName id={log.accessor_id} className="text-sm text-content" />
                             <p className="text-xs text-content-muted">{log.accessor_role}</p>
                           </div>
                         </td>
@@ -347,12 +501,12 @@ function AccessLogsPage() {
                         </td>
                         <td className="px-6 py-4">
                           {log.emergency ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emergency-100 text-critical-subtle-fg text-xs font-medium rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs font-medium rounded-full">
                               <AlertTriangle size={12} />
                               {t('docAccessLogs.statusEmergency')}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-success-100 text-success-700 text-xs font-medium rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-ok-subtle text-ok-subtle-fg text-xs font-medium rounded-full">
                               <Shield size={12} />
                               {t('docAccessLogs.statusVerified')}
                             </span>
@@ -379,7 +533,7 @@ function AccessLogsPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={20} />
                   </button>
@@ -389,7 +543,7 @@ function AccessLogsPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <ChevronRight size={20} />
                   </button>
@@ -405,7 +559,7 @@ function AccessLogsPage() {
         <div className="flex items-start gap-3">
           <Shield className="text-brand mt-0.5" size={20} />
           <div>
-            <h4 className="font-medium text-primary-900">{t('docAccessLogs.blockchainVerified')}</h4>
+            <h4 className="font-medium text-brand-subtle-fg">{t('docAccessLogs.blockchainVerified')}</h4>
             <p className="text-sm text-brand mt-1">
               {t('docAccessLogs.blockchainBody')}
             </p>

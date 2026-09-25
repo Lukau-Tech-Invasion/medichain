@@ -10,7 +10,6 @@
 //! - Functions under 60 lines
 
 mod access_log;
-mod allergy;
 mod emergency;
 mod medical_record;
 mod nfc_tag;
@@ -19,7 +18,7 @@ mod triage;
 mod vital_signs;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 // Phase 2: Clinical Documentation repositories
 mod consultation_note;
@@ -31,7 +30,6 @@ mod iv_assessment;
 mod medication_record;
 mod nursing_care_plan;
 mod progress_note;
-mod sample_history;
 mod wound_assessment;
 
 // Phase 3: Lab, Surgical, Radiology, Blood Bank, Pharmacy repositories
@@ -60,18 +58,13 @@ pub use patient_access::PgPatientAccessRepository;
 mod phase5_cds;
 mod phase5_communication;
 mod phase5_insurance;
-mod phase5_telehealth;
-mod phase5_wearables;
 
 // Phase 11-15: Family/Genetics, Immunization, Death, Sync/Integration, Audit/Compliance
 mod phase6_audit;
-mod phase6_death;
-mod phase6_family;
 mod phase6_immunization;
 mod phase6_sync;
 
 pub use access_log::PgAccessLogRepository;
-pub use allergy::PgAllergyRepository;
 pub use emergency::{
     PgCardiacEventRepository, PgCodeBlueRepository, PgSepsisAssessmentRepository,
     PgStrokeAssessmentRepository, PgTraumaAssessmentRepository,
@@ -92,13 +85,12 @@ pub use iv_assessment::PgIVAssessmentRepository;
 pub use medication_record::PgMedicationRecordRepository;
 pub use nursing_care_plan::PgNursingCarePlanRepository;
 pub use progress_note::PgProgressNoteRepository;
-pub use sample_history::PgSampleHistoryRepository;
 pub use wound_assessment::PgWoundAssessmentRepository;
 
 // Phase 3 exports: Lab & Diagnostics
 pub use phase3_lab::{
-    PgCriticalValueRepository, PgLabPanelRepository, PgLabQcRecordRepository,
-    PgLabSubmissionRepository, PgLabTrendRepository, PgSpecimenCollectionRepository,
+    PgCriticalValueRepository, PgLabQcRecordRepository, PgLabSubmissionRepository,
+    PgSpecimenCollectionRepository, PgSpecimenRecollectionRepository,
     PgSpecimenRejectionRepository,
 };
 
@@ -113,17 +105,12 @@ pub use phase3_surgical::{
 pub use phase3_other::{
     PgAdherenceLogRepository,
     // Blood Bank
-    PgBloodTypeScreenRepository,
-    PgCrossmatchRecordRepository,
-    PgDrugInteractionRepository,
     // Pharmacy
-    PgEPrescriptionRepository,
     PgMedicationReminderRepository,
     PgPathologyReportRepository,
     // Radiology
     PgRadiologyOrderRepository,
     PgRadiologyReportRepository,
-    PgTransfusionRecordRepository,
 };
 
 // Phase 4 exports: Specialty Assessments
@@ -143,16 +130,8 @@ pub use phase4_admin::{
 pub use phase4_ems::{PgChainOfCustodyRepository, PgEmsHandoffRepository, PgMciRecordRepository};
 
 // Phase 7 exports: Wearables & IoT
-pub use phase5_wearables::{
-    PgWearableAlertRepository, PgWearableDataRepository, PgWearableDeviceRepository,
-    PgWearableIntegrationLogRepository,
-};
 
 // Phase 8 exports: Telehealth
-pub use phase5_telehealth::{
-    PgRemotePatientMonitoringRepository, PgRpmReadingRepository, PgTelehealthNoteRepository,
-    PgTelehealthSessionRepository,
-};
 
 // Phase 9 exports: Clinical Decision Support
 pub use phase5_cds::PgCdsAlertRepository;
@@ -160,57 +139,57 @@ pub use phase5_cds::PgCdsAlertRepository;
 pub use phase5_communication::{PgDeviceTokenRepository, PgSmsOptOutRepository};
 
 // Phase 10 exports: Insurance & Billing
-pub use phase5_insurance::{PgBillingCodeRepository, PgInsuranceRecordRepository};
+pub use phase5_insurance::PgInsuranceRecordRepository;
 
 // Phase 11 exports: Family & Genetics
-pub use phase6_family::{PgFamilyMedicalHistoryRepository, PgGeneticTestResultRepository};
 
 // Phase 12 exports: Immunization
-pub use phase6_immunization::{
-    PgImmunizationRecordRepository, PgImmunizationScheduleRepository, PgVaccineInventoryRepository,
-};
+pub use phase6_immunization::PgImmunizationRecordRepository;
 
 // Phase 13 exports: Death Records
-pub use phase6_death::{PgDeathRecordRepository, PgOrganDonationRecordRepository};
 
 // Phase 14 exports: Sync & Integration
-pub use phase6_sync::{
-    PgExternalIdMappingRepository, PgSyncConflictRepository, PgSyncOperationRepository,
-};
+pub use phase6_sync::PgSyncConflictRepository;
 
 // Phase 15 exports: Audit & Compliance
 pub use phase6_audit::{
-    PgComplianceReportRepository, PgConsentRecordRepository, PgDataRetentionPolicyRepository,
-    PgRetentionJobRunRepository,
+    PgConsentRecordRepository, PgDataRetentionPolicyRepository, PgRetentionJobRunRepository,
 };
 
 // Phase 7 (Round 4): generic JSON-record feature domains
 mod phase7;
 pub use phase7::{
     PgAutopsyReportRepository,
-    PgAutopsyRequestRepository,
     // Horizon HZ-023: stores replacing fabricated literals
     PgBarcodeScanRepository,
     // Final durability sweep (migration 20260811000002)
     PgBloodTypeScreenRecordRepository,
     // Phase 4.3: CDS thresholds + audit
     PgCdsAuditEntryRepository,
+    PgCdsRuleRepository,
     PgCdsThresholdConfigRepository,
     PgDeathCertificateRecordRepository,
+    PgDispenseEventRepository,
     // Round 6: shape-mismatch domains
     PgDrugInteractionCheckRepository,
-    PgEPrescriptionRecordRepository,
     PgEPrescriptionV2Repository,
     PgEligibilityCheckRepository,
     PgFamilyGroupRepository,
     PgFamilyHistoryRecordRepository,
     PgInsuranceCardRepository,
     PgInsuranceClaimRepository,
+    PgLabCalibrationRepository,
     PgLabResultSubmissionRepository,
-    PgLabTrendResultRepository,
     PgLanguagePreferenceRepository,
     PgMessageRepository,
+    PgNoteTemplateRepository,
+    PgNotificationReadRepository,
+    PgOrderSetRepository,
+    PgPharmacyDecisionRepository,
+    PgPrescriptionVerificationEventRepository,
+    PgProviderScheduleRepository,
     PgSatisfactionSurveyRepository,
+    PgScannerSettingsRepository,
     // Round 7: SOAP clinical notes
     PgSoapNoteRecordRepository,
     PgSymptomEntryRepository,
@@ -222,6 +201,7 @@ pub use phase7::{
     PgTelehealthSessionRecordRepository,
     PgTransfusionEventRecordRepository,
     PgUsedEmergencyTokenRepository,
+    PgUserAvatarRepository,
     PgUserSettingRecordRepository,
     PgWearableAlertRecordRepository,
     PgWearableAlertRuleRepository,

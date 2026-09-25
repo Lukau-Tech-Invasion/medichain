@@ -1,0 +1,432 @@
+#!/usr/bin/env python3
+"""Fail the build when a handler writes an audit action the database will reject.
+
+`access_logs.action` carries a CHECK constraint listing every permitted value.
+A handler that writes a value outside it gets a constraint violation on
+PostgreSQL — and nowhere else, because the in-memory repository enforces no
+constraints at all. Every unit test passes; the audit row is lost in
+production.
+
+That is not hypothetical. `lab_review_approve` and `lab_review_reject` were
+written by `/api/lab/review` from the day it existed and were never in the
+constraint. The insert was discarded with `let _ =`, so the violation was
+thrown away and the reviewer was told the result had been "approved and added
+to patient records". It surfaced on 2026-08-26 only because that write was
+changed into an obligation.
+
+WHY A NEW GATE RATHER THAN THE EXISTING TEST
+
+`test_pg_access_log_accepts_every_action_the_handlers_write` keeps a hand-copy
+of the constraint's vocabulary and proves the database accepts each entry. That
+proves list == constraint. The invariant that matters is
+
+    constraint  is a superset of  { values the handlers actually write }
+
+and a value missing from both the list and the constraint satisfies that test
+perfectly while failing in production. A mirror of the thing under test cannot
+detect an omission the two share. This gate reads the left-hand side from the
+Rust source instead.
+
+WHAT IT UNDERSTANDS
+
+It scans the body of every `AccessLogEntry` / `AccessLogEntity` struct literal —
+skipping the `struct` definitions themselves — and reads the action field's
+right-hand side. String literals and `const` references resolve directly.
+
+Anything else is reported as unverifiable rather than skipped. Each such
+expression has to be read once and recorded in RESOLVED_EXPRESSIONS with the
+values it can produce. That is deliberate friction: an audit value the gate
+cannot evaluate is exactly the case that needs a person, and quietly ignoring
+it would rebuild the blind spot this exists to close.
+
+Usage:  python scripts/check-audit-action-vocabulary.py [--list]
+Exit 0 = every written value is permitted by the constraint.
+"""
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "api" / "src"
+MIGRATIONS = ROOT / "api" / "migrations"
+
+# ---------------------------------------------------------------------------
+# Expressions whose possible values have been read at their call sites.
+#
+# Keyed by "<repo-relative file>::<expression>" so the same expression text in
+# two files cannot be resolved by one file's reading. Add an entry only after
+# actually following the value to every caller.
+# ---------------------------------------------------------------------------
+RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
+    # `action` is validated to exactly "approve" or "reject" before the audit
+    # row is built, so the format string has exactly two expansions.
+    # `audit_recollection` takes the action as a parameter. Followed to all
+    # three call sites in the same file -- request, complete and cancel -- each
+    # of which passes a literal. There is no other caller.
+    'api/src/clinical_endpoints/lab.rs::action.to_string()': [
+        "specimen_recollection_requested",
+        "specimen_recollection_completed",
+        "specimen_recollection_cancelled",
+    ],
+    # `close_critical_value` takes the action as a parameter; its two call
+    # sites in the same file, acknowledge and cancel, each pass a literal.
+    'api/src/clinical_endpoints/lab.rs::audit_action.to_string()': [
+        "critical_value_acknowledged",
+        "critical_value_cancelled",
+    ],
+    'api/src/handlers/lab.rs::format!("lab_review_{}", action)': [
+        "lab_review_approve",
+        "lab_review_reject",
+    ],
+    # `audit_prescription_event` takes the event name as a parameter; its only
+    # two call sites, both in that file, pass these literals.
+    "api/src/clinical_endpoints/billing/e_prescriptions.rs::event.to_string()": [
+        "prescription_signed",
+        "prescription_transmitted",
+        # Pharmacy dispensing (SCR-013).
+        "prescription_received",
+        "prescription_fill_started",
+        "prescription_dispensed",
+        "prescription_partial_fill",
+        "prescription_dispense_reversed",
+        # Policy-driven secondary pharmacist verification.
+        "prescription_verification_requested",
+        "prescription_verification_approved",
+        "prescription_verification_rejected",
+        "prescription_verification_expired",
+        "prescription_verification_revoked",
+    ],
+    # The recording handler picks one of two literals immediately above the
+    # struct literal.
+    "api/src/clinical_endpoints/clinical_support/telehealth.rs::action.to_string()": [
+        "recording-started",
+        "recording-stopped",
+    ],
+    # Client-supplied, but `POST /api/telehealth/sessions/{id}/event` rejects
+    # anything outside TELEHEALTH_EVENT_TYPES before reaching the audit row.
+    # That constant and the constraint are two halves of one closed set.
+    "api/src/clinical_endpoints/clinical_support/telehealth.rs::body.event_type.clone()": [
+        "conference-joined",
+        "conference-left",
+        "participant-joined",
+        "participant-left",
+        "error",
+    ],
+    # `access_log_entity(accessor_id, accessor_role, action, patient_id)` — the
+    # third argument. These are every literal passed by its six call sites in
+    # emergency/assessments.rs and emergency/crisis.rs.
+    "api/src/clinical_endpoints/emergency/mod.rs::action.to_string()": [
+        "create_trauma_assessment",
+        "create_stroke_assessment",
+        "create_sepsis_assessment",
+        "create_ems_handoff",
+        "create_code_blue",
+        "create_cardiac_event",
+    ],
+}
+
+# Field-to-field copies between the two representations of one row. They
+# introduce no value: whatever is on the right was already checked where it was
+# written. Listed rather than pattern-matched, so a genuinely new expression in
+# these files still has to be read.
+PASS_THROUGH = {
+    "api/src/types/conversions.rs::entity.action",
+    "api/src/types/conversions.rs::entry.access_type",
+}
+
+ENTITY = re.compile(r"(?<!struct )\bAccessLog(?:Entry|Entity)\s*\{")
+FIELD = re.compile(r"(?:access_type|action)\s*:\s*(.+?)\s*,\s*\n")
+CONST_STR = re.compile(r"const\s+(\w+)\s*:\s*&(?:'static\s+)?str\s*=\s*\"([^\"]*)\"")
+
+
+def strip_tests(text: str) -> str:
+    """Drop `#[cfg(test)]` modules — a test fixture is not a production write."""
+    out, i = [], 0
+    while True:
+        m = re.search(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{", text[i:])
+        if not m:
+            out.append(text[i:])
+            break
+        out.append(text[i : i + m.start()])
+        j, depth = i + m.end(), 1
+        while j < len(text) and depth:
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+            j += 1
+        i = j
+    return "".join(out)
+
+
+def literal_blocks(text: str):
+    """Yield the body of every AccessLogEntry/Entity struct literal."""
+    for m in ENTITY.finditer(text):
+        i, depth = m.end(), 1
+        while i < len(text) and depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        yield text[m.end() : i]
+
+
+def constraint_vocabulary() -> set[str]:
+    """The permitted values, from the newest migration that defines them.
+
+    Migrations replace the constraint wholesale (DROP then ADD), so the last
+    one to add it is the one in force.
+    """
+    defining = sorted(
+        p
+        for p in MIGRATIONS.glob("*.sql")
+        if "ADD CONSTRAINT access_logs_action_check"
+        in p.read_text(encoding="utf-8", errors="replace")
+    )
+    if not defining:
+        print("No migration adds access_logs_action_check.")
+        sys.exit(1)
+    body = defining[-1].read_text(encoding="utf-8", errors="replace")
+    clause = body[body.index("ADD CONSTRAINT access_logs_action_check") :]
+    clause = clause[: clause.index(");") + 1]
+    # Strip SQL comments, so a value named only in prose is not counted as
+    # permitted.
+    clause = re.sub(r"--.*", "", clause)
+    return set(re.findall(r"'([^']+)'", clause))
+
+
+ACTION_WIDTH_ALTER = re.compile(
+    r"ALTER\s+TABLE\s+access_logs\s+ALTER\s+COLUMN\s+action\s+TYPE\s+"
+    r"VARCHAR\s*\(\s*(\d+)\s*\)",
+    re.IGNORECASE,
+)
+ACTION_WIDTH_CREATE = re.compile(
+    r"CREATE\s+TABLE[^;]*?\baccess_logs\b(.*?);", re.IGNORECASE | re.DOTALL
+)
+ACTION_COLUMN = re.compile(r"\baction\s+VARCHAR\s*\(\s*(\d+)\s*\)", re.IGNORECASE)
+
+
+def action_column_width() -> int | None:
+    """The declared width of `access_logs.action`, from the migrations.
+
+    A value can be in the constraint's vocabulary and still be impossible to
+    store. `access_logs.action` was created VARCHAR(32) when the whole
+    vocabulary was 'View' .. 'EmergencyAccess'; every migration since added
+    names to the CHECK without asking whether the column could hold them, and
+    five could not:
+
+        value too long for type character varying(32)
+
+    That insert shares a transaction with the state change it records, so the
+    whole write rolled back and the second-pharmacist verification workflow was
+    unusable on PostgreSQL while passing in memory, which enforces no widths.
+
+    Migrations are read in order and the last statement to set the width wins —
+    the same rule `constraint_vocabulary` uses for the constraint itself.
+    """
+    width: int | None = None
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        body = re.sub(r"--.*", "", path.read_text(encoding="utf-8", errors="replace"))
+        for match in ACTION_WIDTH_ALTER.finditer(body):
+            width = int(match.group(1))
+        for table in ACTION_WIDTH_CREATE.finditer(body):
+            column = ACTION_COLUMN.search(table.group(1))
+            if column:
+                width = int(column.group(1))
+    return width
+
+
+def consts() -> dict[str, str]:
+    """Every `const NAME: &str = "..."` in the API, by name."""
+    found: dict[str, str] = {}
+    for path in SRC.rglob("*.rs"):
+        body = path.read_text(encoding="utf-8", errors="replace")
+        for name, value in CONST_STR.findall(body):
+            found[name] = value
+    return found
+
+
+def stale_resolutions() -> list[str]:
+    """Finds RESOLVED_EXPRESSIONS entries that new call sites have outgrown.
+
+    A resolved expression is a snapshot of the call sites that existed when
+    somebody read them. Adding a call site does not invalidate the snapshot, so
+    the gate keeps passing while the new value is one the database will reject.
+
+    That is not hypothetical. It is how five dispensing actions
+    (prescription_received, prescription_fill_started, prescription_dispensed,
+    prescription_partial_fill, prescription_dispense_reversed) were nearly
+    shipped past this gate: `audit_prescription_event` takes its action as a
+    parameter, and the entry for `event.to_string()` listed only the two actions
+    that existed when it was written.
+
+    So: for an entry of the form `<param>.to_string()`, find the function that
+    takes `<param>: &str`, then require every string literal passed at any call
+    site of that function to appear in the recorded list.
+
+    A heuristic over source text, not a type-checked analysis, and deliberately
+    biased towards false alarms. Being told to re-read a list you have already
+    read costs a minute; the failure it prevents is a silently lost audit row.
+    """
+    findings: list[str] = []
+    for key, recorded in RESOLVED_EXPRESSIONS.items():
+        rel, expr = key.split("::", 1)
+        param_match = re.fullmatch(r"(\w+)\.to_string\(\)", expr)
+        if not param_match:
+            continue
+        param = param_match.group(1)
+
+        path = ROOT / rel
+        if not path.exists():
+            findings.append(f"{key}: the file no longer exists; remove the entry")
+            continue
+        body = path.read_text(encoding="utf-8", errors="replace")
+
+        # The function that takes `<param>: &str`, and therefore owns this
+        # expression.
+        fn = re.search(
+            r"async fn (\w+)\([^)]*?\b" + re.escape(param) + r"\s*:\s*&str",
+            body,
+            re.S,
+        )
+        if not fn:
+            continue
+        name = fn.group(1)
+
+        recorded_set = set(recorded)
+        for call in re.finditer(
+            re.escape(name) + r"\s*\((?P<call>[^;]*?)\)\s*\.await", body, re.S
+        ):
+            for value in re.findall(r'"([^"]*)"', call.group("call")):
+                if value in recorded_set:
+                    continue
+                # Only audit-action-shaped literals. Anything else in the call is
+                # some other argument, and flagging it would be noise.
+                if "_" in value and value.replace("_", "").isalnum():
+                    findings.append(
+                        f'{key}: a call site passes "{value}", which is not in the '
+                        f"recorded list. Re-read the call sites of `{name}` and "
+                        f"update RESOLVED_EXPRESSIONS, then add the value to the "
+                        f"access_logs_action_check constraint in a migration."
+                    )
+    return findings
+
+
+def written_values() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Returns (resolved value -> files, unverifiable expression -> files)."""
+    resolved: dict[str, set[str]] = {}
+    unresolved: dict[str, set[str]] = {}
+    known_consts = consts()
+
+    for path in sorted(SRC.rglob("*.rs")):
+        rel = path.relative_to(ROOT).as_posix()
+        body = strip_tests(path.read_text(encoding="utf-8", errors="replace"))
+        for block in literal_blocks(body):
+            for raw in FIELD.findall(block):
+                raw = raw.strip()
+                key = f"{rel}::{raw}"
+
+                if key in PASS_THROUGH:
+                    continue
+
+                expansions = RESOLVED_EXPRESSIONS.get(key)
+                if expansions is not None:
+                    for v in expansions:
+                        resolved.setdefault(v, set()).add(rel)
+                    continue
+
+                literal = re.fullmatch(r'"([^"]*)"(?:\.to_string\(\))?', raw)
+                if literal:
+                    resolved.setdefault(literal.group(1), set()).add(rel)
+                    continue
+
+                const = re.fullmatch(r"(\w+)(?:\.to_string\(\))?", raw)
+                if const and const.group(1) in known_consts:
+                    resolved.setdefault(known_consts[const.group(1)], set()).add(rel)
+                    continue
+
+                unresolved.setdefault(raw, set()).add(rel)
+
+    return resolved, unresolved
+
+
+def main() -> int:
+    permitted = constraint_vocabulary()
+    width = action_column_width()
+    resolved, unresolved = written_values()
+
+    if "--list" in sys.argv:
+        print(
+            f"{len(permitted)} values permitted by the constraint, "
+            f"column width {width if width is not None else 'UNKNOWN'}\n"
+        )
+        for v in sorted(resolved):
+            mark = "ok " if v in permitted else "BAD"
+            print(f"  {mark} {v}   ({', '.join(sorted(resolved[v]))})")
+        for expr, files in sorted(unresolved.items()):
+            print(f"  ??? {expr}   ({', '.join(sorted(files))})")
+        return 0
+
+    failures: list[str] = []
+
+    # The constraint and the column are two halves of one declaration, and a
+    # value only the constraint permits is stored nowhere. Checked across the
+    # whole vocabulary rather than only what handlers write today: a name the
+    # column cannot hold is a trap for the next handler either way.
+    if width is None:
+        failures.append(
+            "Could not read the declared width of access_logs.action from the "
+            "migrations. Without it a permitted value the column cannot store "
+            "would pass this gate, which is the failure it exists to catch."
+        )
+    else:
+        for value in sorted(v for v in permitted if len(v) > width):
+            failures.append(
+                f"'{value}' is {len(value)} characters and access_logs.action is "
+                f"VARCHAR({width}), so the constraint permits a value the column "
+                f"rejects with 'value too long for type character varying({width})'. "
+                f"On PostgreSQL that rolls back the transaction the audit row "
+                f"belongs to; in memory it succeeds. Widen the column in a "
+                f"migration, or shorten the name."
+            )
+
+    for value, files in sorted(resolved.items()):
+        if value not in permitted:
+            failures.append(
+                f"'{value}' is written by {', '.join(sorted(files))} but is not in "
+                f"the access_logs_action_check vocabulary. On PostgreSQL this "
+                f"insert is rejected; in memory it succeeds. Add it in a migration."
+            )
+
+    for expr, files in sorted(unresolved.items()):
+        failures.append(
+            f"`{expr}` in {', '.join(sorted(files))} yields an audit action this "
+            f"gate cannot evaluate. Follow it to its call sites and record the "
+            f"values in RESOLVED_EXPRESSIONS, or write a literal."
+        )
+
+    # A recorded resolution that new call sites have outgrown is the quiet
+    # failure: the gate passes while the new value is one the database rejects.
+    failures.extend(stale_resolutions())
+
+    if failures:
+        print("Audit action vocabulary gate FAILED:\n")
+        for f in failures:
+            print(f"  * {f}")
+        return 1
+
+    # A permitted value nobody writes is not a failure: the list keeps legacy
+    # vocabulary valid for rows already in the table.
+    print(
+        f"Audit action vocabulary gate OK "
+        f"({len(resolved)} written values, all permitted by the constraint; "
+        f"{len(permitted)} permitted values all fit VARCHAR({width}))."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

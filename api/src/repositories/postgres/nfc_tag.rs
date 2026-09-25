@@ -25,7 +25,7 @@ impl PgNfcTagRepository {
 impl NfcTagRepository for PgNfcTagRepository {
     async fn create(&self, tag: NfcTagEntity) -> RepositoryResult<NfcTagEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO nfc_tags (id, tag_uid, patient_id, tag_type, is_active, pin_hash, issued_at, expires_at, last_used_at, use_count, issued_by) "
+            "INSERT INTO nfc_tags (id, tag_uid, patient_id, tag_type, is_active, pin_hash, issued_at, expires_at, last_used_at, use_count, issued_by, status) "
         );
 
         qb.push_values([&tag], |mut b, t| {
@@ -39,7 +39,8 @@ impl NfcTagRepository for PgNfcTagRepository {
                 .push_bind(t.expires_at)
                 .push_bind(t.last_used_at)
                 .push_bind(t.use_count)
-                .push_bind(&t.issued_by);
+                .push_bind(&t.issued_by)
+                .push_bind(&t.status);
         });
 
         qb.push(" RETURNING *");
@@ -117,6 +118,7 @@ impl NfcTagRepository for PgNfcTagRepository {
         qb.push(", expires_at = ").push_bind(tag.expires_at);
         qb.push(", last_used_at = ").push_bind(tag.last_used_at);
         qb.push(", use_count = ").push_bind(tag.use_count);
+        qb.push(", status = ").push_bind(&tag.status);
         qb.push(" WHERE id = ").push_bind(&tag.id);
         qb.push(" RETURNING *");
 
@@ -129,8 +131,9 @@ impl NfcTagRepository for PgNfcTagRepository {
     }
 
     async fn deactivate(&self, id: &str) -> RepositoryResult<()> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("UPDATE nfc_tags SET is_active = false WHERE id = ");
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE nfc_tags SET is_active = false, status = 'Revoked' WHERE id = ",
+        );
         qb.push_bind(id);
 
         let result = qb.build().execute(&self.pool).await?;

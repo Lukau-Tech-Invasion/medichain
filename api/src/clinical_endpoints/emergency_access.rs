@@ -210,6 +210,9 @@ mod tests {
             last_used_at: None,
             use_count: 0,
             issued_by: None,
+            // Mirrors `active`: these two must agree, and the test exists to
+            // prove a deactivated tag is refused.
+            status: if active { "Active" } else { "Suspended" }.to_string(),
         }
     }
 

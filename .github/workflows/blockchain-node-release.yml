@@ -28,11 +28,15 @@ on:
         branches: [main, development/**]
         paths:
             - 'blockchain/**'
+            - 'api/src/blockchain.rs'
+            - 'scripts/blockchain/qualify-storage-equality.sh'
             - '.github/workflows/blockchain-node-release.yml'
     pull_request:
         branches: [main]
         paths:
             - 'blockchain/**'
+            - 'api/src/blockchain.rs'
+            - 'scripts/blockchain/qualify-storage-equality.sh'
     workflow_dispatch:
 
 env:
@@ -121,6 +125,16 @@ jobs:
                   "$BIN" export-chain-spec --chain dev > /tmp/medichain-dev-spec.json
                   test -s /tmp/medichain-dev-spec.json
                   echo "chain spec bytes: $(wc -c < /tmp/medichain-dev-spec.json)"
+
+            # Finalization is not storage proof. This submits a known capsule
+            # commitment through the production Subxt path, reads the runtime
+            # metadata at the finalized block, compares decoded state, restarts
+            # the same node database, deliberately proves a mismatch fails, and
+            # then proves the correct value is unchanged.
+            - name: Qualify finalized storage equality and restart persistence
+              env:
+                  NODE_BIN: blockchain/target/release/medichain-node
+              run: bash scripts/blockchain/qualify-storage-equality.sh
 
             - name: Record build provenance
               run: |

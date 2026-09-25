@@ -22,7 +22,12 @@ export {
   DEFAULT_CURRENCY,
   formatCurrency,
   formatDate,
+  formatDateOnly,
   formatTime,
+  // Use this rather than `new Date(x).toLocaleString()` for any stored
+  // timestamp: an absent or unparseable value renders as nothing, never as
+  // the literal string "Invalid Date".
+  formatTimestamp,
   getDirection,
   detectLocale,
 } from './i18n';
@@ -30,6 +35,8 @@ export type { SupportedLocale, LocaleConfig } from './i18n';
 
 // Credential-backed access to the clinician's signing key (staff login).
 export * from './auth/credentials';
+// The one place that decides whether the interface is dark.
+export * from './theme';
 
 // Wallet Types and Service (Blockchain Identity)
 export * from './wallet/types';
@@ -42,6 +49,11 @@ export * from './types';
 export * from './api/client';
 export * from './api/endpoints';
 
+// Clinical scoring previews. The stored score is always the server's; these
+// only let a form show a total moving as it is filled in, using thresholds
+// fetched from the API rather than a second copy of the policy.
+export * from './clinical/scoring';
+
 // Push notifications (Phase 5.2)
 export { initPushNotifications } from './push';
 
@@ -51,12 +63,10 @@ export * from './hooks';
 // Utilities
 export * from './utils/cache';
 export { lookupOr, componentOr } from './utils/enumLookup';
-export { fetchWithRetry } from './utils/fetchWithRetry';
 export * from './utils/indexedDB';
+export * from './utils/syncQueue';
 export * from './utils/offlineQueue';
-export { SubstrateConnection, testSubstrateConnection } from './utils/SubstrateConnection';
 export * from './utils/validation';
-export { SubstrateWebSocket, testSubstrateWs } from './utils/websocket';
 
 // Components
 export * from './components';
@@ -65,12 +75,17 @@ export * from './components/Card';
 export * from './components/Input';
 export * from './components/Alert';
 export * from './components/Badge';
-export * from './components/Modal';
 export * from './components/Loading';
-export * from './components/PatientCard';
-export * from './components/QRCodeDisplay';
-export * from './components/EmergencyBanner';
 export * from './components/ErrorBoundary';
 export * from './components/RestrictedSection';
 export * from './components/JitsiMeetComponent';
 export * from './utils/contrast';
+
+// Form validation. `clinical` holds the physiological ranges and the reasoning
+// behind each bound; `useValidatedForm` binds a schema to per-field errors in
+// the shape Input/Select/Textarea already accept.
+export * from './validation/clinical';
+export * from './validation/useValidatedForm';
+export * from './components/field';
+export * from './components/FieldParts';
+export * from './utils/clickable';

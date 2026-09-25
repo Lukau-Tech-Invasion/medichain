@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import IntakeOutputPage from './IntakeOutputPage';
+import IntakeOutputPage, { intakeOutputTrendCsv } from './IntakeOutputPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -19,7 +19,6 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listIntakeOutput: vi.fn(),
-  apiUrl: (path: string) => path,
 }));
 
 describe('IntakeOutputPage', () => {
@@ -30,24 +29,19 @@ describe('IntakeOutputPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    // The ward list is a join: the roster comes from a direct
-    // `fetch('/api/patients?limit=100')` (read as `.data`), and
-    // `listIntakeOutput()` supplies the stored fluid records, which
-    // `toPatientIO` folds together per patient. This fixture used to mock an
-    // empty roster and hand `listIntakeOutput` the already-folded camelCase view
-    // model, so the join produced nobody and the patient never appeared.
-    (shared.getPatients as any).mockResolvedValue([]);
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ data: [{ patient_id: 'PAT-001', full_name: 'Test Patient' }] }),
-    }) as any;
+    // The ward list is a join: `getPatients()` supplies the roster and
+    // `listIntakeOutput()` the stored fluid records, which `toPatientIO` folds
+    // together per patient. This fixture used to hand `listIntakeOutput` the
+    // already-folded camelCase view model, so the join produced nobody.
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      { patient_id: 'PAT-001', full_name: 'Test Patient' },
+    ] as unknown as Awaited<ReturnType<typeof shared.getPatients>>);
     // Raw rows in the API's own shape — snake_case, with the per-shift totals
     // the page sums into the 24h figures.
-    (shared.listIntakeOutput as any).mockResolvedValue([
+    vi.mocked(shared.listIntakeOutput).mockResolvedValue([
       {
         id: 'IO-001',
         patient_id: 'PAT-001',
@@ -103,5 +97,15 @@ describe('IntakeOutputPage', () => {
 
     expect(screen.getByText(/Quick I\/O Entry/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Record Entry/i })).toBeInTheDocument();
+  });
+
+  it('exports the displayed trend rows as escaped CSV', () => {
+    const csv = intakeOutputTrendCsv('2026-08-20', [{
+      patientId: 'PAT-001', patientName: 'Doe, Jane', mrn: 'PAT-001', room: 'Ward "A"', entries: [],
+      totalIntake24h: 1800, totalOutput24h: 1500, netBalance: 300, alerts: [],
+    }]);
+
+    expect(csv).toContain('"Doe, Jane"');
+    expect(csv).toContain('"Ward ""A"""');
   });
 });

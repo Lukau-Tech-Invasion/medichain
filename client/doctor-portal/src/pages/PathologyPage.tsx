@@ -5,13 +5,20 @@ import {
   getPatients,
   listPathology,
   createPathology,
+  updatePathologyReport,
   getPatientRecords,
   uploadMedicalRecord,
   downloadMedicalRecord,
   useTranslation,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  pathologyRequestSchema,
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * PathologyPage
@@ -90,8 +97,8 @@ const slidePrefix = (specimenId: string) => `pathslide__${specimenId}__`;
  * was trusting an assertion over data that comes off the wire.
  */
 function toSpecimen(raw: unknown): PathologySpecimen {
-  const row = raw as Record<string, any>;
-  const tracked: Record<string, any> = row.data ?? {};
+  const row = raw as Record<string, unknown>;
+  const tracked = (row.data ?? {}) as Record<string, unknown>;
   const pick = (...keys: string[]): string => {
     for (const key of keys) {
       const value = row[key] ?? tracked[key];
@@ -144,7 +151,7 @@ function toSpecimen(raw: unknown): PathologySpecimen {
 const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -200,7 +207,7 @@ const PathologyPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const loadPatients = async () => {
@@ -211,10 +218,18 @@ const PathologyPage: React.FC = () => {
     fetchSpecimens();
   }, [user, fetchSpecimens]);
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    pathologyRequestSchema
+  );
+
+  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatientId || !collectionDate || !site || !clinician) {
-      showWarning(t('docPathology.warningRequiredFields'));
+    // The anatomical site is what makes the specimen interpretable: a report on
+    // "a biopsy" cannot say whether the margin it describes is the one that
+    // mattered.
+    if (!validate(pathologyOrder())) {
       return;
     }
 
@@ -245,6 +260,10 @@ const PathologyPage: React.FC = () => {
       await createPathology(newSpecimen);
     } catch (err) {
       console.error('Failed to save pathology specimen:', err);
+      // Stop here. Falling through announced success for a write that
+      // never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
 
     setSpecimens([...specimens, newSpecimen]);
@@ -350,38 +369,32 @@ const PathologyPage: React.FC = () => {
     setActiveTab('report');
   };
 
-  const handleSaveReport = (finalizeReport: boolean) => {
+  const handleSaveReport = async (finalizeReport: boolean) => {
     if (!selectedSpecimen) return;
 
     if (finalizeReport) {
       if (!diagnosis || !microscopicDescription) {
-        showWarning(t('docPathology.warningFinalizeFields'));
+        showError(t('docPathology.errorFinalizeFields'));
         return;
       }
       if (isCritical && !communicatedTo) {
-        showWarning(t('docPathology.warningCriticalCommunication'));
+        showError(t('docPathology.errorCriticalCommunication'));
         return;
       }
     }
 
-    const updatedSpecimen: PathologySpecimen = {
-      ...selectedSpecimen,
-      grossDescription,
-      blocks,
-      slides,
-      specialStains,
-      ihcMarkers,
-      microscopicDescription,
-      diagnosis,
-      snomedCode,
-      isCritical,
-      communicatedTo,
-      status: finalizeReport ? 'final' : 'prelim',
-      reportDate: finalizeReport ? new Date().toISOString().split('T')[0] : undefined,
-      pathologist: finalizeReport ? (user?.userId || 'Unknown') : undefined
-    };
-
-    setSpecimens(specimens.map(s => s.specimenId === selectedSpecimen.specimenId ? updatedSpecimen : s));
+    try {
+      await updatePathologyReport(selectedSpecimen.specimenId, {
+        gross_description: grossDescription, microscopic_description: microscopicDescription,
+        diagnosis, blocks, slides, special_stains: specialStains, ihc_markers: ihcMarkers,
+        snomed_code: snomedCode, is_critical: isCritical, communicated_to: communicatedTo,
+        status: finalizeReport ? 'final' : 'prelim',
+      });
+      await fetchSpecimens();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('common.saveFailed'));
+      return;
+    }
     showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);
@@ -450,8 +463,8 @@ const PathologyPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      stat: 'bg-critical text-white',
-      urgent: 'bg-orange-500 text-white',
+      stat: 'bg-critical text-critical-fg',
+      urgent: 'bg-caution text-caution-fg',
       routine: 'bg-gray-500 text-white'
     };
     return styles[priority] || 'bg-gray-500 text-white';
@@ -460,21 +473,46 @@ const PathologyPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header with gradient */}
-      <div className="bg-gradient-to-r from-amber-600 to-orange-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-amber-700 to-orange-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Microscope className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docPathology.title')}</h1>
-              <p className="text-amber-100">{t('docPathology.subtitle')}</p>
+              <p className="text-white">{t('docPathology.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-amber-100">{t('docPathology.pathologistLabel')}</p>
-            <p className="font-semibold">{user?.userId || 'Unknown'}</p>
+            <p className="text-sm text-white">{t('docPathology.pathologistLabel')}</p>
+            <p className="font-semibold">{user?.username || user?.userId}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchSpecimens()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex space-x-1 mb-6 border-b">
@@ -619,7 +657,7 @@ const PathologyPage: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center text-sm text-content-muted">
+                        <div className="flex items-center text-sm text-content-muted min-h-[24px] py-1">
                           <Calendar className="h-4 w-4 mr-1" />
                           {specimen.collectionDate}
                         </div>
@@ -633,7 +671,7 @@ const PathologyPage: React.FC = () => {
                       <td className="px-4 py-3">
                         <button
                           onClick={() => handleOpenReport(specimen)}
-                          className="text-caution-subtle-fg hover:text-caution-subtle-fg text-sm font-medium flex items-center"
+                          className="text-caution-subtle-fg hover:text-caution-subtle-fg text-sm font-medium flex items-center min-h-[24px] py-1"
                         >
                           <Eye className="h-4 w-4 mr-1" />
                           {t('docPathology.viewReportButton')}
@@ -656,29 +694,19 @@ const PathologyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
-                <label htmlFor="path-patient" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.patientRequired')} <span className="text-red-500">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="path-patient"
+                  label={t('docPathology.patientRequired')}
                   value={selectedPatientId}
-                  onChange={(e) => setSelectedPatientId(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
                   required
-                >
-                  <option value="">{t('docPathology.selectPatientPh')}</option>
-                  {patients.map((patient) => (
-                    <option key={patient.patient_id} value={patient.patient_id}>
-                      {patient.full_name} ({patient.patient_id})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               {/* Specimen Type */}
               <div>
                 <label htmlFor="path-specimen-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.specimenTypeRequired')} <span className="text-red-500">*</span>
+                  {t('docPathology.specimenTypeRequired')} <span className="text-critical">*</span>
                 </label>
                 <select
                   id="path-specimen-type"
@@ -698,14 +726,15 @@ const PathologyPage: React.FC = () => {
               {/* Collection Date/Time */}
               <div>
                 <label htmlFor="path-collection-date" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.collectionDateRequired')} <span className="text-red-500">*</span>
+                  {t('docPathology.collectionDateRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-collection-date"
                   type="date"
                   value={collectionDate}
-                  onChange={(e) => setCollectionDate(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('collectionDate'); setCollectionDate(e.target.value); }}
+                  onBlur={() => validateField('collectionDate', pathologyOrder())}
+                  error={errors.collectionDate}
                   required
                 />
               </div>
@@ -724,16 +753,17 @@ const PathologyPage: React.FC = () => {
               {/* Anatomical Site */}
               <div>
                 <label htmlFor="path-site" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.anatomicalSiteRequired')} <span className="text-red-500">*</span>
+                  {t('docPathology.anatomicalSiteRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-site"
                   type="text"
                   value={site}
-                  onChange={(e) => setSite(e.target.value)}
-                  placeholder={t('docPathology.anatomicalSitePh')}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('site'); setSite(e.target.value); }}
+                  onBlur={() => validateField('site', pathologyOrder())}
+                  error={errors.site}
                   required
+                  placeholder={t('docPathology.anatomicalSitePh')}
                 />
               </div>
 
@@ -756,16 +786,17 @@ const PathologyPage: React.FC = () => {
               {/* Clinician */}
               <div>
                 <label htmlFor="path-clinician" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.orderingClinicianRequired')} <span className="text-red-500">*</span>
+                  {t('docPathology.orderingClinicianRequired')} <span className="text-critical">*</span>
                 </label>
-                <input
+                <Input
                   id="path-clinician"
                   type="text"
                   value={clinician}
-                  onChange={(e) => setClinician(e.target.value)}
-                  placeholder={t('docPathology.orderingClinicianPh')}
-                  className="w-full px-3 py-2 border rounded-md"
+                  onChange={(e) => { clearField('clinician'); setClinician(e.target.value); }}
+                  onBlur={() => validateField('clinician', pathologyOrder())}
+                  error={errors.clinician}
                   required
+                  placeholder={t('docPathology.orderingClinicianPh')}
                 />
               </div>
 
@@ -852,7 +883,7 @@ const PathologyPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
+                className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docPathology.submitSpecimenButton')}
@@ -932,7 +963,7 @@ const PathologyPage: React.FC = () => {
                 <Microscope className="h-5 w-5 text-content-secondary" />
                 {t('docPathology.viewerHeading')}
               </h3>
-              <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-500">
+              <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-800">
                 {slideUploading ? t('docPathology.slideUploading') : t('docPathology.slideAttach')}
                 <input
                   type="file"
@@ -949,7 +980,7 @@ const PathologyPage: React.FC = () => {
             </div>
 
             {slideImagesLoading ? (
-              <p className="text-sm text-gray-500 py-6 text-center">
+              <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesLoading')}
               </p>
             ) : slideImages.length > 0 ? (
@@ -961,14 +992,14 @@ const PathologyPage: React.FC = () => {
                       alt={t('docPathology.slideImageAlt', { label: image.label })}
                       className="w-full h-40 object-cover bg-black"
                     />
-                    <figcaption className="px-2 py-1 text-xs text-gray-600 truncate">
+                    <figcaption className="px-2 py-1 text-xs text-content-secondary truncate">
                       {image.label}
                     </figcaption>
                   </figure>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 py-6 text-center">
+              <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesNoneAttached')}
               </p>
             )}
@@ -1024,7 +1055,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addBlock}
-                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1053,7 +1084,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addSlide}
-                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1171,7 +1202,7 @@ const PathologyPage: React.FC = () => {
             {isCritical && (
               <div>
                 <label htmlFor="path-communicated-to" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.communicatedToRequired')} <span className="text-red-500">*</span>
+                  {t('docPathology.communicatedToRequired')} <span className="text-critical">*</span>
                 </label>
                 <input
                   id="path-communicated-to"
@@ -1203,7 +1234,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
-              className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
+              className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
               {t('docPathology.savePreliminaryButton')}

@@ -38,7 +38,6 @@ async fn require_registry_reader(
         Some(u) => u,
         None => {
             return Err(HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             }))
@@ -46,7 +45,6 @@ async fn require_registry_reader(
     };
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Clinical registries are restricted to clinical staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
@@ -64,25 +62,55 @@ async fn require_registry_reader(
         .await
     {
         log::error!("audit outbox write failed: {error}");
+        return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Clinical registry audit is unavailable".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        }));
     }
     Ok(())
 }
 
 /// List lab chain of custody records
+/// Registry rows as the screens read them: each stored column, plus every
+/// field of the row's `data` document that no column already carries.
+///
+/// The registries returned bare entities, and most of these records keep the
+/// form's own fields -- `custody_id`, `patient_name`, `specimen_type`,
+/// `observed_value` -- only inside `data`. The pages read them at the top
+/// level, so custody records, QC runs and critical values rendered with no id,
+/// no patient and default types. Columns win a name clash: after a server-side
+/// transition they are the record.
+fn registry_rows<T: serde::Serialize>(list: Vec<T>) -> Vec<serde_json::Value> {
+    list.into_iter()
+        .map(|row| {
+            let mut row = serde_json::to_value(row).unwrap_or_default();
+            let document = row.get("data").and_then(|d| d.as_object()).cloned();
+            if let (Some(object), Some(document)) = (row.as_object_mut(), document) {
+                for (key, value) in document {
+                    object.entry(key).or_insert(value);
+                }
+            }
+            row
+        })
+        .collect()
+}
+
 /// Map a registry read failure to a response.
 ///
 /// A registry whose repository has no `list_all` on the active storage backend
-/// is **empty, not broken**. Returning 500 made the page look like a server
-/// fault (`/api/platform/list/lab-qc` did exactly this), when the honest answer
-/// is "there are no records here". Genuine failures still surface as 500.
+/// is unavailable, not empty. Reporting an empty clinical worklist hides
+/// existing records whenever a production repository misses an implementation.
 fn registry_read_error(http_req: &HttpRequest, e: impl std::fmt::Display) -> HttpResponse {
     let msg = e.to_string();
     if msg.contains("not implemented") {
-        log::warn!(
-            "registry {} has no list_all on this storage backend; returning an empty list",
+        log::error!(
+            "registry {} has no list_all on this storage backend",
             http_req.path()
         );
-        return HttpResponse::Ok().json(Vec::<serde_json::Value>::new());
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "This clinical registry is temporarily unavailable".to_string(),
+            code: "REGISTRY_UNAVAILABLE".to_string(),
+        });
     }
     log::error!("registry read failed on {}: {}", http_req.path(), msg);
     HttpResponse::InternalServerError().finish()
@@ -97,7 +125,7 @@ pub async fn list_chain_of_custody(
         return resp;
     }
     match data.repositories.chain_of_custody.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -109,7 +137,24 @@ pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> im
         return resp;
     }
     match data.repositories.lab_qc_records.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// List laboratory instrument calibration runs. These are a separate durable
+/// record stream from measured QC controls, since an instrument recall needs
+/// to identify the calibrator lot used for each calibration.
+#[get("/api/platform/list/lab-calibrations")]
+pub async fn list_lab_calibrations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    match data.repositories.lab_calibrations.list_all().await {
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -124,7 +169,11 @@ pub async fn list_critical_values(
         return resp;
     }
     match data.repositories.critical_values.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(
+            list.iter()
+                .map(crate::clinical_endpoints::critical_value_view)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -139,7 +188,7 @@ pub async fn list_radiology_orders(
         return resp;
     }
     match data.repositories.radiology_orders.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -158,7 +207,7 @@ pub async fn list_radiology_reports(
         return resp;
     }
     match data.repositories.radiology_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -170,7 +219,7 @@ pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) ->
         return resp;
     }
     match data.repositories.pathology_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -185,7 +234,7 @@ pub async fn list_immunizations(
         return resp;
     }
     match data.repositories.immunization_records.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -233,12 +282,27 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
-    let screens = data
+    // `create_blood_type_screen` writes to `blood_type_screen_records` and
+    // `create_transfusion` to `transfusion_event_records`. This register used
+    // to read `blood_type_screens`, a typed repository nothing writes, so an
+    // order raised on `BloodBankPage` and the transfusion documented against
+    // it were invisible on the register that exists to show them. That
+    // repository has been removed.
+    let ordered = data
         .repositories
-        .blood_type_screens
+        .blood_type_screen_records
         .list_all()
         .await
         .unwrap_or_default();
+    let transfusions = data
+        .repositories
+        .transfusion_event_records
+        .list_all()
+        .await
+        .unwrap_or_default();
+
+    let screens: Vec<serde_json::Value> = ordered.into_iter().map(|r| r.data).collect();
+    let transfusions: Vec<serde_json::Value> = transfusions.into_iter().map(|r| r.data).collect();
 
     // Horizon HZ-023 class: `inventory` was a hardcoded literal — "O-Pos: 12
     // units, adequate", "A-Neg: 2 units, low" — returned regardless of what any
@@ -250,6 +314,9 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     // be mistaken for real stock levels.
     HttpResponse::Ok().json(serde_json::json!({
         "screens": screens,
+        // The transfusions given against those orders, which is the other half
+        // of what a blood-bank register is for.
+        "transfusions": transfusions,
         "inventory": [],
         "inventory_available": false,
         "inventory_note": "Blood-unit inventory tracking is not implemented. \
@@ -257,14 +324,25 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     }))
 }
 
-/// List all autopsy requests
-#[get("/api/platform/list/autopsy")]
-pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+/// Every death certificate on the register.
+///
+/// `ADMIN_NAV` has offered `/death-certificate` since the navigation was
+/// written, and `DeathCertificatePage` renders a list of filed certificates —
+/// from local component state, because the only endpoint that existed was
+/// `GET /api/surgical/death-certificate/{id}`. A certificate could be filed and
+/// then found only by somebody who already knew its id, which is not a
+/// register. Registrars, coroners and the family all arrive without one.
+#[get("/api/platform/list/death-certificates")]
+pub async fn list_death_certificates(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
-    match data.repositories.autopsy_requests.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+    match data.repositories.death_certificate_records.list_all().await {
+        // The stored record, which is the certificate as it was filed.
+        Ok(list) => HttpResponse::Ok().json(list.into_iter().map(|r| r.data).collect::<Vec<_>>()),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -279,7 +357,7 @@ pub async fn list_autopsy_reports(
         return resp;
     }
     match data.repositories.autopsy_reports.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -290,17 +368,56 @@ pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> 
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
-    match data
-        .repositories
-        .progress_notes
-        .list_all(Pagination::new(0, 100))
-        .await
-    {
-        Ok(result) => HttpResponse::Ok().json(
-            result
-                .items
+    // Consults live in `consultation_notes`, which is where `create_consult`
+    // writes them.
+    //
+    // This used to read `progress_notes` and filter for `note_type == "consult"`
+    // — a table nothing writes a consult into — so the consult list was
+    // permanently empty and a requested consult was invisible to the specialty
+    // it was addressed to. `ConsultPage` reads this endpoint for both its
+    // outstanding list and its answered list.
+    match data.repositories.consultation_notes.list_all().await {
+        Ok(items) => HttpResponse::Ok().json(
+            items
                 .into_iter()
-                .filter(|n| n.note_type == "consult")
+                .map(|c| {
+                    // The blob carries what the form filed and the response the
+                    // specialist wrote; the columns carry the identifiers. Both
+                    // are served so neither read path can disagree with the
+                    // other about whether a consult was answered.
+                    let mut value = c.data.clone();
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert("consult_id".into(), serde_json::json!(c.id));
+                        object.insert("patient_id".into(), serde_json::json!(c.patient_id));
+                        object.insert("status".into(), serde_json::json!(c.status));
+                        object.insert(
+                            "consultation_type".into(),
+                            serde_json::json!(c.consultation_type),
+                        );
+                        object.insert(
+                            "requesting_provider".into(),
+                            serde_json::json!(c.requesting_provider),
+                        );
+                        object.insert(
+                            "consulting_provider".into(),
+                            serde_json::json!(c.consulting_provider),
+                        );
+                        object.insert(
+                            "clinical_question".into(),
+                            serde_json::json!(c.clinical_question),
+                        );
+                        object.insert(
+                            "examination_findings".into(),
+                            serde_json::json!(c.examination_findings),
+                        );
+                        object.insert(
+                            "recommendations".into(),
+                            serde_json::json!(c.recommendations),
+                        );
+                        object.insert("completed_at".into(), serde_json::json!(c.completed_at));
+                    }
+                    value
+                })
                 .collect::<Vec<_>>(),
         ),
         Err(e) => registry_read_error(&http_req, e),
@@ -319,75 +436,7 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => registry_read_error(&http_req, e),
-    }
-}
-
-/// Record vital signs
-#[post("/api/platform/vitals")]
-pub async fn record_vital_signs(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let patient_id = body
-        .get("patient_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("UNKNOWN")
-        .to_string();
-    let now = chrono::Utc::now();
-    let vitals = VitalSignsEntity {
-        id: uuid::Uuid::new_v4().to_string(),
-        patient_id,
-        heart_rate: body
-            .get("heart_rate")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        respiratory_rate: body
-            .get("respiratory_rate")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        blood_pressure_systolic: body
-            .get("systolic")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        blood_pressure_diastolic: body
-            .get("diastolic")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-        mean_arterial_pressure: None,
-        temperature: body.get("temperature").and_then(|v| v.as_f64()),
-        temperature_site: None,
-        oxygen_saturation: body.get("spo2").and_then(|v| v.as_i64()).map(|v| v as i32),
-        oxygen_delivery: None,
-        fio2: None,
-        pain_scale: body.get("pain").and_then(|v| v.as_i64()).map(|v| v as i32),
-        gcs_score: None,
-        gcs_eye: None,
-        gcs_verbal: None,
-        gcs_motor: None,
-        blood_glucose: None,
-        weight_kg: body.get("weight").and_then(|v| v.as_f64()),
-        height_cm: body.get("height").and_then(|v| v.as_f64()),
-        bmi: None,
-        position: None,
-        activity_level: None,
-        is_critical: false,
-        critical_values: None,
-        recorded_at: now,
-        recorded_by: current_user_id,
-        facility_id: None,
-        created_at: chrono::Utc::now(),
-    };
-
-    match data.repositories.vital_signs.create(vitals).await {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({"success": true})),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -407,7 +456,7 @@ pub async fn list_progress_notes(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -427,7 +476,7 @@ pub async fn list_incident_reports(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -447,7 +496,7 @@ pub async fn list_intake_output(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -467,7 +516,7 @@ pub async fn list_ama_discharges(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(result.items),
+        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -500,5 +549,221 @@ pub async fn list_peds_for_patient(
             "items": result.items,
         })),
         Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// Workflow 2: what a nurse records must reach the patient's own card, and
+/// nobody else's.
+///
+/// `GET /api/clinical/immunizations` is caller-scoped: it takes no id, because
+/// the patient application's Medical History screen has none to give. That
+/// makes two things worth pinning down, and neither is visible by reading the
+/// handler:
+///
+///   1. The nurse files against a `PAT-` id and the patient asks with a wallet
+///      address. `linked_patient_id` bridges them. If that resolution breaks, a
+///      patient is told they have had no vaccinations — the answer that gets
+///      one repeated.
+///   2. Because the route serves "whoever is calling", a scoping mistake does
+///      not 403; it silently returns somebody else's vaccination history.
+#[cfg(test)]
+mod patient_immunization_card_tests {
+    use crate::{AppState, Role, User};
+    use actix_web::{test, web, App};
+
+    fn state_with_users(users: &[(Role, &str, Option<&str>)]) -> web::Data<AppState> {
+        let state = AppState::new();
+        for (role, wallet, linked) in users {
+            let user = User {
+                wallet_address: wallet.to_string(),
+                username: None,
+                name: "Test".to_string(),
+                role: role.clone(),
+                created_at: chrono::Utc::now(),
+                created_by: None,
+                linked_patient_id: linked.map(str::to_string),
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            };
+            state
+                .users
+                .write()
+                .unwrap()
+                .insert(wallet.to_string(), user);
+        }
+        web::Data::new(state)
+    }
+
+    /// `ImmunizationPage.tsx` -> `createImmunization()`, field for field.
+    fn dose(patient_id: &str, vaccine: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": patient_id,
+            "vaccine_name": vaccine,
+            "cvx_code": "03",
+            "manufacturer": "Test Biologicals",
+            "lot_number": "LOT-1",
+            "expiration_date": "2030-01-01",
+            "administration_date": "2026-09-12T09:00:00Z",
+            "dose_number": 1,
+            "route": "Intramuscular",
+            "site": "left-deltoid",
+            "administered_by": "Test Nurse",
+            "vis_date": "2026-09-12T09:00:00Z",
+            "funding_source": "PublicVFC",
+            "registry_reported": false,
+        })
+    }
+
+    /// The whole round trip in one process: the nurse's write, then the
+    /// patient's read. Testing the read alone would pass against a store the
+    /// producer never reaches.
+    async fn card_for(
+        data: web::Data<AppState>,
+        nurse: &str,
+        doses: &[(&str, &str)],
+        reader: &str,
+    ) -> (u16, String) {
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(crate::clinical_endpoints::create_immunization)
+                .service(super::list_my_immunizations),
+        )
+        .await;
+
+        for (patient_id, vaccine) in doses {
+            let req = test::TestRequest::post()
+                .uri("/api/surgical/immunization")
+                .insert_header(("X-User-Id", nurse.to_string()))
+                .set_json(dose(patient_id, vaccine))
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert!(
+                resp.status().is_success(),
+                "the nurse could not record a vaccination: {}",
+                resp.status()
+            );
+        }
+
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/immunizations")
+            .insert_header(("X-User-Id", reader.to_string()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status().as_u16();
+        let body = test::read_body(resp).await;
+        (status, String::from_utf8_lossy(&body).to_string())
+    }
+
+    #[actix_rt::test]
+    async fn a_patient_sees_the_vaccination_a_nurse_gave_them() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("Measles-Rubella"),
+            "the patient's own vaccination was missing from their card: {body}"
+        );
+    }
+
+    /// The dose is attributed to whoever recorded it, not to the name the
+    /// request carried: `dose()` sends `"administered_by": "Test Nurse"`.
+    #[actix_rt::test]
+    async fn a_vaccination_is_attributed_to_the_clinician_who_recorded_it() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("\"administered_by\":\"5Nurse\""),
+            "the dose was not attributed to the recording clinician: {body}"
+        );
+        assert!(
+            !body.contains("Test Nurse"),
+            "a caller-supplied attribution was stored: {body}"
+        );
+    }
+
+    /// The failure mode this route has instead of a 403.
+    #[actix_rt::test]
+    async fn a_patients_card_carries_nobody_elses_doses() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+            (Role::Patient, "5PatientTwo", Some("PAT-2")),
+        ]);
+        let (status, body) = card_for(
+            data,
+            "5Nurse",
+            &[("PAT-1", "Measles-Rubella"), ("PAT-2", "Yellow fever")],
+            "5PatientOne",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert!(body.contains("Measles-Rubella"), "own dose missing: {body}");
+        assert!(
+            !body.contains("Yellow fever"),
+            "another patient's vaccination history was disclosed: {body}"
+        );
+    }
+
+    /// A clinician's own card, not the deployment register. The staff account
+    /// has no `linked_patient_id`, so the scope falls back to their wallet —
+    /// which matches no record, rather than matching everything.
+    #[actix_rt::test]
+    async fn an_unlinked_staff_caller_gets_their_own_empty_card() {
+        let data = state_with_users(&[
+            (Role::Nurse, "5Nurse", None),
+            (Role::Patient, "5PatientOne", Some("PAT-1")),
+        ]);
+        let (status, body) =
+            card_for(data, "5Nurse", &[("PAT-1", "Measles-Rubella")], "5Nurse").await;
+        assert_eq!(status, 200);
+        assert!(
+            !body.contains("Measles-Rubella"),
+            "an unlinked caller was handed a patient's record: {body}"
+        );
+    }
+
+    /// An unregistered wallet is not a caller. `require_registered_caller`
+    /// resolves against the user store, so a forged header is refused before
+    /// any scoping decision is made.
+    #[actix_rt::test]
+    async fn an_unknown_caller_is_refused() {
+        let data = state_with_users(&[(Role::Nurse, "5Nurse", None)]);
+        let app = test::init_service(
+            App::new()
+                .app_data(data)
+                .service(super::list_my_immunizations),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/immunizations")
+            .insert_header(("X-User-Id", "5NobodyAtAll"))
+            .to_request();
+        let status = test::call_service(&app, req).await.status().as_u16();
+        assert!(status == 401 || status == 403, "got {status}");
     }
 }

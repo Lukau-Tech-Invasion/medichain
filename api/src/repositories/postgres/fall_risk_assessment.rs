@@ -32,9 +32,10 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
             "INSERT INTO fall_risk_assessments (
                 id, patient_id, assessment_tool, history_of_falling, secondary_diagnosis,
                 ambulatory_aid, iv_therapy, gait_status, mental_status,
-                total_score, risk_level,
-                additional_factors, interventions, notes, assessed_by, assessed_at,
-                next_assessment_due, facility_id
+                additional_factors, interventions, environmental_hazards, medications,
+                recent_fall, mobility, notes, assessed_by, assessed_at,
+                next_assessment_due, facility_id,
+                data
             ) ",
         );
 
@@ -48,20 +49,28 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
                 .push_bind(a.iv_therapy)
                 .push_bind(a.gait_status)
                 .push_bind(a.mental_status)
-                // The Morse total and the risk band it implies were omitted from
-                // this INSERT, so every falls assessment stored its component
-                // answers and lost the score and the band - the two values the
-                // record exists to communicate, and the ones that drive the
-                // interventions.
-                .push_bind(a.total_score)
-                .push_bind(&a.risk_level)
+                // `total_score` and `risk_level` are deliberately absent. Both are
+                // GENERATED ALWAYS ... STORED columns (see
+                // 20260123000002_phase2_clinical_documentation.sql): the total is the
+                // sum of the six item columns above and the band is derived from it.
+                // PostgreSQL refuses any INSERT that names a generated column, so
+                // binding them here made every falls assessment fail with a bare 500 -
+                // the nurse saw "save failed" and nothing was stored at all.
+                //
+                // `RETURNING *` below reads both back, so the caller still gets them;
+                // they are computed by the database rather than asserted by the client.
                 .push_bind(&a.additional_factors)
                 .push_bind(&a.interventions)
+                .push_bind(&a.environmental_hazards)
+                .push_bind(&a.medications)
+                .push_bind(a.recent_fall)
+                .push_bind(&a.mobility)
                 .push_bind(&a.notes)
                 .push_bind(&a.assessed_by)
                 .push_bind(a.assessed_at)
                 .push_bind(a.next_assessment_due)
-                .push_bind(&a.facility_id);
+                .push_bind(&a.facility_id)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -155,6 +164,13 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
             .push_bind(&assessment.additional_factors);
         qb.push(", interventions = ")
             .push_bind(&assessment.interventions);
+        qb.push(", environmental_hazards = ")
+            .push_bind(&assessment.environmental_hazards);
+        qb.push(", medications = ")
+            .push_bind(&assessment.medications);
+        qb.push(", recent_fall = ")
+            .push_bind(assessment.recent_fall);
+        qb.push(", mobility = ").push_bind(&assessment.mobility);
         qb.push(", notes = ").push_bind(&assessment.notes);
         qb.push(", next_assessment_due = ")
             .push_bind(assessment.next_assessment_due);

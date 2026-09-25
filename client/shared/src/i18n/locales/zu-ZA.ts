@@ -18,6 +18,7 @@ const zu_ZA: TranslationRecord = {
     search: 'Sesha',
     filter: 'Hlunga',
     loading: 'Iyalayisha...',
+    saveFailed: 'Ayikwazanga ukulondoloza. Irekhodi alilondolozwanga — sicela uzame futhi.',
     error: 'Iphutha',
     success: 'Kuphumelele',
     warning: 'Isexwayiso',

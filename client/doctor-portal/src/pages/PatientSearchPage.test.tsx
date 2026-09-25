@@ -54,11 +54,11 @@ describe('PatientSearchPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: { walletAddress: '0x123', role: 'Doctor' },
       isAuthenticated: true,
     });
-    (usePatientStore as any).mockReturnValue({
+    vi.mocked(usePatientStore).mockReturnValue({
       searchResults: [],
       setSearchResults: mockSetSearchResults,
       addToRecentPatients: vi.fn(),

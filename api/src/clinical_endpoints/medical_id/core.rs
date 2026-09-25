@@ -8,6 +8,16 @@
 
 use super::*;
 
+/// The Medical ID card's colour for an allergy of `severity`.
+fn allergy_display_color(severity: &crate::AllergySeverity) -> &'static str {
+    match severity {
+        crate::AllergySeverity::Severe => "#DC2626",
+        crate::AllergySeverity::Moderate => "#EA580C",
+        crate::AllergySeverity::Mild => "#CA8A04",
+        crate::AllergySeverity::Unknown => "#6B7280",
+    }
+}
+
 // ============================================================================
 // MEDICAL ID CARD SYSTEM (Emergency Access)
 // ============================================================================
@@ -47,7 +57,6 @@ pub async fn get_medical_id(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -58,7 +67,6 @@ pub async fn get_medical_id(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -70,7 +78,6 @@ pub async fn get_medical_id(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -81,19 +88,27 @@ pub async fn get_medical_id(
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
         }
     };
 
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
+    // Read from the patient's encrypted profile — the authoritative record that
+    // registration and profile edits write, and the one the first-responder
+    // views read.
+    //
+    // Conditions, medications and contacts were hardcoded to empty, and the
+    // allergies came from a table nothing writes. On the Medical ID card that
+    // is not a blank field, it is a statement to a paramedic that the patient
+    // has no allergies, no chronic conditions, is on no medication and has
+    // nobody to contact — the things the card exists to tell them.
+    // `profile_unavailable` below distinguishes "nothing recorded" from "we
+    // could not read it".
+    let profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    let allergies: Vec<crate::Allergy> = profile
+        .as_ref()
+        .map(|p| p.emergency_info.allergies.clone())
         .unwrap_or_default();
 
     // Pre-compute values that need sorting or complex logic
@@ -104,47 +119,21 @@ pub async fn get_medical_id(
         _ => "#2563EB",
     };
 
+    let allergy_json = |a: &crate::Allergy| {
+        serde_json::json!({
+            "name": a.name,
+            "severity": a.severity.to_string(),
+            "reaction": a.reaction,
+            "display_color": allergy_display_color(&a.severity)
+        })
+    };
     let critical_allergies: Vec<serde_json::Value> = allergies
         .iter()
-        .filter(|a| a.severity == "Severe" || a.severity == "LifeThreatening")
-        .map(|a| {
-            serde_json::json!({
-                "name": a.allergen,
-                "severity": a.severity,
-                "reaction": a.reaction,
-                "display_color": "#DC2626"
-            })
-        })
+        .filter(|a| matches!(a.severity, crate::AllergySeverity::Severe))
+        .map(allergy_json)
         .collect();
+    let all_allergies: Vec<serde_json::Value> = allergies.iter().map(allergy_json).collect();
 
-    let all_allergies: Vec<serde_json::Value> = allergies
-        .iter()
-        .map(|a| {
-            let color = match a.severity.as_str() {
-                "Severe" | "LifeThreatening" => "#DC2626",
-                "Moderate" => "#EA580C",
-                "Mild" => "#CA8A04",
-                _ => "#6B7280",
-            };
-            serde_json::json!({
-                "name": a.allergen,
-                "severity": a.severity,
-                "reaction": a.reaction,
-                "display_color": color
-            })
-        })
-        .collect();
-
-    // Read from the patient's encrypted profile — the authoritative record that
-    // registration writes and the first-responder card already uses for
-    // allergies (see `merged_allergies`).
-    //
-    // These three were hardcoded to empty. On the Medical ID card that is not a
-    // blank field, it is a statement to a paramedic that the patient has no
-    // chronic conditions, is on no medication, and has nobody to contact — the
-    // three things the card exists to tell them. `profile_unavailable` below
-    // distinguishes "nothing recorded" from "we could not read it".
-    let profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
     let profile_unavailable = profile.is_none();
     let emergency_contacts: Vec<serde_json::Value> = profile
         .as_ref()
@@ -263,24 +252,19 @@ pub async fn get_medical_id(
         "last_updated": chrono::Utc::now().to_rfc3339(),
     });
 
-    // Log access via repository
-    let _ = data
-        .repositories
-        .access_logs
-        .create(
-            crate::AccessLogEntry {
-                access_id: uuid::Uuid::new_v4().to_string(),
-                patient_id: patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "view_medical_id".to_string(),
-                location: None,
-                timestamp: chrono::Utc::now(),
-                emergency: false,
-            }
-            .into(),
-        )
-        .await;
+    let audit = crate::AccessLogEntry {
+        access_id: uuid::Uuid::new_v4().to_string(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "view_medical_id".to_string(),
+        location: None,
+        timestamp: chrono::Utc::now(),
+        emergency: false,
+    };
+    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+        return response;
+    }
 
     HttpResponse::Ok().json(medical_id)
 }
@@ -298,7 +282,6 @@ pub async fn get_medical_id_qr(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Unauthorized".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
@@ -309,7 +292,6 @@ pub async fn get_medical_id_qr(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             })
@@ -321,7 +303,6 @@ pub async fn get_medical_id_qr(
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
         });
@@ -332,20 +313,11 @@ pub async fn get_medical_id_qr(
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
         }
     };
-
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
-        .unwrap_or_default();
 
     // QR code contains minimal critical data for offline access.
     //
@@ -373,10 +345,16 @@ pub async fn get_medical_id_qr(
             .as_ref()
             .and_then(|p| p.preferences.display_language.clone()),
         "blood_type": patient.blood_type.clone().unwrap_or_else(|| "Unknown".to_string()),
-        "critical_allergies": allergies.iter()
-            .filter(|a| a.severity == "Severe" || a.severity == "LifeThreatening")
-            .map(|a| a.allergen.clone())
-            .collect::<Vec<_>>(),
+        // EVERY recorded allergen, not only the ones assessed as severe. This
+        // filtered on "Severe"/"LifeThreatening" against a table nothing
+        // writes, so the offline code carried no allergies for anyone; and a
+        // registration allergy has no assessed severity at all, so a severity
+        // filter would drop exactly those. The field name is kept for scanners
+        // already reading it.
+        "critical_allergies": qr_profile
+            .as_ref()
+            .map(|p| p.emergency_info.allergies.iter().map(|a| a.name.clone()).collect::<Vec<_>>())
+            .unwrap_or_default(),
         "dnr": patient.dnr_status,
         // Offline scanners must distinguish a verified directive from a recorded-but-unverified flag.
         "dnr_verified": dnr_is_verified(

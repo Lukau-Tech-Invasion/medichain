@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   getPatientEPrescriptions,
+  getPatientPharmacyDecisions,
   getPatientReminders,
+  getPatientAdherence,
   logMedicationAdherence,
-  IS_DEMO,
-  useTranslation
+  useTranslation,
+  formatTimestamp,
 } from '@medichain/shared';
+import type { PharmacyDecision } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Pill,
@@ -15,7 +18,6 @@ import {
   CheckCircle,
   Calendar,
   Bell,
-  Plus,
   ChevronRight,
   Loader2,
   Wifi,
@@ -61,6 +63,47 @@ interface MedicationReminder {
  * 
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
+/** A prescription row, in either of the two casings it is stored under. */
+interface RawPrescription {
+  prescription_id?: string; medication_id?: string;
+  medication_name?: string; name?: string;
+  dosage?: string;
+  frequency?: string;
+  prescriber_name?: string; prescribed_by?: string;
+  prescribed_date?: string; start_date?: string;
+  end_date?: string;
+  refills_remaining?: number;
+  instructions?: string;
+  side_effects?: string[];
+  interactions?: string[];
+  status?: Medication['status'];
+}
+
+/**
+ * Maps a persisted prescription without inventing clinical directions when a
+ * legacy or incomplete record omits them.
+ */
+export function mapPrescription(m: RawPrescription): Medication | null {
+  const id = m.prescription_id || m.medication_id;
+  const name = m.medication_name || m.name;
+  if (!id || !name) return null;
+
+  return {
+    id,
+    name,
+    dosage: m.dosage ?? '',
+    frequency: m.frequency ?? '',
+    prescribedBy: m.prescriber_name || m.prescribed_by || '',
+    startDate: m.prescribed_date || m.start_date || '',
+    endDate: m.end_date,
+    refillsRemaining: m.refills_remaining ?? 0,
+    instructions: m.instructions ?? '',
+    sideEffects: m.side_effects ?? [],
+    interactions: m.interactions ?? [],
+    status: m.status || undefined,
+  };
+}
+
 export function MedicationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -70,7 +113,14 @@ export function MedicationsPage() {
       s.charAt(0).toUpperCase() + s.slice(1));
   const [medications, setMedications] = useState<Medication[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
+  // A pharmacist's decision about this patient's medicine -- why something
+  // they were prescribed did not arrive. Recorded on the pharmacy side and,
+  // until this, readable only by clinical staff.
+  const [pharmacyNotes, setPharmacyNotes] = useState<PharmacyDecision[]>([]);
   const [loading, setLoading] = useState(true);
+  // Said out loud when a dose could not be recorded. Silence plus a tick is the
+  // worst of both: the patient believes the record exists and it does not.
+  const [adherenceError, setAdherenceError] = useState('');
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'current' | 'reminders' | 'history'>('current');
 
@@ -81,13 +131,7 @@ export function MedicationsPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  useEffect(() => {
-    if (patient) {
-      loadMedications();
-    }
-  }, [patient]);
-
-  const loadMedications = async () => {
+  const loadMedications = useCallback(async () => {
     if (!patient) return;
     
     setLoading(true);
@@ -95,80 +139,51 @@ export function MedicationsPage() {
       const patientId = patient.healthId;
 
       // Fetch prescriptions from correct endpoint
-      const [prescData, remindersData] = await Promise.all([
+      const [prescData, remindersData, adherenceData] = await Promise.all([
         getPatientEPrescriptions(patientId),
-        getPatientReminders(patientId).catch(() => ({ reminders: [] }))
+        getPatientReminders(patientId),
+        getPatientAdherence(patientId),
       ]);
 
       setApiConnected(true);
+      getPatientPharmacyDecisions(patientId)
+        .then((body) => setPharmacyNotes(body.decisions ?? []))
+        .catch(() => setPharmacyNotes([]));
 
-      const meds: Medication[] = ((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions || (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []).map((m: any) => ({
-        id: m.prescription_id || m.medication_id || '',
-        name: m.medication_name || m.name || '',
-        dosage: m.dosage,
-        frequency: m.frequency || 'As directed',
-        prescribedBy: m.prescriber_name || m.prescribed_by || '',
-        startDate: m.prescribed_date || m.start_date || '',
-        endDate: m.end_date,
-        refillsRemaining: m.refills_remaining || 0,
-        instructions: m.instructions || 'Take as directed',
-        sideEffects: m.side_effects || [],
-        interactions: m.interactions || [],
-        status: m.status || 'active',
-      }));
+      const meds = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions ||
+        (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[])
+        .map(mapPrescription)
+        .filter((medication): medication is Medication => medication !== null);
 
-      if (meds.length === 0 && IS_DEMO) {
-        // Fallback to demo medications
-        const demoMeds: Medication[] = [
-          {
-            id: 'demo-med-1',
-            name: 'Amoxicillin',
-            dosage: '500mg',
-            frequency: 'Three times daily',
-            prescribedBy: 'Dr. Smith',
-            startDate: '2025-06-01',
-            refillsRemaining: 2,
-            instructions: 'Take with food',
-            sideEffects: ['Nausea', 'Rash'],
-            interactions: ['Warfarin'],
-            status: 'active'
-          },
-          {
-            id: 'demo-med-2',
-            name: 'Lisinopril',
-            dosage: '10mg',
-            frequency: 'Once daily',
-            prescribedBy: 'Dr. Jones',
-            startDate: '2025-05-15',
-            refillsRemaining: 0,
-            instructions: 'Take in the morning',
-            sideEffects: ['Cough', 'Dizziness'],
-            interactions: ['Spironolactone'],
-            status: 'active'
-          }
-        ];
-        setMedications(demoMeds);
-        generateReminders(demoMeds);
-        setApiConnected(false);
-      } else {
-        setMedications(meds);
+      setMedications(meds);
         
-        const apiReminders: MedicationReminder[] = ((remindersData as { reminders?: unknown[] }).reminders || []).map((r: any) => ({
-          id: r.reminder_id || r.id || `reminder-${Date.now()}`,
-          medicationId: r.medication_id,
-          medicationName: r.medication_name,
-          dosage: r.dosage,
-          scheduledTime: r.scheduled_time,
-          taken: r.taken || false,
-          takenAt: r.taken_at,
-        }));
-
-        if (apiReminders.length > 0) {
-          setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
-        } else {
-          generateReminders(meds);
-        }
-      }
+        const today = new Date().toISOString().slice(0, 10);
+        const dosesTakenToday = new Map(
+          (adherenceData.logs ?? [])
+            .filter((log) =>
+              (log.action_taken === 'taken' || log.action_taken === 'taken_late') &&
+              log.actual_time?.slice(0, 10) === today &&
+              log.reminder_id
+            )
+            .map((log) => [log.reminder_id as string, log.actual_time as string])
+        );
+        const apiReminders: MedicationReminder[] = (remindersData.reminders ?? []).flatMap((reminder) =>
+          reminder.reminder_times.map((scheduledTime) => {
+            const takenAt = dosesTakenToday.get(reminder.reminder_id);
+            return {
+              id: `${reminder.reminder_id}:${scheduledTime}`,
+              medicationId: reminder.reminder_id,
+              medicationName: reminder.medication_name,
+              dosage: reminder.dosage,
+              scheduledTime,
+              taken: Boolean(takenAt),
+              takenAt: takenAt
+                ? formatTimestamp(takenAt, { hour: '2-digit', minute: '2-digit' })
+                : undefined,
+            };
+          })
+        );
+      setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
     } catch (error) {
       console.error('Error loading medications:', error);
       setApiConnected(false);
@@ -176,69 +191,40 @@ export function MedicationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [patient]);
 
-  const generateReminders = (meds: Medication[]) => {
-    const now = new Date();
-    const todayReminders: MedicationReminder[] = [];
-    
-    meds.forEach(med => {
-      if (med.frequency.toLowerCase().includes('twice')) {
-        todayReminders.push(
-          {
-            id: `${med.id}-AM`,
-            medicationId: med.id,
-            medicationName: med.name,
-            dosage: med.dosage,
-            scheduledTime: '08:00',
-            taken: now.getHours() >= 9,
-            takenAt: now.getHours() >= 9 ? '08:15' : undefined,
-          },
-          {
-            id: `${med.id}-PM`,
-            medicationId: med.id,
-            medicationName: med.name,
-            dosage: med.dosage,
-            scheduledTime: '20:00',
-            taken: false,
-          }
-        );
-      } else if (med.frequency.toLowerCase().includes('once')) {
-        todayReminders.push({
-          id: `${med.id}-DAILY`,
-          medicationId: med.id,
-          medicationName: med.name,
-          dosage: med.dosage,
-          scheduledTime: med.frequency.toLowerCase().includes('bedtime') ? '22:00' : '08:00',
-          taken: now.getHours() >= 9 && !med.frequency.toLowerCase().includes('bedtime'),
-          takenAt: now.getHours() >= 9 && !med.frequency.toLowerCase().includes('bedtime') ? '08:05' : undefined,
-        });
-      }
-    });
-    
-    setReminders(todayReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
-  };
+  useEffect(() => {
+    if (patient) {
+      loadMedications();
+    }
+  }, [patient, loadMedications]);
 
   const markAsTaken = async (reminderId: string) => {
+    if (!patient) return;
+
+    try {
+      // `{ reminder_id, action }` is what the endpoint reads. This used to send
+      // `{ patient_id, taken, taken_at }`, which the handler could not
+      // deserialize at all -- so every dose a patient marked as taken answered
+      // 400, was swallowed by a console.warn, and was recorded nowhere while
+      // the tick stayed on screen.
+      await logMedicationAdherence({ reminder_id: reminderId, action: 'taken' });
+    } catch (err) {
+      console.error('Failed to log adherence:', err);
+      setAdherenceError(t('medications.doseNotRecorded'));
+      return;
+    }
+
+    // Ticked only after the server has it. The tick used to go on first and
+    // stay on regardless, which is the difference between "we recorded your
+    // dose" and "we drew a tick".
     const takenAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setReminders(prev => prev.map(r =>
       r.id === reminderId
         ? { ...r, taken: true, takenAt }
         : r
     ));
-    
-    if (patient) {
-      try {
-        await logMedicationAdherence({
-          reminder_id: reminderId,
-          patient_id: patient.healthId,
-          taken: true,
-          taken_at: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn('Failed to log adherence:', err);
-      }
-    }
+    setAdherenceError('');
   };
 
   const pendingReminders = reminders.filter(r => !r.taken);
@@ -247,7 +233,7 @@ export function MedicationsPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -265,7 +251,7 @@ export function MedicationsPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.offline')}
           </span>
           <button
             onClick={loadMedications}
@@ -276,12 +262,26 @@ export function MedicationsPage() {
         </div>
       </div>
 
+      {pharmacyNotes.length > 0 && (
+        <section className="bg-caution-subtle border border-caution rounded-xl p-4" data-testid="pharmacy-notes">
+          <h2 className="font-semibold text-caution-subtle-fg mb-2">{t('medications.pharmacyNotesHeading')}</h2>
+          <ul className="space-y-1">
+            {pharmacyNotes.map((note) => (
+              <li key={note.decision_id} className="text-sm text-caution-subtle-fg">
+                {t(`medications.pharmacyNote_${note.decision}`, { allergen: note.allergen, reason: note.reason })}
+                <span className="ml-1 opacity-80">({formatTimestamp(note.decided_at)})</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* Today's Reminders Summary */}
-      <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold">{t('medications.todaysMeds')}</h2>
-            <p className="text-white/80 text-sm">
+            <p className="text-white text-sm">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
@@ -291,15 +291,15 @@ export function MedicationsPage() {
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{reminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.totalDoses')}</div>
+            <div className="text-xs text-white">{t('medications.totalDoses')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{completedReminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.taken')}</div>
+            <div className="text-xs text-white">{t('medications.taken')}</div>
           </div>
           <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold text-yellow-300">{pendingReminders.length}</div>
-            <div className="text-xs text-white/70">{t('medications.pending')}</div>
+            <div className="text-xs text-white">{t('medications.pending')}</div>
           </div>
         </div>
       </div>
@@ -324,6 +324,11 @@ export function MedicationsPage() {
       {/* Tab Content */}
       {activeTab === 'reminders' && (
         <div className="space-y-4">
+          {adherenceError && (
+            <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+              {adherenceError}
+            </div>
+          )}
           {/* Pending */}
           {pendingReminders.length > 0 && (
             <div className="space-y-3">
@@ -356,7 +361,7 @@ export function MedicationsPage() {
           {completedReminders.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium text-content-secondary flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" /> {t('medications.completed')}
+                <CheckCircle className="w-4 h-4 text-ok" /> {t('medications.completed')}
               </h3>
               {completedReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between opacity-75">
@@ -376,7 +381,7 @@ export function MedicationsPage() {
 
           {reminders.length === 0 && (
             <div className="text-center py-12">
-              <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneToday')}</p>
             </div>
           )}
@@ -394,7 +399,9 @@ export function MedicationsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-content">{med.name}</h3>
-                    <p className="text-sm text-content-muted">{med.dosage} • {med.frequency}</p>
+                    <p className="text-sm text-content-muted">
+                      {[med.dosage, med.frequency].filter(Boolean).join(' • ') || t('medications.regimenNotRecorded')}
+                    </p>
                     {med.status && (
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                         med.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -422,7 +429,8 @@ export function MedicationsPage() {
               </div>
 
               <p className="text-sm text-content-muted mb-3">
-                <span className="font-medium">{t('medications.instructionsLabel')}</span> {med.instructions}
+                <span className="font-medium">{t('medications.instructionsLabel')}</span>{' '}
+                {med.instructions || t('medications.instructionsNotRecorded')}
               </p>
 
               {med.sideEffects.length > 0 && (
@@ -446,17 +454,16 @@ export function MedicationsPage() {
               )}
 
               {med.refillsRemaining <= 1 && (
-                <button className="mt-3 w-full py-2 border-2 border-brand text-brand-subtle-fg rounded-lg font-medium hover:bg-brand-subtle transition-colors flex items-center justify-center gap-2">
-                  <Plus className="w-4 h-4" />
-                  {t('medications.requestRefill')}
-                </button>
+                <p className="mt-3 text-sm text-caution-subtle-fg">
+                  {t('medications.refillRequestUnavailable')}
+                </p>
               )}
             </div>
           ))}
 
           {medications.length === 0 && (
             <div className="text-center py-12">
-              <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneActive')}</p>
             </div>
           )}

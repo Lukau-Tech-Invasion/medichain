@@ -24,31 +24,73 @@ use actix_web::{
     Error, HttpResponse,
 };
 use futures::future::{ok, LocalBoxFuture, Ready};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Rate limit configuration
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct RateLimitConfig {
     /// Maximum requests per window for anonymous users
     pub anonymous_limit: u32,
     /// Maximum requests per window for authenticated users
     pub authenticated_limit: u32,
-    /// Maximum requests per window for admin users
-    pub admin_limit: u32,
     /// Window duration
     pub window_duration: Duration,
+}
+
+/// The shipped limits. Overridable only by environment, never by a request.
+const DEFAULT_ANONYMOUS_LIMIT: u32 = 60;
+const DEFAULT_AUTHENTICATED_LIMIT: u32 = 120;
+
+/// Read a positive limit from the environment, or keep the shipped default.
+///
+/// # Why this is configurable at all
+///
+/// The browser suites drive one signed-in account through a whole clinical
+/// workflow as fast as the browser can click, which legitimately exceeds
+/// 120 requests/minute for that user. The consequence was not a clear failure:
+/// sign-ins were starved mid-suite and the run reported product failures --
+/// "8 passed, 40 did not run" -- for specs that were entirely green when run
+/// alone. A limit that cannot be raised for a test harness makes the full suite
+/// unrunnable and its partial results misleading.
+///
+/// A zero or unparseable value keeps the default rather than disabling the
+/// limiter: "rate limiting off" is not something a typo should be able to
+/// arrange, and `MEDICHAIN_RATE_LIMIT_AUTHENTICATED=` in a stray .env file
+/// should not silently remove the protection.
+fn limit_from_env(name: &str, default: u32) -> u32 {
+    match std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+    {
+        Some(value) if value > 0 => {
+            if value > default {
+                // Loud, because a raised limit in production is a finding. The
+                // startup secret-audit warns the same way about demo defaults.
+                log::warn!(
+                    "{name} raises the rate limit to {value}/minute (default {default}). \
+                     Intended for test harnesses only."
+                );
+            }
+            value
+        }
+        _ => default,
+    }
 }
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            anonymous_limit: 60,      // 60 requests per minute for anonymous
-            authenticated_limit: 120, // 120 requests per minute for authenticated
-            admin_limit: 300,         // 300 requests per minute for admins
+            anonymous_limit: limit_from_env(
+                "MEDICHAIN_RATE_LIMIT_ANONYMOUS",
+                DEFAULT_ANONYMOUS_LIMIT,
+            ),
+            authenticated_limit: limit_from_env(
+                "MEDICHAIN_RATE_LIMIT_AUTHENTICATED",
+                DEFAULT_AUTHENTICATED_LIMIT,
+            ),
             window_duration: Duration::from_secs(60),
         }
     }
@@ -61,19 +103,35 @@ struct RateLimitEntry {
 }
 
 /// Rate limiting middleware factory
-#[allow(dead_code)]
+/// Shared across every worker thread.
+///
+/// This map used to be allocated inside `new_transform`, which Actix calls once
+/// per worker, so the configured limit applied *per worker thread* rather than
+/// per process. Measured on this host: 240 anonymous requests in 3.1s drew no
+/// 429 at all against a configured 60/minute, and the first 429 arrived at
+/// request 479 -- roughly eight times the configured ceiling, scaling with the
+/// CPU count. The limiter was working; its scope was wrong.
+///
+/// `Arc<Mutex<..>>` rather than `Rc<RefCell<..>>` because it now genuinely
+/// crosses threads. The lock is taken and released inside one synchronous
+/// block, never held across an await.
+///
+/// This makes the number mean what it says within one process. It does NOT
+/// make it correct across replicas -- N instances still permit N x the limit --
+/// and that remains a deployment-level gap recorded in the ledger rather than
+/// something to solve by reaching for Redis here.
+#[derive(Clone)]
 pub struct RateLimitMiddleware {
     config: RateLimitConfig,
+    counters: SharedCounters,
 }
 
-#[allow(dead_code)]
-impl RateLimitMiddleware {
-    pub fn new(config: RateLimitConfig) -> Self {
-        Self { config }
-    }
+type SharedCounters = Arc<Mutex<HashMap<String, RateLimitEntry>>>;
 
+impl RateLimitMiddleware {
     pub fn default_config() -> Self {
         Self {
+            counters: Arc::new(Mutex::new(HashMap::new())),
             config: RateLimitConfig::default(),
         }
     }
@@ -95,8 +153,9 @@ where
         ok(RateLimitMiddlewareService {
             service: Rc::new(service),
             config: self.config.clone(),
-            // Per-instance rate limit tracking (in production, use Redis)
-            rate_limits: Rc::new(RefCell::new(HashMap::new())),
+            // Clone the SHARED handle. Allocating here gave every worker
+            // thread its own counters -- see `RateLimitMiddleware`.
+            rate_limits: self.counters.clone(),
         })
     }
 }
@@ -104,7 +163,7 @@ where
 pub struct RateLimitMiddlewareService<S> {
     service: Rc<S>,
     config: RateLimitConfig,
-    rate_limits: Rc<RefCell<HashMap<String, RateLimitEntry>>>,
+    rate_limits: SharedCounters,
 }
 
 impl<S> Clone for RateLimitMiddlewareService<S> {
@@ -144,7 +203,12 @@ where
             // Check rate limit - scope the borrow to avoid holding it across await
             let rate_limit_result: Result<(), (u64, u32, u32)> = {
                 let now = Instant::now();
-                let mut limits = rate_limits.borrow_mut();
+                let mut limits = match rate_limits.lock() {
+                    Ok(guard) => guard,
+                    // A panic in a previous holder must not disable rate
+                    // limiting for the life of the process.
+                    Err(poisoned) => poisoned.into_inner(),
+                };
 
                 let entry = limits.entry(client_id.clone()).or_insert(RateLimitEntry {
                     count: 0,
@@ -167,7 +231,7 @@ where
                     entry.count += 1;
                     Ok(())
                 }
-            }; // borrow_mut is dropped here
+            }; // the lock guard is dropped here, before any await
 
             if let Err((retry_after, count, limit)) = rate_limit_result {
                 log::warn!(
@@ -263,12 +327,99 @@ fn get_rate_limit(req: &ServiceRequest, config: &RateLimitConfig) -> u32 {
 mod tests {
     use super::*;
 
+    /// The environment can raise a limit for a test harness, and cannot
+    /// accidentally remove one.
+    ///
+    /// Serial by construction: these mutate process environment, so they are
+    /// one test rather than several that could interleave.
+    #[test]
+    fn env_overrides_raise_limits_but_never_disable_them() {
+        // A valid override is taken.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_OK", "500");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_OK", 120),
+            500
+        );
+
+        // Zero is not "no limit" -- it keeps the default. A typo must not be
+        // able to switch the limiter off.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_ZERO", "0");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_ZERO", 120),
+            120
+        );
+
+        // Neither does an unparseable value or an empty one.
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_JUNK", "lots");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_JUNK", 120),
+            120
+        );
+        std::env::set_var("MEDICHAIN_RATE_LIMIT_TEST_EMPTY", "");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_EMPTY", 120),
+            120
+        );
+
+        // An unset variable keeps the shipped default.
+        std::env::remove_var("MEDICHAIN_RATE_LIMIT_TEST_UNSET");
+        assert_eq!(
+            super::limit_from_env("MEDICHAIN_RATE_LIMIT_TEST_UNSET", 60),
+            60
+        );
+
+        for key in [
+            "MEDICHAIN_RATE_LIMIT_TEST_OK",
+            "MEDICHAIN_RATE_LIMIT_TEST_ZERO",
+            "MEDICHAIN_RATE_LIMIT_TEST_JUNK",
+            "MEDICHAIN_RATE_LIMIT_TEST_EMPTY",
+        ] {
+            std::env::remove_var(key);
+        }
+    }
+
     #[test]
     fn test_default_config() {
         let config = RateLimitConfig::default();
         assert_eq!(config.anonymous_limit, 60);
         assert_eq!(config.authenticated_limit, 120);
-        assert_eq!(config.admin_limit, 300);
         assert_eq!(config.window_duration, Duration::from_secs(60));
+    }
+
+    /// The counters must be SHARED, not per worker.
+    ///
+    /// Actix calls `new_transform` once per worker thread. When it allocated a
+    /// fresh map there, the configured limit applied per thread: measured on a
+    /// 12-CPU host, 240 anonymous requests drew no 429 against a configured
+    /// 60/minute and the first refusal came at request 479. After this fix the
+    /// first refusal is at 59.
+    ///
+    /// Comparing `Arc::as_ptr` is the assertion that matters. Anything that
+    /// reintroduces a per-transform allocation -- the easiest possible
+    /// regression, since it looks tidier -- fails here rather than silently
+    /// multiplying the limit by the core count again.
+    #[test]
+    fn every_worker_shares_one_set_of_counters() {
+        let middleware = RateLimitMiddleware::default_config();
+        let first = middleware.clone();
+        let second = middleware.clone();
+
+        assert!(
+            Arc::ptr_eq(&first.counters, &second.counters),
+            "cloning the middleware for another worker must not fork the counters"
+        );
+        assert!(
+            Arc::ptr_eq(&middleware.counters, &first.counters),
+            "a clone must share the original's counters"
+        );
+    }
+
+    #[test]
+    fn a_fresh_limiter_starts_with_its_own_counters() {
+        // Two independently constructed limiters are genuinely separate; the
+        // sharing above must come from cloning, not from a global.
+        let a = RateLimitMiddleware::default_config();
+        let b = RateLimitMiddleware::default_config();
+        assert!(!Arc::ptr_eq(&a.counters, &b.counters));
     }
 }

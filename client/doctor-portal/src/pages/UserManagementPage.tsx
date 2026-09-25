@@ -1,7 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation, RestrictedSection } from '@medichain/shared';
+import {
+  assignRole,
+  getUsers,
+  revokeRole,
+  updateUserProfile,
+  walletRegister,
+  useTranslation,
+  useStepUp,
+  StepUpDialog,
+  RestrictedSection,
+  Alert,
+  LoadingSpinner,
+  Input,
+  useValidatedForm,
+  newUserSchema,
+  confirmDialog,
+  formatTimestamp,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
@@ -59,10 +76,15 @@ const UserManagementPage: React.FC = () => {
   const { user } = useAuthStore();
   const isAdministrator = user?.role === 'Admin';
   const { t } = useTranslation();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Assigning and revoking a role both run through
+  // `require_privileged_assurance`, which outside demo mode refuses a session
+  // that is not freshly MFA-verified. This holds the refused action, asks for a
+  // code, and retries it -- the page used to render the refusal and stop.
+  const stepUp = useStepUp();
   const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'permissions' | 'new-user'>('users');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
@@ -138,7 +160,7 @@ const UserManagementPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     // Skip the request, not the hook: a non-administrator would otherwise
@@ -147,9 +169,21 @@ const UserManagementPage: React.FC = () => {
     fetchUsers();
   }, [fetchUsers, isAdministrator]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(newUserSchema);
   const handleCreateUser = async () => {
-    if (!newUser.walletAddress || !newUser.name || !newUser.email || !newUser.phone) {
-      showWarning(t('docUserManagement.warnRequiredFields'));
+    // Phone is deliberately NOT required.
+    //
+    // It is now stored — sealed into `user_profiles.contact_encrypted` — but an
+    // administrator onboarding a clinician does not always have the number to
+    // hand, and blocking the account on it is how account creation became
+    // impossible in the first place: the form would not submit without a phone,
+    // and the API of the day would not accept one.
+    // Three fields in one toast. The email in particular is worth validating as
+    // an email rather than as "not empty": it is how the account holder is
+    // contacted about their own access, and a typo there is discovered the day
+    // it is needed.
+    if (!validate(newUser)) {
       return;
     }
 
@@ -160,7 +194,9 @@ const UserManagementPage: React.FC = () => {
         username: newUser.username.trim() || undefined,
         role: newUser.role,
         email: newUser.email.trim(),
-        phone: newUser.phone.trim(),
+        // Omitted when empty rather than sent as '': a field left blank is
+        // absent, not a contact number that happens to be the empty string.
+        phone: newUser.phone.trim() || undefined,
         department: newUser.department.trim() || undefined,
         specialty: newUser.specialization.trim() || undefined,
         license_number: newUser.licenseNumber.trim() || undefined,
@@ -181,18 +217,24 @@ const UserManagementPage: React.FC = () => {
       await updateUserProfile(selectedUser.userId, {
         name: selectedUser.name,
         email: selectedUser.email || undefined,
-        phone: selectedUser.phone || undefined,
+        // Sent even when empty, unlike the create form: this field is
+        // pre-filled with the stored number, so clearing it is a deliberate
+        // instruction to remove it. `undefined` would mean "leave it alone" and
+        // make a wrong number impossible to delete.
+        phone: selectedUser.phone,
         department: selectedUser.department,
         specialty: selectedUser.specialization,
         license_number: selectedUser.licenseNumber,
       });
       const persistedRole = users.find((user) => user.userId === selectedUser.userId)?.role;
       if (persistedRole !== selectedUser.role) {
-        await assignRole({
-          wallet_address: selectedUser.userId,
-          name: selectedUser.name,
-          role: selectedUser.role,
-        });
+        await stepUp.run(() =>
+          assignRole({
+            wallet_address: selectedUser.userId,
+            name: selectedUser.name,
+            role: selectedUser.role,
+          })
+        );
       }
       await fetchUsers();
       setShowEditModal(false);
@@ -204,9 +246,9 @@ const UserManagementPage: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm(t('docUserManagement.confirmDeleteUser'))) {
+    if (await confirmDialog({ message: t('docUserManagement.confirmDeleteUser'), destructive: true })) {
       try {
-        await revokeRole({ wallet_address: userId });
+        await stepUp.run(() => revokeRole({ wallet_address: userId }));
         await fetchUsers();
         showSuccess(t('docUserManagement.userDeletedSuccess'));
       } catch (err) {
@@ -272,7 +314,7 @@ const UserManagementPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    return formatTimestamp(isoString);
   };
 
   const filteredUsers = users.filter((u) => {
@@ -312,10 +354,35 @@ const UserManagementPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docUserManagement.title')}</h1>
-        <p className="text-purple-100">{t('docUserManagement.subtitle')}</p>
+        <p className="text-white">{t('docUserManagement.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchUsers()}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b">
         <button
@@ -358,7 +425,7 @@ const UserManagementPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docUserManagement.searchPlaceholder')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -368,7 +435,7 @@ const UserManagementPage: React.FC = () => {
                   id="user-role-filter"
                   value={roleFilter}
                   onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docUserManagement.allRoles')}</option>
                   <option value="admin">{t('docUserManagement.role_admin')}</option>
@@ -384,7 +451,7 @@ const UserManagementPage: React.FC = () => {
                   id="user-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docUserManagement.allStatuses')}</option>
                   <option value="active">{t('docUserManagement.status_active')}</option>
@@ -415,11 +482,11 @@ const UserManagementPage: React.FC = () => {
                           {t(`docUserManagement.status_${systemUser.status}`).toUpperCase()}
                         </span>
                       </div>
-                      <p className="text-sm text-content-muted flex items-center gap-1">
+                      <p className="text-sm text-content-muted flex items-center gap-1 min-h-[24px] py-1">
                         <Mail className="w-4 h-4" />
                         {systemUser.email}
                       </p>
-                      <p className="text-sm text-content-muted flex items-center gap-1">
+                      <p className="text-sm text-content-muted flex items-center gap-1 min-h-[24px] py-1">
                         <Phone className="w-4 h-4" />
                         {systemUser.phone}
                       </p>
@@ -504,7 +571,7 @@ const UserManagementPage: React.FC = () => {
                 </div>
 
                 <div className="bg-surface-sunken border border-border rounded-lg p-4 mb-4">
-                  <p className="text-sm font-semibold text-content mb-2 flex items-center gap-2">
+                  <p className="text-sm font-semibold text-content mb-2 flex items-center gap-2 min-h-[24px] py-1">
                     <Shield className="w-4 h-4" />
                     {t('docUserManagement.permissionsCount', { count: systemUser.permissions.length })}
                   </p>
@@ -541,7 +608,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status === 'inactive' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'active')}
-                      className="px-4 py-2 bg-green-500 hover:bg-ok text-ok-fg rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
                       {t('docUserManagement.activateButton')}
@@ -550,7 +617,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status === 'pending' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'active')}
-                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
                       {t('docUserManagement.approveButton')}
@@ -559,7 +626,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status !== 'suspended' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'suspended')}
-                      className="px-4 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Lock className="w-4 h-4" />
                       {t('docUserManagement.suspendButton')}
@@ -568,7 +635,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status === 'suspended' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'active')}
-                      className="px-4 py-2 bg-green-500 hover:bg-ok text-ok-fg rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Unlock className="w-4 h-4" />
                       {t('docUserManagement.unsuspendButton')}
@@ -578,7 +645,7 @@ const UserManagementPage: React.FC = () => {
               </div>
             ))}
 
-            {filteredUsers.length === 0 && (
+            {!error && !isLoading && filteredUsers.length === 0 && (
               <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                 <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
                 <p className="text-content-muted">{t('docUserManagement.noUsersFound')}</p>
@@ -604,7 +671,7 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.walletAddress}
                   onChange={(e) => setNewUser({ ...newUser, walletAddress: e.target.value })}
                   placeholder="SS58 wallet address"
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   required
                 />
               </div>
@@ -612,14 +679,15 @@ const UserManagementPage: React.FC = () => {
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docUserManagement.fullNameLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
-                <input
+                <Input
                   id="new-user-name"
                   type="text"
                   value={newUser.name}
-                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                  placeholder={t('docUserManagement.fullNamePlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  onChange={(e) => { clearField('name'); setNewUser({ ...newUser, name: e.target.value }); }}
+                  onBlur={() => validateField('name', newUser)}
+                  error={errors.name}
                   required
+                  placeholder={t('docUserManagement.fullNamePlaceholder')}
                 />
               </div>
               <div>
@@ -629,7 +697,7 @@ const UserManagementPage: React.FC = () => {
                   type="text"
                   value={newUser.username}
                   onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
               <div>
@@ -640,7 +708,7 @@ const UserManagementPage: React.FC = () => {
                   id="new-user-role"
                   value={newUser.role}
                   onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   required
                 >
                   <option value="doctor">{t('docUserManagement.role_doctor')}</option>
@@ -662,22 +730,24 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                   placeholder={t('docUserManagement.emailPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   required
                 />
               </div>
               <div>
                 <label htmlFor="new-user-phone" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docUserManagement.phoneLabel')} <span className="text-critical-subtle-fg">*</span>
+                  {t('docUserManagement.phoneLabel')}
                 </label>
+                {/* Not marked required, because `handleCreateUser` does not
+                    require it. An asterisk over a field the form will happily
+                    submit without is a lie about what the screen will do. */}
                 <input
                   id="new-user-phone"
                   type="tel"
                   value={newUser.phone}
                   onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
                   placeholder={t('docUserManagement.phonePlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
-                  required
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
             </div>
@@ -691,7 +761,7 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.department}
                   onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
                   placeholder={t('docUserManagement.departmentPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
               <div>
@@ -702,7 +772,7 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.licenseNumber}
                   onChange={(e) => setNewUser({ ...newUser, licenseNumber: e.target.value })}
                   placeholder={t('docUserManagement.licenseNumberPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
             </div>
@@ -716,7 +786,7 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.specialization}
                   onChange={(e) => setNewUser({ ...newUser, specialization: e.target.value })}
                   placeholder={t('docUserManagement.specializationPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
               <div>
@@ -727,7 +797,7 @@ const UserManagementPage: React.FC = () => {
                   value={newUser.emergencyContact}
                   onChange={(e) => setNewUser({ ...newUser, emergencyContact: e.target.value })}
                   placeholder={t('docUserManagement.emergencyContactPlaceholder')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
             </div>
@@ -740,7 +810,7 @@ const UserManagementPage: React.FC = () => {
                 onChange={(e) => setNewUser({ ...newUser, notes: e.target.value })}
                 placeholder={t('docUserManagement.notesPlaceholder')}
                 rows={3}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
               />
             </div>
 
@@ -856,7 +926,7 @@ const UserManagementPage: React.FC = () => {
                     type="text"
                     value={selectedUser.name}
                     onChange={(e) => setSelectedUser({ ...selectedUser, name: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -865,7 +935,7 @@ const UserManagementPage: React.FC = () => {
                     id="usermgmt-role"
                     value={selectedUser.role}
                     onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
                     <option value="admin">{t('docUserManagement.role_admin')}</option>
                     <option value="doctor">{t('docUserManagement.role_doctor')}</option>
@@ -884,7 +954,7 @@ const UserManagementPage: React.FC = () => {
                     type="email"
                     value={selectedUser.email}
                     onChange={(e) => setSelectedUser({ ...selectedUser, email: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -894,7 +964,7 @@ const UserManagementPage: React.FC = () => {
                     type="tel"
                     value={selectedUser.phone}
                     onChange={(e) => setSelectedUser({ ...selectedUser, phone: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -907,7 +977,7 @@ const UserManagementPage: React.FC = () => {
                     type="text"
                     value={selectedUser.department || ''}
                     onChange={(e) => setSelectedUser({ ...selectedUser, department: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
@@ -917,7 +987,7 @@ const UserManagementPage: React.FC = () => {
                     type="text"
                     value={selectedUser.licenseNumber || ''}
                     onChange={(e) => setSelectedUser({ ...selectedUser, licenseNumber: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
@@ -929,7 +999,7 @@ const UserManagementPage: React.FC = () => {
                   type="text"
                   value={selectedUser.specialization || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, specialization: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -940,7 +1010,7 @@ const UserManagementPage: React.FC = () => {
                   value={selectedUser.notes || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, notes: e.target.value })}
                   rows={3}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -1012,7 +1082,7 @@ const UserManagementPage: React.FC = () => {
                             onClick={() => handleTogglePermission(perm.id)}
                             className={`ml-4 px-4 py-2 rounded-lg font-semibold transition-colors ${
                               selectedUser.permissions.includes(perm.id)
-                                ? 'bg-green-500 text-ok-fg hover:bg-ok'
+                                ? 'bg-green-700 text-white hover:bg-green-800'
                                 : 'bg-surface-sunken text-content-secondary hover:bg-gray-300'
                             }`}
                           >
@@ -1051,6 +1121,8 @@ const UserManagementPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <StepUpDialog state={stepUp} />
     </div>
   );
 };

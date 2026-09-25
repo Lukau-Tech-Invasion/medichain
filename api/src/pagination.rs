@@ -19,11 +19,13 @@ struct CursorPayload {
     id: String,
 }
 
-/// Query string for cursor pagination: `?limit=N&cursor=<opaque>`.
+/// Query string for patient cursor pagination and optional server-side search:
+/// `?limit=N&cursor=<opaque>&q=<name-or-identifier>`.
 #[derive(Debug, Deserialize, Default)]
 pub struct CursorQuery {
     pub limit: Option<usize>,
     pub cursor: Option<String>,
+    pub q: Option<String>,
 }
 
 /// Encode an opaque cursor from a millisecond timestamp + id.

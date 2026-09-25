@@ -9,13 +9,19 @@
 use super::*;
 
 /// Check drug interactions request
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CheckDrugInteractionsRequest {
-    pub patient_id: String,
+    /// The patient the medicines are for, when there is one. A check with no
+    /// patient is a reference lookup: drug-drug only, and filed to no chart.
+    /// The page used to send `"UNKNOWN"` here, and every such check was
+    /// stored as a history record belonging to a patient of that name.
+    #[serde(default)]
+    pub patient_id: Option<String>,
     pub medications: Vec<String>,
     pub include_allergies: Option<bool>,
-    pub include_conditions: Option<bool>,
+    // No `include_conditions`: there is no drug-condition dataset, so the
+    // response's `screened.conditions` is always false and says so. A caller
+    // that sends the flag is not refused -- serde ignores unknown fields.
 }
 
 /// Check for drug-drug and drug-allergy interactions
@@ -38,7 +44,6 @@ pub async fn check_drug_interactions(
     // Only healthcare providers can check interactions
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only healthcare providers can check drug interactions".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -176,6 +181,77 @@ pub fn evaluate_drug_interactions(medications: &[String]) -> Vec<crate::clinical
     interactions
 }
 
+/// The allergies on the patient's own profile — the list registration and
+/// profile edits write.
+///
+/// The screen used to read an allergies table that nothing writes, so it
+/// found no allergy for any patient and reported `screened.allergies: true`
+/// over an empty list: a penicillin allergy captured at registration never
+/// flagged penicillin. A profile that cannot be read refuses the check rather
+/// than screening against nothing.
+async fn recorded_allergies(
+    data: &web::Data<crate::AppState>,
+    patient_id: &str,
+) -> Result<Vec<crate::Allergy>, HttpResponse> {
+    let patient = match data.repositories.patients.get_by_id(patient_id).await {
+        Ok(patient) => patient,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return Err(HttpResponse::NotFound().json(ErrorResponse {
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            }));
+        }
+        Err(error) => {
+            log::error!("Drug check patient read failed: {error}");
+            return Err(allergy_data_unavailable());
+        }
+    };
+    match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
+        Some(profile) => Ok(profile.emergency_info.allergies),
+        None => {
+            log::error!("Drug check {patient_id}: profile could not be decrypted");
+            Err(allergy_data_unavailable())
+        }
+    }
+}
+
+fn allergy_data_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Allergy safety data is temporarily unavailable".to_string(),
+        code: "ALLERGY_DATA_UNAVAILABLE".to_string(),
+    })
+}
+
+/// Whether an allergy to `allergen` rules out `medication` (both lowercase):
+/// `Some(None)` when the medication names the allergen outright,
+/// `Some(Some(class))` when the formulary puts the medication in the
+/// allergen's drug class, `None` when neither.
+///
+/// Substring matching alone cannot see that amoxicillin is a penicillin — the
+/// commonest allergy there is, and the prescription it most often rules out.
+fn allergy_match(
+    allergen: &str,
+    medication: &str,
+    formulary: &[crate::clinical::DrugReference],
+) -> Option<Option<String>> {
+    if allergen.is_empty() {
+        return None;
+    }
+    if medication.contains(allergen) {
+        return Some(None);
+    }
+    formulary
+        .iter()
+        .find(|drug| {
+            drug.drug_class.to_lowercase().contains(allergen)
+                && std::iter::once(&drug.generic_name)
+                    .chain(std::iter::once(&drug.name))
+                    .chain(drug.brand_names.iter())
+                    .any(|name| medication.contains(&name.to_lowercase()))
+        })
+        .map(|drug| Some(drug.drug_class.clone()))
+}
+
 /// Finalize a standalone drug-interaction check: allergy screen, result assembly,
 /// persistence, and JSON response. Split out of `check_drug_interactions` so the
 /// curated table in `evaluate_drug_interactions` can be reused by other flows.
@@ -186,26 +262,32 @@ async fn check_interactions_response(
     interactions: Vec<crate::clinical::DrugInteraction>,
 ) -> HttpResponse {
     let medications_lower: Vec<String> = req.medications.iter().map(|m| m.to_lowercase()).collect();
+    let patient_id = req
+        .patient_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    // Allergies belong to a patient; with none named there is nothing to screen.
+    let screen_allergies = req.include_allergies.unwrap_or(true) && patient_id.is_some();
 
-    // Check allergies if requested (via repository)
     let mut allergy_alerts: Vec<serde_json::Value> = Vec::new();
-    if req.include_allergies.unwrap_or(true) {
-        let patient_allergies = data
-            .repositories
-            .allergies
-            .get_active_by_patient(&req.patient_id)
-            .await
-            .unwrap_or_default();
+    if let (true, Some(patient)) = (screen_allergies, patient_id) {
+        let patient_allergies = match recorded_allergies(data, patient).await {
+            Ok(allergies) => allergies,
+            Err(response) => return response,
+        };
+        let formulary = formulary();
         for allergy in &patient_allergies {
-            let allergen_lower = allergy.allergen.to_lowercase();
+            let allergen_lower = allergy.name.to_lowercase();
             for med in &medications_lower {
-                if med.contains(&allergen_lower) {
+                if let Some(drug_class) = allergy_match(&allergen_lower, med, &formulary) {
                     allergy_alerts.push(serde_json::json!({
                         "type": "allergy",
                         "medication": med,
-                        "allergen": allergy.allergen,
-                        "severity": allergy.severity,
-                        "reaction": allergy.reaction
+                        "allergen": allergy.name,
+                        "severity": allergy.severity.to_string(),
+                        "reaction": allergy.reaction,
+                        "drug_class": drug_class
                     }));
                 }
             }
@@ -226,11 +308,15 @@ async fn check_interactions_response(
             | crate::clinical::InteractionSeverity::Major
     );
 
+    let Some(patient) = patient_id else {
+        return interaction_response(req, None, None, &interactions, allergy_alerts, false);
+    };
     let result = crate::clinical::DrugInteractionResult {
         result_id: format!("CHK-{}", uuid::Uuid::new_v4()),
-        patient_id: req.patient_id.clone(),
+        patient_id: patient.to_string(),
         checked_at: chrono::Utc::now().timestamp(),
         new_medication: req.medications.first().cloned().unwrap_or_default(),
+        medications_checked: req.medications.clone(),
         interactions: interactions.clone(),
         overall_severity,
         safe_to_prescribe,
@@ -241,24 +327,64 @@ async fn check_interactions_response(
     let check_id = result.result_id.clone();
     {
         let now_dt = chrono::Utc::now();
+        let payload = match serde_json::to_value(&result) {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("Drug interaction result serialization failed: {error}");
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "Could not save the drug interaction result".to_string(),
+                    code: "DRUG_CHECK_SERIALIZATION_FAILED".to_string(),
+                });
+            }
+        };
         let entity = crate::repositories::traits::JsonRecordEntity {
             id: check_id.clone(),
             owner_id: result.patient_id.clone(),
-            data: serde_json::to_value(&result).unwrap_or_default(),
+            data: payload,
             created_at: now_dt,
             updated_at: now_dt,
         };
-        let _ = data
+        if let Err(error) = data
             .repositories
             .drug_interaction_checks
             .create(entity)
-            .await;
+            .await
+        {
+            log::error!("Drug interaction result persistence failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Drug interaction storage is unavailable".to_string(),
+                code: "DRUG_CHECK_PERSISTENCE_FAILED".to_string(),
+            });
+        }
     }
 
+    interaction_response(
+        req,
+        Some(&check_id),
+        Some(patient),
+        &interactions,
+        allergy_alerts,
+        screen_allergies,
+    )
+}
+
+/// The response to one check, filed or not.
+///
+/// `screened` says what was actually looked at, so a caller cannot read silence
+/// as safety: no allergies were screened when no patient was named, and no
+/// drug-condition screen exists at all.
+fn interaction_response(
+    req: &CheckDrugInteractionsRequest,
+    check_id: Option<&str>,
+    patient_id: Option<&str>,
+    interactions: &[crate::clinical::DrugInteraction],
+    allergy_alerts: Vec<serde_json::Value>,
+    allergies_screened: bool,
+) -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "check_id": check_id,
-        "patient_id": req.patient_id,
+        "patient_id": patient_id,
         "medications_checked": req.medications.len(),
         "interactions_found": interactions.len(),
         "has_critical": interactions.iter().any(|i|
@@ -266,8 +392,16 @@ async fn check_interactions_response(
                                   crate::clinical::InteractionSeverity::Major)),
         "interactions": interactions,
         "allergy_alerts": allergy_alerts,
+        // What was actually screened, so the caller cannot mistake silence for
+        // safety. `conditions` is false because no drug-condition dataset
+        // exists; the page asks for it and this is the honest answer.
+        "screened": {
+            "drug_drug": true,
+            "allergies": allergies_screened,
+            "conditions": false,
+        },
         "recommendation": if interactions.is_empty() && allergy_alerts.is_empty() {
-            "No significant interactions detected"
+            "No drug-drug or allergy interactions detected. Conditions were not screened."
         } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated)) {
             "CONTRAINDICATED - Do not prescribe together"
         } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Major)) {
@@ -300,18 +434,26 @@ pub async fn get_interaction_history(
 
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
 
-    let records = data
+    let records = match data
         .repositories
         .drug_interaction_checks
         .get_by_owner(&patient_id)
         .await
-        .unwrap_or_default();
+    {
+        Ok(records) => records,
+        Err(error) => {
+            log::error!("Drug interaction history read failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Drug interaction history is temporarily unavailable".to_string(),
+                code: "DRUG_CHECK_HISTORY_UNAVAILABLE".to_string(),
+            });
+        }
+    };
     let (page, next_cursor) =
         crate::pagination::paginate_cursor(&records, query.cursor.as_deref(), query.limit);
     let history: Vec<crate::clinical::DrugInteractionResult> = page
@@ -389,5 +531,159 @@ mod interaction_table_tests {
         let meds = vec!["Acetaminophen".to_string(), "Vitamin D3".to_string()];
         let found = evaluate_drug_interactions(&meds);
         assert!(found.is_empty(), "expected no interactions, got {found:?}");
+    }
+}
+
+/// A check with no patient is a lookup. The page used to send `"UNKNOWN"`, and
+/// each such check was filed as history belonging to a patient of that name.
+#[cfg(test)]
+mod patientless_check_tests {
+    use crate::test_fixtures::register;
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    #[actix_rt::test]
+    async fn a_check_without_a_patient_files_nothing_and_says_allergies_were_not_screened() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(super::check_drug_interactions),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/interactions/check")
+            .insert_header(("X-User-Id", "5Doctor"))
+            .set_json(serde_json::json!({
+                "medications": ["warfarin", "aspirin"],
+                "include_allergies": true
+            }))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+        assert_eq!(body["success"], true, "{body}");
+        assert!(body["check_id"].is_null(), "no chart, no record: {body}");
+        assert!(body["patient_id"].is_null(), "{body}");
+        assert_eq!(body["screened"]["allergies"], false, "{body}");
+        assert!(
+            body["interactions_found"].as_u64().unwrap_or(0) > 0,
+            "warfarin + aspirin: {body}"
+        );
+        let stored = data
+            .repositories
+            .drug_interaction_checks
+            .list_all()
+            .await
+            .expect("list checks");
+        assert!(
+            stored.is_empty(),
+            "a patient-less check was filed: {stored:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod allergy_match_tests {
+    use super::{allergy_match, formulary};
+
+    #[test]
+    fn an_allergy_to_a_class_rules_out_its_members() {
+        let drugs = formulary();
+        assert_eq!(
+            allergy_match("penicillin", "amoxicillin 500mg", &drugs),
+            Some(Some("Penicillin Antibiotic".to_string()))
+        );
+        assert_eq!(
+            allergy_match("penicillin", "amoxil", &drugs),
+            Some(Some("Penicillin Antibiotic".to_string()))
+        );
+        assert_eq!(
+            allergy_match("warfarin", "warfarin 5mg", &drugs),
+            Some(None)
+        );
+        assert_eq!(allergy_match("penicillin", "metformin 850mg", &drugs), None);
+        assert_eq!(allergy_match("", "amoxicillin", &drugs), None);
+    }
+}
+
+/// The allergy screen reads the allergies the patient actually has on file.
+/// It used to read a table nothing writes, so it screened every patient
+/// against an empty list and still reported `screened.allergies: true`.
+#[cfg(test)]
+mod allergy_screen_tests {
+    use crate::test_fixtures::{patient_profile, register};
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    #[actix_rt::test]
+    async fn a_registered_penicillin_allergy_flags_amoxicillin() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        let mut profile = patient_profile("PAT-ALLERGIC", "Allergic Patient");
+        profile.emergency_info.allergies = vec![crate::Allergy {
+            name: "Penicillin".to_string(),
+            severity: crate::AllergySeverity::Unknown,
+            reaction: None,
+            verified_at: None,
+        }];
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(super::check_drug_interactions),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/interactions/check")
+            .insert_header(("X-User-Id", "5Doctor"))
+            .set_json(serde_json::json!({
+                "patient_id": "PAT-ALLERGIC",
+                "medications": ["Amoxicillin 500mg"],
+                "include_allergies": true
+            }))
+            .to_request();
+        let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+
+        assert_eq!(body["screened"]["allergies"], true, "{body}");
+        let alerts = body["allergy_alerts"].as_array().expect("allergy_alerts");
+        assert_eq!(alerts.len(), 1, "{body}");
+        assert_eq!(alerts[0]["allergen"], "Penicillin", "{body}");
+        assert_eq!(alerts[0]["drug_class"], "Penicillin Antibiotic", "{body}");
+    }
+
+    #[actix_rt::test]
+    async fn an_unknown_patient_is_refused_not_screened_against_nothing() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::check_drug_interactions),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/interactions/check")
+            .insert_header(("X-User-Id", "5Doctor"))
+            .set_json(serde_json::json!({
+                "patient_id": "PAT-NOBODY",
+                "medications": ["Amoxicillin 500mg"]
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
     }
 }

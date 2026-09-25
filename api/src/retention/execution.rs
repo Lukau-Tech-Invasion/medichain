@@ -268,7 +268,7 @@ pub async fn execute_approved(
                 // One patient failing must not abandon the rest, but it must be
                 // reported: a partially-executed run that claims success would
                 // leave records the register says were handled.
-                log::error!("retention execution: could not restrict {patient_id}: {e}");
+                log::error!("retention execution: could not restrict record: {e}");
                 outcome.failed.push(patient_id.clone());
                 continue;
             }
@@ -288,7 +288,7 @@ pub async fn execute_approved(
             };
 
             if let Err(e) = repo.append_register_entry(entry).await {
-                log::error!("retention execution: could not register {patient_id}: {e}");
+                log::error!("retention execution: could not register record: {e}");
                 outcome.failed.push(patient_id.clone());
                 continue;
             }

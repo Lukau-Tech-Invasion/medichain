@@ -8,7 +8,20 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { useStaffDirectory } from '../components/StaffName';
+import StaffName from '../components/StaffName';
+import {
+  createProgressNote,
+  getPatients,
+  listProgressNotes,
+  useTranslation,
+  clickable,
+  Textarea,
+  useValidatedForm,
+  progressNoteSchema,
+  progressNoteDraftSchema,
+} from '@medichain/shared';
+import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient } from '../components/PatientSelect';
 
@@ -44,6 +57,8 @@ interface ProgressNote {
 
 const ProgressNotePage: React.FC = () => {
   const { t } = useTranslation();
+  // Who did it, by name: records store the actor's wallet address.
+  const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
   const [notes, setNotes] = useState<ProgressNote[]>([]);
@@ -66,25 +81,9 @@ const ProgressNotePage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/platform/list/progress-notes'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const patientsResponse = await fetch(apiUrl('/api/patients'), {
-            headers: {
-              'X-User-Id': user.walletAddress,
-              'X-Provider-Role': user.role,
-            },
-          });
-          const patientsBody = patientsResponse.ok ? await patientsResponse.json() : { data: [] };
+        const [data, patients] = await Promise.all([listProgressNotes(), getPatients()]);
           const patientNames = new Map(
-            (patientsBody.data || patientsBody || []).map((patient: any) => [patient.patient_id, patient.full_name])
+            patients.map((patient) => [patient.patient_id, patient.full_name])
           );
           // The list endpoint returns a bare array of record entities of the
           // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
@@ -92,39 +91,33 @@ const ProgressNotePage: React.FC = () => {
           // are readable, while keeping the entity's id/patient_id/timestamps.
           // Tolerant of a bare array, a { notes } or { items } envelope, and a
           // record that is already flat.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rawItems: Record<string, any>[] = Array.isArray(data)
-            ? data
-            : (data.notes || data.items || []);
+          const rawItems: ProgressNoteListItem[] = data;
           const transformedNotes: ProgressNote[] = rawItems.map((item) => {
-            const inner = (item.data && typeof item.data === 'object' ? item.data : {});
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const note: Record<string, any> = { ...item, ...inner };
+            const note = item.data;
+            const assessment = note?.assessment ?? item.assessment;
+            const plan = note?.plan ?? item.plan_content;
             return ({
-            id: note.note_id || note.id,
-            patientId: note.patient_id,
-            patientName: note.patient_name || patientNames.get(note.patient_id) || t('docProgressNote.unknownPatient'),
-            mrn: note.mrn || note.patient_id || '',
-            noteType: (note.note_type || 'daily') as NoteType,
-            status: (note.status === 'final' ? 'signed' : (note.status || 'draft')) as NoteStatus,
-            author: note.author || note.created_by || '',
-            authorRole: note.author_role || 'Physician',
-            createdAt: new Date(note.created_at as string || Date.now()),
-            updatedAt: new Date(note.updated_at as string || Date.now()),
-            subjective: note.subjective as string || '',
-            objective: note.objective || note.exam || '',
-            assessment: Array.isArray(note.assessment)
-              ? note.assessment.map((problem: any) => problem.problem || '').filter(Boolean).join('\n')
-              : (note.assessment || ''),
-            plan: Array.isArray(note.plan) ? note.plan.join('\n') : (note.plan || ''),
-            signedAt: note.signed_at ? new Date(note.signed_at as string) : undefined,
-            cosigner: note.cosigner as string | undefined,
+            id: note?.note_id || item.id,
+            patientId: item.patient_id,
+            patientName: patientNames.get(item.patient_id) || t('docProgressNote.unknownPatient'),
+            mrn: item.patient_id,
+            noteType: (note?.note_type || item.note_type || 'daily') as NoteType,
+            status: (item.status === 'final' ? 'signed' : item.status || 'draft') as NoteStatus,
+            author: note?.author || item.created_by || '',
+            authorRole: 'Physician',
+            createdAt: new Date(item.created_at || Date.now()),
+            updatedAt: new Date(item.updated_at || Date.now()),
+            subjective: note?.subjective || item.subjective || '',
+            objective: note?.exam || item.objective || '',
+            assessment: Array.isArray(assessment)
+              ? assessment.map((problem: { problem?: string }) => problem.problem || '').filter(Boolean).join('\n')
+              : (assessment || ''),
+            plan: Array.isArray(plan) ? plan.join('\n') : (plan || ''),
+            signedAt: item.cosigned_at ? new Date(item.cosigned_at) : undefined,
+            cosigner: item.cosigned_by || undefined,
             });
           });
           setNotes(transformedNotes);
-        } else {
-          setError(t('docProgressNote.failFetch'));
-        }
       } catch (err) {
         setError(t('docProgressNote.cannotConnect'));
       } finally {
@@ -198,9 +191,19 @@ const ProgressNotePage: React.FC = () => {
     }));
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(progressNoteSchema);
+  // A draft asks only who the note is about.
+  const { validate: validateDraft } = useValidatedForm(progressNoteDraftSchema);
+
   const saveNote = async (status: 'draft' | 'signed') => {
-    if (!user || !form.patientId || !form.subjective || !form.objective || !form.assessment || !form.plan) {
-      setError(t('docProgressNote.patientRequired'));
+    if (!user) return;
+    // Two things were wrong here. The message said "patient required" whatever
+    // was actually missing -- a clinician who left the plan blank was told to
+    // pick a patient they had already picked. And the same requirement applied
+    // to a draft, so an interrupted note could not be saved at all, which is
+    // precisely what a draft is for and the reason notes end up on paper.
+    const ready = status === 'signed' ? validate(form) : validateDraft(form);
+    if (!ready) {
       return;
     }
 
@@ -208,42 +211,26 @@ const ProgressNotePage: React.FC = () => {
     setError(null);
     const now = new Date();
     const noteId = `PN-${Date.now()}`;
-    const payload = {
+    // Only what the form collected. Hospital day, code status and a problem's
+    // trajectory are not asked for here, so they are not sent: this payload
+    // used to file every note as hospital day 1, "Full code" and "stable".
+    const payload: ProgressNotePayload = {
       note_id: noteId,
       patient_id: form.patientId,
+      note_type: form.noteType,
       note_date: now.toISOString().slice(0, 10),
-      hospital_day: 1,
-      post_op_day: null,
       subjective: form.subjective,
-      overnight_events: '',
       vital_signs: form.objective,
-      io_summary: null,
       exam: form.objective,
-      labs_studies: '',
-      assessment: [{ problem_number: 1, problem: form.assessment, status: 'stable', plan: form.plan }],
+      assessment: [{ problem_number: 1, problem: form.assessment, plan: form.plan }],
       plan: [form.plan],
-      disposition: null,
-      code_status: 'Full code',
-      discussed_with: null,
       author: user.username,
       note_time: Math.floor(now.getTime() / 1000),
       cosigned_by: status === 'signed' ? user.username : null,
     };
 
     try {
-      const response = await fetch(apiUrl('/api/clinical/progress-note'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || t('docProgressNote.failFetch'));
-      }
+      await createProgressNote(payload);
       setNotes(current => [{
         id: noteId, patientId: form.patientId, patientName: form.patientName,
         mrn: form.patientId, noteType: form.noteType, status,
@@ -264,12 +251,12 @@ const ProgressNotePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
+      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FileText className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docProgressNote.title')}</h1>
         </div>
-        <p className="text-indigo-100">{t('docProgressNote.subtitle')}</p>
+        <p className="text-white">{t('docProgressNote.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -283,10 +270,10 @@ const ProgressNotePage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docProgressNote.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docProgressNote.apiHint')}</p>
           </div>
         </div>
       )}
@@ -359,7 +346,7 @@ const ProgressNotePage: React.FC = () => {
             {filteredNotes.map(note => (
               <div
                 key={note.id}
-                onClick={() => setSelectedNote(note)}
+                {...clickable(() => setSelectedNote(note))}
                 className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                   note.status === 'draft' ? 'border-l-4 border-l-yellow-500' : ''
                 }`}
@@ -382,7 +369,7 @@ const ProgressNotePage: React.FC = () => {
                 <div className="flex items-center justify-between text-xs text-content-muted">
                   <div className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    <span>{note.author}</span>
+                    <StaffName id={note.author} />
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
@@ -422,61 +409,61 @@ const ProgressNotePage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">{t('docProgressNote.subjectiveRequired')}</label>
-                <textarea
-                  id="progress-subjective"
-                  value={form.subjective}
-                  onChange={e => updateForm('subjective', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.subjectivePlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-subjective"
+                label={t('docProgressNote.subjectiveRequired')}
+                value={form.subjective}
+                onChange={e => { clearField('subjective'); updateForm('subjective', e.target.value); }}
+                onBlur={() => validateField('subjective', form)}
+                error={errors.subjective}
+                rows={3}
+                placeholder={t('docProgressNote.subjectivePlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">{t('docProgressNote.objectiveRequired')}</label>
-                <textarea
-                  id="progress-objective"
-                  value={form.objective}
-                  onChange={e => updateForm('objective', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.objectivePlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-objective"
+                label={t('docProgressNote.objectiveRequired')}
+                value={form.objective}
+                onChange={e => { clearField('objective'); updateForm('objective', e.target.value); }}
+                onBlur={() => validateField('objective', form)}
+                error={errors.objective}
+                rows={3}
+                placeholder={t('docProgressNote.objectivePlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">{t('docProgressNote.assessmentRequired')}</label>
-                <textarea
-                  id="progress-assessment"
-                  value={form.assessment}
-                  onChange={e => updateForm('assessment', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={2}
-                  placeholder={t('docProgressNote.assessmentPlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-assessment"
+                label={t('docProgressNote.assessmentRequired')}
+                value={form.assessment}
+                onChange={e => { clearField('assessment'); updateForm('assessment', e.target.value); }}
+                onBlur={() => validateField('assessment', form)}
+                error={errors.assessment}
+                rows={2}
+                placeholder={t('docProgressNote.assessmentPlaceholder')}
+                required
+              />
 
-              <div>
-                <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">{t('docProgressNote.planRequired')}</label>
-                <textarea
-                  id="progress-plan"
-                  value={form.plan}
-                  onChange={e => updateForm('plan', e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder={t('docProgressNote.planPlaceholder')}
-                />
-              </div>
+              <Textarea
+                id="progress-plan"
+                label={t('docProgressNote.planRequired')}
+                value={form.plan}
+                onChange={e => { clearField('plan'); updateForm('plan', e.target.value); }}
+                onBlur={() => validateField('plan', form)}
+                error={errors.plan}
+                rows={3}
+                placeholder={t('docProgressNote.planPlaceholder')}
+                required
+              />
 
               <div className="flex gap-2">
                 <button type="button" disabled={saving} onClick={() => saveNote('draft')}
-                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:opacity-50">
+                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   {t('docProgressNote.saveDraft')}
                 </button>
                 <button type="button" disabled={saving} onClick={() => saveNote('signed')}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
                   <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>
@@ -505,7 +492,7 @@ const ProgressNotePage: React.FC = () => {
                       </div>
                       <h4 className="font-medium">{note.patientName}</h4>
                       <p className="text-sm text-content-muted mt-1">{note.assessment.split('\n')[0]}</p>
-                      <p className="text-xs text-content-muted mt-2">{t('docProgressNote.by', { author: note.author })}</p>
+                      <p className="text-xs text-content-muted mt-2">{t('docProgressNote.by', { author: staffName(note.author) })}</p>
                     </div>
                   </div>
                 ))}
@@ -555,7 +542,7 @@ const ProgressNotePage: React.FC = () => {
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-content-muted">
-                  <strong>{t('docProgressNote.authorLabel')}</strong> {selectedNote.author} ({selectedNote.authorRole})
+                  <strong>{t('docProgressNote.authorLabel')}</strong> {staffName(selectedNote.author)} ({selectedNote.authorRole})
                 </p>
                 {selectedNote.signedAt && (
                   <p className="text-sm text-content-muted">

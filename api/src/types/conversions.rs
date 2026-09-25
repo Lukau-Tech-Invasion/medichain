@@ -50,6 +50,9 @@ impl From<NfcTagData> for crate::repositories::traits::NfcTagEntity {
             last_used_at: None,
             use_count: 0,
             issued_by: None,
+            // An emergency tag is created usable; there is no path that
+            // produces a suspended one here.
+            status: "Active".to_string(),
         }
     }
 }
@@ -433,15 +436,34 @@ pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
 /// The facility's fixed offset from UTC, in minutes, from
 /// `CLINIC_UTC_OFFSET_MINUTES` (e.g. `120` for SAST, `-300` for EST).
 ///
+/// Resolved from `CLINIC_TIMEZONE` where set, falling back to
+/// `CLINIC_UTC_OFFSET_MINUTES`.
+///
 /// A fixed offset rather than an IANA zone because the deployment targets
 /// (South Africa, Nigeria, Kenya, Ghana, Ethiopia) do not observe DST, and a
-/// fixed offset needs no timezone database. Defaults to `0`, which preserves
-/// the previous UTC-as-wall-clock behaviour; `startup` warns when it is unset so
-/// a non-UTC deployment does not inherit the bug silently.
+/// fixed offset needs no timezone database. `CLINIC_TIMEZONE` is what keeps
+/// that reasoning enforceable: `startup::SUPPORTED_CLINIC_ZONES` lists only
+/// zones without DST, so a region where a fixed offset would drift by an hour
+/// for half the year cannot be configured. A bare offset is still honoured for
+/// existing deployments and warned about, because it cannot carry that
+/// guarantee. Defaults to `0`, which preserves UTC-as-wall-clock.
 ///
 /// Values beyond ±14h are ignored as nonsense rather than applied.
 pub fn clinic_utc_offset_minutes() -> i64 {
     const MAX_OFFSET_MINUTES: i64 = 14 * 60;
+
+    // `CLINIC_TIMEZONE` first. Naming the zone is the supported way to say
+    // where a facility is, because this offset is applied unchanged all year --
+    // a bare number cannot say whether the region observes daylight saving, and
+    // `startup::SUPPORTED_CLINIC_ZONES` contains only zones that do not.
+    if let Ok(zone) = std::env::var("CLINIC_TIMEZONE") {
+        if let Some(minutes) = crate::startup::clinic_zone_offset_minutes(&zone) {
+            return minutes;
+        }
+        // An unsupported zone falls through to UTC rather than guessing. The
+        // startup check has already said so at error level.
+    }
+
     std::env::var("CLINIC_UTC_OFFSET_MINUTES")
         .ok()
         .and_then(|raw| raw.trim().parse::<i64>().ok())
@@ -620,6 +642,39 @@ pub fn med_rem_pack_extras(r: &crate::clinical::MedicationReminder) -> serde_jso
     })
 }
 
+/// Which notification channel a reminder goes out on.
+///
+/// `medication_reminders.reminder_type` means CHANNEL -- its CHECK constraint
+/// allows exactly `push`, `sms`, `email` and `all`. It was being written as
+/// `format!("{:?}", frequency)`, so every insert carried `TwiceDaily` or
+/// `Daily` into that column and PostgreSQL rejected the row outright:
+/// **no medication reminder could be stored on a real database at all.**
+///
+/// Two things hid it. The in-memory backend enforces no CHECK constraint, so
+/// development never saw it; and the handler's ownership test compared a wallet
+/// address to a `PAT-` id, so every patient was refused with a 403 before the
+/// insert was ever attempted.
+///
+/// `all` when more than one channel is wanted, the single channel when exactly
+/// one is, and `push` when none is -- which matches the create handler's own
+/// default of `push_notification: true`.
+pub fn med_rem_channel(prefs: &crate::clinical::NotificationPreferences) -> String {
+    let chosen: Vec<&str> = [
+        ("push", prefs.push_notification),
+        ("sms", prefs.sms),
+        ("email", prefs.email),
+    ]
+    .into_iter()
+    .filter_map(|(name, wanted)| wanted.then_some(name))
+    .collect();
+
+    match chosen.as_slice() {
+        [] => "push".to_string(),
+        [only] => (*only).to_string(),
+        _ => "all".to_string(),
+    }
+}
+
 pub fn med_rem_parse_frequency(s: &str) -> crate::clinical::ReminderFrequency {
     match s {
         "Once" => crate::clinical::ReminderFrequency::Once,
@@ -666,7 +721,7 @@ impl From<crate::clinical::MedicationReminder>
             dosage: Some(r.dosage),
             scheduled_time,
             days_of_week: serde_json::json!([]),
-            reminder_type: format!("{:?}", r.frequency),
+            reminder_type: med_rem_channel(&r.notification_prefs),
             is_active: r.active,
             snooze_minutes: None,
             max_snoozes: None,
@@ -698,7 +753,11 @@ impl From<crate::repositories::traits::MedicationReminderEntity>
             .get("frequency")
             .and_then(|v| v.as_str())
             .map(med_rem_parse_frequency)
-            .unwrap_or_else(|| med_rem_parse_frequency(&e.reminder_type));
+            // NOT `med_rem_parse_frequency(&e.reminder_type)`: that column holds
+            // the notification channel, and parsing "push" as a frequency
+            // returned `Daily` for every row it was asked about. The blob is
+            // where the frequency lives; a row without one predates it.
+            .unwrap_or(crate::clinical::ReminderFrequency::Daily);
         let created_by = extras
             .get("created_by")
             .and_then(|v| v.as_str())
@@ -1106,8 +1165,8 @@ impl From<crate::clinical::OperativeNote> for crate::repositories::traits::Opera
             anesthesia_type: anesthesia_type_column(&n.anesthesia_type),
             scrub_nurse_id: team_member_named(&n.surgeons, R::ScrubNurse),
             circulating_nurse_id: team_member_named(&n.surgeons, R::CirculatingNurse),
-            start_time: utc_from_unix(n.time_in_or),
-            end_time: utc_from_unix(n.time_out_or),
+            start_time: Some(utc_from_unix(n.time_in_or)),
+            end_time: Some(utc_from_unix(n.time_out_or)),
             estimated_blood_loss_ml: i32::try_from(n.estimated_blood_loss).ok(),
             // `fluids_given` is free text ("2L crystalloid"), not a millilitre
             // count. Parsing it into a number would be an invention.
@@ -1489,5 +1548,57 @@ impl TryFrom<crate::repositories::traits::PathologyReportEntity>
         entity: crate::repositories::traits::PathologyReportEntity,
     ) -> Result<Self, Self::Error> {
         serde_json::from_value(entity.data)
+    }
+}
+
+#[cfg(test)]
+mod med_rem_channel_tests {
+    use super::med_rem_channel;
+    use crate::clinical::NotificationPreferences;
+
+    fn prefs(push: bool, sms: bool, email: bool) -> NotificationPreferences {
+        NotificationPreferences {
+            push_notification: push,
+            sms,
+            email,
+            in_app: true,
+            reminder_before_minutes: 15,
+        }
+    }
+
+    /// The column's CHECK constraint allows exactly these four values. A
+    /// frequency written here — which is what used to happen — makes
+    /// PostgreSQL reject the whole row, so every value this produces has to be
+    /// one of them.
+    #[test]
+    fn every_result_is_a_value_the_check_constraint_allows() {
+        let allowed = ["push", "sms", "email", "all"];
+        for push in [false, true] {
+            for sms in [false, true] {
+                for email in [false, true] {
+                    let channel = med_rem_channel(&prefs(push, sms, email));
+                    assert!(
+                        allowed.contains(&channel.as_str()),
+                        "{push}/{sms}/{email} produced {channel}, which the database refuses"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn one_channel_is_named_and_several_are_all() {
+        assert_eq!(med_rem_channel(&prefs(true, false, false)), "push");
+        assert_eq!(med_rem_channel(&prefs(false, true, false)), "sms");
+        assert_eq!(med_rem_channel(&prefs(false, false, true)), "email");
+        assert_eq!(med_rem_channel(&prefs(true, true, false)), "all");
+        assert_eq!(med_rem_channel(&prefs(true, true, true)), "all");
+    }
+
+    /// Nothing chosen is not nothing sent: the create handler defaults
+    /// `push_notification` to true, so `push` is the honest reading.
+    #[test]
+    fn no_channel_chosen_falls_back_to_push() {
+        assert_eq!(med_rem_channel(&prefs(false, false, false)), "push");
     }
 }

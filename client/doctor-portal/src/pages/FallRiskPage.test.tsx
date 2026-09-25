@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import FallRiskPage from './FallRiskPage';
 import { useAuthStore } from '../store/authStore';
@@ -29,10 +29,10 @@ describe('FallRiskPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
   });
 
   it('renders fall risk assessment page', () => {

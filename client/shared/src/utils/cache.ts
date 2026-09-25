@@ -93,8 +93,12 @@ export const cache = new CacheManager();
  */
 export function cached<T>(key: string, ttl?: number) {
   return function (
-    target: any,
-    propertyKey: string,
+    // Unused, and positional: a decorator receives these two before
+    // `descriptor`, so they cannot be removed without changing what
+    // `descriptor` binds to. Underscore-prefixed so the unused-locals gate
+    // stays on for declarations that are genuinely spare.
+    _target: unknown,
+    _propertyKey: string,
     descriptor: PropertyDescriptor
   ) {
     const originalMethod = descriptor.value;

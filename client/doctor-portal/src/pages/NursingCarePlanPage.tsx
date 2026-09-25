@@ -9,13 +9,22 @@ import {
   User,
   Target,
   Activity,
-  Edit,
   ChevronDown,
   ChevronUp,
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
+import {
+  getApiClient,
+  useTranslation,
+  clickable,
+  Input,
+  useValidatedForm,
+  carePlanSchema,
+  createCarePlan,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -60,11 +69,65 @@ interface CarePlan {
   updatedAt: Date;
 }
 
+interface CarePlanTemplate {
+  id: string;
+  name: string;
+  diagnosis: string;
+  priority: Priority;
+  goals: string[];
+  interventions: string[];
+}
+
+interface CarePlanApiRecord {
+  id: string;
+  patient_id: string;
+  plan_name: string;
+  care_level?: string | null;
+  goals?: unknown;
+  interventions?: unknown;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  status?: string | null;
+}
+
+const planItems = (value: unknown, kind: 'goal' | 'intervention') =>
+  Array.isArray(value)
+    ? value.map((item, index) => {
+      const row = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {};
+      return {
+        id: typeof row.id === 'string' ? row.id : `${kind}-${index + 1}`,
+        description: typeof row.description === 'string' ? row.description : String(item),
+        ...(kind === 'goal'
+          ? { targetDate: new Date(typeof row.target_date === 'string' ? row.target_date : Date.now()), status: 'not-met' as GoalStatus }
+          : { frequency: typeof row.frequency === 'string' ? row.frequency : '', completed: Boolean(row.completed) }),
+      };
+    })
+    : [];
+
+/** Map the repository's snake-case record to the portal's display model. */
+export const mapNursingCarePlan = (plan: CarePlanApiRecord): CarePlan => ({
+  id: plan.id,
+  patientId: plan.patient_id,
+  // The list API does not expose decrypted demographics. Patient id is an
+  // honest fallback, unlike a plausible name invented by the browser.
+  patientName: plan.patient_id,
+  mrn: plan.patient_id,
+  room: '',
+  diagnosis: plan.plan_name,
+  priority: (plan.care_level === 'high' || plan.care_level === 'low' ? plan.care_level : 'medium'),
+  status: (plan.status === 'on-hold' || plan.status === 'completed' || plan.status === 'discontinued' ? plan.status : 'active'),
+  goals: planItems(plan.goals, 'goal') as Goal[],
+  interventions: planItems(plan.interventions, 'intervention') as Intervention[],
+  createdBy: plan.created_by,
+  createdAt: new Date(plan.created_at),
+  updatedAt: new Date(plan.updated_at),
+});
+
 const NursingCarePlanPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'plans' | 'new' | 'templates'>('plans');
   const [plans, setPlans] = useState<CarePlan[]>([]);
-  const [_selectedPlan, _setSelectedPlan] = useState<CarePlan | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,52 +136,40 @@ const NursingCarePlanPage: React.FC = () => {
   // The create tab had no state, no handler and a button with no onClick, so a
   // care plan could never be created. Its patient picker was also built from
   // existing plans, meaning a patient without one could never be chosen.
-  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  // The roster existed only to fill a patient dropdown; `PatientSelect`
+  // queries the server as the clinician types.
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [form, setForm] = useState({ patientId: '', diagnosis: '', priority: 'medium' });
+  const [form, setForm] = useState({
+    patientId: '', diagnosis: '', priority: 'medium' as Priority, goals: '', interventions: '',
+  });
   const { user } = useAuthStore();
 
-  useEffect(() => {
-    if (!user?.walletAddress) return;
-    fetch(apiUrl('/api/patients?limit=100'), {
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
-    })
-      .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(body => {
-        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
-        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
-      })
-      .catch(() => setPatients([]));
-  }, [user?.walletAddress]);
+  const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
     if (!user?.walletAddress) return;
-    if (!form.patientId || !form.diagnosis.trim()) {
-      setSaveMessage(t('docNursingCarePlan.errPatientAndDiagnosis'));
+    // Was a banner naming both fields at once. A banner cannot say which
+    // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
+    // reported two problems when the nurse had one. `validate` puts the message
+    // on the field.
+    if (!validate(form)) {
       return;
     }
     setSaving(true);
     setSaveMessage(null);
     try {
-      const response = await fetch(apiUrl('/api/emergency/care-plan'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role || 'Nurse',
-        },
-        body: JSON.stringify({
-          patient_id: form.patientId,
-          diagnosis: form.diagnosis.trim(),
-          priority: form.priority,
-          goals: [],
-          interventions: [],
-        }),
+      await createCarePlan({
+        patient_id: form.patientId,
+        diagnosis: form.diagnosis.trim(),
+        priority: form.priority,
+        goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
+          .map((description, index) => ({ id: `goal-${index + 1}`, description })),
+        interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
+          .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
-      if (!response.ok) throw new Error(`status ${response.status}`);
       setSaveMessage(t('docNursingCarePlan.savedOk'));
-      setForm({ patientId: '', diagnosis: '', priority: 'medium' });
+      setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
     } catch (err) {
       console.error('Failed to create care plan:', err);
       setSaveMessage(t('docNursingCarePlan.errSaveFailed'));
@@ -138,34 +189,8 @@ const NursingCarePlanPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/emergency/care-plan/list'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Nurse'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(t('docNursingCarePlan.fetchError', { status: response.status }));
-        }
-        
-        const data = await response.json();
-        // Convert date strings to Date objects
-        const plansWithDates = (data || []).map((plan: CarePlan) => ({
-          ...plan,
-          createdAt: new Date(plan.createdAt),
-          updatedAt: new Date(plan.updatedAt),
-          goals: (plan.goals || []).map((goal: Goal) => ({
-            ...goal,
-            targetDate: new Date(goal.targetDate)
-          })),
-          interventions: (plan.interventions || []).map((intervention: Intervention) => ({
-            ...intervention,
-            lastPerformed: intervention.lastPerformed ? new Date(intervention.lastPerformed) : undefined
-          }))
-        }));
-        setPlans(plansWithDates);
+        const data = await getApiClient().get<CarePlanApiRecord[]>('/api/emergency/care-plan/list');
+        setPlans((data || []).map(mapNursingCarePlan));
       } catch (err) {
         console.error('Error fetching care plans:', err);
         setError(err instanceof Error ? err.message : t('docNursingCarePlan.failLoad'));
@@ -185,14 +210,22 @@ const NursingCarePlanPage: React.FC = () => {
       'completed': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg' },
       'discontinued': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
-    const s = styles[status];
+    // Total, not partial. `status` is typed `PlanStatus` but it arrives from
+    // the API, where `status` is a plain string column -- so an unrecognised or
+    // absent value indexes to `undefined` and `s.bg` throws, taking the whole
+    // application down through the ErrorBoundary above the router. See the
+    // neutral-marker comment in ConsultPage, which is the same fix.
+    const s = styles[status] ?? { bg: 'bg-surface-sunken', text: 'text-content-secondary' };
     const labels: Record<PlanStatus, string> = {
       'active': t('docNursingCarePlan.statusActive'),
       'on-hold': t('docNursingCarePlan.statusOnHold'),
       'completed': t('docNursingCarePlan.statusCompleted'),
       'discontinued': t('docNursingCarePlan.statusDiscontinued'),
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>{labels[status]}</span>;
+    // The raw value, when it is not one this screen knows: naming it is more
+    // use to a nurse than a blank badge, and inventing a status would be worse
+    // than either.
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>{labels[status] ?? (status || t('docNursingCarePlan.statusUnknown'))}</span>;
   };
 
   const priorityLabel = (priority: Priority): string => {
@@ -200,6 +233,9 @@ const NursingCarePlanPage: React.FC = () => {
       case 'high': return t('docNursingCarePlan.priorityHigh');
       case 'medium': return t('docNursingCarePlan.priorityMedium');
       case 'low': return t('docNursingCarePlan.priorityLow');
+      // `priority` comes from the API's `care_level`, a nullable string
+      // column, so the three literals the type promises are not guaranteed.
+      default: return priority || t('docNursingCarePlan.priorityUnset');
     }
   };
 
@@ -209,7 +245,12 @@ const NursingCarePlanPage: React.FC = () => {
       'medium': { bg: 'bg-surface-sunken', text: 'text-content-secondary' },
       'low': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
-    const s = styles[priority];
+    // This is the one that actually crashed. `care_level` is nullable, so a
+    // care plan filed without a priority -- which the API permits -- rendered
+    // `undefined.bg` and took the whole portal down. The ErrorBoundary sits
+    // above the router, so the suite reported the failure against whichever
+    // route was visited next.
+    const s = styles[priority] ?? { bg: 'bg-surface-sunken', text: 'text-content-secondary' };
     return <span className={`px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>{priorityLabel(priority)}</span>;
   };
 
@@ -219,7 +260,13 @@ const NursingCarePlanPage: React.FC = () => {
       'partially-met': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'met': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> }
     };
-    const s = styles[status];
+    const s = styles[status] ?? {
+      bg: 'bg-surface-sunken',
+      text: 'text-content-secondary',
+      // No icon: an unrecognised goal status must not borrow the glyph of a
+      // met or an unmet one.
+      icon: null,
+    };
     const labels: Record<GoalStatus, string> = {
       'not-met': t('docNursingCarePlan.goalNotMet'),
       'partially-met': t('docNursingCarePlan.goalPartiallyMet'),
@@ -227,7 +274,7 @@ const NursingCarePlanPage: React.FC = () => {
     };
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon} {labels[status]}
+        {s.icon} {labels[status] ?? (status || t('docNursingCarePlan.statusUnknown'))}
       </span>
     );
   };
@@ -238,24 +285,36 @@ const NursingCarePlanPage: React.FC = () => {
     (p.diagnosis?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
-  const templates = [
-    { id: 'T1', name: t('docNursingCarePlan.tpl1Name'), diagnosis: t('docNursingCarePlan.tpl1Dx'), interventions: 5 },
-    { id: 'T2', name: t('docNursingCarePlan.tpl2Name'), diagnosis: t('docNursingCarePlan.tpl2Dx'), interventions: 6 },
-    { id: 'T3', name: t('docNursingCarePlan.tpl3Name'), diagnosis: t('docNursingCarePlan.tpl3Dx'), interventions: 4 },
-    { id: 'T4', name: t('docNursingCarePlan.tpl4Name'), diagnosis: t('docNursingCarePlan.tpl4Dx'), interventions: 5 },
-    { id: 'T5', name: t('docNursingCarePlan.tpl5Name'), diagnosis: t('docNursingCarePlan.tpl5Dx'), interventions: 4 },
-    { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), interventions: 6 }
+  const templates: CarePlanTemplate[] = [
+    { id: 'T1', name: t('docNursingCarePlan.tpl1Name'), diagnosis: t('docNursingCarePlan.tpl1Dx'), priority: 'high', goals: [t('docNursingCarePlan.tplFallGoal')], interventions: [t('docNursingCarePlan.tplFallIntervention1'), t('docNursingCarePlan.tplFallIntervention2')] },
+    { id: 'T2', name: t('docNursingCarePlan.tpl2Name'), diagnosis: t('docNursingCarePlan.tpl2Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplSkinGoal')], interventions: [t('docNursingCarePlan.tplSkinIntervention1'), t('docNursingCarePlan.tplSkinIntervention2')] },
+    { id: 'T3', name: t('docNursingCarePlan.tpl3Name'), diagnosis: t('docNursingCarePlan.tpl3Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplPainGoal')], interventions: [t('docNursingCarePlan.tplPainIntervention1'), t('docNursingCarePlan.tplPainIntervention2')] },
+    { id: 'T4', name: t('docNursingCarePlan.tpl4Name'), diagnosis: t('docNursingCarePlan.tpl4Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplInfectionGoal')], interventions: [t('docNursingCarePlan.tplInfectionIntervention1'), t('docNursingCarePlan.tplInfectionIntervention2')] },
+    { id: 'T5', name: t('docNursingCarePlan.tpl5Name'), diagnosis: t('docNursingCarePlan.tpl5Dx'), priority: 'high', goals: [t('docNursingCarePlan.tplAspirationGoal')], interventions: [t('docNursingCarePlan.tplAspirationIntervention1'), t('docNursingCarePlan.tplAspirationIntervention2')] },
+    { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplMobilityGoal')], interventions: [t('docNursingCarePlan.tplMobilityIntervention1'), t('docNursingCarePlan.tplMobilityIntervention2')] },
   ];
+
+  const useTemplate = (template: CarePlanTemplate) => {
+    setForm(current => ({
+      ...current,
+      diagnosis: template.diagnosis,
+      priority: template.priority,
+      goals: template.goals.join('\n'),
+      interventions: template.interventions.join('\n'),
+    }));
+    clearField('diagnosis');
+    setActiveTab('new');
+  };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white p-6">
+      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docNursingCarePlan.title')}</h1>
         </div>
-        <p className="text-purple-100">{t('docNursingCarePlan.subtitle')}</p>
+        <p className="text-white">{t('docNursingCarePlan.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -269,10 +328,10 @@ const NursingCarePlanPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docNursingCarePlan.apiHint')}</p>
+            <p className="text-xs text-critical mt-1">{t('docNursingCarePlan.apiHint')}</p>
           </div>
         </div>
       )}
@@ -336,7 +395,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <div key={plan.id} className="bg-surface rounded-lg shadow border overflow-hidden">
                     <div
                       className="p-4 cursor-pointer"
-                      onClick={() => setExpandedPlan(expandedPlan === plan.id ? null : plan.id)}
+                      {...clickable(() => setExpandedPlan(expandedPlan === plan.id ? null : plan.id))}
                     >
                   <div className="flex items-start justify-between mb-2">
                     <div>
@@ -359,7 +418,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <div className="flex items-center gap-4 text-xs text-content-muted">
                     <span><Target className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.goalsCount', { count: plan.goals.length })}</span>
                     <span><Activity className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.interventionsCount', { count: plan.interventions.length })}</span>
-                    <span><User className="w-3 h-3 inline mr-1" />{plan.createdBy}</span>
+                    <span><User className="w-3 h-3 inline mr-1" /><StaffName id={plan.createdBy} /></span>
                   </div>
                 </div>
 
@@ -392,11 +451,6 @@ const NursingCarePlanPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="mt-4 flex gap-2">
-                      <button className="flex-1 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1">
-                        <Edit className="w-4 h-4" /> {t('docNursingCarePlan.editPlan')}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -411,22 +465,44 @@ const NursingCarePlanPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
             <div className="space-y-4">
+              <PatientSelect
+                id="ncp-patient"
+                label={t('docNursingCarePlan.patientRequired')}
+                value={form.patientId}
+                onChange={(selectedPatientId) => {
+                  clearField('patientId');
+                  setForm(f => ({ ...f, patientId: selectedPatientId }));
+                }}
+                onBlur={() => validateField('patientId', form)}
+                error={errors.patientId}
+                required
+              />
+              <Input
+                id="ncp-diagnosis"
+                type="text"
+                label={t('docNursingCarePlan.diagnosisRequired')}
+                placeholder={t('docNursingCarePlan.diagnosisPlaceholder')}
+                value={form.diagnosis}
+                onChange={(e) => {
+                  clearField('diagnosis');
+                  setForm(f => ({ ...f, diagnosis: e.target.value }));
+                }}
+                onBlur={() => validateField('diagnosis', form)}
+                error={errors.diagnosis}
+                required
+              />
               <div>
-                <label htmlFor="ncp-patient" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.patientRequired')}</label>
-                <select id="ncp-patient" className="w-full border rounded-lg px-3 py-2"
-                  value={form.patientId}
-                  onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
-                  <option value="">{t('docNursingCarePlan.selectPatient')}</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
-                  ))}
-                </select>
+                <label htmlFor="ncp-goals" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.goals')}</label>
+                <textarea id="ncp-goals" value={form.goals} onChange={(e) => setForm(f => ({ ...f, goals: e.target.value }))}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" rows={3}
+                  placeholder={t('docNursingCarePlan.goalsPlaceholder')} />
               </div>
               <div>
-                <label htmlFor="ncp-diagnosis" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.diagnosisRequired')}</label>
-                <input id="ncp-diagnosis" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docNursingCarePlan.diagnosisPlaceholder')}
-                  value={form.diagnosis}
-                  onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} />
+                <label htmlFor="ncp-interventions" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.interventions')}</label>
+                <textarea id="ncp-interventions" value={form.interventions} onChange={(e) => setForm(f => ({ ...f, interventions: e.target.value }))}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" rows={3}
+                  placeholder={t('docNursingCarePlan.interventionsPlaceholder')} />
+                <p className="mt-1 text-xs text-content-muted">{t('docNursingCarePlan.templateReviewHint')}</p>
               </div>
               <div role="group" aria-labelledby="ncp-priority-label">
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
@@ -448,7 +524,7 @@ const NursingCarePlanPage: React.FC = () => {
               <button
                 onClick={createPlan}
                 disabled={saving}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>
@@ -467,9 +543,9 @@ const NursingCarePlanPage: React.FC = () => {
                 <div>
                   <h3 className="font-semibold">{tpl.name}</h3>
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
-                  <p className="text-xs text-content-muted">{t('docNursingCarePlan.interventionsCount', { count: tpl.interventions })}</p>
+                  <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsCount', { count: tpl.goals.length })} · {t('docNursingCarePlan.interventionsCount', { count: tpl.interventions.length })}</p>
                 </div>
-                <button className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button type="button" onClick={() => useTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

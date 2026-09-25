@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  apiUrl,
+  getMedicalId,
   useTranslation,
   useToastActions,
+  updateMedicalIdPreferences,
   formatDate,
   normalizePhone,
   EmptyState,
 } from '@medichain/shared';
+import type { MedicalIdCard } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   AlertTriangle,
@@ -25,7 +27,6 @@ import {
   Share2,
   Lock,
   CheckCircle,
-  XCircle,
 } from 'lucide-react';
 
 interface DnrStatusObject {
@@ -113,6 +114,33 @@ interface MedicalIdData {
   };
 }
 
+function toMedicalIdData(card: MedicalIdCard): MedicalIdData {
+  return {
+    patient_id: card.patient_id,
+    name: card.name,
+    date_of_birth: card.date_of_birth,
+    profile_unavailable: card.profile_unavailable,
+    blood_type: card.blood_type,
+    allergies: card.allergies,
+    medications: card.medications,
+    conditions: card.chronic_conditions,
+    emergency_contacts: card.emergency_contacts.map((contact) => ({
+      name: contact.name ?? '',
+      phone: contact.phone ?? '',
+      relationship: contact.relationship ?? '',
+      can_make_medical_decisions: contact.verified === true,
+    })),
+    organ_donor: card.organ_donor.status,
+    dnr_status: card.dnr_status,
+    languages: card.languages,
+    insurance: undefined,
+    primary_doctor: card.primary_doctor
+      ? { name: card.primary_doctor.name, phone: card.primary_doctor.phone ?? '' }
+      : undefined,
+    preferences: card.preferences,
+  };
+}
+
 /**
  * Medical ID Page
  * 
@@ -124,9 +152,10 @@ interface MedicalIdData {
 export function MedicalIdPage() {
   const navigate = useNavigate();
   const { t, locale } = useTranslation();
-  const { showError, showWarning } = useToastActions();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
+  const [savingPreference, setSavingPreference] = useState(false);
 
   // The API returns these as strings on some paths and objects (e.g.
   // `{name, ...}`) on others. Rendering an object directly threw
@@ -156,82 +185,31 @@ export function MedicalIdPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  useEffect(() => {
-    if (patient) {
-      loadMedicalId();
-    }
-  }, [patient, activeView]);
-
-  const loadMedicalId = async () => {
+  const loadMedicalId = useCallback(async () => {
     if (!patient) return;
     
     setIsLoading(true);
     
     try {
-      const userId = patient.healthId;
-      // Pick endpoint based on active view
-      const endpoint = activeView === 'emergency'
-        ? `/api/medical-id/${userId}/emergency`
-        : activeView === 'lockscreen'
-        ? `/api/medical-id/${userId}/lockscreen`
-        : `/api/medical-id/${userId}`;
-
-      const response = await fetch(apiUrl(endpoint), {
-        headers: {
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (activeView === 'full') {
-          const profileResponse = await fetch(apiUrl(`/api/patients/${userId}`), {
-            headers: {
-              'X-User-Id': patient.walletAddress,
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          if (profileResponse.ok) {
-            const profile = await profileResponse.json();
-            const emergency = profile.emergency_info || {};
-            result.allergies = result.allergies?.length ? result.allergies : (emergency.allergies || []);
-            result.conditions = result.conditions?.length
-              ? result.conditions
-              : (result.chronic_conditions?.length ? result.chronic_conditions : (emergency.chronic_conditions || []));
-            result.medications = result.medications?.length
-              ? result.medications : (emergency.current_medications || []);
-            result.emergency_contacts = result.emergency_contacts?.length
-              ? result.emergency_contacts : (emergency.emergency_contacts || []);
-          }
-        }
-        setData(result);
-      } else {
-        // Fallback to full medical ID if emergency/lockscreen endpoints fail
-        if (activeView !== 'full') {
-          const fallback = await fetch(apiUrl(`/api/medical-id/${userId}`), {
-            headers: {
-              'X-User-Id': patient.walletAddress,
-              'X-Health-Id': patient.healthId,
-            },
-          });
-          if (fallback.ok) {
-            setData(await fallback.json());
-          } else {
-            setData(null);
-          }
-        } else {
-          console.error('Failed to load Medical ID');
-          setData(null);
-        }
-      }
+      // Emergency and lock-screen endpoints require capabilities from a
+      // managed device and must never be probed with the patient's browser
+      // session. The selector is a local preview mode; its data remains the
+      // authenticated patient's full Medical ID card.
+      const card = await getMedicalId(patient.healthId);
+      setData(toMedicalIdData(card));
     } catch (error) {
       console.error('Error loading Medical ID:', error);
       setData(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [patient]);
+
+  useEffect(() => {
+    if (patient) {
+      loadMedicalId();
+    }
+  }, [patient, activeView, loadMedicalId]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
@@ -318,7 +296,7 @@ export function MedicalIdPage() {
     return (
       <div className="p-6">
         <EmptyState
-          icon={<AlertTriangle className="w-12 h-12 text-amber-500" />}
+          icon={<AlertTriangle className="w-12 h-12 text-caution" />}
           title={t('medicalId.unableToLoadTitle')}
           description={t('medicalId.unableToLoadDesc')}
           action={
@@ -335,6 +313,35 @@ export function MedicalIdPage() {
   }
 
   const dnr = resolveDnr(data.dnr_status);
+
+  /**
+   * Whether the medical ID shows on the phone's lock screen.
+   *
+   * This switch was `onChange={() => {}}` — it moved nothing, saved nothing and
+   * called nothing, while `updateMedicalIdPreferences` sat imported nowhere. A
+   * privacy control that appears to work and does not is worse than no control:
+   * a patient who turns it off believes their allergies and conditions are no
+   * longer readable from a locked phone.
+   *
+   * Optimistic, then reverted on failure — the switch must never rest in a
+   * position the server did not agree to.
+   */
+  const handleShowWhenLocked = async (next: boolean) => {
+    if (!data || !patient?.healthId) return;
+    const previous = data.preferences.show_when_locked;
+    setData({ ...data, preferences: { ...data.preferences, show_when_locked: next } });
+    setSavingPreference(true);
+    try {
+      await updateMedicalIdPreferences(patient.healthId, { show_when_locked: next });
+      showSuccess(t('medicalId.preferenceSaved'));
+    } catch (error) {
+      console.error('Failed to save lock-screen preference:', error);
+      setData({ ...data, preferences: { ...data.preferences, show_when_locked: previous } });
+      showError(t('medicalId.preferenceSaveFailed'));
+    } finally {
+      setSavingPreference(false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6 pb-24">
@@ -381,16 +388,21 @@ export function MedicalIdPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Lock className={data.preferences.show_when_locked ? 'text-ok-subtle-fg' : 'text-content-muted'} />
-            <div>
+            <div className={data.preferences.show_when_locked ? 'text-ok-subtle-fg' : 'text-content'}>
               <p className="font-medium">{t('medicalId.showWhenLocked')}</p>
-              <p className="text-sm text-content-muted">{t('medicalId.showWhenLockedDesc')}</p>
+              {/* Muted grey is a colour for a neutral card. On the green
+                  `bg-ok-subtle` this panel takes when the setting is on it
+                  measured 3.59:1, so the copy follows the panel's own pair. */}
+              <p className="text-sm opacity-90">{t('medicalId.showWhenLockedDesc')}</p>
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
+            <span className="sr-only">{t('medicalId.showWhenLocked')}</span>
             <input
               type="checkbox"
               checked={data.preferences.show_when_locked}
-              onChange={() => {}}
+              disabled={savingPreference}
+              onChange={(event) => void handleShowWhenLocked(event.target.checked)}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
@@ -401,7 +413,7 @@ export function MedicalIdPage() {
       {/* Main Medical ID Card */}
       <div className="bg-surface rounded-3xl shadow-lg overflow-hidden">
         {/* Red Emergency Header */}
-        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6">
+        <div className="bg-gradient-to-r from-red-700 to-red-800 text-white p-6">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-surface/20 rounded-full flex items-center justify-center">
               <User className="w-8 h-8" />
@@ -410,7 +422,7 @@ export function MedicalIdPage() {
               <h2 className="text-2xl font-bold">
                 {data.name ?? t('medicalId.nameUnavailable')}
               </h2>
-              <div className="flex items-center gap-2 text-critical-fg">
+              <div className="flex items-center gap-2 text-white">
                 <Calendar className="w-4 h-4" />
                 <span>
                   {data.date_of_birth
@@ -439,12 +451,12 @@ export function MedicalIdPage() {
         {/* Blood Type & Organ Donor */}
         <div className="grid grid-cols-2 divide-x divide-border">
           <div className="p-4 text-center">
-            <Droplet className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <Droplet className="w-8 h-8 text-critical mx-auto mb-2" />
             <p className="text-3xl font-bold text-content">{asText(data.blood_type)}</p>
             <p className="text-sm text-content-muted">{t('medicalId.bloodTypeLabel')}</p>
           </div>
           <div className="p-4 text-center">
-            <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-green-500' : 'text-neutral-300'}`} />
+            <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-ok' : 'text-content-muted'}`} />
             <p className="text-lg font-bold text-content">
               {data.organ_donor ? t('medicalId.organDonorYes') : t('medicalId.organDonorNo')}
             </p>
@@ -475,7 +487,7 @@ export function MedicalIdPage() {
         {/* Allergies */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
+            <AlertTriangle className="w-5 h-5 text-critical" />
             <h3 className="font-bold text-content">{t('medicalId.allergiesTitle')}</h3>
           </div>
           {(data.allergies ?? []).length > 0 ? (
@@ -500,7 +512,7 @@ export function MedicalIdPage() {
         {/* Medical Conditions */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
-            <Stethoscope className="w-5 h-5 text-blue-500" />
+            <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
             <h3 className="font-bold text-content">{t('medicalId.conditionsTitle')}</h3>
           </div>
           {(data.conditions ?? []).length > 0 ? (
@@ -539,7 +551,7 @@ export function MedicalIdPage() {
         {/* Emergency Contacts */}
         <div className="p-4 border-t border-border bg-surface-sunken">
           <div className="flex items-center gap-2 mb-3">
-            <Phone className="w-5 h-5 text-green-500" />
+            <Phone className="w-5 h-5 text-ok" />
             <h3 className="font-bold text-content">{t('medicalId.emergencyContactsTitle')}</h3>
           </div>
           {data.emergency_contacts.map((contact, i) => {
@@ -554,7 +566,7 @@ export function MedicalIdPage() {
                   {normalized ? (
                     <a
                       href={`tel:${normalized}`}
-                      className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
+                      className="bg-ok text-ok-fg px-4 py-2 rounded-lg font-medium flex items-center gap-2"
                     >
                       <Phone className="w-4 h-4" />
                       {t('medicalId.callButton')}
@@ -579,7 +591,7 @@ export function MedicalIdPage() {
         {data.primary_doctor && (
           <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
-              <Stethoscope className="w-5 h-5 text-blue-500" />
+              <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
               <h3 className="font-bold text-content">{t('medicalId.primaryCareProviderTitle')}</h3>
             </div>
             <div className="bg-notice-subtle p-3 rounded-lg">
@@ -614,7 +626,7 @@ export function MedicalIdPage() {
         {data.insurance && (
           <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-5 h-5 text-indigo-500" />
+              <Shield className="w-5 h-5 text-brand" />
               <h3 className="font-bold text-content">{t('medicalId.insuranceTitle')}</h3>
             </div>
             <div className="bg-surface-sunken p-3 rounded-lg">

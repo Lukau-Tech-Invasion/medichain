@@ -5,22 +5,26 @@
 //!
 //! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-/// Common error codes
-#[allow(dead_code)]
+/// Common error codes.
+///
+/// Handlers that adopted these use them as constants; much of the codebase
+/// still writes the same codes as string literals (`"FORBIDDEN"`,
+/// `"PATIENT_NOT_FOUND"`, ...). Only codes some handler reads from here are
+/// kept: `FORBIDDEN`, `INVALID_INPUT` and `PATIENT_NOT_FOUND` were removed on
+/// 2026-09-24 because every use of them was a literal.
 pub mod error_codes {
     pub const UNAUTHORIZED: &str = "UNAUTHORIZED";
-    pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const NOT_FOUND: &str = "NOT_FOUND";
+    /// A conditional write whose guard no longer held: somebody else changed
+    /// the record between the caller reading it and writing it back. The client
+    /// reloads and retries; it is not an error in the request.
+    pub const CONFLICT: &str = "CONFLICT";
     pub const VALIDATION_ERROR: &str = "VALIDATION_ERROR";
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
-    pub const LOCK_ERROR: &str = "LOCK_ERROR";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
     pub const RATE_LIMIT_EXCEEDED: &str = "RATE_LIMIT_EXCEEDED";
-    pub const INVALID_INPUT: &str = "INVALID_INPUT";
-    pub const DUPLICATE_ENTRY: &str = "DUPLICATE_ENTRY";
     pub const INSUFFICIENT_ROLE: &str = "INSUFFICIENT_ROLE";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
-    pub const PATIENT_NOT_FOUND: &str = "PATIENT_NOT_FOUND";
     pub const ENCRYPTION_REQUIRED: &str = "ENCRYPTION_REQUIRED";
 }
 
@@ -44,7 +48,6 @@ pub fn error_envelope_json(
 }
 
 /// Secure token generation for access IDs and emergency tokens
-#[allow(dead_code)]
 pub mod secure_tokens {
     use sha3::{Digest, Sha3_256};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -66,37 +69,6 @@ pub mod secure_tokens {
         format!("ACC-{}", hex::encode(&hash[..12]))
     }
 
-    /// Generate a secure emergency token
-    /// Format: EMG-{timestamp_hex}{random_hex}{checksum} (40 chars total)
-    pub fn generate_emergency_token() -> String {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let random_bytes: [u8; 16] = rand_bytes();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(b"MEDICHAIN_EMERGENCY_");
-        hasher.update(timestamp.to_be_bytes());
-        hasher.update(random_bytes);
-        let hash = hasher.finalize();
-
-        format!("EMG-{}", hex::encode(&hash[..16]))
-    }
-
-    /// Generate a secure NFC tag ID
-    /// Format: NFC-{random_hex} (28 chars total)
-    pub fn generate_nfc_tag_id() -> String {
-        let random_bytes: [u8; 16] = rand_bytes();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(b"MEDICHAIN_NFC_");
-        hasher.update(random_bytes);
-        let hash = hasher.finalize();
-
-        format!("NFC-{}", hex::encode(&hash[..12]))
-    }
-
     /// Generate random bytes using UUID as entropy source
     fn rand_bytes() -> [u8; 16] {
         let uuid1 = uuid::Uuid::new_v4();
@@ -113,7 +85,6 @@ pub mod secure_tokens {
 }
 
 /// Input validation helpers
-#[allow(dead_code)]
 pub mod validation {
     /// Maximum allowed string length for text fields
     pub const MAX_TEXT_LENGTH: usize = 10000;
@@ -121,13 +92,6 @@ pub mod validation {
     pub const MAX_NAME_LENGTH: usize = 200;
     /// Maximum allowed string length for IDs
     pub const MAX_ID_LENGTH: usize = 100;
-    /// Maximum age value
-    pub const MAX_AGE: u8 = 150;
-    /// Maximum reasonable weight in kg
-    pub const MAX_WEIGHT_KG: f64 = 700.0;
-    /// Maximum reasonable height in cm
-    pub const MAX_HEIGHT_CM: f64 = 300.0;
-
     /// Validate string length is within bounds
     pub fn validate_string_length(
         value: &str,
@@ -151,46 +115,6 @@ pub mod validation {
     ) -> Result<(), String> {
         if let Some(v) = value {
             validate_string_length(v, field_name, max_length)?;
-        }
-        Ok(())
-    }
-
-    /// Validate age is reasonable
-    pub fn validate_age(age: u8) -> Result<(), String> {
-        if age > MAX_AGE {
-            return Err(format!("Age {} exceeds maximum of {}", age, MAX_AGE));
-        }
-        Ok(())
-    }
-
-    /// Validate numeric range
-    pub fn validate_range<T: PartialOrd + std::fmt::Display>(
-        value: T,
-        field_name: &str,
-        min: T,
-        max: T,
-    ) -> Result<(), String> {
-        if value < min || value > max {
-            return Err(format!(
-                "{} must be between {} and {}",
-                field_name, min, max
-            ));
-        }
-        Ok(())
-    }
-
-    /// Validate wallet address format (SS58)
-    pub fn validate_wallet_address(address: &str) -> Result<(), String> {
-        // SS58 addresses start with 5 and are 48 characters for substrate
-        if address.is_empty() {
-            return Err("Wallet address cannot be empty".to_string());
-        }
-        if address.len() < 32 || address.len() > 64 {
-            return Err("Invalid wallet address length".to_string());
-        }
-        // Basic character validation
-        if !address.chars().all(|c| c.is_alphanumeric()) {
-            return Err("Wallet address contains invalid characters".to_string());
         }
         Ok(())
     }
@@ -221,21 +145,5 @@ mod tests {
     fn test_string_validation() {
         assert!(validate_string_length("short", "field", 100).is_ok());
         assert!(validate_string_length("x".repeat(101).as_str(), "field", 100).is_err());
-    }
-
-    #[test]
-    fn test_age_validation() {
-        assert!(validate_age(25).is_ok());
-        assert!(validate_age(150).is_ok());
-        assert!(validate_age(151).is_err());
-    }
-
-    #[test]
-    fn test_wallet_validation() {
-        assert!(
-            validate_wallet_address("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY").is_ok()
-        );
-        assert!(validate_wallet_address("").is_err());
-        assert!(validate_wallet_address("short").is_err());
     }
 }

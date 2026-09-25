@@ -37,7 +37,6 @@ pub async fn demo_login(
 
     if !dev_mode || !crate::support::is_demo_mode() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Demo login is only available in development mode".to_string(),
             code: "DEV_MODE_REQUIRED".to_string(),
         });
@@ -46,7 +45,6 @@ pub async fn demo_login(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error:
                 "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
                     .to_string(),
@@ -60,7 +58,6 @@ pub async fn demo_login(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_ROLE".to_string(),
             });
@@ -173,7 +170,7 @@ pub async fn demo_info() -> impl Responder {
                 "my_records": "GET /api/my-records (Patient: own records only)"
             },
             "emergency": {
-                "access": "POST /api/emergency-access",
+                "access": "POST /api/emergency/grants (device-bound break-glass)",
                 "simulate_nfc": "POST /api/simulate-nfc-tap",
                 "access_logs": "GET /api/access-logs/{patient_id}"
             },
@@ -186,4 +183,153 @@ pub async fn demo_info() -> impl Responder {
         },
         "auth_header": "Use 'X-User-Id' header with wallet address (SS58 format) for authentication"
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Demo credential resolver
+// ---------------------------------------------------------------------------
+
+/// One seeded demo staff account, as offered to the demo sign-in shortcut.
+#[derive(Debug, Serialize)]
+pub struct DemoCredential {
+    pub login_id: String,
+    pub password: String,
+    pub name: String,
+    pub role: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DemoCredentialsResponse {
+    pub success: bool,
+    pub credentials: Vec<DemoCredential>,
+}
+
+/// The password the fixture seeder binds to every demo staff account.
+///
+/// It is a throwaway test key, and it lives here rather than in the frontend so
+/// a production bundle cannot carry it: this endpoint refuses to answer outside
+/// demo mode, so the shipped JavaScript has nothing to leak.
+const DEMO_FIXTURE_PASSWORD: &str = "BrowserTest!2026";
+
+/// Login identifiers provisioned by `scripts/seed-browser-test-fixtures.ts`.
+///
+/// Deliberately an explicit list rather than "every user with a keystore". The
+/// shortcut must only ever offer accounts that were created as fixtures; reading
+/// the credential table and handing back whatever it finds would turn a demo
+/// convenience into a credential oracle the first time a real account was
+/// enrolled on the same database.
+const DEMO_FIXTURE_LOGIN_IDS: &[&str] = &[
+    "bt.doctor",
+    "bt.nurse",
+    "bt.admin",
+    "bt.pharm",
+    "bt.pharm2",
+    "bt.lab",
+];
+
+/// Return the seeded demo staff credentials, so the demo shortcut can drive the
+/// ordinary employee-ID/password sign-in rather than a bypass of its own.
+///
+/// # Why this exists
+///
+/// The clinician portal's quick-login buttons used to call a wallet-lookup route
+/// and then set an authenticated state with no bearer token behind it. There is
+/// no honest way for a one-click button to mint a session: `POST /api/auth/jwt`
+/// verifies a real sr25519 signature over a single-use challenge in every mode,
+/// including demo. So the shortcut now fetches these credentials and runs the
+/// real credential flow, which unlocks a keystore, derives a signer, signs the
+/// challenge, and receives a genuine session. One authentication path, with a
+/// convenience in front of it -- not a second protocol.
+///
+/// # Containment
+///
+/// Gated exactly like `demo_login`: `MEDICHAIN_DEV_MODE` **and** demo mode, both
+/// defaulting to off, so enabling it is two deliberate acts rather than one
+/// omission. Under production configuration it 403s, which means the shortcut
+/// cannot work there even if the button were somehow rendered.
+#[get("/api/auth/demo-credentials")]
+pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
+    let dev_mode = std::env::var("MEDICHAIN_DEV_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if !dev_mode || !crate::support::is_demo_mode() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Demo credentials are only available in development mode".to_string(),
+            code: "DEV_MODE_REQUIRED".to_string(),
+        });
+    }
+
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Demo credentials are unavailable without durable storage".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+
+    // Only accounts that actually carry a keystore can complete the credential
+    // flow, so an unseeded database yields an empty list rather than a set of
+    // identifiers that would fail at sign-in.
+    //
+    // Matched by PREFIX, not equality. `seed-browser-test-fixtures.ts` supports
+    // `MEDICHAIN_FIXTURE_SUFFIX`, so a seeded administrator is `bt.admin.k`
+    // while this list holds `bt.admin` -- and an exact match therefore returned
+    // every other role and never the administrator. The consequence was not
+    // cosmetic: no browser test could sign in as an administrator at all, so
+    // the fourteen screens in that role's navigation had no coverage.
+    //
+    // The `LIKE` pattern is built from the bound parameter inside the query, so
+    // this is still fully parameterised -- no identifier or literal is
+    // concatenated into the SQL.
+    // ONE credential per login id, not one per matching row.
+    //
+    // A first attempt at the suffix problem matched `base || '.%'` and returned
+    // every suffixed fixture -- `bt.doctor`, `bt.doctor.c`, `bt.doctor.d`,
+    // `bt.doctor.j`, `bt.doctor.k` -- so the sign-in screen grew a dozen demo
+    // buttons where it had five. That broke the browser suites outright: the
+    // selectors match on the role a button advertises, and five buttons saying
+    // "Doctor" are five matches.
+    //
+    // `DISTINCT ON (base)` keeps exactly one per fixture identity, preferring
+    // the unsuffixed account when it exists so an existing database behaves as
+    // it did before.
+    let rows: Result<Vec<(String, Option<String>, String)>, _> = sqlx::query_as(
+        "SELECT DISTINCT ON (matched.base) u.login_id, u.name, u.role
+         FROM users u
+         JOIN LATERAL (
+                SELECT base
+                FROM unnest($1::text[]) AS base
+                WHERE u.login_id = base OR u.login_id LIKE base || '.%'
+                LIMIT 1
+              ) AS matched ON TRUE
+         WHERE u.encrypted_keystore IS NOT NULL
+           AND u.credential_verifier IS NOT NULL
+           AND u.status = 'active'
+         ORDER BY matched.base, (u.login_id = matched.base) DESC, u.login_id",
+    )
+    .bind(DEMO_FIXTURE_LOGIN_IDS)
+    .fetch_all(pool)
+    .await;
+
+    match rows {
+        Ok(rows) => HttpResponse::Ok().json(DemoCredentialsResponse {
+            success: true,
+            credentials: rows
+                .into_iter()
+                .map(|(login_id, name, role)| DemoCredential {
+                    name: name.unwrap_or_else(|| login_id.clone()),
+                    login_id,
+                    password: DEMO_FIXTURE_PASSWORD.to_string(),
+                    role,
+                })
+                .collect(),
+        }),
+        Err(error) => {
+            log::error!("Demo credential lookup failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Demo credentials are temporarily unavailable".to_string(),
+                code: "DEMO_CREDENTIALS_UNAVAILABLE".to_string(),
+            })
+        }
+    }
 }

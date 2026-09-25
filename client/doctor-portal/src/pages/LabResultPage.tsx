@@ -12,11 +12,11 @@ import {
   Minus,
   Download,
   Printer,
-  RefreshCw,
-  AlertCircle
+  RefreshCw
 } from 'lucide-react';
-import { getAllLabSubmissions, useTranslation } from '@medichain/shared';
+import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner } from '@medichain/shared';
 
+import StaffName from '../components/StaffName';
 /**
  * LabResultPage
  * 
@@ -52,6 +52,40 @@ interface LabResult {
   notes?: string;
 }
 
+export const labResultCsv = (result: LabResult) => {
+  const quote = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  return [['Panel', result.panelName], ['Patient ID', result.mrn], [], ['Test', 'Result', 'Unit', 'Reference range', 'Flag'],
+    ...result.tests.map(test => [test.testCode, test.result, test.unit, test.referenceRange, test.flag])]
+    .map(row => row.map(value => quote(value ?? '')).join(',')).join('\r\n');
+};
+
+const downloadLabResult = (result: LabResult) => {
+  const csv = labResultCsv(result);
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `lab-result-${result.id}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+/** A lab submission row, in either of the two casings it is stored under. */
+interface RawLabSubmission {
+  id?: string; submission_id?: string;
+  patient_id?: string; patientId?: string;
+  patient_name?: string; patientName?: string;
+  mrn?: string;
+  order_date?: string; orderDate?: string;
+  collection_date?: string; collectionDate?: string;
+  result_date?: string; resultDate?: string;
+  panel_name?: string; panelName?: string;
+  status?: string;
+  ordered_by?: string; orderedBy?: string;
+  tests?: LabResult['tests'];
+  specimen?: string;
+  notes?: string;
+}
+
 const LabResultPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'results' | 'pending' | 'critical'>('results');
@@ -69,7 +103,7 @@ const LabResultPage: React.FC = () => {
     try {
       const submissions = await getAllLabSubmissions();
       // Map API response to LabResult interface
-      const mappedResults: LabResult[] = ((submissions as unknown) as unknown[]).map((s: any) => ({
+      const mappedResults: LabResult[] = ((submissions as unknown) as RawLabSubmission[]).map((s) => ({
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
         patientName: s.patient_name || s.patientName || t('docLabResult.unknownPatient'),
@@ -153,13 +187,27 @@ const LabResultPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FlaskConical className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docLabResult.title')}</h1>
         </div>
-        <p className="text-emerald-100">{t('docLabResult.subtitle')}</p>
+        <p className="text-white">{t('docLabResult.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
@@ -227,7 +275,7 @@ const LabResultPage: React.FC = () => {
         {filteredResults.map(result => (
           <div
             key={result.id}
-            onClick={() => setSelectedResult(result)}
+            {...clickable(() => setSelectedResult(result))}
             className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md transition-shadow ${
               hasCritical(result) ? 'border-l-4 border-l-red-500' : ''
             }`}
@@ -247,7 +295,7 @@ const LabResultPage: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <User className="w-3 h-3" />
-                {result.orderedBy}
+                <StaffName id={result.orderedBy} />
               </span>
             </div>
 
@@ -279,8 +327,8 @@ const LabResultPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
-                <button className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={() => downloadLabResult(selectedResult)} aria-label="Download lab result as CSV" className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
+                <button type="button" onClick={() => window.print()} aria-label="Print lab result" className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
                 <button onClick={() => setSelectedResult(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>

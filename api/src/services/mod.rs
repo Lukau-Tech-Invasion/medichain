@@ -8,4 +8,4 @@
 //! read/write paths are `AppState::persist_user`/`load_demo_users_from_db`
 //! in `state.rs`, which predate and superseded it).
 
-pub mod transcription;
+pub mod translation;

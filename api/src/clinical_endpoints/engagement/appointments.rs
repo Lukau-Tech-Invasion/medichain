@@ -132,7 +132,6 @@ pub async fn book_appointment(
 
             if !has_family_access {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "Unauthorized to book appointment for this patient".to_string(),
                     code: "FORBIDDEN".to_string(),
                 });
@@ -144,7 +143,6 @@ pub async fn book_appointment(
         Some(t) => t,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: format!(
                     "'{}' is not a recognised appointment type",
                     req.appointment_type
@@ -231,12 +229,19 @@ pub async fn book_appointment(
         });
         match crate::clinical_endpoints::provision_session(
             &data,
-            &appointment.patient_id,
-            attribution.provider_id(),
-            Some(appointment.appointment_id.clone()),
-            scheduled_start,
-            crate::clinical::TelehealthType::VideoVisit,
-            false,
+            crate::clinical_endpoints::SessionRequest {
+                patient_id: &appointment.patient_id,
+                provider_id: attribution.provider_id(),
+                appointment_id: Some(appointment.appointment_id.clone()),
+                scheduled_start,
+                session_type: crate::clinical::TelehealthType::VideoVisit,
+                recording_enabled: false,
+                // The room is booked for as long as the appointment is. It used
+                // to be a fixed 60 regardless, so a 15-minute follow-up minted a
+                // link valid for 90 minutes and a 2-hour appointment's link
+                // expired halfway through the consultation.
+                duration_minutes: u32::from(duration_minutes),
+            },
         )
         .await
         {
@@ -248,7 +253,6 @@ pub async fn book_appointment(
             Err(e) => {
                 log::error!("telehealth session provisioning failed: {e}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "The video consultation could not be set up.                             Please try again, or book an in-person appointment."
                         .to_string(),
                     code: "TELEHEALTH_UNAVAILABLE".to_string(),
@@ -269,34 +273,34 @@ pub async fn book_appointment(
         return match e {
             crate::repositories::traits::RepositoryError::Duplicate(msg) => {
                 HttpResponse::Conflict().json(ErrorResponse {
-                    success: false,
                     error: msg,
                     code: "SLOT_UNAVAILABLE".to_string(),
                 })
             }
             other => HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("Failed to store appointment: {}", other),
                 code: "INTERNAL_ERROR".to_string(),
             }),
         };
     }
 
-    // FCM push: appointment booking confirmation.
+    // FCM push: appointment booking confirmation. Fire-and-forget, and
+    // addressed to the patient's account rather than their record id -- see
+    // `notify_patient` for why that distinction decided whether any of these
+    // messages could be delivered at all.
     {
-        let repos = data.repositories.clone();
+        let state = data.clone();
         tokio::spawn(async move {
-            let _ = crate::notifications::send_push_to_user(
-                &repos,
-                crate::notifications::PushNotification {
-                    user_id: appointment_patient_id,
-                    title: "Appointment Confirmed".to_string(),
-                    body: format!(
-                        "Your appointment with {} has been booked.",
-                        appointment_provider_name
-                    ),
-                    data: Some([("type".to_string(), "appointment_confirmed".to_string())].into()),
-                },
+            crate::notifications::notify_patient(
+                &state,
+                &appointment_patient_id,
+                &["appointmentReminders", "pushNotifications"],
+                "Appointment Confirmed",
+                &format!(
+                    "Your appointment with {} has been booked.",
+                    appointment_provider_name
+                ),
+                "appointment_confirmed",
             )
             .await;
         });
@@ -332,7 +336,6 @@ pub async fn get_patient_appointments(
         && !is_provider
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -376,7 +379,6 @@ pub async fn get_provider_appointments(
         crate::get_user(&data, &current_user_id).is_some_and(|user| user.role.is_admin());
     if current_user_id != provider_id && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -397,86 +399,6 @@ pub async fn get_provider_appointments(
             .map(|a| appointment_json(&data, a))
             .collect::<Vec<_>>(),
         "count": provider_appointments.len()
-    }))
-}
-
-/// Cancel appointment request.
-///
-/// `reason` is optional at the wire level on purpose. It used to be required,
-/// and the doctor portal's Cancel button sends no body at all, so every
-/// cancellation from the portal failed deserialization with a 400 before the
-/// handler ran — a dead button (`docs/WORKFLOW_AUDIT.md`, WF-006). Accepting an
-/// absent body and defaulting to a recorded "no reason given" keeps the button
-/// working while still capturing a reason whenever one is offered.
-#[derive(Debug, Default, Deserialize)]
-pub struct CancelAppointmentRequest {
-    #[serde(default)]
-    pub reason: Option<String>,
-}
-
-/// Cancel an appointment
-#[post("/api/appointments/{appointment_id}/cancel")]
-pub async fn cancel_appointment(
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    path: web::Path<String>,
-    // `Option<web::Json<..>>` so a request with no body at all still reaches
-    // the handler instead of being rejected by the extractor.
-    req: Option<web::Json<CancelAppointmentRequest>>,
-) -> impl Responder {
-    let appointment_id = path.into_inner();
-    let reason = req
-        .and_then(|r| r.into_inner().reason)
-        .map(|r| r.trim().to_string())
-        .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| "No reason given".to_string());
-
-    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let appointment = match data
-        .repositories
-        .appointments
-        .get_by_id(&appointment_id)
-        .await
-    {
-        Ok(a) => a,
-        Err(_) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Appointment not found".to_string(),
-                code: "NOT_FOUND".to_string(),
-            })
-        }
-    };
-
-    // Auth check: patient or provider
-    if current_user_id != appointment.patient_id && current_user_id != appointment.provider_id {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Access denied".to_string(),
-            code: "FORBIDDEN".to_string(),
-        });
-    }
-
-    if let Err(e) = data
-        .repositories
-        .appointments
-        .cancel(&appointment_id, &reason, &current_user_id)
-        .await
-    {
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: format!("Failed to cancel appointment: {}", e),
-            code: "INTERNAL_ERROR".to_string(),
-        });
-    }
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "message": "Appointment cancelled"
     }))
 }
 
@@ -506,7 +428,6 @@ pub async fn get_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -518,12 +439,13 @@ pub async fn get_appointment(
     // view it. Never infer authorization from a user-ID prefix.
     let is_provider = crate::get_user(&data, &current_user_id)
         .is_some_and(|user| user.role.is_healthcare_provider());
-    if current_user_id != appointment.patient_id
-        && current_user_id != appointment.provider_id
-        && !is_provider
-    {
+    let is_the_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user_id,
+        &appointment.patient_id,
+    );
+    if !is_the_patient && current_user_id != appointment.provider_id && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -555,7 +477,6 @@ pub async fn check_in_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -569,12 +490,20 @@ pub async fn check_in_appointment(
     // the patient. This previously allowed the patient only, so the doctor
     // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
     // WF-007).
-    let is_patient = current_user_id == appointment.patient_id;
+    // Resolved through `linked_patient_id`, not compared directly: the caller id
+    // is a wallet address and `appointment.patient_id` is a `PAT-` id, so a
+    // bare `==` is false for every patient who has ever tried to check
+    // themselves in. Clinical staff were unaffected, which is why the patient
+    // half of this went unnoticed after WF-007 fixed the clinician half.
+    let is_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user_id,
+        &appointment.patient_id,
+    );
     let is_clinical_staff =
         crate::get_user(&data, &current_user_id).is_some_and(|u| u.role.is_healthcare_provider());
     if !is_patient && !is_clinical_staff {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only the patient or clinic staff can check in an appointment".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -586,7 +515,6 @@ pub async fn check_in_appointment(
         &crate::clinical::AppointmentStatus::CheckedIn,
     ) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!(
                 "An appointment that is {} cannot be checked in",
                 crate::types::appt_status_storage_str(&appointment.status)
@@ -606,7 +534,6 @@ pub async fn check_in_appointment(
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to check in: {}", e),
             code: "INTERNAL_ERROR".to_string(),
         });
@@ -769,7 +696,6 @@ pub async fn transition_appointment(
         Ok(e) => e,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
@@ -780,7 +706,6 @@ pub async fn transition_appointment(
     let target = crate::types::appt_parse_status_strict(&req.status);
     let Some(target) = target else {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!("'{}' is not a recognised appointment status", req.status),
             code: "UNKNOWN_APPOINTMENT_STATUS".to_string(),
         });
@@ -800,7 +725,6 @@ pub async fn transition_appointment(
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "You are not a party to this appointment".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -811,7 +735,6 @@ pub async fn transition_appointment(
         && !matches!(target, S::Confirmed | S::Declined | S::Cancelled)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "A patient may only confirm, decline or cancel their appointment".to_string(),
             code: "FORBIDDEN_TRANSITION".to_string(),
         });
@@ -829,7 +752,6 @@ pub async fn transition_appointment(
     }
     if !is_valid_transition(&appointment.status, &target) {
         return HttpResponse::Conflict().json(ErrorResponse {
-            success: false,
             error: format!(
                 "An appointment that is {} cannot become {}",
                 crate::types::appt_status_storage_str(&appointment.status),
@@ -844,7 +766,6 @@ pub async fn transition_appointment(
         match confirming_party(&data, &appointment) {
             ConfirmingParty::Patient if !is_patient => {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "This appointment is awaiting the patient's confirmation; the party who booked it cannot confirm it themselves"
                         .to_string(),
                     code: "AWAITING_PATIENT_CONFIRMATION".to_string(),
@@ -852,7 +773,6 @@ pub async fn transition_appointment(
             }
             ConfirmingParty::Provider if !is_provider_of_record => {
                 return HttpResponse::Forbidden().json(ErrorResponse {
-                    success: false,
                     error: "This appointment is awaiting the provider's confirmation; the party who booked it cannot confirm it themselves"
                         .to_string(),
                     code: "AWAITING_PROVIDER_CONFIRMATION".to_string(),
@@ -868,7 +788,6 @@ pub async fn transition_appointment(
         let reason = req.reason.clone().unwrap_or_default();
         if reason.trim().is_empty() {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: "A reason is required to cancel an appointment".to_string(),
                 code: "REASON_REQUIRED".to_string(),
             });
@@ -886,9 +805,8 @@ pub async fn transition_appointment(
                 "message": "Appointment cancelled"
             })),
             Err(e) => {
-                log::error!("cancelling {appointment_id} failed: {e}");
+                log::error!("appointment cancellation failed: {e}");
                 HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
                     error: "The appointment could not be cancelled".to_string(),
                     code: "INTERNAL_ERROR".to_string(),
                 })
@@ -916,9 +834,8 @@ pub async fn transition_appointment(
             "message": "Appointment updated"
         })),
         Err(e) => {
-            log::error!("transitioning {appointment_id} failed: {e}");
+            log::error!("appointment transition failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: "The appointment could not be updated".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
@@ -940,11 +857,46 @@ pub async fn get_available_slots(
 ) -> impl Responder {
     let (provider_id, date) = path.into_inner();
 
-    // In a real system, this would query the provider's schedule and existing appointments
-    // For demo, return some mock slots
-    let slots = vec![
-        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30",
-    ];
+    // This provider's own hours where they have published them, and the fixed
+    // clinic grid where they have not.
+    //
+    // The grid used to be the only answer: nothing stored working hours, so
+    // every provider was offered the same ten slots whatever their diary said.
+    // Real bookings were excluded, so it could not double-book — but it could
+    // offer 09:00 with a surgeon whose list starts at 14:00, and the patient app
+    // rendered that as availability.
+    //
+    // `slots_source` has always said which of the two it is, and now it can say
+    // `provider_schedule`. A provider with no schedule keeps the grid rather
+    // than being shown as unavailable: absent hours are unknown hours, not zero
+    // hours, and refusing every booking for a provider who has not filled in a
+    // form is a worse failure than over-offering.
+    let parsed_date = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").ok();
+    let schedule = crate::clinical_endpoints::load_schedule(&data, &provider_id).await;
+
+    let (slots, slots_source, works_today) = match (schedule.as_ref(), parsed_date) {
+        (Some(schedule), Some(day)) => {
+            match crate::clinical_endpoints::slots_for_date(schedule, day) {
+                Some(times) => (times, "provider_schedule", true),
+                // The provider does not work this day, or it is blocked outright.
+                // An empty list with `works_today: false` beside it is not the same
+                // statement as "fully booked", and a booking screen must not
+                // conflate them.
+                None => (Vec::new(), "provider_schedule", false),
+            }
+        }
+        _ => (
+            [
+                "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00",
+                "15:30",
+            ]
+            .iter()
+            .map(|slot| (*slot).to_string())
+            .collect(),
+            "default_clinic_hours",
+            true,
+        ),
+    };
 
     // Filter out already booked slots for this provider on this date
     let booked_times: Vec<String> = match chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
@@ -967,9 +919,9 @@ pub async fn get_available_slots(
         Err(_) => Vec::new(),
     };
 
-    let available_slots: Vec<&str> = slots
+    let available_slots: Vec<String> = slots
         .into_iter()
-        .filter(|slot| !booked_times.contains(&slot.to_string()))
+        .filter(|slot| !booked_times.contains(slot))
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -977,7 +929,11 @@ pub async fn get_available_slots(
         "provider_id": provider_id,
         "date": date,
         "available_slots": available_slots,
-        "slot_duration_minutes": 30
+        "slot_duration_minutes": schedule.as_ref().map_or(30, |s| s.slot_minutes),
+        "slots_source": slots_source,
+        // Distinguishes "this provider does not work today" from "every slot is
+        // taken". Both are an empty list; only one of them means try tomorrow.
+        "works_today": works_today
     }))
 }
 
@@ -1039,9 +995,10 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
         })
         .filter(|a| matches!(a.scheduled_time, Some(t) if t > now && t <= window_end))
         .filter(|a| {
-            !a.reminders_sent
-                .iter()
-                .any(|r| r.reminder_type == crate::clinical::ReminderType::Push)
+            !a.reminders_sent.iter().any(|r| {
+                r.reminder_type == crate::clinical::ReminderType::Push
+                    && r.status != crate::clinical::ReminderStatus::Failed
+            })
         })
         .collect();
 
@@ -1059,34 +1016,43 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
             &format!("Appointment with {}", appointment.provider_name),
         );
 
-        let repos = data.repositories.clone();
-        let patient_id = appointment.patient_id.clone();
+        // The patient's own setting and the record-id-to-account bridge both
+        // live in `notify_patient`. It reports whether the message was actually
+        // attempted, and that is what gets recorded: this loop used to write
+        // `Sent` for a push addressed to a `PAT-` id that matched no device
+        // token, so the reminder history asserted a delivery that could not
+        // have happened.
         let provider_name = appointment.provider_name.clone();
-        tokio::spawn(async move {
-            let _ = crate::notifications::send_push_to_user(
-                &repos,
-                crate::notifications::PushNotification {
-                    user_id: patient_id,
-                    title: "Upcoming Appointment".to_string(),
-                    body: format!("You have an appointment with {} tomorrow.", provider_name),
-                    data: Some([("type".to_string(), "appointment_reminder".to_string())].into()),
-                },
-            )
-            .await;
-        });
+        let delivered = crate::notifications::notify_patient(
+            data,
+            &appointment.patient_id,
+            &["appointmentReminders", "pushNotifications"],
+            "Upcoming Appointment",
+            &format!("You have an appointment with {} tomorrow.", provider_name),
+            "appointment_reminder",
+        )
+        .await;
+        let delivery_status = if delivered {
+            crate::clinical::ReminderStatus::Sent
+        } else {
+            crate::clinical::ReminderStatus::Failed
+        };
 
         appointment
             .reminders_sent
             .push(crate::clinical::AppointmentReminder {
                 reminder_type: crate::clinical::ReminderType::Push,
                 sent_at: now,
-                status: crate::clinical::ReminderStatus::Sent,
+                status: delivery_status,
             });
-        let _ = data
+        if let Err(error) = data
             .repositories
             .appointments
             .update(appointment.into())
-            .await;
+            .await
+        {
+            log::error!("Appointment reminder state persistence failed: {error}");
+        }
     }
 }
 

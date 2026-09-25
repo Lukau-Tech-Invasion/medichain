@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { createCardiac, getPatients, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
+import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Heart,
@@ -32,6 +33,26 @@ interface ECGReading {
   leads: string[];
 }
 
+/**
+ * The five TIMI criteria a clinician answers, in the order TIMI lists them.
+ *
+ * Age and the elevated cardiac marker are absent on purpose — the server
+ * derives both, from the patient's date of birth and from the troponin value
+ * on this form.
+ */
+const TIMI_CRITERIA_FIELDS: ReadonlyArray<{
+  key: keyof TimiCriteriaInput;
+  labelKey: string;
+}> = [
+  { key: 'three_or_more_cad_risk_factors', labelKey: 'docCardiac.timiRiskFactors' },
+  { key: 'known_cad', labelKey: 'docCardiac.timiKnownCad' },
+  { key: 'aspirin_in_past_7_days', labelKey: 'docCardiac.timiAspirin' },
+  { key: 'severe_angina', labelKey: 'docCardiac.timiSevereAngina' },
+  { key: 'st_deviation', labelKey: 'docCardiac.timiStDeviation' },
+];
+
+
+
 export default function CardiacPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -42,7 +63,10 @@ export default function CardiacPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [emergencyHistory, setEmergencyHistory] = useState<Array<{event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string}>>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<CardiacEventListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Cardiac Event Form State
@@ -57,7 +81,33 @@ export default function CardiacPage() {
   const [troponinLevel, setTroponinLevel] = useState('');
   const [bnpLevel, setBnpLevel] = useState('');
   const [killipClass, setKillipClass] = useState('1');
-  const [timiScore, setTimiScore] = useState(0);
+  // The five TIMI criteria that are clinical judgements. Age and the cardiac
+  // marker are not here: the server reads age from the patient's date of birth
+  // and derives the marker from the troponin value below.
+  //
+  // This replaces a `calculateTIMI()` that inferred all seven from unrelated
+  // controls, and got two of them wrong: it counted "3+ CAD risk factors" when
+  // the symptom list contained diabetes *or* hypertension — one factor, not
+  // three — and read "2+ anginal episodes in 24h" off a chest-pain *character*
+  // dropdown, which describes quality, not frequency. Both errors score a
+  // criterion that is not met, and TIMI decides who goes for early invasive
+  // management.
+  const [timiCriteria, setTimiCriteria] = useState<TimiCriteriaInput>({
+    three_or_more_cad_risk_factors: false,
+    known_cad: false,
+    aspirin_in_past_7_days: false,
+    severe_angina: false,
+    st_deviation: false,
+  });
+  // What the server scored, once the record is filed.
+  const [savedTimi, setSavedTimi] = useState<{ timi_score: number; timi_band: string } | null>(null);
+  // The assay threshold is protocol, not a component constant. It was `0.04`
+  // hardcoded twice on this page — once in the removed `calculateTIMI` and once
+  // in the "elevated" hint below — so changing the assay meant editing TSX.
+  const { catalog } = useScoringCatalog();
+  const troponinThreshold = catalog?.timi?.troponin_threshold_ng_ml ?? null;
+  const troponinElevated =
+    troponinThreshold !== null && parseFloat(troponinLevel) > troponinThreshold;
   const [treatment, setTreatment] = useState<string[]>([]);
   const [disposition, setDisposition] = useState('');
   const [narrative, setNarrative] = useState('');
@@ -93,13 +143,7 @@ export default function CardiacPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/cardiac/patient/${patientId}`), {
-        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      setEmergencyHistory(await getPatientCardiacEvents(patientId));
     } catch (e) {
       console.error(e);
     } finally {
@@ -138,30 +182,6 @@ export default function CardiacPage() {
     setNewECG({ rhythm: 'normal_sinus', rate: 72, interpretation: '', stElevation: false, leads: [] });
   };
 
-  const calculateTIMI = () => {
-    let score = 0;
-    // Age >= 65
-    if (selectedPatientData) {
-      const age = new Date().getFullYear() - new Date(selectedPatientData.date_of_birth).getFullYear();
-      if (age >= 65) score++;
-    }
-    // >= 3 CAD risk factors
-    if (associatedSymptoms.includes('diabetes') || associatedSymptoms.includes('hypertension')) score++;
-    // Known CAD (>=50% stenosis)
-    if (treatment.includes('prior_cad')) score++;
-    // ASA use in past 7 days
-    if (treatment.includes('aspirin')) score++;
-    // Severe angina (>=2 events in 24h)
-    if (chestPainCharacter === 'severe') score++;
-    // ST changes >= 0.5mm
-    if (ecgReadings.some(e => e.stElevation)) score++;
-    // Positive cardiac marker
-    if (parseFloat(troponinLevel) > 0.04) score++;
-    
-    setTimiScore(score);
-    return score;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatient) {
@@ -173,8 +193,14 @@ export default function CardiacPage() {
     setError('');
 
     try {
+      // `event_id` and `documented_by` are gone: the server generates the id
+      // (a client-supplied one lets two submissions overwrite each other) and
+      // attributes the record to whoever authenticated.
+      //
+      // `timi_score` is gone too. The five criteria go instead, and the server
+      // scores them — see `timiCriteria` above for what the browser's version
+      // was getting wrong.
       const cardiacData = {
-        event_id: `CARDIAC-${Date.now()}`,
         patient_id: selectedPatient,
         event_type: eventType,
         chief_complaint: chiefComplaint,
@@ -191,17 +217,16 @@ export default function CardiacPage() {
           bnp: parseFloat(bnpLevel) || 0
         },
         killip_class: parseInt(killipClass),
-        timi_score: timiScore,
+        timi_criteria: timiCriteria,
         ecg_readings: ecgReadings,
         treatments: treatment,
         disposition,
         narrative,
-        timeline: events,
-        documented_by: user?.userId || 'unknown',
-        documented_at: Math.floor(Date.now() / 1000)
+        timeline: events
       };
 
-      await createCardiac(cardiacData);
+      const saved = await createCardiac(cardiacData);
+      setSavedTimi({ timi_score: saved.timi_score, timi_band: saved.timi_band });
       setSuccess(true);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -213,12 +238,12 @@ export default function CardiacPage() {
   };
 
   const eventTypes = [
-    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-critical' },
-    { value: 'nstemi', label: t('docCardiac.eventType_nstemi'), color: 'bg-orange-500' },
-    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-caution' },
-    { value: 'heart_failure', label: t('docCardiac.eventType_heart_failure'), color: 'bg-purple-500' },
-    { value: 'arrhythmia', label: t('docCardiac.eventType_arrhythmia'), color: 'bg-blue-500' },
-    { value: 'cardiac_arrest', label: t('docCardiac.eventType_cardiac_arrest'), color: 'bg-red-800' }
+    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-critical text-critical-fg' },
+    { value: 'nstemi', label: t('docCardiac.eventType_nstemi'), color: 'bg-orange-700 text-white' },
+    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-caution text-caution-fg' },
+    { value: 'heart_failure', label: t('docCardiac.eventType_heart_failure'), color: 'bg-purple-700 text-white' },
+    { value: 'arrhythmia', label: t('docCardiac.eventType_arrhythmia'), color: 'bg-blue-600 text-white' },
+    { value: 'cardiac_arrest', label: t('docCardiac.eventType_cardiac_arrest'), color: 'bg-red-800 text-white' }
   ];
 
   const rhythmTypes = [
@@ -234,7 +259,7 @@ export default function CardiacPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-red-600 to-pink-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-red-700 to-pink-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -242,11 +267,11 @@ export default function CardiacPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docCardiac.title')}</h1>
-                <p className="text-critical-fg">{t('docCardiac.subtitle')}</p>
+                <p className="text-white">{t('docCardiac.subtitle')}</p>
               </div>
             </div>
             {eventType && (
-              <div className={`px-4 py-2 rounded-full text-white font-bold ${eventTypes.find(e => e.value === eventType)?.color}`}>
+              <div className={`px-4 py-2 rounded-full font-bold ${eventTypes.find(e => e.value === eventType)?.color}`}>
                 {eventTypes.find(e => e.value === eventType)?.label}
               </div>
             )}
@@ -274,7 +299,7 @@ export default function CardiacPage() {
               {/* Patient Selection */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Search className="h-5 w-5 mr-2 text-red-500" />
+                  <Search className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.patientSelectionTitle')}
                 </h2>
                 <div className="relative mb-4">
@@ -284,13 +309,13 @@ export default function CardiacPage() {
                     placeholder={t('docCardiac.searchPatientsPh')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
                 <select
                   value={selectedPatient}
                   onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                  className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                   required
                 >
                   <option value="">{t('docCardiac.selectPatientOption')}</option>
@@ -309,8 +334,8 @@ export default function CardiacPage() {
                 )}
                 {selectedPatient && (
                   <div className="mt-4">
-                    <h4 className="font-medium text-sm text-content-secondary mb-2 flex items-center gap-1">
-                      <History className="h-4 w-4 text-red-500" /> {t('docCardiac.pastEmergencyEventsTitle')}
+                    <h4 className="font-medium text-sm text-content-secondary mb-2 flex items-center gap-1 min-h-[24px] py-1">
+                      <History className="h-4 w-4 text-critical" /> {t('docCardiac.pastEmergencyEventsTitle')}
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docCardiac.loadingHistory')}</p>
@@ -319,9 +344,9 @@ export default function CardiacPage() {
                     ) : (
                       <div className="space-y-1">
                         {emergencyHistory.slice(0, 5).map((ev) => (
-                          <div key={ev.event_id} className="text-xs bg-critical-subtle rounded p-2 flex justify-between">
+                          <div key={ev.id} className="text-xs bg-critical-subtle text-critical-subtle-fg rounded p-2 flex justify-between">
                             <span>{ev.event_type || t('docCardiac.defaultEventLabel')}</span>
-                            <span className="text-content-muted">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : ev.event_time ? new Date(ev.event_time * 1000).toLocaleDateString() : '-'}</span>
+                            <span>{formatDateOnly(ev.documented_at * 1000) || '-'}</span>
                           </div>
                         ))}
                       </div>
@@ -333,7 +358,7 @@ export default function CardiacPage() {
               {/* Event Type */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Heart className="h-5 w-5 mr-2 text-red-500" />
+                  <Heart className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.eventTypeTitle')}
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
@@ -347,7 +372,7 @@ export default function CardiacPage() {
                       }}
                       className={`p-3 rounded-lg text-sm font-medium transition-all ${
                         eventType === type.value
-                          ? `${type.color} text-white`
+                          ? type.color
                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
@@ -363,26 +388,59 @@ export default function CardiacPage() {
                 <select
                   value={killipClass}
                   onChange={(e) => setKillipClass(e.target.value)}
-                  className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                 >
                   <option value="1">{t('docCardiac.killip_1')}</option>
                   <option value="2">{t('docCardiac.killip_2')}</option>
                   <option value="3">{t('docCardiac.killip_3')}</option>
                   <option value="4">{t('docCardiac.killip_4')}</option>
                 </select>
-                <div className="mt-4 p-3 bg-notice-subtle rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-notice-subtle-fg">{t('docCardiac.timiScoreLabel')}</span>
-                    <button
-                      type="button"
-                      onClick={calculateTIMI}
-                      className="text-xs bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700"
-                    >
-                      {t('docCardiac.calculateBtn')}
-                    </button>
+                {/* TIMI criteria.
+
+                    These used to be inferred from unrelated controls behind a
+                    "Calculate" button. They are questions now, because five of
+                    the seven are clinical judgements that nothing else on this
+                    form records — and inferring them produced a score that was
+                    wrong in the direction of "lower risk than the patient is".
+
+                    The two that are not asked are derived by the server: age
+                    from the patient's date of birth, and the cardiac marker
+                    from the troponin entered below. */}
+                <fieldset className="mt-4 p-3 bg-notice-subtle rounded-lg">
+                  <legend className="text-sm font-medium text-notice-subtle-fg px-1">
+                    {t('docCardiac.timiScoreLabel')}
+                  </legend>
+                  <div className="space-y-2 mt-2">
+                    {TIMI_CRITERIA_FIELDS.map(({ key, labelKey }) => (
+                      <label key={key} className="flex items-start gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={timiCriteria[key]}
+                          onChange={(e) =>
+                            setTimiCriteria((prev) => ({ ...prev, [key]: e.target.checked }))
+                          }
+                          className="mt-0.5 h-4 w-4 rounded border-border-interactive"
+                        />
+                        <span className="text-content-secondary">{t(labelKey)}</span>
+                      </label>
+                    ))}
                   </div>
-                  <p className="text-2xl font-bold text-notice-subtle-fg mt-2">{t('docCardiac.timiScoreValue', { score: timiScore })}</p>
-                </div>
+                  <p className="text-xs text-content-secondary mt-3">
+                    {t('docCardiac.timiDerivedNote')}
+                  </p>
+                  {/* The score is the server's, and only exists once the record
+                      is filed. A preview here would be a fourth opinion. */}
+                  <p className="text-2xl font-bold text-notice-subtle-fg mt-2">
+                    {savedTimi
+                      ? t('docCardiac.timiScoreValue', { score: savedTimi.timi_score })
+                      : '—'}
+                  </p>
+                  {savedTimi && (
+                    <p className="text-sm font-medium text-notice-subtle-fg capitalize">
+                      {t(`docCardiac.timiBand_${savedTimi.timi_band}`)}
+                    </p>
+                  )}
+                </fieldset>
               </div>
             </div>
 
@@ -391,7 +449,7 @@ export default function CardiacPage() {
               {/* Symptoms */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Activity className="h-5 w-5 mr-2 text-red-500" />
+                  <Activity className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.clinicalPresentationTitle')}
                 </h2>
                 <div className="space-y-4">
@@ -403,7 +461,7 @@ export default function CardiacPage() {
                       value={chiefComplaint}
                       onChange={(e) => setChiefComplaint(e.target.value)}
                       placeholder={t('docCardiac.chiefComplaintPh')}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
@@ -413,7 +471,7 @@ export default function CardiacPage() {
                       type="datetime-local"
                       value={symptomOnset}
                       onChange={(e) => setSymptomOnset(e.target.value)}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
@@ -422,7 +480,7 @@ export default function CardiacPage() {
                       id="cardiac-chest-pain-character"
                       value={chestPainCharacter}
                       onChange={(e) => setChestPainCharacter(e.target.value)}
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     >
                       <option value="">{t('docCardiac.selectCharacter')}</option>
                       <option value="crushing">{t('docCardiac.painChar_crushing')}</option>
@@ -447,7 +505,7 @@ export default function CardiacPage() {
                                 setPainRadiation(painRadiation.filter(l => l !== loc));
                               }
                             }}
-                            className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
+                            className="rounded border-border-interactive text-critical-subtle-fg focus:ring-red-500"
                           />
                           <span className="text-sm text-content-muted">{loc}</span>
                         </label>
@@ -469,7 +527,7 @@ export default function CardiacPage() {
                                 setAssociatedSymptoms(associatedSymptoms.filter(s => s !== sym));
                               }
                             }}
-                            className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
+                            className="rounded border-border-interactive text-critical-subtle-fg focus:ring-red-500"
                           />
                           <span className="text-sm text-content-muted">{sym}</span>
                         </label>
@@ -491,7 +549,7 @@ export default function CardiacPage() {
                       value={heartRate}
                       onChange={(e) => setHeartRate(e.target.value)}
                       placeholder="72"
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
@@ -502,7 +560,7 @@ export default function CardiacPage() {
                       value={bloodPressure}
                       onChange={(e) => setBloodPressure(e.target.value)}
                       placeholder="120/80"
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
@@ -514,9 +572,9 @@ export default function CardiacPage() {
                       value={troponinLevel}
                       onChange={(e) => setTroponinLevel(e.target.value)}
                       placeholder="0.04"
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
-                    {parseFloat(troponinLevel) > 0.04 && (
+                    {troponinElevated && (
                       <p className="text-xs text-critical-subtle-fg mt-1 flex items-center">
                         <AlertTriangle className="h-3 w-3 mr-1" /> {t('docCardiac.elevatedLabel')}
                       </p>
@@ -530,7 +588,7 @@ export default function CardiacPage() {
                       value={bnpLevel}
                       onChange={(e) => setBnpLevel(e.target.value)}
                       placeholder="100"
-                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                 </div>
@@ -564,7 +622,7 @@ export default function CardiacPage() {
                             setTreatment(treatment.filter(t => t !== tx.value));
                           }
                         }}
-                        className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
+                        className="rounded border-border-interactive text-critical-subtle-fg focus:ring-red-500"
                       />
                       <span className="text-sm">{tx.label}</span>
                     </label>
@@ -579,13 +637,13 @@ export default function CardiacPage() {
               <div className="bg-surface rounded-lg shadow p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-content flex items-center">
-                    <Zap className="h-5 w-5 mr-2 text-red-500" />
+                    <Zap className="h-5 w-5 mr-2 text-critical" />
                     {t('docCardiac.ecgReadingsTitle')}
                   </h2>
                   <button
                     type="button"
                     onClick={() => setShowECGForm(!showECGForm)}
-                    className="flex items-center text-sm text-critical-subtle-fg hover:text-critical-subtle-fg"
+                    className="flex items-center text-sm text-critical-subtle-fg hover:text-critical-subtle-fg min-h-[24px] py-1"
                   >
                     <Plus className="h-4 w-4 mr-1" /> {t('docCardiac.addECGBtn')}
                   </button>
@@ -599,7 +657,7 @@ export default function CardiacPage() {
                         id="cardiac-ecg-rhythm"
                         value={newECG.rhythm}
                         onChange={(e) => setNewECG({ ...newECG, rhythm: e.target.value })}
-                        className="w-full p-2 border border-border-strong rounded-lg text-sm"
+                        className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       >
                         {rhythmTypes.map(r => (
                           <option key={r} value={r}>{r.replace(/_/g, ' ').toUpperCase()}</option>
@@ -613,7 +671,7 @@ export default function CardiacPage() {
                         type="number"
                         value={newECG.rate}
                         onChange={(e) => setNewECG({ ...newECG, rate: parseInt(e.target.value) })}
-                        className="w-full p-2 border border-border-strong rounded-lg text-sm"
+                        className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       />
                     </div>
                     <div>
@@ -622,7 +680,7 @@ export default function CardiacPage() {
                           type="checkbox"
                           checked={newECG.stElevation}
                           onChange={(e) => setNewECG({ ...newECG, stElevation: e.target.checked })}
-                          className="rounded border-border-strong text-critical-subtle-fg"
+                          className="rounded border-border-interactive text-critical-subtle-fg"
                         />
                         <span className="text-sm font-medium text-content-secondary">{t('docCardiac.stElevationLabel')}</span>
                       </label>
@@ -644,7 +702,7 @@ export default function CardiacPage() {
                                     setNewECG({ ...newECG, leads: leads.filter(l => l !== lead) });
                                   }
                                 }}
-                                className="rounded border-border-strong text-critical-subtle-fg"
+                                className="rounded border-border-interactive text-critical-subtle-fg"
                               />
                               <span className="text-xs">{lead}</span>
                             </label>
@@ -660,7 +718,7 @@ export default function CardiacPage() {
                         onChange={(e) => setNewECG({ ...newECG, interpretation: e.target.value })}
                         placeholder={t('docCardiac.interpretationPh')}
                         rows={2}
-                        className="w-full p-2 border border-border-strong rounded-lg text-sm"
+                        className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       />
                     </div>
                     <button
@@ -690,7 +748,7 @@ export default function CardiacPage() {
                             )}
                           </div>
                           <span className="text-xs text-content-muted">
-                            {new Date(ecg.timestamp).toLocaleTimeString()}
+                            {formatTimestamp(ecg.timestamp, { timeStyle: 'short' })}
                           </span>
                         </div>
                       </div>
@@ -702,7 +760,7 @@ export default function CardiacPage() {
               {/* Event Timeline */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-content mb-4 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-red-500" />
+                  <Clock className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.eventTimelineTitle')}
                 </h2>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -731,7 +789,7 @@ export default function CardiacPage() {
                   aria-labelledby="cardiac-disposition-heading"
                   value={disposition}
                   onChange={(e) => setDisposition(e.target.value)}
-                  className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 mb-4"
+                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 mb-4"
                 >
                   <option value="">{t('docCardiac.selectDisposition')}</option>
                   <option value="cath_lab">{t('docCardiac.disp_cath_lab')}</option>
@@ -751,7 +809,7 @@ export default function CardiacPage() {
                     onChange={(e) => setNarrative(e.target.value)}
                     placeholder={t('docCardiac.clinicalNarrativePh')}
                     rows={4}
-                    className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500"
+                    className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
                   />
                 </div>
               </div>
@@ -770,7 +828,7 @@ export default function CardiacPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

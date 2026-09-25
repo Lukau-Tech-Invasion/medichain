@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, getFamilyHistory, createFamilyHistory, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import {
+  getPatients,
+  getFamilyHistory,
+  createFamilyHistory,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  assessFamilyHistory,
+  useValidatedForm,
+  familyHistoryMemberSchema,
+  formatDateOnly,
+} from '@medichain/shared';
+import type {
+  FamilyMedicalHistory,
+  PatientProfile,
+  FamilyHistoryAssessmentResult,
+  AffectedRelativeInput,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PedigreeChart from '../components/PedigreeChart';
@@ -22,6 +38,8 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 type RelationshipType =
   | 'mother'
@@ -82,9 +100,55 @@ interface FamilyMember {
   recordedAt: string;
 }
 
+/**
+ * Adapt the compact persisted family-history shape for the richer portal view.
+ *
+ * The API intentionally stores clinical relationship, mortality, and condition
+ * facts.  It does not store a per-relative display id, patient name, condition
+ * category, or per-relative author/timestamp.  Those must not be fabricated:
+ * the display id is local and stable for this response, while an uncategorised
+ * condition remains in the `other` bucket and is consequently not presented as
+ * a disease-specific risk classification.
+ */
+function toPortalFamilyMembers(
+  history: FamilyMedicalHistory,
+  patientId: string,
+  patientName: string,
+): FamilyMember[] {
+  const recordedAt = history.last_updated > 0
+    ? new Date(history.last_updated).toISOString()
+    : '';
+  return history.family_members.map((member, index) => ({
+    memberId: `${patientId}-FM-${index + 1}`,
+    patientId,
+    patientName,
+    relationship: member.relationship.toLowerCase().split(' ').join('-') as RelationshipType,
+    vitalStatus: member.living
+      ? 'alive'
+      : member.age_at_death !== null || member.cause_of_death ? 'deceased' : 'unknown',
+    currentAge: member.current_age ?? undefined,
+    ageAtDeath: member.age_at_death ?? undefined,
+    causeOfDeath: member.cause_of_death ?? undefined,
+    conditions: member.conditions.map((condition) => ({
+      conditionName: condition.condition,
+      category: 'other',
+      ageOfOnset: condition.age_at_diagnosis ?? undefined,
+      notes: condition.notes ?? undefined,
+    })),
+    recordedBy: history.updated_by,
+    recordedAt,
+  }));
+}
+
+/**
+ * A family-history assessment for one condition category.
+ *
+ * `assessment` is `null` until the scoring catalog loads — the page shows the
+ * counts and no band rather than guessing one.
+ */
 interface RiskAssessment {
+  assessment: FamilyHistoryAssessmentResult | null;
   category: ConditionCategory;
-  riskLevel: 'low' | 'moderate' | 'high';
   affectedRelatives: number;
   conditions: string[];
   recommendations?: string;
@@ -92,8 +156,17 @@ interface RiskAssessment {
 
 const FamilyHistoryPage: React.FC = () => {
   const { t } = useTranslation();
+  // Assessments keyed by condition category, as the server scored them.
+  //
+  // Scored by the API rather than here: `clinical_scoring::family_history_assessment`
+  // is the only implementation of this scale. Nothing about a family history is
+  // stored on save, so there is no create response to carry it — hence a small
+  // stateless call, made when the selected patient's history changes.
+  const [assessments, setAssessments] = useState<
+    Record<string, FamilyHistoryAssessmentResult>
+  >({});
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -143,23 +216,16 @@ const FamilyHistoryPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       const response = await getFamilyHistory(patientId);
-      if (response && typeof response === 'object') {
-        const data = response as { success?: boolean; members?: FamilyMember[]; items?: FamilyMember[] };
-        if (data.success && Array.isArray(data.members)) {
-          setFamilyMembers(data.members);
-        } else if (data.success && Array.isArray(data.items)) {
-          setFamilyMembers(data.items as FamilyMember[]);
-        } else if (Array.isArray(response)) {
-          setFamilyMembers(response as FamilyMember[]);
-        }
-      }
+      const patientName = patients.find((patient) => patient.patient_id === patientId)?.full_name
+        ?? t('docFamilyHistory.patientFallback');
+      setFamilyMembers(toPortalFamilyMembers(response, patientId, patientName));
     } catch (err) {
       console.error('Error fetching family history:', err);
       setError(t('docFamilyHistory.errorLoadHistory'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // Load family history when patient is selected
   useEffect(() => {
@@ -170,9 +236,13 @@ const FamilyHistoryPage: React.FC = () => {
     }
   }, [selectedPatient, fetchFamilyHistory]);
 
+
+  const { validate } = useValidatedForm(familyHistoryMemberSchema);
   const handleAddMember = async () => {
-    if (!newMember.patientId || !newMember.relationship) {
-      showWarning(t('docFamilyHistory.warningRequiredFields'));
+    // Two fields in one toast, on a form where the relationship is the whole
+    // point of the record: a family history entry that does not say whose
+    // history it is cannot inform a risk assessment.
+    if (!validate(newMember)) {
       return;
     }
 
@@ -192,7 +262,7 @@ const FamilyHistoryPage: React.FC = () => {
       conditions: memberConditions,
       consanguineous: newMember.consanguineous,
       notes: newMember.notes || undefined,
-      recordedBy: user?.userId || 'USER-001',
+      recordedBy: user?.userId ?? '',
       recordedAt: new Date().toISOString(),
     };
 
@@ -251,7 +321,7 @@ const FamilyHistoryPage: React.FC = () => {
 
   const handleAddCondition = () => {
     if (!newCondition.conditionName) {
-      showWarning('Please enter a condition name');
+      showError('Please enter a condition name');
       return;
     }
 
@@ -277,39 +347,114 @@ const FamilyHistoryPage: React.FC = () => {
     setMemberConditions(memberConditions.filter((_, i) => i !== index));
   };
 
-  const calculateRiskAssessment = (patientId: string): RiskAssessment[] => {
+  /**
+   * Assess a patient's family history, one condition category at a time.
+   *
+   * Degree-weighted and onset-aware: a first-degree relative counts for twice a
+   * second-degree one, and a diagnosis under the catalog's early-onset age
+   * doubles again. Every number comes from
+   * `GET /api/clinical/scoring/catalog`, and the same arithmetic runs in
+   * `clinical_scoring::family_history_assessment`.
+   *
+   * This replaced a raw count of affected relatives banded at 3+ for "HIGH",
+   * which issued an automatic "consider genetic counseling" recommendation. A
+   * mother and a sister with breast cancer at 40 counted 2 and read MODERATE;
+   * three second cousins with type 2 diabetes counted 3 and read HIGH. Degree
+   * and age of onset are exactly what separate those, and both were already on
+   * file — the page simply was not reading them.
+   *
+   * It remains a prompt, not a diagnosis: `standard_care` is not a statement
+   * that a family is unaffected, and it does not replace disease-specific
+   * criteria.
+   */
+  const summariseFamilyHistory = (patientId: string): RiskAssessment[] => {
     const patientMembers = familyMembers.filter((m) => m.patientId === patientId);
-    const categoryMap = new Map<ConditionCategory, { conditions: Set<string>; count: number }>();
+    const byCategory = new Map<
+      ConditionCategory,
+      { conditions: Set<string>; relatives: AffectedRelativeInput[] }
+    >();
 
     patientMembers.forEach((member) => {
       member.conditions.forEach((condition) => {
-        if (!categoryMap.has(condition.category)) {
-          categoryMap.set(condition.category, { conditions: new Set(), count: 0 });
+        if (!byCategory.has(condition.category)) {
+          byCategory.set(condition.category, { conditions: new Set(), relatives: [] });
         }
-        const entry = categoryMap.get(condition.category)!;
+        const entry = byCategory.get(condition.category)!;
         entry.conditions.add(condition.conditionName);
-        entry.count++;
+        entry.relatives.push({
+          relationship: member.relationship,
+          age_of_onset: condition.ageOfOnset,
+        });
       });
     });
 
-    const assessments: RiskAssessment[] = [];
-    categoryMap.forEach((value, category) => {
-      let riskLevel: 'low' | 'moderate' | 'high' = 'low';
-      if (value.count >= 3) riskLevel = 'high';
-      else if (value.count >= 2) riskLevel = 'moderate';
-
-      assessments.push({
+    const rows: RiskAssessment[] = [];
+    byCategory.forEach((value, category) => {
+      rows.push({
         category,
-        riskLevel,
-        affectedRelatives: value.count,
+        affectedRelatives: value.relatives.length,
         conditions: Array.from(value.conditions),
+        assessment: assessments[category] ?? null,
       });
     });
 
-    return assessments.sort((a, b) => {
-      const riskOrder = { high: 3, moderate: 2, low: 1 };
-      return riskOrder[b.riskLevel] - riskOrder[a.riskLevel];
-    });
+    // Most concerning first, by the weighted score rather than by headcount.
+    return rows.sort((a, b) => (b.assessment?.score ?? 0) - (a.assessment?.score ?? 0));
+  };
+
+  // Re-assess whenever the selected patient or their recorded history changes.
+  // The relatives are already in hand; this call only scores them, so it is one
+  // round trip per selection rather than one per keystroke.
+  useEffect(() => {
+    if (!selectedPatient) {
+      setAssessments({});
+      return;
+    }
+    const groups = familyHistoryGroups(selectedPatient);
+    if (groups.length === 0) {
+      setAssessments({});
+      return;
+    }
+    let active = true;
+    assessFamilyHistory({ groups })
+      .then((result) => {
+        if (!active) return;
+        const next: Record<string, FamilyHistoryAssessmentResult> = {};
+        result.assessments.forEach((a) => {
+          next[a.category] = a;
+        });
+        setAssessments(next);
+      })
+      .catch(() => {
+        // No band rather than a guessed one: the panel falls back to showing
+        // the counts, which is what it did before any model existed.
+        if (active) setAssessments({});
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPatient, familyMembers]);
+
+  /** The relatives grouped by condition category, for the assessment call. */
+  const familyHistoryGroups = (patientId: string) => {
+    const byCategory = new Map<ConditionCategory, AffectedRelativeInput[]>();
+    familyMembers
+      .filter((m) => m.patientId === patientId)
+      .forEach((member) => {
+        member.conditions.forEach((condition) => {
+          const relatives = byCategory.get(condition.category) ?? [];
+          relatives.push({
+            relationship: member.relationship,
+            age_of_onset: condition.ageOfOnset,
+          });
+          byCategory.set(condition.category, relatives);
+        });
+      });
+    return Array.from(byCategory.entries()).map(([category, relatives]) => ({
+      category,
+      relatives,
+    }));
   };
 
   const filteredMembers = familyMembers.filter((m) => {
@@ -368,13 +513,14 @@ const FamilyHistoryPage: React.FC = () => {
     return colors[category];
   };
 
-  const getRiskColor = (risk: 'low' | 'moderate' | 'high') => {
-    const colors = {
-      low: 'bg-ok-subtle text-ok-subtle-fg',
-      moderate: 'bg-caution-subtle text-caution-subtle-fg',
-      high: 'bg-critical-subtle text-critical-subtle-fg',
+  /** Colour for an assessment band. Keyed on what to do, not on a probability. */
+  const getBandColor = (band: string) => {
+    const colors: Record<string, string> = {
+      standard_care: 'bg-ok-subtle text-ok-subtle-fg',
+      enhanced_screening: 'bg-caution-subtle text-caution-subtle-fg',
+      genetics_referral: 'bg-critical-subtle text-critical-subtle-fg',
     };
-    return colors[risk];
+    return colors[band] ?? 'bg-surface-sunken text-content-secondary';
   };
 
   const formatRelationship = (rel: string) => {
@@ -382,15 +528,40 @@ const FamilyHistoryPage: React.FC = () => {
   };
 
   const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
+    return formatDateOnly(isoString);
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docFamilyHistory.title')}</h1>
-        <p className="text-pink-100">{t('docFamilyHistory.subtitle')}</p>
+        <p className="text-white">{t('docFamilyHistory.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void fetchFamilyHistory(selectedPatient)}
+              disabled={isLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 min-h-[24px] rounded-lg border border-critical text-critical-subtle-fg hover:bg-critical-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {t('common.refresh')}
+            </button>
+          </div>
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b">
         <button
@@ -432,20 +603,12 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label htmlFor="family-patient-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.patientFilterLabel')}</label>
-                <select
+                <PatientSelect
                   id="family-patient-filter"
+                  label={t('docFamilyHistory.patientFilterLabel')}
                   value={selectedPatient}
-                  onChange={(e) => setSelectedPatient(e.target.value)}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docFamilyHistory.allPatients')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                />
               </div>
               <div>
                 <label htmlFor="famhx-search" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.searchLabel')}</label>
@@ -457,7 +620,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docFamilyHistory.searchPlaceholder')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -467,7 +630,7 @@ const FamilyHistoryPage: React.FC = () => {
                   id="famhx-condition-category"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as ConditionCategory | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docFamilyHistory.allCategories')}</option>
                   <option value="cardiovascular">{t('docFamilyHistory.category_cardiovascular')}</option>
@@ -529,7 +692,7 @@ const FamilyHistoryPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.recordedByLabel')}</p>
-                    <p className="text-sm text-content">{member.recordedBy}</p>
+                    <StaffName id={member.recordedBy} className="text-sm text-content block" />
                   </div>
                 </div>
 
@@ -589,7 +752,7 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
             ))}
 
-            {filteredMembers.length === 0 && (
+            {!error && !isLoading && filteredMembers.length === 0 && (
               <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                 <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
                 <p className="text-content-muted">{t('docFamilyHistory.noMembersFound')}</p>
@@ -609,22 +772,12 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="famhx-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docFamilyHistory.patientRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="famhx-patient"
+                  label={t('docFamilyHistory.patientRequired')}
                   value={newMember.patientId}
-                  onChange={(e) => setNewMember({ ...newMember, patientId: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewMember({ ...newMember, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>
@@ -635,7 +788,7 @@ const FamilyHistoryPage: React.FC = () => {
                   id="famhx-relationship"
                   value={newMember.relationship}
                   onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value as RelationshipType })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="mother">{t('docFamilyHistory.relationship_mother')}</option>
                   <option value="father">{t('docFamilyHistory.relationship_father')}</option>
@@ -664,7 +817,7 @@ const FamilyHistoryPage: React.FC = () => {
                   value={newMember.name}
                   onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
                   placeholder={t('docFamilyHistory.familyMemberNamePh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
 
@@ -676,7 +829,7 @@ const FamilyHistoryPage: React.FC = () => {
                   id="famhx-vital-status"
                   value={newMember.vitalStatus}
                   onChange={(e) => setNewMember({ ...newMember, vitalStatus: e.target.value as VitalStatus })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="alive">{t('docFamilyHistory.vitalStatus_alive')}</option>
                   <option value="deceased">{t('docFamilyHistory.vitalStatus_deceased')}</option>
@@ -695,7 +848,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newMember.currentAge || ''}
                     onChange={(e) => setNewMember({ ...newMember, currentAge: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
               )}
@@ -712,7 +865,7 @@ const FamilyHistoryPage: React.FC = () => {
                       value={newMember.ageAtDeath || ''}
                       onChange={(e) => setNewMember({ ...newMember, ageAtDeath: e.target.value ? parseInt(e.target.value) : undefined })}
                       placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                   <div className="col-span-2">
@@ -723,7 +876,7 @@ const FamilyHistoryPage: React.FC = () => {
                       value={newMember.causeOfDeath}
                       onChange={(e) => setNewMember({ ...newMember, causeOfDeath: e.target.value })}
                       placeholder={t('docFamilyHistory.causeOfDeathPh')}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     />
                   </div>
                 </>
@@ -747,7 +900,7 @@ const FamilyHistoryPage: React.FC = () => {
                   value={newMember.notes}
                   onChange={(e) => setNewMember({ ...newMember, notes: e.target.value })}
                   placeholder={t('docFamilyHistory.generalNotesPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -765,7 +918,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newCondition.conditionName}
                     onChange={(e) => setNewCondition({ ...newCondition, conditionName: e.target.value })}
                     placeholder={t('docFamilyHistory.conditionNamePh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
 
@@ -775,7 +928,7 @@ const FamilyHistoryPage: React.FC = () => {
                     id="famhx-category"
                     value={newCondition.category}
                     onChange={(e) => setNewCondition({ ...newCondition, category: e.target.value as ConditionCategory })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
                     <option value="cardiovascular">{t('docFamilyHistory.category_cardiovascular')}</option>
                     <option value="cancer">{t('docFamilyHistory.category_cancer')}</option>
@@ -802,7 +955,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newCondition.ageOfOnset || ''}
                     onChange={(e) => setNewCondition({ ...newCondition, ageOfOnset: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   />
                 </div>
 
@@ -812,7 +965,7 @@ const FamilyHistoryPage: React.FC = () => {
                     id="famhx-severity"
                     value={newCondition.severity}
                     onChange={(e) => setNewCondition({ ...newCondition, severity: e.target.value as 'mild' | 'moderate' | 'severe' })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
                     <option value="mild">{t('docFamilyHistory.severity_mild')}</option>
                     <option value="moderate">{t('docFamilyHistory.severity_moderate')}</option>
@@ -827,7 +980,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newCondition.notes}
                     onChange={(e) => setNewCondition({ ...newCondition, notes: e.target.value })}
                     placeholder={t('docFamilyHistory.conditionNotesPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     rows={2}
                   />
                 </div>
@@ -878,20 +1031,12 @@ const FamilyHistoryPage: React.FC = () => {
       {activeTab === 'risk-assessment' && (
         <div className="space-y-4">
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
-            <label htmlFor="famhx-risk-patient" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.selectPatientRiskLabel')}</label>
-            <select
+            <PatientSelect
               id="famhx-risk-patient"
+              label={t('docFamilyHistory.selectPatientRiskLabel')}
               value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
-              className="w-full border border-border-strong rounded-lg px-3 py-2"
-            >
-              <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
-              {patients.map((p) => (
-                <option key={p.patient_id} value={p.patient_id}>
-                  {p.full_name} ({p.patient_id})
-                </option>
-              ))}
-            </select>
+              onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+            />
           </div>
 
           {selectedPatient && (
@@ -902,7 +1047,7 @@ const FamilyHistoryPage: React.FC = () => {
               </p>
 
               <div className="space-y-4">
-                {calculateRiskAssessment(selectedPatient).map((assessment, idx) => (
+                {summariseFamilyHistory(selectedPatient).map((assessment, idx) => (
                   <div key={idx} className="border border-border-strong rounded-lg p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-3">
@@ -914,9 +1059,18 @@ const FamilyHistoryPage: React.FC = () => {
                           <p className="text-sm text-content-muted">{t('docFamilyHistory.affectedRelativesCount', { count: assessment.affectedRelatives })}</p>
                         </div>
                       </div>
-                      <span className={`px-4 py-2 rounded-full text-sm font-bold ${getRiskColor(assessment.riskLevel)}`}>
-                        {t('docFamilyHistory.riskBadge', { level: t(`docFamilyHistory.riskLevel_${assessment.riskLevel}`) })}
-                      </span>
+                      {/* The band names what to do next, not a probability.
+                          It used to read "HIGH RISK" off three affected
+                          relatives of any degree at any age. */}
+                      {assessment.assessment ? (
+                        <span className={`px-4 py-2 rounded-full text-sm font-bold ${getBandColor(assessment.assessment.band)}`}>
+                          {t(`docFamilyHistory.band_${assessment.assessment.band}`)}
+                        </span>
+                      ) : (
+                        <span className="px-4 py-2 rounded-full text-sm font-bold bg-surface-sunken text-content-secondary">
+                          {t('docFamilyHistory.affectedRelativesBadge', { count: assessment.affectedRelatives })}
+                        </span>
+                      )}
                     </div>
 
                     <div className="bg-surface-sunken rounded-lg p-3 mb-3">
@@ -928,34 +1082,44 @@ const FamilyHistoryPage: React.FC = () => {
                       </ul>
                     </div>
 
-                    {assessment.riskLevel === 'high' && (
-                      <div className="bg-critical-subtle border border-critical rounded-lg p-3">
-                        <p className="text-sm font-semibold text-critical-subtle-fg mb-1 flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4" />
-                          {t('docFamilyHistory.recommendationsLabel')}
-                        </p>
-                        <p className="text-sm text-critical-subtle-fg">
-                          {t('docFamilyHistory.highRiskRecommendation')}
-                        </p>
-                      </div>
+                    {/* The working, then the prompt.
+
+                        Showing the composition is the point: a clinician can
+                        see that the band came from two early-onset first-degree
+                        relatives rather than from a headcount, and disagree with
+                        it if the family is more complicated than the scale. */}
+                    {assessment.assessment && (
+                      <p className="text-xs text-content-muted mb-2">
+                        {t('docFamilyHistory.assessmentWorking', {
+                          score: assessment.assessment.score,
+                          first: assessment.assessment.first_degree_affected,
+                          second: assessment.assessment.second_degree_affected,
+                          third: assessment.assessment.third_degree_affected,
+                          early: assessment.assessment.early_onset_affected,
+                        })}
+                        {assessment.assessment.unscored_relatives > 0 &&
+                          ` ${t('docFamilyHistory.unscoredRelatives', {
+                            count: assessment.assessment.unscored_relatives,
+                          })}`}
+                      </p>
                     )}
-                    {assessment.riskLevel === 'moderate' && (
-                      <div className="bg-caution-subtle border border-caution rounded-lg p-3">
-                        <p className="text-sm font-semibold text-caution-subtle-fg mb-1 flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4" />
-                          {t('docFamilyHistory.recommendationsLabel')}
-                        </p>
-                        <p className="text-sm text-caution-subtle-fg">
-                          {t('docFamilyHistory.moderateRiskRecommendation')}
-                        </p>
-                      </div>
-                    )}
+                    <div className="bg-notice-subtle border border-notice rounded-lg p-3">
+                      <p className="text-sm font-semibold text-notice-subtle-fg mb-1 flex items-center gap-2 min-h-[24px] py-1">
+                        <AlertCircle className="w-4 h-4" />
+                        {t('docFamilyHistory.recommendationsLabel')}
+                      </p>
+                      <p className="text-sm text-notice-subtle-fg">
+                        {assessment.assessment
+                          ? t(`docFamilyHistory.action_${assessment.assessment.band}`)
+                          : t('docFamilyHistory.assessPrompt')}
+                      </p>
+                    </div>
                   </div>
                 ))}
 
-                {calculateRiskAssessment(selectedPatient).length === 0 && (
+                {summariseFamilyHistory(selectedPatient).length === 0 && (
                   <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
-                    <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                    <CheckCircle className="w-12 h-12 text-ok mx-auto mb-3" />
                     <p className="text-content-muted">{t('docFamilyHistory.noRiskIdentified')}</p>
                   </div>
                 )}

@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import AMAPage from './AMAPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -37,8 +38,8 @@ const goToRiskDisclosureStep = async () => {
   );
   fireEvent.click(screen.getByRole('button', { name: /New AMA Form/i }));
 
-  fireEvent.change(screen.getByLabelText(/Patient ID/i), { target: { value: 'PAT-001' } });
-  fireEvent.change(screen.getByLabelText(/Patient Name/i), { target: { value: 'Test Patient' } });
+  // One picker instead of a typed id and a separately typed name.
+  await selectPatient(/Select Patient/i, 'Test Patient');
   fireEvent.change(screen.getByLabelText(/MRN/i), { target: { value: 'MRN-001' } });
   fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
 
@@ -57,10 +58,14 @@ describe('AMAPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    // The picker can only offer patients the server knows, so a test that
+    // files an AMA has to seed one.
+    vi.mocked(shared.getPatients).mockResolvedValue([
+      patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
+    ] as never);
   });
 
   it('renders AMA page', () => {

@@ -158,12 +158,32 @@ export function useToast() {
   return useContext(ToastContext) ?? FALLBACK_TOAST;
 }
 
+/**
+ * Toast helpers, with the one rule that decides which to reach for.
+ *
+ * **Did the thing the user asked for happen?**
+ *
+ * - No — `showError`. A blocked submit is an error: they asked to save, the
+ *   system refused, and nothing was recorded.
+ * - Yes, with a caveat — `showWarning`. It went through, but not the way they
+ *   expect ("recorded locally, not yet synced").
+ *
+ * This was inconsistent across the product: 36 validation guards used
+ * `showWarning` and 8 used `showError` for the identical situation, and one
+ * page called `showError` with a string named `warningRequiredFields`. 35 of
+ * the 36 returned immediately — they had blocked the save — and exactly one had
+ * not. Getting this backwards is not cosmetic: a clinician who reads "warning"
+ * on a form that silently discarded their entry has been told the wrong thing
+ * about their own record.
+ */
 export function useToastActions() {
   const { addToast } = useToast();
 
   return {
     showSuccess: (message: string, title?: string) => addToast('success', message, title),
+    /** The action did not happen. */
     showError: (message: string, title?: string) => addToast('error', message, title),
+    /** The action happened, with a caveat. */
     showWarning: (message: string, title?: string) => addToast('warning', message, title),
     showInfo: (message: string, title?: string) => addToast('info', message, title),
   };

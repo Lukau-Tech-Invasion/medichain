@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CardiacPage from './CardiacPage';
@@ -30,15 +31,15 @@ describe('CardiacPage', () => {
   };
 
   const mockPatients = [
-    { patient_id: 'PAT-001', full_name: 'John Doe' },
+    patientProfile({ full_name: 'John Doe' }),
   ];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue(mockPatients);
+    vi.mocked(shared.getPatients).mockResolvedValue(mockPatients);
   });
 
   it('renders cardiac page', async () => {

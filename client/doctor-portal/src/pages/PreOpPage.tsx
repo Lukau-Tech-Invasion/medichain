@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import { createPreOp, getApiClient, getPatients, useTranslation, formatDateOnly } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Stethoscope,
@@ -30,47 +30,17 @@ type ASAClass = 'I' | 'II' | 'III' | 'IV' | 'V' | 'VI';
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type AnesthesiaType = 'general' | 'regional' | 'local' | 'mac' | 'spinal' | 'epidural' | 'combined';
 
-interface _PreOpAssessment {
-  id: string;
-  patientId: string;
-  assessmentDate: string;
-  assessmentTime: string;
-  assessedBy: string;
-  scheduledSurgery: string;
-  surgeon: string;
-  scheduledDate: string;
-  scheduledTime: string;
-  asaClass: ASAClass;
-  asaEmergency: boolean;
-  anesthesiaType: AnesthesiaType;
-  airwayAssessment: {
-    mallampati: MallampatiClass;
-    mouthOpening: string;
-    thyromental: string;
-    neckMobility: string;
-    dentition: string;
-    beardPresent: boolean;
-    obeseNeck: boolean;
-    difficultyPredicted: boolean;
-  };
-  npoStatus: {
-    lastSolid: string;
-    lastClear: string;
-    compliant: boolean;
-  };
-  consents: {
-    surgicalConsent: boolean;
-    anesthesiaConsent: boolean;
-    bloodConsent: boolean;
-  };
-  labsReviewed: string[];
-  allergies: string[];
-  currentMedications: string[];
-  holdMedications: string[];
-  medicalHistory: string[];
-  preOpChecklist: Record<string, boolean>;
-  notes: string;
-}
+
+/**
+ * What this endpoint returns, as this page already reads it.
+ *
+ * `res.json()` was `any`, so a field this endpoint does not return typechecked
+ * anyway and showed up as a blank panel instead of a compile error. The union
+ * below is the one the call site already handles -- the list endpoints are
+ * genuinely inconsistent about enveloping -- so naming it changes nothing at
+ * run time and makes the reads checkable.
+ */
+type RecordList = { records?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[]; assessments?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[] } | { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[];
 
 export default function PreOpPage() {
   const { t } = useTranslation();
@@ -224,13 +194,8 @@ export default function PreOpPage() {
       const fetchRecentRecords = async () => {
         setRecordsLoading(true);
         try {
-          const res = await fetch(apiUrl(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`), {
-            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setRecentRecords(Array.isArray(data) ? data : (data.records || data.assessments || []));
-          }
+          const data = await getApiClient().get<RecordList>(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`);
+          setRecentRecords(Array.isArray(data) ? data : (data.records || data.assessments || []));
         } catch (e) {
           console.error(e);
         } finally {
@@ -326,7 +291,7 @@ export default function PreOpPage() {
         patient_id: selectedPatient.patient_id,
         assessment_date: new Date().toISOString().split('T')[0],
         assessment_time: new Date().toTimeString().slice(0, 5),
-        assessed_by: user?.userId || 'unknown',
+        assessed_by: user?.userId,
         scheduled_surgery: scheduledSurgery,
         surgeon,
         scheduled_date: scheduledDate,
@@ -362,7 +327,7 @@ export default function PreOpPage() {
     <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-gradient-to-r from-indigo-700 to-purple-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-3 bg-surface/20 rounded-full">
@@ -370,7 +335,7 @@ export default function PreOpPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docPreOp.title')}</h1>
-                <p className="text-indigo-100">{t('docPreOp.subtitle')}</p>
+                <p className="text-white">{t('docPreOp.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -464,7 +429,7 @@ export default function PreOpPage() {
               {/* Patient Selection */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2 text-indigo-500" />
+                  <User className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.selectPatientHeading')}
                 </h2>
                 <div className="relative mb-4">
@@ -476,7 +441,7 @@ export default function PreOpPage() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docPreOp.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2">
@@ -500,7 +465,7 @@ export default function PreOpPage() {
               {/* Surgery Information */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Scissors className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Scissors className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.surgeryDetailsHeading')}
                 </h3>
                 <div className="space-y-3">
@@ -512,7 +477,7 @@ export default function PreOpPage() {
                       value={scheduledSurgery}
                       onChange={(e) => setScheduledSurgery(e.target.value)}
                       placeholder={t('docPreOp.scheduledProcedurePh')}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <div>
@@ -523,7 +488,7 @@ export default function PreOpPage() {
                       value={surgeon}
                       onChange={(e) => setSurgeon(e.target.value)}
                       placeholder={t('docPreOp.surgeonPh')}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -534,7 +499,7 @@ export default function PreOpPage() {
                         type="date"
                         value={scheduledDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
-                        className="w-full p-2 border border-border-strong rounded"
+                        className="w-full p-2 border border-border-interactive rounded"
                       />
                     </div>
                     <div>
@@ -544,7 +509,7 @@ export default function PreOpPage() {
                         type="time"
                         value={scheduledTime}
                         onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full p-2 border border-border-strong rounded"
+                        className="w-full p-2 border border-border-interactive rounded"
                       />
                     </div>
                   </div>
@@ -554,7 +519,7 @@ export default function PreOpPage() {
                       id="preop-anesthesia-type"
                       value={anesthesiaType}
                       onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType)}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       {anesthesiaTypes.map(type => (
                         <option key={type.value} value={type.value}>{type.label}</option>
@@ -567,7 +532,7 @@ export default function PreOpPage() {
               {/* NPO Status */}
               <div className="bg-surface rounded-lg shadow p-4">
                 <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Clock className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.npoStatusHeading')}
                 </h3>
                 <div className="space-y-3">
@@ -578,7 +543,7 @@ export default function PreOpPage() {
                       type="datetime-local"
                       value={npoStatus.lastSolid}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastSolid: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <div>
@@ -588,7 +553,7 @@ export default function PreOpPage() {
                       type="datetime-local"
                       value={npoStatus.lastClear}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastClear: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
                   <label htmlFor="preop-npo-compliant" className="flex items-center space-x-2 cursor-pointer">
@@ -597,7 +562,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={npoStatus.compliant}
                       onChange={() => setNpoStatus(prev => ({ ...prev, compliant: !prev.compliant }))}
-                      className="rounded border-border-strong text-ok-subtle-fg"
+                      className="rounded border-border-interactive text-ok-subtle-fg"
                     />
                     <span className={`font-medium ${npoStatus.compliant ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'}`}>
                       {npoStatus.compliant ? t('docPreOp.npoCompliant') : t('docPreOp.npoNotCompliant')}
@@ -612,7 +577,7 @@ export default function PreOpPage() {
               {/* ASA Classification */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-content mb-4 flex items-center">
-                  <Shield className="h-6 w-6 mr-2 text-indigo-500" />
+                  <Shield className="h-6 w-6 mr-2 text-brand" />
                   {t('docPreOp.asaHeading')}
                 </h2>
                 {/* ASA physical status is a single mutually-exclusive choice, so
@@ -648,7 +613,7 @@ export default function PreOpPage() {
                     type="checkbox"
                     checked={asaEmergency}
                     onChange={() => setAsaEmergency(!asaEmergency)}
-                    className="rounded border-border-strong text-critical-subtle-fg"
+                    className="rounded border-border-interactive text-critical-subtle-fg"
                   />
                   <span className="font-medium text-critical-subtle-fg">
                     {t('docPreOp.emergencyCaseCheckbox')}
@@ -659,7 +624,7 @@ export default function PreOpPage() {
               {/* Airway Assessment */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h3 className="font-bold text-content mb-4 flex items-center">
-                  <Wind className="h-5 w-5 mr-2 text-indigo-500" />
+                  <Wind className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.airwayAssessmentHeading')}
                 </h3>
 
@@ -691,7 +656,7 @@ export default function PreOpPage() {
                       id="preop-mouth-opening"
                       value={airwayAssessment.mouthOpening}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       <option value=">3cm">{t('docPreOp.mouthOpening_normal')}</option>
                       <option value="2-3cm">{t('docPreOp.mouthOpening_limited')}</option>
@@ -704,7 +669,7 @@ export default function PreOpPage() {
                       id="preop-thyromental-distance"
                       value={airwayAssessment.thyromental}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       <option value=">6cm">{t('docPreOp.thyromental_normal')}</option>
                       <option value="6-6.5cm">{t('docPreOp.thyromental_borderline')}</option>
@@ -717,7 +682,7 @@ export default function PreOpPage() {
                       id="preop-neck-mobility"
                       value={airwayAssessment.neckMobility}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       <option value="full">{t('docPreOp.neckMobility_full')}</option>
                       <option value="limited">{t('docPreOp.neckMobility_limited')}</option>
@@ -730,7 +695,7 @@ export default function PreOpPage() {
                       id="preop-dentition"
                       value={airwayAssessment.dentition}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
-                      className="w-full p-2 border border-border-strong rounded"
+                      className="w-full p-2 border border-border-interactive rounded"
                     >
                       <option value="intact">{t('docPreOp.dentition_intact')}</option>
                       <option value="loose">{t('docPreOp.dentition_loose')}</option>
@@ -747,7 +712,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.beardPresent}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, beardPresent: !prev.beardPresent }))}
-                      className="rounded border-border-strong text-content-secondary"
+                      className="rounded border-border-interactive text-content-secondary"
                     />
                     <span className="text-sm">{t('docPreOp.beardPresentCheckbox')}</span>
                   </label>
@@ -757,7 +722,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.obeseNeck}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, obeseNeck: !prev.obeseNeck }))}
-                      className="rounded border-border-strong text-content-secondary"
+                      className="rounded border-border-interactive text-content-secondary"
                     />
                     <span className="text-sm">{t('docPreOp.obeseNeckCheckbox')}</span>
                   </label>
@@ -767,7 +732,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.difficultyPredicted}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, difficultyPredicted: !prev.difficultyPredicted }))}
-                      className="rounded border-border-strong text-critical-subtle-fg"
+                      className="rounded border-border-interactive text-critical-subtle-fg"
                     />
                     <span className="text-sm text-critical-subtle-fg font-medium">{t('docPreOp.difficultAirwayCheckbox')}</span>
                   </label>
@@ -778,7 +743,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Heart className="h-5 w-5 mr-2 text-red-500" />
+                    <Heart className="h-5 w-5 mr-2 text-critical" />
                     {t('docPreOp.medicalHistoryHeading')}
                   </h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -789,7 +754,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={medicalHistory.includes(condition)}
                           onChange={() => toggleMedicalHistory(condition)}
-                          className="rounded border-border-strong text-content-secondary"
+                          className="rounded border-border-interactive text-content-secondary"
                         />
                         <span className="text-sm">{condition}</span>
                       </label>
@@ -799,7 +764,7 @@ export default function PreOpPage() {
 
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <AlertTriangle className="h-5 w-5 mr-2 text-yellow-500" />
+                    <AlertTriangle className="h-5 w-5 mr-2 text-caution" />
                     {t('docPreOp.allergiesHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
@@ -810,7 +775,7 @@ export default function PreOpPage() {
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
                       placeholder={t('docPreOp.addAllergyPh')}
-                      className="flex-1 p-2 border border-border-strong rounded text-sm"
+                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addAllergy()}
                     />
                     <button
@@ -849,7 +814,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Pill className="h-5 w-5 mr-2 text-blue-500" />
+                    <Pill className="h-5 w-5 mr-2 text-notice-subtle-fg" />
                     {t('docPreOp.currentMedicationsHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
@@ -860,13 +825,13 @@ export default function PreOpPage() {
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
                       placeholder={t('docPreOp.addMedicationPh')}
-                      className="flex-1 p-2 border border-border-strong rounded text-sm"
+                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addMedication()}
                     />
                     <button
                       type="button"
                       onClick={addMedication}
-                      className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                     >
                       {t('docPreOp.addButton')}
                     </button>
@@ -893,7 +858,7 @@ export default function PreOpPage() {
 
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
+                    <AlertCircle className="h-5 w-5 mr-2 text-caution" />
                     {t('docPreOp.medicationsToHoldHeading')}
                   </h3>
                   <div className="max-h-32 overflow-y-auto space-y-1">
@@ -904,7 +869,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={holdMedications.includes(med)}
                           onChange={() => toggleHoldMedication(med)}
-                          className="rounded border-border-strong text-content-secondary"
+                          className="rounded border-border-interactive text-content-secondary"
                         />
                         <span className="text-sm">{med}</span>
                       </label>
@@ -917,7 +882,7 @@ export default function PreOpPage() {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
-                    <Activity className="h-5 w-5 mr-2 text-green-500" />
+                    <Activity className="h-5 w-5 mr-2 text-ok" />
                     {t('docPreOp.labsReviewedHeading')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
@@ -928,7 +893,7 @@ export default function PreOpPage() {
                         onClick={() => toggleLab(lab)}
                         className={`px-3 py-1 rounded-full text-sm ${
                           labsReviewed.includes(lab)
-                            ? 'bg-green-500 text-white'
+                            ? 'bg-green-700 text-white'
                             : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                         }`}
                       >
@@ -955,7 +920,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={consents[key as keyof typeof consents]}
                           onChange={() => setConsents(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
-                          className="rounded border-border-strong text-content-secondary"
+                          className="rounded border-border-interactive text-content-secondary"
                         />
                         <span className="text-sm">{label}</span>
                       </label>
@@ -973,7 +938,7 @@ export default function PreOpPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t('docPreOp.additionalNotesPh')}
                   rows={4}
-                  className="w-full p-3 border border-border-strong rounded-lg"
+                  className="w-full p-3 border border-border-interactive rounded-lg"
                 />
               </div>
 
@@ -982,7 +947,7 @@ export default function PreOpPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center"
+                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -1004,12 +969,12 @@ export default function PreOpPage() {
         {activeTab === 'checklist' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <FileText className="h-6 w-6 mr-2 text-indigo-500" />
+              <FileText className="h-6 w-6 mr-2 text-brand" />
               {t('docPreOp.preOpChecklistHeading')}
             </h2>
 
             <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
-              <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
+              <Info className="h-5 w-5 mr-2 text-notice-subtle-fg flex-shrink-0 mt-0.5" />
               <p className="text-sm text-notice-subtle-fg">
                 {t('docPreOp.checklistInfoBanner')}
               </p>
@@ -1036,16 +1001,16 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={preOpChecklist[key]}
                       onChange={() => setPreOpChecklist(prev => ({ ...prev, [key]: !prev[key] }))}
-                      className="rounded border-border-strong text-ok-subtle-fg mr-3"
+                      className="rounded border-border-interactive text-ok-subtle-fg mr-3"
                     />
                     <span className={`flex-1 ${preOpChecklist[key] ? 'line-through text-ok-subtle-fg' : ''}`}>
                       {label}
                     </span>
                     {isCritical && !preOpChecklist[key] && (
-                      <span className="text-red-500 text-xs font-bold ml-2">{t('docPreOp.criticalBadge')}</span>
+                      <span className="text-critical text-xs font-bold ml-2">{t('docPreOp.criticalBadge')}</span>
                     )}
                     {preOpChecklist[key] && (
-                      <Check className="h-5 w-5 text-green-500 ml-2" />
+                      <Check className="h-5 w-5 text-ok ml-2" />
                     )}
                   </label>
                 );
@@ -1056,7 +1021,7 @@ export default function PreOpPage() {
               <button
                 onClick={handleSave}
                 disabled={isSubmitting || !selectedPatient}
-                className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center"
+                className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
               >
                 {isSubmitting ? (
                   <>
@@ -1077,7 +1042,7 @@ export default function PreOpPage() {
         {activeTab === 'history' && (
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-indigo-500" />
+              <History className="h-6 w-6 mr-2 text-brand" />
               {t('docPreOp.assessmentHistoryHeading')}
             </h2>
             {!selectedPatient ? (
@@ -1109,7 +1074,7 @@ export default function PreOpPage() {
                         <td className="px-4 py-2 font-mono text-xs">{rec.id}</td>
                         <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>
-                        <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? new Date(rec.created_at * 1000).toLocaleDateString() : '-')}</td>
+                        <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? formatDateOnly(rec.created_at * 1000) : '-')}</td>
                       </tr>
                     ))}
                   </tbody>

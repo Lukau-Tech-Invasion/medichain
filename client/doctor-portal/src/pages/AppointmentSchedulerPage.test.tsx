@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import AppointmentSchedulerPage from './AppointmentSchedulerPage';
 import { useAuthStore } from '../store/authStore';
 import * as endpoints from '../../../shared/src/api/endpoints';
@@ -48,10 +49,14 @@ describe('AppointmentSchedulerPage', () => {
       isAuthenticated: true,
       identityHydrated: true,
     };
-    (useAuthStore as any).mockImplementation((sel?: (s: unknown) => unknown) =>
+    (useAuthStore as unknown as Mock).mockImplementation((sel?: (s: unknown) => unknown) =>
       typeof sel === 'function' ? sel(state) : state
     );
-    (endpoints.createAppointment as any).mockResolvedValue({ success: true });
+    vi.mocked(endpoints.createAppointment).mockResolvedValue({
+      success: true,
+      appointment_id: 'APT-001',
+      message: 'created',
+    });
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
@@ -133,7 +138,7 @@ describe('AppointmentSchedulerPage', () => {
     fireEvent.submit(screen.getByRole('button', { name: /^Book/i }).closest('form')!);
 
     await waitFor(() => expect(endpoints.createAppointment).toHaveBeenCalled());
-    const sent = (endpoints.createAppointment as any).mock.calls[0][0];
+    const sent = vi.mocked(endpoints.createAppointment).mock.calls[0][0] as Record<string, unknown>;
     expect(sent).not.toHaveProperty('provider_id');
     expect(sent.appointment_type).toBe('telehealth');
   });

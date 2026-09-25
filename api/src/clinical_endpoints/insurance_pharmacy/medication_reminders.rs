@@ -11,6 +11,36 @@ use super::*;
 // PHASE 20: MEDICATION REMINDERS
 // ============================================================================
 
+/// The reminder frequencies a caller may name.
+///
+/// Published in the refusal so a client that sends the wrong word is told which
+/// words are right. `ReminderFrequency` has five more variants than this
+/// (`FourTimesDaily`, `EveryOtherDay`, `Biweekly`, `Monthly`, `Custom`); they
+/// are deliberately absent because no screen offers them and accepting a value
+/// nothing can produce is how a vocabulary drifts out of step with its callers.
+pub(crate) const REMINDER_FREQUENCIES: [&str; 6] = [
+    "once",
+    "daily",
+    "twice_daily",
+    "three_times_daily",
+    "weekly",
+    "as_needed",
+];
+
+/// Resolve a reminder frequency, or `None` if it is not one.
+pub(crate) fn parse_reminder_frequency(raw: &str) -> Option<crate::clinical::ReminderFrequency> {
+    use crate::clinical::ReminderFrequency;
+    match raw.trim() {
+        "once" => Some(ReminderFrequency::Once),
+        "daily" => Some(ReminderFrequency::Daily),
+        "twice_daily" => Some(ReminderFrequency::TwiceDaily),
+        "three_times_daily" => Some(ReminderFrequency::ThreeTimesDaily),
+        "weekly" => Some(ReminderFrequency::Weekly),
+        "as_needed" => Some(ReminderFrequency::AsNeeded),
+        _ => None,
+    }
+}
+
 /// Create medication reminder request
 #[derive(Debug, Deserialize)]
 pub struct CreateMedicationReminderRequest {
@@ -45,25 +75,38 @@ pub async fn create_medication_reminder(
     };
 
     // Patient can create for self, provider can create for any patient
-    let is_own_reminder = current_user_id == req.patient_id;
+    // A wallet address is never equal to a `PAT-` id, so this comparison was
+    // `false` for every patient who has ever used it: nobody could set a
+    // reminder for themselves, and the only screen that creates one is in the
+    // patient app. `caller_owns_patient_record` resolves the caller's
+    // `linked_patient_id`, which is the link the two namespaces actually share.
+    let is_own_reminder =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &req.patient_id);
 
     if !is_own_reminder && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patients can create reminders for themselves or providers for patients"
                 .to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
 
-    let frequency = match req.frequency.as_str() {
-        "once" => crate::clinical::ReminderFrequency::Once,
-        "daily" => crate::clinical::ReminderFrequency::Daily,
-        "twice_daily" => crate::clinical::ReminderFrequency::TwiceDaily,
-        "three_times_daily" => crate::clinical::ReminderFrequency::ThreeTimesDaily,
-        "weekly" => crate::clinical::ReminderFrequency::Weekly,
-        "as_needed" => crate::clinical::ReminderFrequency::AsNeeded,
-        _ => crate::clinical::ReminderFrequency::Daily,
+    // Refused, not defaulted. `_ => Daily` turned every frequency this match
+    // did not recognise into a daily reminder -- including the ones a patient
+    // typed into what was a free-text field -- so "twice a day" was stored, and
+    // reminded, once a day.
+    let frequency = match parse_reminder_frequency(&req.frequency) {
+        Some(frequency) => frequency,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "Unknown frequency '{}'. Expected one of: {}",
+                    req.frequency,
+                    REMINDER_FREQUENCIES.join(", ")
+                ),
+                code: "UNKNOWN_FREQUENCY".to_string(),
+            });
+        }
     };
 
     let reminder = crate::clinical::MedicationReminder {
@@ -92,7 +135,6 @@ pub async fn create_medication_reminder(
     let entity: crate::repositories::traits::MedicationReminderEntity = reminder.into();
     if let Err(e) = data.repositories.medication_reminders.create(entity).await {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to create reminder: {}", e),
             code: "DB_ERROR".to_string(),
         });
@@ -128,7 +170,6 @@ pub async fn get_patient_reminders(
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -146,7 +187,6 @@ pub async fn get_patient_reminders(
             .collect(),
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
                 error: format!("Failed to fetch reminders: {}", e),
                 code: "DB_ERROR".to_string(),
             })
@@ -169,6 +209,88 @@ pub struct LogAdherenceRequest {
     pub notes: Option<String>,
 }
 
+/// The doses a patient has logged.
+///
+/// `POST /api/reminders/adherence` has written to `adherence_logs` since it was
+/// built and **nothing has ever read it back**. The repository offers four read
+/// methods -- by patient, by reminder, by date range, and an adherence rate --
+/// and `create` was the only one with a caller anywhere in the binary. So a
+/// patient ticking off their doses was filling a table no screen, report or
+/// clinician could open: the silent-write shape, with the write half working.
+///
+/// Scoped like the reminder list beside it: the patient themselves, or a
+/// healthcare provider. An adherence history is a medication-compliance record
+/// and is nobody else's business.
+#[get("/api/reminders/adherence/{patient_id}")]
+pub async fn get_patient_adherence(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let current_user = match require_known_user(&data, &current_user_id) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    let patient_id = path.into_inner();
+
+    let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the patient or a healthcare provider can read an adherence history"
+                .to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // `Pagination` is 0-indexed; `PaginationQuery` is 1-indexed.
+    let pagination = crate::repositories::Pagination::new(
+        (query.page.saturating_sub(1)) as u32,
+        query.limit as u32,
+    );
+    let page = match data
+        .repositories
+        .adherence_logs
+        .get_by_patient(&patient_id, None, pagination)
+        .await
+    {
+        Ok(page) => page,
+        Err(error) => {
+            log::error!("adherence history for {patient_id} could not be read: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The adherence history could not be read".to_string(),
+                code: "ADHERENCE_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "logs": page.items,
+        "count": page.total,
+    }))
+}
+
+/// Which of the four reporter categories `adherence_logs.reported_by` accepts.
+///
+/// The column's CHECK constraint allows `patient`, `caregiver`, `system` and
+/// `provider` and nothing else. `caregiver` is unreachable from this endpoint
+/// today — a guardian logging on a child's behalf would produce it, and that
+/// flow does not exist yet — so it is deliberately absent rather than guessed
+/// at.
+fn reporter_kind(role: &crate::Role) -> &'static str {
+    if role.is_healthcare_provider() {
+        "provider"
+    } else {
+        "patient"
+    }
+}
+
 #[post("/api/reminders/adherence")]
 pub async fn log_medication_adherence(
     data: web::Data<crate::AppState>,
@@ -189,34 +311,57 @@ pub async fn log_medication_adherence(
         Ok(e) => e.into(),
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Reminder not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
         }
     };
 
-    // Only the patient can log their own adherence
-    if current_user_id != reminder.patient_id {
+    // Only the patient can log their own adherence.
+    //
+    // Resolved through `linked_patient_id`. A bare `!=` between a wallet
+    // address and a `PAT-` id is always true, so this refused every patient --
+    // the third instance of that comparison in this file's neighbourhood, and
+    // it was hidden behind a 400 because the page was sending a payload this
+    // handler could not even deserialize.
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only patient can log their own adherence".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
 
-    // Normalize the action to a canonical string for the entity
-    let action_taken = match req.action.as_str() {
+    // The caller's role decides how their report is categorised.
+    let caller_role = crate::get_user(&data, &current_user_id)
+        .map(|user| user.role)
+        .unwrap_or(crate::Role::Patient);
+
+    // Refused, not normalised to "taken".
+    //
+    // `_ => "taken"` recorded a dose as swallowed whenever the action was a
+    // word this match did not know -- including "skipped" misspelt. An
+    // adherence log that says a patient took a medicine they did not take is
+    // not a lost record, it is a false one, and the next clinician reads it as
+    // fact.
+    let action_taken = match req.action.trim() {
         "taken" => "taken",
         "skipped" => "skipped",
         "snoozed" => "snoozed",
         "missed" => "missed",
         "taken_late" => "taken_late",
-        _ => "taken",
+        other => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "Unknown action '{other}'. Expected one of: taken, taken_late, skipped, \
+                     snoozed, missed"
+                ),
+                code: "UNKNOWN_ADHERENCE_ACTION".to_string(),
+            })
+        }
     };
 
     let now = chrono::Utc::now();
-    let taken = matches!(req.action.as_str(), "taken" | "taken_late");
+    let taken = matches!(action_taken, "taken" | "taken_late");
     let log_id = format!("ADH-{}", uuid::Uuid::new_v4());
 
     // Persist via repository (was: in-memory data.adherence_logs HashMap, lost on restart)
@@ -229,7 +374,16 @@ pub async fn log_medication_adherence(
         scheduled_time: now,
         action_taken: action_taken.to_string(),
         actual_time: if taken { Some(now) } else { None },
-        reported_by: Some(current_user_id.clone()),
+        // The KIND of reporter, not their id.
+        //
+        // `adherence_logs.reported_by` has a CHECK constraint allowing exactly
+        // `patient`, `caregiver`, `system` and `provider`. The caller's wallet
+        // address was being written here, so PostgreSQL rejected every row --
+        // first for being 48 characters in a VARCHAR(32), and then, once that
+        // was noticed, for not being one of the four words. Who specifically
+        // logged it is in the audit trail; what this column answers is whether
+        // the patient said so themselves.
+        reported_by: Some(reporter_kind(&caller_role).to_string()),
         skip_reason: None,
         side_effects_reported: None,
         notes: req.notes.clone(),
@@ -245,7 +399,6 @@ pub async fn log_medication_adherence(
             "message": "Adherence logged successfully"
         })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
@@ -275,16 +428,19 @@ pub async fn delete_medication_reminder(
         Ok(e) => e.into(),
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "Reminder not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             });
         }
     };
 
-    if reminder.patient_id != current_user_id && reminder.created_by != current_user_id {
+    // `patient_id` identifies the clinical record, while `current_user_id` is
+    // the authenticated wallet. Compare record ownership through the canonical
+    // bridge; a direct comparison denied every patient their own reminder.
+    let owns_patient_record =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id);
+    if !owns_patient_record && reminder.created_by != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
@@ -297,7 +453,6 @@ pub async fn delete_medication_reminder(
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
             error: format!("Failed to deactivate: {}", e),
             code: "DB_ERROR".to_string(),
         });
@@ -355,49 +510,57 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
         );
 
         // FCM Push notification
+        // Two gates, and they are not the same question. The reminder's own
+        // `push_notification` is this reminder's channel choice; the account's
+        // `pushNotifications` is "no app notifications at all", which outranks
+        // it. `notify_patient` asks the second and bridges the record id to the
+        // account that owns the device.
         if reminder.notification_prefs.push_notification {
-            let repos = data.repositories.clone();
-            let patient_id = reminder.patient_id.clone();
-            let med_name = reminder.medication_name.clone();
-            tokio::spawn(async move {
-                let _ = crate::notifications::send_push_to_user(
-                    &repos,
-                    crate::notifications::PushNotification {
-                        user_id: patient_id,
-                        title: "Medication Reminder".to_string(),
-                        body: format!("It's time to take your {}.", med_name),
-                        data: Some(
-                            [("type".to_string(), "medication_reminder".to_string())].into(),
-                        ),
-                    },
-                )
-                .await;
-            });
+            crate::notifications::notify_patient(
+                data,
+                &reminder.patient_id,
+                &["pushNotifications"],
+                "Medication Reminder",
+                &format!("It's time to take your {}.", reminder.medication_name),
+                "medication_reminder",
+            )
+            .await;
         }
 
         // Africa's Talking SMS integration (when SMS_ENABLED=true)
-        if reminder.notification_prefs.sms {
-            // Get patient phone from repository
+        //
+        // The number is decrypted here. This branch used to resolve an
+        // encrypted phone to the literal string "Redacted" and then guard on
+        // `phone != "Redacted"`, so it could never be taken: a patient who
+        // opted into SMS medication reminders received nothing, silently and
+        // permanently, and the log line above still reported `sms=true`.
+        // Same two-gate rule as the push above: the reminder's own `sms` flag
+        // is this reminder's channel choice, and the account's
+        // `smsNotifications` is "no text messages at all", which outranks it.
+        if reminder.notification_prefs.sms
+            && crate::notifications::patient_wants(
+                data,
+                &reminder.patient_id,
+                &["smsNotifications"],
+            )
+            .await
+        {
             let patient_phone = match data
                 .repositories
                 .patients
                 .get_by_id(&reminder.patient_id)
                 .await
             {
-                Ok(p) => {
-                    if p.phone_encrypted.is_some() {
-                        // Phone is encrypted in Phase 2, but for SMS we'd need to decrypt it.
-                        // For demo, we use a placeholder or check if a plain phone field exists.
-                        Some("Redacted".to_string())
-                    } else {
-                        None
-                    }
-                }
+                Ok(p) => crate::types::dec_patient_field(
+                    p.phone_encrypted.as_ref(),
+                    p.key_version,
+                    &data.encryption_keyring,
+                ),
                 Err(_) => None,
             };
 
-            if let Some(phone) = patient_phone {
-                if phone != "Redacted" {
+            match patient_phone {
+                Some(phone) => {
                     let body = crate::notifications::SmsTemplate::MedicationReminder {
                         medication: reminder.medication_name.clone(),
                     }
@@ -415,6 +578,13 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
                         log::info!("[sms] medication reminder delivery status: {:?}", status);
                     });
                 }
+                // Said out loud rather than dropped. A patient who asked for
+                // SMS and has no readable number is not being reminded, and an
+                // operator has to be able to find out that this is why.
+                None => log::warn!(
+                    "[sms] medication reminder for {} not sent: no readable phone number on file",
+                    reminder.patient_id
+                ),
             }
         }
     }

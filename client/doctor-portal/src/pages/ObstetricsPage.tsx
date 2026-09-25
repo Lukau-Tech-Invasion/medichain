@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createOb, useTranslation } from '@medichain/shared';
+import { getPatients, createOb, useTranslation, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -63,7 +64,7 @@ const obInterventions = [
 const ObstetricsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const fhrDesc = (cat: FetalHeartCategory): string => ({
     I: t('docObstetrics.fhrDescI'), II: t('docObstetrics.fhrDescII'), III: t('docObstetrics.fhrDescIII'),
   }[cat]);
@@ -129,7 +130,7 @@ const ObstetricsPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showWarning(t('docObstetrics.warnSelectPatient'));
+      showError(t('docObstetrics.errorSelectPatient'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -148,6 +149,10 @@ const ObstetricsPage: React.FC = () => {
       await createOb(newAssessment);
     } catch (err) {
       console.error('Failed to save OB assessment:', err);
+      // Stop here. Falling through added the record to the local list
+      // and toasted success for a write that never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
     setAssessments([newAssessment, ...assessments]);
     showSuccess(t('docObstetrics.saved'));
@@ -156,12 +161,12 @@ const ObstetricsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white p-6">
+      <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Baby className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docObstetrics.title')}</h1>
-            <p className="text-pink-100">{t('docObstetrics.subtitle')}</p>
+            <p className="text-white">{t('docObstetrics.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -201,18 +206,12 @@ const ObstetricsPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="ob-patient" className="text-sm text-content-muted">{t('docObstetrics.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="ob-patient"
+                    label={t('docObstetrics.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docObstetrics.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="ob-gravida" className="text-sm text-content-muted">{t('docObstetrics.gravida')}</label>
@@ -570,7 +569,7 @@ const ObstetricsPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{formatTimestamp(a.assessedAt)}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${fhrCategories[a.fetalMonitoring.category].color}`}>
                       {t('docObstetrics.fhrCat', { cat: a.fetalMonitoring.category })}

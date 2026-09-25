@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { getApiClient, useTranslation } from '@medichain/shared';
 import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -124,22 +124,17 @@ function PatientSearchPage() {
     const fetchPatients = async () => {
       try {
         setLoading(true);
-        const response = await fetch(apiUrl('/api/patients'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(t('docPatientSearch.failFetch'));
-        }
-
-        const data = await response.json();
+        // Both shapes are real: the API client unwraps a `{data: [...]}` envelope
+        // to the bare array for some endpoints and not others, so a type naming
+        // only one of them silently yields an empty roster for the other.
+        const data = await getApiClient().get<
+          | { data?: ApiPatient[]; total?: number; unreadable_count?: number }
+          | ApiPatient[]
+        >('/api/patients');
         setApiConnected(true);
         
         // Handle paginated response
-        const patientArray = Array.isArray(data) ? data : (data.data || []);
+        const patientArray = Array.isArray(data) ? data : (data.data ?? []);
         
         // Transform API response to Patient format
         const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => {
@@ -163,9 +158,15 @@ function PatientSearchPage() {
         
         setPatients(transformedPatients);
         setTotalInSystem(
-          typeof data.total === 'number' ? data.total : transformedPatients.length
+          !Array.isArray(data) && typeof data.total === 'number'
+            ? data.total
+            : transformedPatients.length
         );
-        setUnreadableCount(typeof data.unreadable_count === 'number' ? data.unreadable_count : 0);
+        setUnreadableCount(
+          !Array.isArray(data) && typeof data.unreadable_count === 'number'
+            ? data.unreadable_count
+            : 0
+        );
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docPatientSearch.failFetch'));
@@ -204,9 +205,7 @@ function PatientSearchPage() {
       currentMedications: p.medications,
       chronicConditions: p.conditions,
       emergencyContacts: [],
-      organDonor: false,
-      dnrStatus: false,
-      lastUpdated: p.lastVisit || new Date().toISOString(),
+      lastUpdated: p.lastVisit,
       lastAccessed: new Date().toISOString(),
     }));
     
@@ -224,9 +223,7 @@ function PatientSearchPage() {
       currentMedications: patient.medications,
       chronicConditions: patient.conditions,
       emergencyContacts: [] as { name: string; phone: string; relationship: string }[],
-      organDonor: false,
-      dnrStatus: false,
-      lastUpdated: patient.lastVisit ?? new Date().toISOString(),
+      lastUpdated: patient.lastVisit,
       lastAccessed: new Date().toISOString(),
     };
     addToRecentPatients(emergencyInfo);
@@ -274,7 +271,7 @@ function PatientSearchPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docPatientSearch.searchPlaceholder')}
-              className="w-full pl-12 pr-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none transition-all"
+              className="w-full pl-12 pr-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none transition-all"
             />
           </div>
           <button
@@ -290,7 +287,7 @@ function PatientSearchPage() {
           <button
             type="submit"
             disabled={isSearching}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
           >
             {isSearching ? t('docPatientSearch.searching') : t('docPatientSearch.search')}
           </button>
@@ -306,7 +303,7 @@ function PatientSearchPage() {
               <select
                 value={filterBloodType}
                 onChange={(e) => setFilterBloodType(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
               >
                 <option value="all">{t('docPatientSearch.allBloodTypes')}</option>
                 <option value="A+">A+</option>
@@ -324,7 +321,7 @@ function PatientSearchPage() {
               <select
                 value={filterGender}
                 onChange={(e) => setFilterGender(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
               >
                 <option value="all">{t('docPatientSearch.allGenders')}</option>
                 <option value="male">{t('docPatientSearch.male')}</option>
@@ -454,14 +451,14 @@ function PatientSearchPage() {
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <div className="flex items-center gap-1 justify-end">
-                        <Droplet size={14} className="text-red-500" />
+                        <Droplet size={14} className="text-critical" />
                         <span className="text-sm font-semibold text-critical-subtle-fg">{patient.bloodType}</span>
                       </div>
                       <p className="text-xs text-content-muted mt-1">
                         {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}
                       </p>
                     </div>
-                    <ChevronRight className="text-gray-300" size={20} />
+                    <ChevronRight className="text-content-muted" size={20} />
                   </div>
                 </div>
               </Link>
@@ -471,7 +468,7 @@ function PatientSearchPage() {
 
         {loading && (
           <div className="p-12 text-center">
-            <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
+            <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
             <p className="text-content-muted">{t('docPatientSearch.loading')}</p>
           </div>
         )}
@@ -479,7 +476,7 @@ function PatientSearchPage() {
         {error && !loading && (
           <div className="p-12 text-center">
             <Users className="mx-auto mb-3 text-red-300" size={48} />
-            <p className="text-red-500">{error}</p>
+            <p className="text-critical">{error}</p>
             <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.apiHint')}
             </p>
@@ -488,7 +485,7 @@ function PatientSearchPage() {
 
         {!loading && !error && displayPatients.length === 0 && (
           <div className="p-12 text-center">
-            <Users className="mx-auto mb-3 text-gray-300" size={48} />
+            <Users className="mx-auto mb-3 text-content-muted" size={48} />
             <p className="text-content-muted">{t('docPatientSearch.noneFound')}</p>
             <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.tryDifferent')}

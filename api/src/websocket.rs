@@ -240,7 +240,6 @@ pub async fn sse_events(
             // scoped to anything real — deny rather than fall back to broad.
             None => {
                 return HttpResponse::Forbidden().json(crate::types::ErrorResponse {
-                    success: false,
                     error: "Patient account has no linked patient record".to_string(),
                     code: "NO_LINKED_PATIENT".to_string(),
                 })

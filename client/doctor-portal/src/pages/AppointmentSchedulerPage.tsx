@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  createAppointment,
-  setAppointmentStatus,
-  apiUrl,
-  useTranslation,
-} from '@medichain/shared';
+import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -124,7 +119,7 @@ function bucketFor(a: Appointment, today: string): Tab {
 }
 
 const STATUS_STYLE: Record<AppointmentStatus, string> = {
-  scheduled: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
+  scheduled: 'bg-surface-sunken text-content-secondary',
   confirmed: 'bg-notice-subtle text-notice-subtle-fg dark:bg-blue-900 dark:text-blue-100',
   checked_in: 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900 dark:text-amber-100',
   in_progress: 'bg-surface-sunken text-content-secondary dark:bg-indigo-900 dark:text-indigo-100',
@@ -133,7 +128,7 @@ const STATUS_STYLE: Record<AppointmentStatus, string> = {
   declined: 'bg-critical-subtle text-critical-subtle-fg dark:bg-red-900 dark:text-red-100',
   no_show: 'bg-surface-sunken text-content-secondary dark:bg-orange-900 dark:text-orange-100',
   rescheduled: 'bg-surface-sunken text-content-secondary dark:bg-purple-900 dark:text-purple-100',
-  waitlisted: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
+  waitlisted: 'bg-surface-sunken text-content-secondary',
 };
 
 /**
@@ -203,11 +198,9 @@ export default function AppointmentSchedulerPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl(`/api/appointments/provider/${provider.providerId}`), {
-        headers: { 'X-User-Id': provider.walletAddress },
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
+      const data = await getApiClient().get<{ appointments?: Appointment[] }>(
+        `/api/appointments/provider/${provider.providerId}`
+      );
       setAppointments(data.appointments ?? []);
     } catch {
       // A failed load is an error state, not an empty list. Showing "no
@@ -216,7 +209,9 @@ export default function AppointmentSchedulerPage() {
     } finally {
       setLoading(false);
     }
-  }, [provider.isAuthenticated, provider.providerId, provider.walletAddress, t]);
+    // `provider.walletAddress` went with the hand-rolled session headers; the
+    // typed client reads the session itself.
+  }, [provider.isAuthenticated, provider.providerId, t]);
 
   useEffect(() => {
     void fetchAppointments();
@@ -262,7 +257,7 @@ export default function AppointmentSchedulerPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = window.prompt(t('docAppointments.cancelReasonPrompt')) ?? '';
+        reason = (await promptDialog({ message: t('docAppointments.cancelReasonPrompt'), required: true })) ?? '';
         if (!reason.trim()) {
           return; // Dismissed the prompt; leave the appointment alone.
         }
@@ -291,7 +286,7 @@ export default function AppointmentSchedulerPage() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-bold dark:text-white">{t('docAppointments.title')}</h1>
+        <h1 className="text-2xl font-bold text-content">{t('docAppointments.title')}</h1>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
@@ -301,14 +296,14 @@ export default function AppointmentSchedulerPage() {
         </button>
       </div>
       {/* Says whose calendar this is, instead of asking. */}
-      <p className="text-sm text-content-muted dark:text-gray-300 mb-6">
+      <p className="text-sm text-content-muted mb-6">
         {t('docAppointments.scheduleFor', { name: provider.displayName })}
         {provider.department ? ` · ${provider.department}` : ''}
       </p>
 
       {showForm && (
-        <div className="bg-surface dark:bg-slate-800 rounded-xl shadow p-6 mb-6">
-          <h2 className="font-semibold text-content dark:text-white mb-4">
+        <div className="bg-surface rounded-xl shadow p-6 mb-6">
+          <h2 className="font-semibold text-content mb-4">
             {t('docAppointments.scheduleNew')}
           </h2>
           <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
@@ -320,14 +315,14 @@ export default function AppointmentSchedulerPage() {
               required
             />
             <div>
-              <label htmlFor="appointment_type" className="block text-sm font-medium dark:text-gray-200">
+              <label htmlFor="appointment_type" className="block text-sm font-medium text-content-secondary">
                 {t('docAppointments.appointmentType')}
               </label>
               <select
                 id="appointment_type"
                 value={formData.appointment_type}
                 onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
-                className="w-full border p-2 rounded dark:bg-slate-700 dark:border-slate-600"
+                className="w-full border border-border-interactive p-2 rounded"
                 required
               >
                 <option value="consultation">{t('docAppointments.type_consultation')}</option>
@@ -341,7 +336,7 @@ export default function AppointmentSchedulerPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="preferred_date" className="block text-sm font-medium dark:text-gray-200">
+                <label htmlFor="preferred_date" className="block text-sm font-medium text-content-secondary">
                   {t('docAppointments.date')}
                 </label>
                 <input
@@ -353,12 +348,12 @@ export default function AppointmentSchedulerPage() {
                   max={`${new Date().getFullYear() + 2}-12-31`}
                   value={formData.preferred_date}
                   onChange={(e) => setFormData({ ...formData, preferred_date: e.target.value })}
-                  className="w-full border p-2 rounded dark:bg-slate-700 dark:border-slate-600"
+                  className="w-full border border-border-interactive p-2 rounded"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="preferred_time" className="block text-sm font-medium dark:text-gray-200">
+                <label htmlFor="preferred_time" className="block text-sm font-medium text-content-secondary">
                   {t('docAppointments.time')}
                 </label>
                 <input
@@ -366,20 +361,20 @@ export default function AppointmentSchedulerPage() {
                   type="time"
                   value={formData.preferred_time}
                   onChange={(e) => setFormData({ ...formData, preferred_time: e.target.value })}
-                  className="w-full border p-2 rounded dark:bg-slate-700 dark:border-slate-600"
+                  className="w-full border border-border-interactive p-2 rounded"
                   required
                 />
               </div>
             </div>
             <div>
-              <label htmlFor="reason" className="block text-sm font-medium dark:text-gray-200">
+              <label htmlFor="reason" className="block text-sm font-medium text-content-secondary">
                 {t('docAppointments.reason')}
               </label>
               <textarea
                 id="reason"
                 value={formData.reason}
                 onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full border p-2 rounded dark:bg-slate-700 dark:border-slate-600"
+                className="w-full border border-border-interactive p-2 rounded"
                 rows={3}
                 required
               />
@@ -388,7 +383,7 @@ export default function AppointmentSchedulerPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
               >
                 {submitting && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
                 {t('docAppointments.book')}
@@ -396,7 +391,7 @@ export default function AppointmentSchedulerPage() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="border px-4 py-2 rounded hover:bg-surface-sunken dark:hover:bg-slate-700 dark:text-gray-200"
+                className="border px-4 py-2 rounded hover:bg-surface-sunken text-content-secondary"
               >
                 {t('docAppointments.cancel')}
               </button>
@@ -405,8 +400,8 @@ export default function AppointmentSchedulerPage() {
         </div>
       )}
 
-      <div className="bg-surface dark:bg-slate-800 rounded-xl shadow">
-        <div role="tablist" aria-label={t('docAppointments.title')} className="flex border-b dark:border-slate-700">
+      <div className="bg-surface rounded-xl shadow">
+        <div role="tablist" aria-label={t('docAppointments.title')} className="flex border-b border-border">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
@@ -416,11 +411,11 @@ export default function AppointmentSchedulerPage() {
               className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 ${
                 tab === id
                   ? 'border-blue-600 text-notice-subtle-fg dark:text-blue-300'
-                  : 'border-transparent text-content-muted hover:text-content dark:text-gray-300 dark:hover:text-white'
+                  : 'border-transparent text-content-muted hover:text-content'
               }`}
             >
               {label}
-              <span className="ml-2 text-xs text-content-muted dark:text-gray-400">
+              <span className="ml-2 text-xs text-content-muted">
                 {buckets[id].length}
               </span>
             </button>
@@ -429,8 +424,8 @@ export default function AppointmentSchedulerPage() {
 
         {loading ? (
           <div className="p-8 text-center">
-            <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} aria-hidden="true" />
-            <p className="text-content-muted dark:text-gray-300">{t('docAppointments.loading')}</p>
+            <Loader2 className="mx-auto animate-spin text-notice-subtle-fg mb-2" size={32} aria-hidden="true" />
+            <p className="text-content-muted">{t('docAppointments.loading')}</p>
           </div>
         ) : loadError ? (
           <div role="alert" className="p-8 text-center">
@@ -438,15 +433,15 @@ export default function AppointmentSchedulerPage() {
             <p className="text-critical-subtle-fg dark:text-red-300 mb-3">{loadError}</p>
             <button
               onClick={() => void fetchAppointments()}
-              className="px-4 py-2 border rounded hover:bg-surface-sunken dark:hover:bg-slate-700 dark:text-gray-200"
+              className="px-4 py-2 border rounded hover:bg-surface-sunken text-content-secondary"
             >
               {t('docAppointments.retry')}
             </button>
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center">
-            <Calendar className="mx-auto mb-2 text-gray-300" size={40} aria-hidden="true" />
-            <p className="text-content-muted dark:text-gray-300 mb-3">
+            <Calendar className="mx-auto mb-2 text-content-muted" size={40} aria-hidden="true" />
+            <p className="text-content-muted mb-3">
               {t(`docAppointments.empty_${tab}`)}
             </p>
             {(tab === 'today' || tab === 'upcoming') && (
@@ -459,7 +454,7 @@ export default function AppointmentSchedulerPage() {
             )}
           </div>
         ) : (
-          <ul className="divide-y dark:divide-slate-700">
+          <ul className="divide-y divide-border">
             {rows.map((a) => {
               const status = normaliseStatus(a.status);
               // Only the side that did not book may answer a proposal, so drop
@@ -470,11 +465,11 @@ export default function AppointmentSchedulerPage() {
                 (to) => !(awaitingPatient && (to === 'confirmed' || to === 'declined'))
               );
               return (
-                <li key={a.appointment_id} className="p-4 hover:bg-surface-sunken dark:hover:bg-slate-700/50">
+                <li key={a.appointment_id} className="p-4 hover:bg-surface-sunken">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-medium text-content dark:text-white">
+                        <span className="font-medium text-content">
                           {a.patient_name || a.patient_id}
                         </span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[status]}`}>
@@ -492,7 +487,7 @@ export default function AppointmentSchedulerPage() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 text-sm text-content-muted dark:text-gray-300 flex-wrap">
+                      <div className="flex items-center gap-3 text-sm text-content-muted flex-wrap min-h-[24px] py-1">
                         <span className="inline-flex items-center gap-1">
                           <Calendar size={13} aria-hidden="true" />{a.scheduled_date}
                         </span>
@@ -507,7 +502,7 @@ export default function AppointmentSchedulerPage() {
                         )}
                       </div>
                       {a.visit_reason && (
-                        <p className="text-sm text-content-muted dark:text-gray-400 mt-1">{a.visit_reason}</p>
+                        <p className="text-sm text-content-muted mt-1">{a.visit_reason}</p>
                       )}
                     </div>
                     <div className="flex gap-2 flex-wrap">
@@ -528,7 +523,7 @@ export default function AppointmentSchedulerPage() {
                             {t('docAppointments.joinConsultation')}
                           </a>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-content-muted dark:text-gray-400">
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-content-muted">
                             <Video size={14} aria-hidden="true" />
                             {t('docAppointments.joinOpensSoon')}
                           </span>
@@ -542,7 +537,7 @@ export default function AppointmentSchedulerPage() {
                             key={to}
                             onClick={() => void advance(a.appointment_id, to)}
                             disabled={busy === `${a.appointment_id}-${to}`}
-                            className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                               destructive
                                 ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-critical-subtle dark:bg-red-900/40 dark:text-red-200'
                                 : 'bg-blue-600 text-critical-fg hover:bg-blue-700'

@@ -3,60 +3,60 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MyProfilePage } from './MyProfilePage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
 
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
-
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  apiUrl: (path: string) => path,
-  addEmergencyContact: vi.fn(),
+  getPatient: vi.fn(),
 }));
 
+const mockPatientId = 'HEALTH123';
+
+const storeState = {
+  patient: {
+    healthId: mockPatientId,
+    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+  },
+};
+
 describe('MyProfilePage (Patient)', () => {
-  const mockPatientId = 'HEALTH123';
 
   beforeEach(() => {
     vi.clearAllMocks();
 
+    // One object, created once. Rebuilding it per call hands the component a
+    // new `patient` reference on every render, which the real store never does
+    // — and a callback depending on it is then rebuilt every render, re-running
+    // its effect forever. The page never leaves its loading skeleton.
     (usePatientAuthStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (state: unknown) => unknown) => selector({
-        patient: {
-          healthId: mockPatientId,
-          walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
-        },
-      }),
+      (selector: (state: unknown) => unknown) => selector(storeState),
     );
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({
-          patient_id: 'HEALTH123',
-          full_name: 'Test Patient',
-          date_of_birth: '1990-01-01',
-          national_id: 'ID12345',
-          emergency_info: {
-            blood_type: 'O+',
-            allergies: [{ name: 'Peanuts' }],
-            chronic_conditions: ['Asthma'],
-            current_medications: ['Inhaler'],
-            emergency_contacts: [
-              { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife' }
-            ],
-            organ_donor: true,
-            dnr_status: false,
-          },
-          last_updated: '2025-01-01',
-        }),
-      });
+    vi.mocked(shared.getPatient).mockResolvedValue({
+      patient_id: 'HEALTH123',
+      full_name: 'Test Patient',
+      date_of_birth: '1990-01-01',
+      national_id: 'ID12345',
+      emergency_info: {
+        patient_id: 'HEALTH123',
+        blood_type: 'O+',
+        allergies: [{ name: 'Peanuts', severity: 'mild', reaction: '' }],
+        chronic_conditions: ['Asthma'],
+        current_medications: ['Inhaler'],
+        emergency_contacts: [
+          { name: 'Jane Doe', phone: '555-1212', relationship: 'Wife' }
+        ],
+        organ_donor: true,
+        dnr_status: false,
+        last_updated: '2025-01-01',
+      },
+      last_updated: '2025-01-01',
+      created_at: '2025-01-01',
     });
   });
 
@@ -90,6 +90,18 @@ describe('MyProfilePage (Patient)', () => {
       expect(screen.getByText(/Jane Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/Wife/i)).toBeInTheDocument();
     });
+  });
+
+  it('renders absent organ-donation and DNR statuses as not recorded', async () => {
+    vi.mocked(shared.getPatient).mockResolvedValue({
+      patient_id: 'HEALTH123', full_name: 'Test Patient', date_of_birth: '1990-01-01',
+      emergency_info: { blood_type: 'O+' },
+    } as never);
+    render(<MemoryRouter><MyProfilePage /></MemoryRouter>);
+
+    await waitFor(() => expect(screen.getByText(/Personal Information/i)).toBeInTheDocument());
+    expect(screen.queryAllByText(/^No$/i)).toHaveLength(0);
+    expect(screen.getAllByText(/Not recorded/i).length).toBeGreaterThanOrEqual(2);
   });
 
   it('allows opening the add contact form', async () => {

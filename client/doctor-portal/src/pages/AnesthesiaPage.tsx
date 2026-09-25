@@ -1,7 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createAnesthesia, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  createAnesthesia,
+  fromStoredRecord,
+  getApiClient,
+  rowsOfResponse,
+  useTranslation,
+  Input,
+  useValidatedForm,
+  anesthesiaRecordSchema,
+  formatTimestamp,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -65,9 +77,40 @@ const complicationsList = [
 const AnesthesiaPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
+
+  /**
+   * Read the anaesthetist's records back from the API.
+   *
+   * Two bugs met on this screen. Every save failed -- `create_anesthesia`
+   * demanded the COMPLETE typed `AnesthesiaRecord` (38 required fields) while
+   * this page documents a flat summary, so the request 400'd with
+   * `missing field record_id` and surfaced as a generic save failure. And the
+   * list was local state only, so even a successful save vanished on reload.
+   *
+   * `/api/surgical/anesthesia/list` was itself unreachable until the route was
+   * registered before `/{id}`, which had been capturing the literal path
+   * `list` as a record id and answering 404.
+   */
+  const loadAnesthesiaRecords = useCallback(async () => {
+    try {
+      const body = await getApiClient().get<unknown>('/api/surgical/anesthesia/list');
+      setRecords(
+        rowsOfResponse(body).map((row) =>
+          fromStoredRecord<AnesthesiaRecord>(row, { documentedBy: 'anesthesiologist_id' })
+        )
+      );
+    } catch (err) {
+      // A failed read must not look like an empty theatre list.
+      console.error('Failed to load anesthesia records:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAnesthesiaRecords();
+  }, [loadAnesthesiaRecords]);
   const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
   const [selectedPatient, setSelectedPatient] = useState('');
 
@@ -111,21 +154,32 @@ const AnesthesiaPage: React.FC = () => {
 
   const addVital = () => {
     if (!newVital.time) {
-      showWarning(t('docAnesthesia.warnEnterTime'));
+      showError(t('docAnesthesia.errorEnterTime'));
       return;
     }
     setVitals([...vitals, { ...newVital }]);
     setNewVital({ time: '', bp: '120/80', hr: 70, spo2: 99, etco2: 35, rr: 12, fio2: 100 });
   };
 
+  const { errors, validate, validateField, clearField } = useValidatedForm(
+    anesthesiaRecordSchema
+  );
+
   const handleSubmit = async () => {
+    // Selecting a patient is a precondition for the record, so it keeps its
+    // toast. The procedure is a field error and now says so on the field: an
+    // anaesthetic technique is reviewed against what was being done, and a
+    // record naming neither cannot be judged at all.
     if (!selectedPatient) {
-      showError(t('docAnesthesia.warnSelectPatient'));
+      showError(t('docAnesthesia.errorSelectPatient'));
+      return;
+    }
+    if (!validate({ selectedPatient, procedure })) {
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const record: AnesthesiaRecord = {
-      id: `ANES-${Date.now()}`,
+      id: '', // assigned by the server
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
       documentedBy: user?.userId || 'Unknown',
@@ -139,20 +193,25 @@ const AnesthesiaPage: React.FC = () => {
       await createAnesthesia(record);
     } catch (err) {
       console.error('Failed to save anesthesia record:', err);
+      // Stop here. Falling through announced success for a write that
+      // never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
-    setRecords([record, ...records]);
+    // Re-read through the endpoint rather than pushing the local object.
+    await loadAnesthesiaRecords();
     showSuccess(t('docAnesthesia.saved'));
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
+      <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3">
           <Syringe className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docAnesthesia.title')}</h1>
-            <p className="text-cyan-100">{t('docAnesthesia.subtitle')}</p>
+            <p className="text-white">{t('docAnesthesia.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -184,27 +243,23 @@ const AnesthesiaPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="anes-patient" className="text-sm text-content-muted">{t('docAnesthesia.patient')}</label>
-                  <select
+                  <PatientSelect
                     id="anes-patient"
+                    label={t('docAnesthesia.patient')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docAnesthesia.select')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="anes-procedure" className="text-sm text-content-muted">{t('docAnesthesia.procedure')}</label>
-                  <input
+                  <Input
                     id="anes-procedure"
                     type="text"
+                    label={t('docAnesthesia.procedure')}
                     value={procedure}
-                    onChange={e => setProcedure(e.target.value)}
-                    className="w-full border rounded p-2"
+                    onChange={e => { clearField('procedure'); setProcedure(e.target.value); }}
+                    onBlur={() => validateField('procedure', { selectedPatient, procedure })}
+                    error={errors.procedure}
+                    required
                   />
                 </div>
                 <div>
@@ -519,7 +574,7 @@ const AnesthesiaPage: React.FC = () => {
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
-                <button onClick={addVital} className="bg-cyan-600 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
+                <button onClick={addVital} className="bg-cyan-700 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
               </div>
             </div>
 
@@ -562,7 +617,7 @@ const AnesthesiaPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700"
+              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800"
             >
               {t('docAnesthesia.save')}
             </button>
@@ -577,7 +632,7 @@ const AnesthesiaPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-content-muted">{new Date(r.documentedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{r.documentedAt ? formatTimestamp(r.documentedAt) : ""}</p>
                     </div>
                     <span className="px-2 py-1 text-xs rounded bg-surface-sunken text-content-secondary">
                       {t('docAnesthesia.asaBadge', { class: r.asaClass })}
@@ -586,7 +641,7 @@ const AnesthesiaPage: React.FC = () => {
                   <div className="text-sm">
                     <p><strong>{t('docAnesthesia.lblProcedure')}</strong> {r.procedure}</p>
                     <p><strong>{t('docAnesthesia.lblType')}</strong> {r.anesthesiaType} | <strong>{t('docAnesthesia.lblAirway')}</strong> {r.airwayType}</p>
-                    <p>{t('docAnesthesia.summaryLine', { ebl: r.ebl, uo: r.urineOutput, count: r.vitals.length })}</p>
+                    <p>{t('docAnesthesia.summaryLine', { ebl: r.ebl, uo: r.urineOutput, count: r.vitals?.length ?? 0 })}</p>
                   </div>
                 </div>
               ))

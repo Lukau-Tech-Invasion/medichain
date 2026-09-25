@@ -29,10 +29,10 @@ describe('WoundCarePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
 
     // The shared default in src/test/setup.ts resolves `{ success: true,
     // data: [] }`, but this page calls `data.map(...)` on the parsed body — so

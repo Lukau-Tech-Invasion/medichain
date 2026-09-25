@@ -19,8 +19,18 @@ export interface PatientListItem {
   blood_type?: string;
   allergies?: string[];
   flags?: {
-    fall_risk?: boolean;
-    iv_site?: boolean;
+    /**
+     * The Morse band — `low` / `moderate` / `high` — not a boolean.
+     *
+     * "At risk of falling" is not a yes/no question: moderate risk adds a bed
+     * alarm and hourly rounding, high risk adds signage and supervised
+     * toileting. A flag that says only "yes" cannot tell a nurse which.
+     * Undefined means no assessment has been done, which is a third state
+     * again, and not the same as low risk.
+     */
+    fall_risk?: string;
+    /** Where the live cannula is, so the icon can say which limb. */
+    iv_site?: string;
     diabetic?: boolean;
     wound_care?: boolean;
     ventilator?: boolean;
@@ -91,7 +101,7 @@ export default function PatientListPanel({
 
       {loading ? (
         <div className="p-8 text-center">
-          <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
+          <Loader2 className="mx-auto mb-3 text-content-muted animate-spin" size={48} />
           <p className="text-content-muted">Loading patients...</p>
         </div>
       ) : displayedPatients.length > 0 ? (
@@ -110,13 +120,20 @@ export default function PatientListPanel({
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-content">{patient.full_name}</p>
                     {showFlags && patient.flags?.fall_risk && (
-                      <span title="Fall Risk">
-                        <Footprints size={14} className="text-yellow-500" />
+                      <span title={`Fall risk: ${patient.flags.fall_risk}`}>
+                        <Footprints
+                          size={14}
+                          className={
+                            patient.flags.fall_risk === 'high'
+                              ? 'text-critical'
+                              : 'text-caution'
+                          }
+                        />
                       </span>
                     )}
                     {showFlags && patient.flags?.iv_site && (
-                      <span title="IV Site">
-                        <Syringe size={14} className="text-blue-500" />
+                      <span title={`IV site: ${patient.flags.iv_site}`}>
+                        <Syringe size={14} className="text-brand" />
                       </span>
                     )}
                     {showFlags && patient.flags?.diabetic && (
@@ -150,7 +167,7 @@ export default function PatientListPanel({
                   </span>
                 )}
                 {patient.last_vitals?.abnormal && (
-                  <Activity size={16} className="text-red-500 animate-pulse" />
+                  <Activity size={16} className="text-critical animate-pulse" />
                 )}
                 <ArrowRight size={16} className="text-content-muted" />
               </div>
@@ -159,7 +176,7 @@ export default function PatientListPanel({
         </div>
       ) : (
         <div className="p-8 text-center text-content-muted">
-          <Users className="mx-auto mb-3 text-gray-300" size={48} />
+          <Users className="mx-auto mb-3 text-content-muted" size={48} />
           <p>{emptyMessage}</p>
         </div>
       )}

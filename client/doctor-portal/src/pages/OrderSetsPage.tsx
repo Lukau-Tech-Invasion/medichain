@@ -1,12 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getOrderSets, useTranslation } from '@medichain/shared';
+import {
+  createOrderSet,
+  deactivateOrderSet,
+  decideOrderSet,
+  getApiErrorMessage,
+  getOrderSets,
+  useTranslation,
+  Alert,
+  LoadingSpinner,
+  confirmDialog,
+} from '@medichain/shared';
+import type { CreateOrderSetPayload } from '@medichain/shared';
 import {
   FileText,
   Plus,
   Search,
-  Edit,
   Copy,
   Trash2,
   User,
@@ -18,6 +28,7 @@ import {
   Brain,
   Shield,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 
 type OrderSetType = 'admission' | 'discharge' | 'procedure' | 'protocol' | 'emergency' | 'specialty';
 type OrderType = 'medication' | 'lab' | 'imaging' | 'consult' | 'nursing' | 'diet' | 'activity';
@@ -34,6 +45,15 @@ interface Order {
   route?: string;
 }
 
+/**
+ * Where a set is in its review.
+ *
+ * An order set files every order in it with one click, so it is not published
+ * by the person who wrote it: a doctor drafts and a pharmacist approves. Only
+ * `approved` is orderable, which is what `isActive` reports.
+ */
+type OrderSetStatus = 'pending_approval' | 'approved' | 'rejected' | 'retired';
+
 interface OrderSet {
   setId: string;
   name: string;
@@ -48,6 +68,11 @@ interface OrderSet {
   usageCount: number;
   isActive: boolean;
   tags: string[];
+  status?: OrderSetStatus;
+  /** A deployment bundle. Read-only: it has no author to retire it. */
+  builtIn?: boolean;
+  reviewedBy?: string;
+  reviewNotes?: string | null;
 }
 
 /**
@@ -58,15 +83,13 @@ interface OrderSet {
 const OrderSetsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [orderSets, setOrderSets] = useState<OrderSet[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'templates'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<OrderSetType | 'all'>('all');
-  const [_selectedSet, setSelectedSet] = useState<OrderSet | null>(null);
-  const [_showEditModal, setShowEditModal] = useState(false);
   const [newOrderSet, setNewOrderSet] = useState<Partial<OrderSet>>({
     name: '',
     type: 'admission',
@@ -82,52 +105,90 @@ const OrderSetsPage: React.FC = () => {
     description: '',
     priority: 'routine',
   });
+  // Who this screen is for differs by role: a doctor drafts, a pharmacist
+  // reviews. Both see the same list; neither is offered the other's controls.
+  const mayDraft = user?.role === 'Doctor';
+  const mayReview = user?.role === 'Pharmacist';
+  const [rejectingSetId, setRejectingSetId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const fetchOrderSets = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const response = await getOrderSets();
-      if (response && Array.isArray(response)) {
-        setOrderSets(response as OrderSet[]);
-      } else if (response && typeof response === 'object' && 'items' in response) {
-        setOrderSets((response as { items: OrderSet[] }).items);
-      }
+      // The endpoint answers `{ success, order_sets }`, and `order_sets` is not one of
+      // the keys ApiClient unwraps. This checked for a bare array and then for
+      // `items`, so neither branch ever matched and the setter was never called
+      // — the list stayed empty however many rows the server held. The test
+      // mocked a bare array, so it passed against a shape the API never sends.
+      const rows = Array.isArray(response)
+        ? (response as OrderSet[])
+        : ((response?.order_sets ?? []) as unknown as OrderSet[]);
+      setOrderSets(rows);
     } catch (err) {
       console.error('Error fetching order sets:', err);
       setError(t('docOrderSets.errorLoad'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchOrderSets();
   }, [fetchOrderSets]);
 
-  const handleCreateOrderSet = () => {
+  /** The bundle as the server takes it. Nothing the server owns is sent. */
+  const draftPayload = (draft: Partial<OrderSet>): CreateOrderSetPayload => ({
+    name: draft.name!,
+    type: draft.type!,
+    specialty: draft.specialty!,
+    description: draft.description!,
+    indication: draft.indication || undefined,
+    orders: (draft.orders || []).map((order) => ({
+      type: order.type,
+      description: order.description,
+      instructions: order.instructions || undefined,
+      priority: order.priority,
+      duration: order.duration || undefined,
+      frequency: order.frequency || undefined,
+      route: order.route || undefined,
+    })),
+    tags: draft.tags || [],
+  });
+
+  /**
+   * Save a draft for review.
+   *
+   * This used to push the set into React state and announce success: it
+   * vanished on reload, and no pharmacist ever saw it. The id, the author, the
+   * timestamps and the review state are the server's — a page that invents an
+   * `OS-004` is inventing an identity that nothing else in the system knows.
+   */
+  const saveDraft = async (draft: Partial<OrderSet>): Promise<boolean> => {
+    setIsSaving(true);
+    try {
+      await createOrderSet(draftPayload(draft));
+      await fetchOrderSets();
+      return true;
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorCreateFailed')));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCreateOrderSet = async () => {
     if (!newOrderSet.name || !newOrderSet.specialty || !newOrderSet.description || !newOrderSet.orders?.length) {
-      showWarning(t('docOrderSets.warningCreateFields'));
+      showError(t('docOrderSets.errorCreateFields'));
+      return;
+    }
+    if (!(await saveDraft(newOrderSet))) {
       return;
     }
 
-    const orderSet: OrderSet = {
-      setId: `OS-${String(orderSets.length + 1).padStart(3, '0')}`,
-      name: newOrderSet.name!,
-      type: newOrderSet.type!,
-      specialty: newOrderSet.specialty!,
-      description: newOrderSet.description!,
-      indication: newOrderSet.indication || '',
-      orders: newOrderSet.orders!,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-      isActive: true,
-      tags: newOrderSet.tags || [],
-    };
-
-    setOrderSets([...orderSets, orderSet]);
     setNewOrderSet({
       name: '',
       type: 'admission',
@@ -144,7 +205,7 @@ const OrderSetsPage: React.FC = () => {
 
   const handleAddOrderToNewSet = () => {
     if (!newOrder.description) {
-      showWarning(t('docOrderSets.warningOrderDescription'));
+      showError(t('docOrderSets.errorOrderDescription'));
       return;
     }
 
@@ -178,25 +239,57 @@ const OrderSetsPage: React.FC = () => {
     });
   };
 
-  const handleDuplicateSet = (set: OrderSet) => {
-    const duplicatedSet: OrderSet = {
-      ...set,
-      setId: `OS-${String(orderSets.length + 1).padStart(3, '0')}`,
-      name: `${set.name}${t('docOrderSets.copySuffix')}`,
-      createdBy: user?.userId || 'UNKNOWN',
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      usageCount: 0,
-    };
-
-    setOrderSets([...orderSets, duplicatedSet]);
-    showSuccess(t('docOrderSets.duplicatedSuccess'));
+  /** A copy is a new draft, and goes back through review like any other. */
+  const handleDuplicateSet = async (set: OrderSet) => {
+    const copied = { ...set, name: `${set.name}${t('docOrderSets.copySuffix')}` };
+    if (await saveDraft(copied)) {
+      showSuccess(t('docOrderSets.duplicatedSuccess'));
+    }
   };
 
-  const handleDeleteSet = (setId: string) => {
-    if (confirm(t('docOrderSets.confirmDelete'))) {
-      setOrderSets(orderSets.filter((s) => s.setId !== setId));
+  /**
+   * Retire a set. Hidden, not deleted (ADR-0005).
+   *
+   * This filtered the browser's array, so the set came back on reload and
+   * everyone else had never stopped seeing it.
+   */
+  const handleDeleteSet = async (setId: string) => {
+    if (!(await confirmDialog({ message: t('docOrderSets.confirmDelete'), destructive: true }))) {
+      return;
     }
+    try {
+      await deactivateOrderSet(setId);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorRetireFailed')));
+      return;
+    }
+    await fetchOrderSets();
+    showSuccess(t('docOrderSets.retiredSuccess'));
+  };
+
+  /** A pharmacist's decision. A rejection carries the reason with it. */
+  const handleDecide = async (setId: string, decision: 'approved' | 'rejected') => {
+    if (decision === 'rejected' && !rejectionReason.trim()) {
+      showError(t('docOrderSets.errorRejectionReason'));
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await decideOrderSet(setId, decision, rejectionReason.trim() || undefined);
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docOrderSets.errorDecisionFailed')));
+      return;
+    } finally {
+      setIsSaving(false);
+    }
+    setRejectingSetId(null);
+    setRejectionReason('');
+    await fetchOrderSets();
+    showSuccess(
+      decision === 'approved'
+        ? t('docOrderSets.approvedSuccess')
+        : t('docOrderSets.rejectedSuccess')
+    );
   };
 
   const getTypeIcon = (type: OrderType) => {
@@ -263,21 +356,44 @@ const OrderSetsPage: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
-  const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+  /**
+   * A time, or nothing.
+   *
+   * `new Date(undefined).toLocaleString()` is the string "Invalid Date", and
+   * the built-in bundles carry no creation time to print — so every one of
+   * them rendered "Created: Invalid Date". An absent timestamp is absent.
+   */
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <div className="flex items-center gap-3">
           <Shield className="w-10 h-10" />
           <div>
             <h1 className="text-3xl font-bold">{t('docOrderSets.title')}</h1>
-            <p className="text-teal-50 mt-1">{t('docOrderSets.subtitle')}</p>
+            <p className="text-white mt-1">{t('docOrderSets.subtitle')}</p>
           </div>
         </div>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b border-border-strong">
         <button
@@ -290,16 +406,18 @@ const OrderSetsPage: React.FC = () => {
         >
           {t('docOrderSets.tabAllOrderSets', { count: orderSets.length })}
         </button>
-        <button
-          onClick={() => setActiveTab('new')}
-          className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new'
-              ? 'border-b-2 border-teal-600 text-content-secondary'
-              : 'text-content-muted hover:text-content'
-          }`}
-        >
-          {t('docOrderSets.tabNewOrderSet')}
-        </button>
+        {mayDraft && (
+          <button
+            onClick={() => setActiveTab('new')}
+            className={`px-6 py-3 font-semibold transition-colors ${
+              activeTab === 'new'
+                ? 'border-b-2 border-teal-600 text-content-secondary'
+                : 'text-content-muted hover:text-content'
+            }`}
+          >
+            {t('docOrderSets.tabNewOrderSet')}
+          </button>
+        )}
         <button
           onClick={() => setActiveTab('templates')}
           className={`px-6 py-3 font-semibold transition-colors ${
@@ -326,7 +444,7 @@ const OrderSetsPage: React.FC = () => {
                     placeholder={t('docOrderSets.searchOrderSetsPh')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -336,7 +454,7 @@ const OrderSetsPage: React.FC = () => {
                   id="orderset-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as OrderSetType | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docOrderSets.allTypes')}</option>
                   <option value="admission">{t('docOrderSets.type_admission')}</option>
@@ -360,21 +478,31 @@ const OrderSetsPage: React.FC = () => {
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTypeBadge(set.type)}`}>
                             {t(`docOrderSets.type_${set.type}`).toUpperCase()}
                           </span>
-                          {!set.isActive && (
+                          {set.status === 'pending_approval' && (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-caution-subtle text-caution-subtle-fg">
+                              {t('docOrderSets.pendingReviewBadge')}
+                            </span>
+                          )}
+                          {set.status === 'rejected' && (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-critical-subtle text-critical-subtle-fg">
+                              {t('docOrderSets.rejectedBadge')}
+                            </span>
+                          )}
+                          {!set.isActive && !set.status && (
                             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-surface-sunken text-content-muted">
                               {t('docOrderSets.inactiveBadge')}
                             </span>
                           )}
                         </div>
                         <p className="text-content-secondary mb-2">{set.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-content-muted">
+                        <div className="flex items-center gap-4 text-sm text-content-muted min-h-[24px] py-1">
                           <span className="flex items-center gap-1">
                             <Brain className="w-4 h-4" />
                             {set.specialty}
                           </span>
                           <span className="flex items-center gap-1">
                             <User className="w-4 h-4" />
-                            {set.createdBy}
+                            <StaffName id={set.createdBy} />
                           </span>
                           <span className="flex items-center gap-1">
                             <Activity className="w-4 h-4" />
@@ -383,32 +511,85 @@ const OrderSetsPage: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => handleDuplicateSet(set)}
-                          className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Copy className="w-4 h-4" />
-                          {t('docOrderSets.duplicateButton')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedSet(set);
-                            setShowEditModal(true);
-                          }}
-                          className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Edit className="w-4 h-4" />
-                          {t('docOrderSets.editButton')}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSet(set.setId)}
-                          className="px-3 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          {t('docOrderSets.deleteButton')}
-                        </button>
+                        {mayDraft && (
+                          <button
+                            onClick={() => handleDuplicateSet(set)}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                          >
+                            <Copy className="w-4 h-4" />
+                            {t('docOrderSets.duplicateButton')}
+                          </button>
+                        )}
+                        {!set.builtIn && (
+                          <button
+                            onClick={() => handleDeleteSet(set.setId)}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            {t('docOrderSets.deleteButton')}
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {/* A pharmacist is the only reader who can move a draft
+                        out of review, and a rejection has to say why: the
+                        author reads the reason and nothing else. */}
+                    {mayReview && set.status === 'pending_approval' && (
+                      <div className="bg-surface-sunken border border-border-strong rounded-lg p-4 mb-4">
+                        <p className="text-sm font-semibold text-content-secondary mb-2">
+                          {t('docOrderSets.reviewHeading')}
+                        </p>
+                        {rejectingSetId === set.setId && (
+                          <div className="mb-3">
+                            <label
+                              htmlFor={`reject-reason-${set.setId}`}
+                              className="block text-sm font-semibold text-content-secondary mb-1"
+                            >
+                              {t('docOrderSets.rejectionReasonLabel')}
+                            </label>
+                            <textarea
+                              id={`reject-reason-${set.setId}`}
+                              value={rejectionReason}
+                              onChange={(e) => setRejectionReason(e.target.value)}
+                              rows={2}
+                              className="w-full px-3 py-2 border border-border-interactive rounded-lg"
+                            />
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleDecide(set.setId, 'approved')}
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-sm font-semibold disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                          >
+                            {t('docOrderSets.approveButton')}
+                          </button>
+                          <button
+                            onClick={() =>
+                              rejectingSetId === set.setId
+                                ? handleDecide(set.setId, 'rejected')
+                                : setRejectingSetId(set.setId)
+                            }
+                            disabled={isSaving}
+                            className="px-3 py-2 bg-critical hover:opacity-90 text-critical-fg rounded-lg text-sm font-semibold disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                          >
+                            {t('docOrderSets.rejectButton')}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {set.status === 'rejected' && set.reviewNotes && (
+                      <div className="bg-critical-subtle border border-critical rounded-lg p-3 mb-4">
+                        <p className="text-sm font-semibold text-critical-subtle-fg mb-1">
+                          {t('docOrderSets.rejectedReasonLabel')}
+                        </p>
+                        <p className="text-sm text-critical-subtle-fg">{set.reviewNotes}</p>
+                      </div>
+                    )}
 
                     {set.indication && (
                       <div className="bg-caution-subtle border border-caution rounded-lg p-3 mb-4">
@@ -458,14 +639,23 @@ const OrderSetsPage: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
-                      <div className="bg-notice-subtle rounded p-2">
-                        <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
+                    {(formatDate(set.createdAt) || formatDate(set.lastModified)) && (
+                      <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
+                        {formatDate(set.createdAt) && (
+                          // Paired foreground. These inherited text-content-muted
+                          // from the grid, which is 4.08:1 on bg-notice-subtle and
+                          // 3.59:1 on bg-ok-subtle in dark mode -- both below AA.
+                          <div className="bg-notice-subtle text-notice-subtle-fg rounded p-2">
+                            <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
+                          </div>
+                        )}
+                        {formatDate(set.lastModified) && (
+                          <div className="bg-ok-subtle text-ok-subtle-fg rounded p-2">
+                            <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
+                          </div>
+                        )}
                       </div>
-                      <div className="bg-ok-subtle rounded p-2">
-                        <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -488,27 +678,27 @@ const OrderSetsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="orderset-name" className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docOrderSets.orderSetNameRequired')} <span className="text-red-500">*</span>
+                    {t('docOrderSets.orderSetNameRequired')} <span className="text-critical">*</span>
                   </label>
                   <input
                     id="orderset-name"
                     type="text"
                     value={newOrderSet.name || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, name: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.orderSetNamePh')}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="orderset-type" className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docOrderSets.typeRequired')} <span className="text-red-500">*</span>
+                    {t('docOrderSets.typeRequired')} <span className="text-critical">*</span>
                   </label>
                   <select
                     id="orderset-type"
                     value={newOrderSet.type || 'admission'}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, type: e.target.value as OrderSetType })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
                     <option value="admission">{t('docOrderSets.type_admission')}</option>
                     <option value="discharge">{t('docOrderSets.type_discharge')}</option>
@@ -523,14 +713,14 @@ const OrderSetsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="orderset-specialty" className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docOrderSets.specialtyRequired')} <span className="text-red-500">*</span>
+                    {t('docOrderSets.specialtyRequired')} <span className="text-critical">*</span>
                   </label>
                   <input
                     id="orderset-specialty"
                     type="text"
                     value={newOrderSet.specialty || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, specialty: e.target.value })}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.specialtyPh')}
                     required
                   />
@@ -547,7 +737,7 @@ const OrderSetsPage: React.FC = () => {
                         tags: e.target.value.split(',').map((t) => t.trim()),
                       })
                     }
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.tagsFieldPh')}
                   />
                 </div>
@@ -555,14 +745,14 @@ const OrderSetsPage: React.FC = () => {
 
               <div>
                 <label htmlFor="orderset-description" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docOrderSets.descriptionRequired')} <span className="text-red-500">*</span>
+                  {t('docOrderSets.descriptionRequired')} <span className="text-critical">*</span>
                 </label>
                 <textarea
                   id="orderset-description"
                   value={newOrderSet.description || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, description: e.target.value })}
                   rows={3}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   placeholder={t('docOrderSets.descriptionPh')}
                   required
                 />
@@ -575,13 +765,13 @@ const OrderSetsPage: React.FC = () => {
                   value={newOrderSet.indication || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, indication: e.target.value })}
                   rows={2}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   placeholder={t('docOrderSets.indicationFieldPh')}
                 />
               </div>
 
               <div className="border-t pt-6">
-                <h3 className="text-lg font-bold text-content mb-4">{t('docOrderSets.ordersRequired')} <span className="text-red-500">*</span></h3>
+                <h3 className="text-lg font-bold text-content mb-4">{t('docOrderSets.ordersRequired')} <span className="text-critical">*</span></h3>
 
                 {(newOrderSet.orders || []).length > 0 && (
                   <div className="space-y-2 mb-4">
@@ -599,7 +789,7 @@ const OrderSetsPage: React.FC = () => {
                         </div>
                         <button
                           onClick={() => handleDeleteOrder(order.orderId)}
-                          className="text-red-500 hover:text-critical-subtle-fg"
+                          className="text-critical hover:text-critical-subtle-fg"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -617,7 +807,7 @@ const OrderSetsPage: React.FC = () => {
                         id="orderset-order-type"
                         value={newOrder.type || 'medication'}
                         onChange={(e) => setNewOrder({ ...newOrder, type: e.target.value as OrderType })}
-                        className="w-full border border-border-strong rounded-lg px-3 py-2"
+                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
                       >
                         <option value="medication">{t('docOrderSets.orderTypeOption_medication')}</option>
                         <option value="lab">{t('docOrderSets.orderTypeOption_lab')}</option>
@@ -634,7 +824,7 @@ const OrderSetsPage: React.FC = () => {
                         id="orderset-priority"
                         value={newOrder.priority || 'routine'}
                         onChange={(e) => setNewOrder({ ...newOrder, priority: e.target.value as OrderPriority })}
-                        className="w-full border border-border-strong rounded-lg px-3 py-2"
+                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
                       >
                         <option value="stat">{t('docOrderSets.priority_stat')}</option>
                         <option value="urgent">{t('docOrderSets.priority_urgent')}</option>
@@ -651,7 +841,7 @@ const OrderSetsPage: React.FC = () => {
                       type="text"
                       value={newOrder.description || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                       placeholder={t('docOrderSets.orderDescriptionPh')}
                     />
                   </div>
@@ -663,7 +853,7 @@ const OrderSetsPage: React.FC = () => {
                       type="text"
                       value={newOrder.instructions || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, instructions: e.target.value })}
-                      className="w-full border border-border-strong rounded-lg px-3 py-2"
+                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
                       placeholder={t('docOrderSets.instructionsPh')}
                     />
                   </div>
@@ -676,7 +866,7 @@ const OrderSetsPage: React.FC = () => {
                         type="text"
                         value={newOrder.route || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, route: e.target.value })}
-                        className="w-full border border-border-strong rounded-lg px-3 py-2"
+                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.routePh')}
                       />
                     </div>
@@ -687,7 +877,7 @@ const OrderSetsPage: React.FC = () => {
                         type="text"
                         value={newOrder.frequency || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, frequency: e.target.value })}
-                        className="w-full border border-border-strong rounded-lg px-3 py-2"
+                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.frequencyPh')}
                       />
                     </div>
@@ -698,7 +888,7 @@ const OrderSetsPage: React.FC = () => {
                         type="text"
                         value={newOrder.duration || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, duration: e.target.value })}
-                        className="w-full border border-border-strong rounded-lg px-3 py-2"
+                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.durationPh')}
                       />
                     </div>
@@ -706,7 +896,7 @@ const OrderSetsPage: React.FC = () => {
 
                   <button
                     onClick={handleAddOrderToNewSet}
-                    className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="w-5 h-5" />
                     {t('docOrderSets.addOrderButton')}
@@ -716,7 +906,7 @@ const OrderSetsPage: React.FC = () => {
 
               <button
                 onClick={handleCreateOrderSet}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" />
                 {t('docOrderSets.createOrderSetButton')}

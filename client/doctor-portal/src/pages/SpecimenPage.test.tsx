@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import SpecimenPage from './SpecimenPage';
 import { useAuthStore } from '../store/authStore';
@@ -19,6 +19,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  rejectSpecimen: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -37,13 +38,10 @@ describe('SpecimenPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
-    // The component does `data.map(...)` directly, so this endpoint must return
-    // an ARRAY. Handing it an object made `.map` throw inside the effect and the
-    // page never left its loading state.
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
@@ -75,5 +73,68 @@ describe('SpecimenPage', () => {
 
     // STAT specimens are time-critical; the counter must stay on the summary row.
     await waitFor(() => expect(screen.getByText(/STAT Orders/i)).toBeInTheDocument());
+  });
+
+  it('renders the persisted specimen envelope without inventing patient demographics', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      status: 200,
+      json: async () => ({
+        success: true,
+        specimens: [{
+          id: 'SPC-001', patient_id: 'PAT-001', specimen_type: 'blood',
+          collector_id: 'LAB-001', collected_at: '2026-09-20T10:00:00Z',
+          received_at: null, created_at: '2026-09-20T09:55:00Z',
+          data: { priority: 'stat', tests_ordered: 'CBC' },
+        }],
+      }),
+      text: async () => '',
+    }) as unknown as typeof fetch;
+
+    render(<SpecimenPage />);
+
+    await waitFor(() => expect(screen.getByText(/SPC-001/)).toBeInTheDocument());
+    expect(screen.getAllByText('PAT-001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/collected/i).length).toBeGreaterThan(1);
+    expect(screen.getByText(/^stat$/i)).toBeInTheDocument();
+  });
+
+  it('rejects the open specimen with what the technician chose, and nothing it did not', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      status: 200,
+      json: async () => ({
+        success: true,
+        specimens: [{
+          id: 'SPC-001', patient_id: 'PAT-001', specimen_type: 'blood',
+          collector_id: 'LAB-001', collected_at: '2026-09-20T10:00:00Z',
+          received_at: null, created_at: '2026-09-20T09:55:00Z',
+          data: { priority: 'routine', tests_ordered: 'CBC' },
+        }],
+      }),
+      text: async () => '',
+    }) as unknown as typeof fetch;
+    vi.mocked(shared.rejectSpecimen).mockResolvedValue({ success: true, rejection_id: 'REJ-1' });
+    render(<SpecimenPage />);
+
+    fireEvent.click(await screen.findByText(/SPC-001/));
+    // Nothing chosen yet: refused on the page, nothing sent.
+    fireEvent.click(screen.getByRole('button', { name: /Reject specimen/i }));
+    expect(await screen.findByText(/Choose a category and give a reason/i)).toBeInTheDocument();
+    expect(shared.rejectSpecimen).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Reason category/i), { target: { value: 'specimen_quality' } });
+    fireEvent.change(screen.getByLabelText(/^Reason$/i), { target: { value: 'Haemolysed' } });
+    fireEvent.click(screen.getByRole('button', { name: /Reject specimen/i }));
+
+    await waitFor(() => expect(shared.rejectSpecimen).toHaveBeenCalledWith({
+      specimen_id: 'SPC-001',
+      rejection_reason: 'Haemolysed',
+      rejection_category: 'specimen_quality',
+      recollection_required: false,
+    }));
+    expect(await screen.findByText(/Rejection REJ-1 recorded/i)).toBeInTheDocument();
   });
 });

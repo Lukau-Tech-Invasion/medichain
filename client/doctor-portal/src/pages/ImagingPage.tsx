@@ -1,8 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, apiUrl, useTranslation } from '@medichain/shared';
+import {
+  createRadiologyOrder,
+  getApiErrorMessage,
+  getPatients,
+  listRadiologyOrders,
+  useTranslation,
+  Textarea,
+  useValidatedForm,
+  imagingRequestSchema,
+  formatTimestamp,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
@@ -45,10 +56,43 @@ const bodyParts = [
   'Upper Extremity', 'Lower Extremity', 'Whole Body'
 ];
 
+/**
+ * One imaging order exactly as the endpoint hands it over.
+ *
+ * Every field is optional and most exist twice, in snake_case and camelCase,
+ * because rows written through different paths carry different casings and the
+ * original payload is sometimes nested under `data`. Writing that down is the
+ * point: with `any` the mapper below read fifteen fields with nothing checking
+ * that any of them were spelled the way the writer spelled them.
+ */
+interface RawImagingOrder {
+  id?: string;
+  order_id?: string;
+  patient_id?: string;
+  patientId?: string;
+  modality?: string;
+  study_type?: string;
+  special_instructions?: string;
+  body_part?: string;
+  laterality?: string;
+  indication?: string;
+  clinical_indication?: string;
+  priority?: string;
+  status?: string;
+  ordering_provider?: string;
+  ordering_provider_id?: string;
+  order_time?: number;
+  created_at?: string;
+  contrast?: boolean;
+  allergies_reviewed?: boolean;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
 const ImagingPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning, showError } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
 
   const modalityLabel = (m: ImagingModality): string => {
     switch (m) {
@@ -88,6 +132,7 @@ const ImagingPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterModality, setFilterModality] = useState<string>('all');
+  const [ordersError, setOrdersError] = useState<string | null>(null);
 
   // New order form
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -115,66 +160,63 @@ const ImagingPage: React.FC = () => {
     loadData();
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    const fetchOrders = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/platform/list/radiology-orders'), {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const rawOrders = Array.isArray(data) ? data : (data.orders || []);
-          const fetchedOrders: ImagingOrder[] = rawOrders.map((entity: any) => {
-            if (entity.patientId && entity.modality) return entity as ImagingOrder;
-            const raw = entity.data && typeof entity.data === 'object' ? entity.data : entity;
-            const patient = patients.find(p => p.patient_id === (raw.patient_id || entity.patient_id));
-            return {
-              id: raw.order_id || entity.id,
-              patientId: raw.patient_id || entity.patient_id,
-              patientName: patient?.full_name || raw.patient_id || entity.patient_id,
-              modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type] || 'xray',
-              study: raw.special_instructions || raw.study_type || entity.study_type,
-              bodyPart: raw.body_part || entity.body_part,
-              laterality: String(raw.laterality || entity.laterality || 'NA').toLowerCase() as ImagingOrder['laterality'],
-              indication: raw.indication || entity.clinical_indication,
-              priority: String(raw.priority || entity.priority || 'Routine').toLowerCase() as ImagingPriority,
-              status: ({ Ordered: 'ordered', Scheduled: 'scheduled', InProgress: 'in-progress', Completed: 'completed', Preliminary: 'prelim', Final: 'final' } as Record<string, ImagingStatus>)[raw.status] || 'ordered',
-              orderedBy: raw.ordering_provider || entity.ordering_provider_id,
-              orderedAt: raw.order_time ? new Date(raw.order_time * 1000).toISOString() : entity.created_at,
-              contrast: Boolean(raw.contrast), allergies: raw.allergies_reviewed ? 'Reviewed' : '',
-              criticalValue: false,
-            };
-          });
-          setOrders(fetchedOrders);
+  const loadOrders = useCallback(async (): Promise<boolean> => {
+    try {
+      setOrdersError(null);
+      const response = await listRadiologyOrders();
+      const fetchedOrders: ImagingOrder[] = response.items.map((entity) => {
+        if (entity && typeof entity === 'object' && 'patientId' in entity && 'modality' in entity) {
+          return entity as ImagingOrder;
         }
-      } catch (err) {
-        console.error('Failed to fetch imaging orders:', err);
-      }
-    };
-    fetchOrders();
-  }, [user, patients]);
+        const record = entity as RawImagingOrder;
+        const raw = (record.data && typeof record.data === 'object' ? record.data : record) as RawImagingOrder;
+        const patientId = raw.patient_id || record.patient_id || '';
+        const patient = patients.find(p => p.patient_id === patientId);
+        return {
+          id: raw.order_id || record.id || '',
+          patientId,
+          patientName: patient?.full_name || patientId,
+          modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type ?? ''] || 'xray',
+          study: raw.special_instructions || raw.study_type || '',
+          bodyPart: raw.body_part || '',
+          laterality: String(raw.laterality || 'NA').toLowerCase() as ImagingOrder['laterality'],
+          indication: raw.indication || raw.clinical_indication || '',
+          priority: String(raw.priority || 'Routine').toLowerCase() as ImagingPriority,
+          status: ({ Ordered: 'ordered', Scheduled: 'scheduled', InProgress: 'in-progress', Completed: 'completed', Preliminary: 'prelim', Final: 'final' } as Record<string, ImagingStatus>)[raw.status ?? ''] || 'ordered',
+          orderedBy: raw.ordering_provider || raw.ordering_provider_id || '',
+          orderedAt: raw.order_time ? new Date(raw.order_time * 1000).toISOString() : (raw.created_at || ''),
+          contrast: Boolean(raw.contrast),
+          allergies: raw.allergies_reviewed ? 'Reviewed' : '',
+          criticalValue: false,
+        };
+      });
+      setOrders(fetchedOrders);
+      return true;
+    } catch (err) {
+      console.error('Failed to fetch imaging orders:', err);
+      setOrdersError(getApiErrorMessage(err, t('docImaging.loadFailed')));
+      return false;
+    }
+  }, [patients, t]);
 
+  useEffect(() => {
+    if (user) void loadOrders();
+  }, [user, loadOrders]);
+
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(imagingRequestSchema);
   const handleSubmit = async () => {
-    if (!selectedPatient || !indication) {
-      showWarning(t('docImaging.fillRequired'));
+    // The indication is what the radiologist reports against: "CT abdomen"
+    // with none produces a description of an abdomen, with one it produces an
+    // answer. Selecting a patient stays a toast; the indication is a field.
+    if (!selectedPatient) {
+      showError(t('docImaging.fillRequired'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    if (!validate({ selectedPatient, indication })) {
+      return;
+    }
     if (!user) return;
-    const order: ImagingOrder = {
-      id: `IMG-${Date.now()}`,
-      patientId: selectedPatient,
-      patientName: patient ? patient.full_name : '',
-      modality, study: study || `${modalityLabel(modality)} ${bodyPart}`,
-      bodyPart, laterality, indication, priority, status: 'ordered',
-      orderedBy: user?.username || t('docImaging.unknown'),
-      orderedAt: new Date().toISOString(),
-      contrast, allergies, creatinine, pregnant, criticalValue: false
-    };
     const studyTypes: Record<ImagingModality, string> = {
       xray: 'XRay', ct: contrast ? 'CTWithContrast' : 'CT',
       mri: contrast ? 'MRIWithContrast' : 'MRI', ultrasound: 'Ultrasound',
@@ -183,15 +225,8 @@ const ImagingPage: React.FC = () => {
     };
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl('/api/surgical/radiology/order'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify({
-          order_id: order.id, patient_id: order.patientId,
+      await createRadiologyOrder({
+          patient_id: selectedPatient,
           study_type: studyTypes[modality], body_part: bodyPart,
           laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
           indication, priority: priority[0].toUpperCase() + priority.slice(1),
@@ -201,17 +236,12 @@ const ImagingPage: React.FC = () => {
           creatinine_checked: contrast ? creatinine !== undefined : null,
           pregnancy_checked: pregnant ? pregnant === 'no' : null,
           special_instructions: study || null, status: 'Ordered',
-        }),
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || 'Imaging order could not be saved.');
-      }
-      setOrders(current => [order, ...current]);
+      await loadOrders();
       showSuccess(t('docImaging.orderPlaced'));
       setActiveTab('orders');
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Imaging order could not be saved.');
+      showError(getApiErrorMessage(err, t('docImaging.saveFailed')));
     } finally {
       setSubmitting(false);
     }
@@ -230,8 +260,8 @@ const ImagingPage: React.FC = () => {
   };
 
   const getPriorityBadge = (p: ImagingPriority) => {
-    if (p === 'stat') return 'bg-critical text-white';
-    if (p === 'urgent') return 'bg-orange-500 text-white';
+    if (p === 'stat') return 'bg-critical text-critical-fg';
+    if (p === 'urgent') return 'bg-caution text-caution-fg';
     return 'bg-surface-sunken text-content-secondary';
   };
 
@@ -275,6 +305,13 @@ const ImagingPage: React.FC = () => {
       </div>
 
       <div className="p-6">
+        {ordersError && (
+          <div className="mb-4" role="alert">
+            <div className="rounded-lg border border-critical-subtle-fg/20 bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
+              {ordersError}
+            </div>
+          </div>
+        )}
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {/* Search & Filters */}
@@ -332,7 +369,7 @@ const ImagingPage: React.FC = () => {
                         </div>
                         <p className="text-sm text-content-muted">{o.study}</p>
                         <p className="text-xs text-content-muted">
-                          {t('docImaging.orderedByLine', { date: new Date(o.orderedAt).toLocaleString(), by: o.orderedBy })}
+                          {t('docImaging.orderedByLine', { date: formatTimestamp(o.orderedAt), by: o.orderedBy })}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -364,18 +401,12 @@ const ImagingPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="imaging-patient" className="text-sm text-content-muted">{t('docImaging.patientRequired')}</label>
-                  <select
+                  <PatientSelect
                     id="imaging-patient"
+                    label={t('docImaging.patientRequired')}
                     value={selectedPatient}
-                    onChange={e => setSelectedPatient(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docImaging.selectPlaceholder')}</option>
-                    {patients.map(p => (
-                      <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
-                    ))}
-                  </select>
+                    onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  />
                 </div>
                 <div>
                   <label htmlFor="imaging-modality" className="text-sm text-content-muted">{t('docImaging.modality')}</label>
@@ -442,12 +473,15 @@ const ImagingPage: React.FC = () => {
               </div>
               <div className="mt-4">
                 <label htmlFor="imaging-clinical-indication" className="text-sm text-content-muted">{t('docImaging.clinicalIndication')}</label>
-                <textarea
+                <Textarea
                   id="imaging-clinical-indication"
                   value={indication}
-                  onChange={e => setIndication(e.target.value)}
-                  className="w-full border rounded p-2 h-20"
+                  onChange={e => { clearField('indication'); setIndication(e.target.value); }}
+                  onBlur={() => validateField('indication', { selectedPatient, indication })}
+                  error={errors.indication}
+                  rows={3}
                   placeholder={t('docImaging.indicationPlaceholder')}
+                  required
                 />
               </div>
             </div>

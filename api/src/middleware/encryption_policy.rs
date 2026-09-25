@@ -22,7 +22,7 @@ use std::future::{ready, Ready};
 /// `/api/e-prescriptions`, `/api/family`, `/api/records`, `/api/medical-id`,
 /// and `/api/consent` — all PHI-bearing). Defaulting to "requires encryption"
 /// means newly-added routes are covered automatically.
-const HTTP_EXEMPT_PREFIXES: &[&str] = &[
+const HTTP_EXEMPT_ROUTES: &[&str] = &[
     "/health",
     "/api/health",
     "/api/metrics",
@@ -30,6 +30,13 @@ const HTTP_EXEMPT_PREFIXES: &[&str] = &[
     "/api/auth/challenge",
     "/api/fhir/r4/metadata",
 ];
+
+/// Exemptions are endpoint identities, not path prefixes. Prefix matching
+/// would accidentally exempt a future protected route such as
+/// `/api/metrics-private` from the HTTPS policy.
+fn is_http_exempt_route(path: &str) -> bool {
+    HTTP_EXEMPT_ROUTES.contains(&path)
+}
 
 pub struct EncryptionPolicyMiddleware {
     enabled: bool,
@@ -94,10 +101,9 @@ where
         }
 
         // Every /api/ route carries PHI or auth material unless explicitly
-        // exempted above — see HTTP_EXEMPT_PREFIXES for why this is a deny-list.
+        // exempted above — see HTTP_EXEMPT_ROUTES for why this is a deny-list.
         let path = req.path();
-        let is_sensitive =
-            path.starts_with("/api/") && !HTTP_EXEMPT_PREFIXES.iter().any(|p| path.starts_with(p));
+        let is_sensitive = path.starts_with("/api/") && !is_http_exempt_route(path);
 
         if is_sensitive && req.connection_info().scheme() != "https" {
             // In development, we might allow http, so we check an env var
@@ -150,6 +156,23 @@ mod tests {
                 "{path} should bypass the policy"
             );
         }
+    }
+
+    #[actix_web::test]
+    async fn public_prefix_lookalike_requires_https() {
+        let app = test::init_service(
+            App::new()
+                .wrap(EncryptionPolicyMiddleware::enabled())
+                .route("/api/metrics-private", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/metrics-private")
+            .to_request();
+        let response = test::call_service(&app, req).await;
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     /// These prefixes carry PHI but were NOT covered by the old allow-list

@@ -2,6 +2,18 @@
 name = "pallet-access-control"
 version = "0.1.0"
 edition = "2021"
+# `license.workspace = true` (MIT), and it was missing entirely until
+# 2026-09-10. `cargo deny --manifest-path blockchain/Cargo.toml check licenses`
+# reported all three MediChain pallets as `error[unlicensed]`, and the check is
+# report-only for this workspace, so the failure had never been read. Both
+# CLAUDE.md and the technical-debt register assert these are MIT; the manifests
+# said nothing at all.
+#
+# MIT is accurate here: the measurement in the register's 2026-08-20 entry found
+# the runtime graph carries 4 GPL-with-Classpath-exception crates and ZERO
+# strict GPL-3.0-only ones. The 17 strict crates are the node binary's, through
+# frame-benchmarking-cli, and `blockchain/node/Cargo.toml` now declares that.
+license.workspace = true
 
 [dependencies]
 frame-support = { workspace = true }

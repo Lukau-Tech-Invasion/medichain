@@ -1,4 +1,32 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { signIn, settle } from './support';
+import { auditContrast, setTheme, reportContrast } from './audit';
+
+/**
+ * One sign-in per spec file, on a page shared by every test in it.
+ *
+ * Playwright's `page` fixture is per-test, so a `beforeEach` sign-in meant 24
+ * sign-ins in a run. Each is several requests against an API that rate-limits
+ * at 60/minute, so the suite collapsed into RATE_LIMIT_EXCEEDED — surfacing as
+ * navigation timeouts that look like application faults and are not.
+ *
+ * Serial mode is required, not incidental: the tests share one page, so they
+ * cannot run in parallel against it. That is an acceptable trade here because
+ * the audit is read-only — it measures what is painted and changes nothing.
+ */
+test.describe.configure({ mode: 'serial' });
+
+let page: Page;
+
+test.beforeAll(async ({ browser }) => {
+  page = await browser.newPage();
+  await signIn(page);
+});
+
+test.afterAll(async () => {
+  await page?.close();
+});
+
 
 /**
  * Measured contrast audit of the rendered application, in both themes.
@@ -50,170 +78,21 @@ const ROUTES = [
   { path: '/settings', name: 'Settings' },
 ];
 
-interface Failure {
-  ratio: number;
-  required: number;
-  foreground: string;
-  background: string;
-  fontSize: number;
-  text: string;
-  selector: string;
-}
-
-/**
- * Runs inside the page. Kept as one self-contained function because it is
- * serialised across the CDP boundary and cannot close over anything here.
- */
-async function auditContrast(page: Page): Promise<{ sampled: number; gradientSkipped: number; failures: Failure[] }> {
-  return page.evaluate(() => {
-    const channel = (v: number) => {
-      const c = v / 255;
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    };
-    const luminance = (colour: string): number | null => {
-      const parts = colour.match(/[\d.]+/g);
-      if (!parts || parts.length < 3) return null;
-      // A fully transparent colour paints nothing; treat it as unmeasurable
-      // rather than as black, which would invent a passing or failing ratio.
-      if (parts.length >= 4 && Number(parts[3]) === 0) return null;
-      const [r, g, b] = parts.slice(0, 3).map(Number);
-      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-    };
-    const contrast = (fg: string, bg: string): number | null => {
-      const a = luminance(fg);
-      const b = luminance(bg);
-      if (a === null || b === null) return null;
-      const hi = Math.max(a, b);
-      const lo = Math.min(a, b);
-      return (hi + 0.05) / (lo + 0.05);
-    };
-
-    /**
-     * The background a element is actually painted on: walk up until something
-     * paints. A gradient is reported separately rather than guessed at — an
-     * element over `linear-gradient(...)` has no single background colour, and
-     * pretending otherwise produced a spurious 1.0:1 "white on white" reading
-     * for every heading on the gradient banner.
-     */
-    const backgroundOf = (el: Element): { colour?: string; gradient?: true } => {
-      let node: Element | null = el;
-      while (node) {
-        const cs = getComputedStyle(node);
-        if (cs.backgroundImage && cs.backgroundImage !== 'none') return { gradient: true };
-        const c = cs.backgroundColor;
-        if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return { colour: c };
-        node = node.parentElement;
-      }
-      return { colour: 'rgb(255, 255, 255)' };
-    };
-
-    const describe = (el: Element) => {
-      const cls = (el.getAttribute('class') || '').split(/\s+/).slice(0, 3).join('.');
-      return `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}`;
-    };
-
-    const failures: Failure[] = [];
-    let sampled = 0;
-    let gradientSkipped = 0;
-
-    document.querySelectorAll('p,span,td,th,li,h1,h2,h3,h4,h5,label,button,a,strong,em,small').forEach((el) => {
-      const text = (el.textContent || '').trim();
-      if (!text) return;
-      // Only elements that own a direct text node — otherwise a wrapper is
-      // measured using its child's colour and every failure is double-counted.
-      const ownsText = Array.from(el.childNodes).some(
-        (n) => n.nodeType === Node.TEXT_NODE && (n.textContent || '').trim()
-      );
-      if (!ownsText) return;
-
-      const cs = getComputedStyle(el);
-      if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) return;
-      const rect = (el as HTMLElement).getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-
-      const bg = backgroundOf(el);
-      if (bg.gradient) {
-        gradientSkipped++;
-        return;
-      }
-      const ratio = contrast(cs.color, bg.colour!);
-      if (ratio === null) return;
-
-      sampled++;
-      const fontSize = parseFloat(cs.fontSize);
-      const bold = parseInt(cs.fontWeight, 10) >= 700;
-      const required = fontSize >= 24 || (fontSize >= 18.66 && bold) ? 3 : 4.5;
-
-      if (ratio < required) {
-        failures.push({
-          ratio: Number(ratio.toFixed(2)),
-          required,
-          foreground: cs.color,
-          background: bg.colour!,
-          fontSize,
-          text: text.slice(0, 40),
-          selector: describe(el),
-        });
-      }
-    });
-
-    failures.sort((a, b) => a.ratio - b.ratio);
-    return { sampled, gradientSkipped, failures };
-  });
-}
-
-async function setTheme(page: Page, theme: 'light' | 'dark') {
-  await page.evaluate((t) => {
-    document.documentElement.classList.toggle('dark', t === 'dark');
-  }, theme);
-  // The class flips CSS custom properties; give the style recalculation a frame
-  // before sampling. Reading too early reports the previous theme's values and
-  // manufactures failures that do not exist.
-  await page.waitForTimeout(400);
-}
-
-function report(route: string, theme: string, result: { sampled: number; failures: Failure[] }) {
-  const lines = result.failures.map(
-    (f) =>
-      `    ${f.ratio}:1 (needs ${f.required}:1)  ${f.selector}\n` +
-      `      "${f.text}"\n` +
-      `      ${f.foreground} on ${f.background} @ ${f.fontSize}px`
-  );
-  return (
-    `${route} [${theme}]: ${result.failures.length} of ${result.sampled} sampled ` +
-    `element(s) below WCAG AA\n${lines.join('\n')}`
-  );
-}
 
 /**
  * Every route below is behind auth. Without signing in first, all ten tests
  * would happily measure the login page and report full coverage of screens they
  * never opened — the same shape of false assurance this suite exists to catch.
  */
-test.beforeEach(async ({ page }) => {
-  await page.goto('/login');
-  await page.locator('button:has-text("Mbeki")').click();
-  await expect(page).toHaveURL(/.*dashboard/);
-});
-
 for (const route of ROUTES) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`${route.name} meets WCAG AA in ${theme} mode`, async ({ page }) => {
-      await page.goto(route.path);
-      // NOT `waitForLoadState('networkidle')`. This app holds an SSE stream
-      // open on /api/events for real-time push, so the network is never idle
-      // and that wait can only ever time out — it failed all ten tests at 30s
-      // before anything was measured.
-      //
-      // Wait for rendered content instead, which is what the audit actually
-      // needs: measuring a loading skeleton proves nothing.
-      // `main`, not `h1`: the first `h1` in the DOM belongs to the mobile
-      // header, which is `lg:hidden` at desktop width. Waiting on it waits
-      // forever for something deliberately invisible.
-      await page.locator('main').first().waitFor({ state: 'visible', timeout: 15000 });
-      // Let late-arriving data paint before sampling; a table that fills in
-      // after the audit runs is a table the audit never checked.
-      await page.waitForTimeout(1200);
+    test(`${route.name} meets WCAG AA in ${theme} mode`, async () => {
+      // `settle`, not `page.goto`. A goto is a full document load, and this
+      // app deliberately persists nothing that can re-authenticate — so every
+      // goto landed on /login and rendered an empty page. `settle` navigates
+      // client-side, which keeps the in-memory session and is what a clinician
+      // actually does.
+      await settle(page, route.path);
       // Guard against a silent redirect back to /login leaving the audit
       // measuring the wrong screen.
       expect(page.url(), `${route.name} redirected away from ${route.path}`).toContain(route.path);
@@ -222,7 +101,7 @@ for (const route of ROUTES) {
       const result = await auditContrast(page);
 
       expect(result.sampled, `${route.name} rendered no measurable text`).toBeGreaterThan(0);
-      expect(result.failures, report(route.name, theme, result)).toHaveLength(0);
+      expect(result.failures, reportContrast(route.name, theme, result)).toHaveLength(0);
     });
   }
 }

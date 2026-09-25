@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
 import * as shared from '@medichain/shared';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
@@ -15,10 +16,10 @@ const isoMonthsAgo = (months: number) => {
 beforeEach(() => {
   // The page filters the patient register to under-18s by date of birth. It
   // used to ship two invented children instead of reading the register at all.
-  (shared.getPatients as any).mockResolvedValue([
-    { patient_id: 'PED-001', full_name: 'Yusuf Al-Rashid', health_id: 'MCHI-1', date_of_birth: isoMonthsAgo(8), gender: 'male' },
-    { patient_id: 'PED-002', full_name: 'Sara Hassan', health_id: 'MCHI-2', date_of_birth: isoMonthsAgo(54), gender: 'female' },
-    { patient_id: 'ADT-001', full_name: 'Adult Patient', health_id: 'MCHI-3', date_of_birth: isoMonthsAgo(420), gender: 'male' },
+  vi.mocked(shared.getPatients).mockResolvedValue([
+    patientProfile({ patient_id: 'PED-001', full_name: 'Yusuf Al-Rashid', date_of_birth: isoMonthsAgo(8), gender: 'male' }),
+    patientProfile({ patient_id: 'PED-002', full_name: 'Sara Hassan', date_of_birth: isoMonthsAgo(54), gender: 'female' }),
+    patientProfile({ patient_id: 'ADT-001', full_name: 'Adult Patient', date_of_birth: isoMonthsAgo(420), gender: 'male' }),
   ]);
 });
 import { vi, describe, it, expect, beforeEach } from 'vitest';

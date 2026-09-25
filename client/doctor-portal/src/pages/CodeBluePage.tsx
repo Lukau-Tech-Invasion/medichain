@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCodeBlue, getPatients, apiUrl, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatients, getPatientCodeBlues, formatTimestamp, useTranslation, type CodeBlueListRow } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -17,25 +16,23 @@ import {
   Square,
   History
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
 
-interface EmergencyRecord {
-  event_id: string;
-  patient_id: string;
-  event_type?: string;
-  event_time?: number;
-  code_called_at?: number;
-  outcome?: string;
-  narrative?: string;
-}
 
 export default function CodeBluePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // The roster this page used to hold existed only to fill a patient
+  // dropdown. `PatientSelect` queries the server as the clinician types, so
+  // the list is no longer fetched or kept here; `loadPatients` remains as
+  // the warm-up call the page already made on mount.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<CodeBlueListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -44,6 +41,13 @@ export default function CodeBluePage() {
   const [teamMembers, setTeamMembers] = useState<string>('');
   const [narrative, setNarrative] = useState('');
   const [outcome, setOutcome] = useState('ongoing');
+  // Where the code was called and what arrested the patient. Both used to be
+  // literals in the submit payload — `'Emergency Department'` and
+  // `'Cardiac Arrest'` — with no control anywhere. A code blue on a ward, in
+  // theatre or in radiology was filed as having happened in the ED, and
+  // response-time review is done by location.
+  const [location, setLocation] = useState('');
+  const [primaryCause, setPrimaryCause] = useState('');
 
   useEffect(() => {
     loadPatients();
@@ -61,8 +65,7 @@ export default function CodeBluePage() {
 
   const loadPatients = async () => {
     try {
-      const data = await getPatients();
-      setPatients(data);
+      await getPatients();
     } catch (error) {
       console.error('Failed to load patients', error);
     }
@@ -72,13 +75,7 @@ export default function CodeBluePage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/code-blue/patient/${patientId}`), {
-        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      setEmergencyHistory(await getPatientCodeBlues(patientId));
     } catch (e) {
       console.error('Failed to fetch emergency history', e);
     } finally {
@@ -109,17 +106,50 @@ export default function CodeBluePage() {
     setEvents(prev => [`[${timestamp}] ${event}`, ...prev]);
   };
 
+  // --- Drugs given during a code reach the patient's MAR ---------------------
+  //
+  // `logEvent` appends to a local array that becomes narrative text on submit.
+  // A dose given during a resuscitation never reached the patient's medication
+  // record at all, so the next clinician to open the MAR could not see that
+  // epinephrine had been given minutes earlier.
+  //
+  // `POST /api/emergency/administer-med` appends to the MAR for today and had
+  // no caller. The code narrative still records the timing -- that is what it
+  // is for -- and the MAR now records the administration.
+  const [marError, setMarError] = useState('');
+
+  const logMedication = async (name: string, dose: string) => {
+    logEvent(`Medication: ${name} ${dose}`);
+    if (!selectedPatient) {
+      // The timeline is still worth keeping; the MAR entry is not possible
+      // without a patient, and saying so beats failing silently.
+      setMarError(t('docCodeBlue.marNeedsPatient'));
+      return;
+    }
+    try {
+      await administerEmergencyMedication({
+        patient_id: selectedPatient,
+        medication_name: name,
+        dose,
+        route: 'IV',
+      });
+      setMarError('');
+    } catch (err) {
+      // Never silent: a clinician who believes the MAR has it and finds it
+      // missing later is worse off than one told now.
+      setMarError(getApiErrorMessage(err, t('docCodeBlue.marFailed')));
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedPatient || !startTime) return;
 
     try {
       const codeData = {
-        event_id: `CB-${Date.now()}`,
         patient_id: selectedPatient,
         code_called_at: Math.floor(startTime / 1000),
-        code_called_by: user?.userId || 'unknown',
-        location: 'Emergency Department',
-        primary_cause: 'Cardiac Arrest',
+        location: location.trim() || null,
+        primary_cause: primaryCause.trim() || null,
         outcome,
         narrative: narrative + '\n\nLog:\n' + events.join('\n'),
         team_members: teamMembers.split(',').map(s => s.trim()),
@@ -152,7 +182,7 @@ export default function CodeBluePage() {
       {selectedPatient && (
         <div className="bg-surface shadow rounded-lg p-6 mb-8">
           <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-            <History className="h-5 w-5 text-red-500" />
+            <History className="h-5 w-5 text-critical" />
             {t('docCodeBlue.pastEvents')}
           </h2>
           {historyLoading ? (
@@ -165,20 +195,17 @@ export default function CodeBluePage() {
                 <thead className="bg-surface-sunken">
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colEventId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colType')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colLocation')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colTime')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colOutcome')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {emergencyHistory.map((ev) => (
-                    <tr key={ev.event_id} className="hover:bg-surface-sunken">
-                      <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                      <td className="px-4 py-2">{ev.event_type || t('docCodeBlue.codeBlue')}</td>
-                      <td className="px-4 py-2">
-                        {ev.code_called_at ? new Date(ev.code_called_at * 1000).toLocaleString() :
-                         ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
-                      </td>
+                    <tr key={ev.id} className="hover:bg-surface-sunken">
+                      <td className="px-4 py-2 font-mono text-xs">{ev.id}</td>
+                      <td className="px-4 py-2">{ev.location || t('docCodeBlue.unknown')}</td>
+                      <td className="px-4 py-2">{formatTimestamp(ev.code_called_at * 1000) || '-'}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           ev.outcome === 'rosc' ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -209,20 +236,11 @@ export default function CodeBluePage() {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-content-muted" />
               </div>
-              <select
+              <PatientSelect
                 id="code-blue-patient"
-                className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={selectedPatient}
-                onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                disabled={isActive}
-              >
-                <option value="">{t('docCodeBlue.selectPatientPlaceholder')}</option>
-                {patients.map(patient => (
-                  <option key={patient.patient_id} value={patient.patient_id}>
-                    {patient.full_name} ({patient.national_id})
-                  </option>
-                ))}
-              </select>
+                onChange={(selectedPatientId) => { setSelectedPatient(selectedPatientId); fetchEmergencyHistory(selectedPatientId); }}
+              />
             </div>
           </div>
 
@@ -270,7 +288,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('CPR Cycle Started')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Activity className="h-8 w-8 text-notice-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.cprCycle')}</span>
@@ -279,16 +297,16 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('Shock Delivered - 200J')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Zap className="h-8 w-8 text-caution-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.shock')}</span>
               </button>
 
               <button
-                onClick={() => logEvent('Medication: Epinephrine 1mg')}
+                onClick={() => void logMedication('Epinephrine', '1mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Syringe className="h-8 w-8 text-content-secondary mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.epi')}</span>
@@ -300,9 +318,9 @@ export default function CodeBluePage() {
                   shock had to be typed into the narrative — the one place it is
                   least likely to be timed accurately during a code. */}
               <button
-                onClick={() => logEvent('Medication: Amiodarone 300mg')}
+                onClick={() => void logMedication('Amiodarone', '300mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Syringe className="h-8 w-8 text-caution-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.amiodarone')}</span>
@@ -311,7 +329,7 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('Pulse Check - Pulse Present')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Heart className="h-8 w-8 text-ok-subtle-fg mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.rosc')}</span>
@@ -319,10 +337,38 @@ export default function CodeBluePage() {
             </div>
           </div>
 
+          {marError && (
+            <div role="alert" className="bg-caution-subtle border border-caution rounded-lg p-3">
+              <p className="text-sm text-caution-subtle-fg">{marError}</p>
+            </div>
+          )}
+
           {/* Documentation */}
           <div className="bg-surface shadow rounded-lg p-6">
             <h3 className="text-lg font-medium text-content mb-4">{t('docCodeBlue.documentation')}</h3>
             <div className="space-y-4">
+              <div>
+                <label htmlFor="code-blue-location" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.locationLabel')}</label>
+                <input
+                  id="code-blue-location"
+                  type="text"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  placeholder={t('docCodeBlue.locationPlaceholder')}
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="code-blue-cause" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.primaryCauseLabel')}</label>
+                <input
+                  id="code-blue-cause"
+                  type="text"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  placeholder={t('docCodeBlue.primaryCausePlaceholder')}
+                  value={primaryCause}
+                  onChange={(e) => setPrimaryCause(e.target.value)}
+                />
+              </div>
               <div>
                 <label htmlFor="code-blue-team" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.teamMembers')}</label>
                 <input

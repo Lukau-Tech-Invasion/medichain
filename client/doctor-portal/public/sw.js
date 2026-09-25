@@ -4,31 +4,39 @@
  * Provides offline support for critical medical information.
  * Caches emergency medical data for offline access.
  * 
- * VERSION 3 - Force cache bust for hackathon demo
+ * VERSION 5 - scope-safe deployment paths and cacheable-request guard
  */
 
-const CACHE_VERSION = 'v3';
-const CACHE_NAME = `medichain-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = `medichain-static-${CACHE_VERSION}`;
 const DATA_CACHE = `medichain-data-${CACHE_VERSION}`;
 
+// The doctor portal can be served below a prefix (`/doctor/` in Docker), so
+// root-relative paths would fetch the nginx root rather than this portal.
+// A service worker's scope is the deployment-owned source of truth.
+const APP_BASE_URL = new URL('./', self.registration.scope);
+const appPath = (path) => new URL(path.replace(/^\//, ''), APP_BASE_URL).pathname;
+const OFFLINE_PAGE = appPath('offline.html');
+
 // Static assets to cache
 const STATIC_ASSETS = [
-  '/offline.html',
+  OFFLINE_PAGE,
 ];
 
 // API endpoints to cache for offline
 const CACHEABLE_API = [
-  '/health',
+  '/api/health',
 ];
 
 // Install event - cache static assets and skip waiting immediately
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing service worker v3...');
+  console.log('[SW] Installing service worker v5...');
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => {
       console.log('[SW] Caching static assets');
-      return cache.addAll(STATIC_ASSETS);
+      // Offline fallback is optional. A cache miss during a rolling deploy must
+      // not leave a rejected service-worker installation behind.
+      return cache.addAll(STATIC_ASSETS).catch(() => undefined);
     })
   );
   // Force immediate activation - don't wait for old tabs to close
@@ -37,7 +45,7 @@ self.addEventListener('install', (event) => {
 
 // Activate event - AGGRESSIVELY clean up ALL old caches
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating service worker v3 - clearing ALL old caches...');
+  console.log('[SW] Activating service worker v5 - clearing ALL old caches...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -68,6 +76,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Browser tooling can request chrome-extension:// resources while this
+  // worker controls the page. Cache Storage only accepts HTTP(S) requests;
+  // attempting to cache another scheme rejects the fetch handler promise.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return;
+  }
+
   // For development/demo: Always try network first for ALL requests
   event.respondWith(
     fetch(request)
@@ -90,7 +105,7 @@ self.addEventListener('fetch', (event) => {
           }
           // Offline navigation - show offline page
           if (request.mode === 'navigate') {
-            return caches.match('/offline.html');
+            return caches.match(OFFLINE_PAGE);
           }
           // Return offline error for API
           if (url.pathname.startsWith('/api/')) {
@@ -132,8 +147,8 @@ self.addEventListener('push', (event) => {
   const data = event.data.json();
   const options = {
     body: data.body || 'New notification',
-    icon: '/icon-192.png',
-    badge: '/badge-72.png',
+    icon: appPath('medichain.svg'),
+    badge: appPath('medichain.svg'),
     vibrate: [200, 100, 200],
     tag: data.tag || 'medichain-notification',
     data: data.data || {},
@@ -150,12 +165,12 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data;
-  let url = '/dashboard';
+  let url = appPath('dashboard');
 
   if (data.url) {
     url = data.url;
   } else if (data.patient_id) {
-    url = `/patients/${data.patient_id}`;
+    url = appPath(`patients/${data.patient_id}`);
   }
 
   event.waitUntil(

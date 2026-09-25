@@ -121,25 +121,6 @@ pub struct RegisterPatientResponse {
     pub message: String,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub struct EmergencyAccessRequest {
-    pub nfc_tag_id: String,
-    pub accessor_id: String,
-    pub accessor_role: String,
-    pub location: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct EmergencyAccessResponse {
-    pub success: bool,
-    pub access_id: String,
-    pub emergency_info: Option<EmergencyInfo>,
-    pub chain_audit_status: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
-    pub message: String,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct SimulateNfcTapRequest {
     pub patient_id: String,

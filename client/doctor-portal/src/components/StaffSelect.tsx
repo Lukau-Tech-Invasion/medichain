@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
-import { Search, User, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
+import { clickable, getProviders } from '@medichain/shared';
+import { Search, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
 
 export interface StaffMember {
   wallet_address: string;
@@ -65,23 +65,8 @@ export default function StaffSelect({
       setLoading(true);
       setError(null);
       try {
-        const url = roleFilter 
-          ? apiUrl(`/api/providers?role=${roleFilter}`)
-          : apiUrl('/api/providers');
-        
-        const response = await fetch(url, {
-          headers: {
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const staffArray = Array.isArray(data.providers) ? data.providers : [];
-          setStaff(staffArray);
-        } else {
-          setError('Failed to load staff members');
-        }
+        const { providers } = await getProviders(roleFilter || undefined);
+        setStaff(providers.map((p) => ({ ...p, specialty: p.specialty ?? undefined })));
       } catch (err) {
         console.error('Failed to fetch staff:', err);
         setError('Failed to load staff members');
@@ -151,15 +136,15 @@ export default function StaffSelect({
       case 'LabTechnician': return 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900/50 dark:text-amber-300';
       case 'Pharmacist': return 'bg-surface-sunken text-content-secondary dark:bg-pink-900/50 dark:text-pink-300';
       case 'Admin': return 'bg-surface-sunken text-content-secondary dark:bg-purple-900/50 dark:text-purple-300';
-      default: return 'bg-surface-sunken text-content-secondary dark:bg-gray-800 dark:text-gray-300';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
       {label && (
-        <label htmlFor={id} className="block text-sm font-medium text-content-secondary dark:text-gray-200 mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
+        <label htmlFor={id} className="block text-sm font-medium text-content-secondary mb-2">
+          {label} {required && <span className="text-critical">*</span>}
         </label>
       )}
       
@@ -169,19 +154,19 @@ export default function StaffSelect({
           <div 
             className={`
               w-full flex items-center justify-between px-4 py-2.5 
-              border border-border-strong dark:border-slate-600 rounded-lg 
-              bg-surface dark:bg-slate-800 
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand'}
+              border border-border-strong rounded-lg 
+              bg-surface 
+              ${disabled ? 'bg-disabled text-disabled-fg cursor-not-allowed' : 'cursor-pointer hover:border-brand'}
             `}
-            onClick={() => !disabled && setIsOpen(true)}
+            {...clickable(() => !disabled && setIsOpen(true))}
           >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center">
                 <UserCircle size={16} className="text-notice-subtle-fg dark:text-blue-400" />
               </div>
               <div>
-                <p className="font-medium text-content dark:text-white">{selectedStaff.name}</p>
-                <p className="text-xs text-content-muted dark:text-gray-400">
+                <p className="font-medium text-content">{selectedStaff.name}</p>
+                <p className="text-xs text-content-muted">
                   <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${getRoleColor(selectedStaff.role)}`}>
                     {selectedStaff.role}
                   </span>
@@ -194,7 +179,7 @@ export default function StaffSelect({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); handleClear(); }}
-                  className="p-1 hover:bg-surface-sunken dark:hover:bg-slate-700 rounded"
+                  className="p-1 hover:bg-surface-sunken rounded"
                 >
                   <X size={16} className="text-content-muted" />
                 </button>
@@ -217,12 +202,12 @@ export default function StaffSelect({
               disabled={disabled}
               className={`
                 w-full pl-10 pr-10 py-2.5 
-                border border-border-strong dark:border-slate-600 rounded-lg 
-                bg-surface dark:bg-slate-800 
-                text-content dark:text-white
-                placeholder-gray-400 dark:placeholder-gray-500
+                border border-border-interactive rounded-lg 
+                bg-surface 
+                text-content
+                placeholder:text-content-muted placeholder:text-content-muted
                 focus:ring-2 focus:ring-primary-500 focus:border-brand
-                disabled:opacity-50 disabled:cursor-not-allowed
+                disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed
               `}
             />
             {loading ? (
@@ -238,16 +223,16 @@ export default function StaffSelect({
 
         {/* Dropdown */}
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-surface dark:bg-slate-800 border border-border dark:border-slate-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          <div className="absolute z-50 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-64 overflow-y-auto">
             {loading ? (
-              <div className="flex items-center justify-center py-6 text-content-muted dark:text-gray-400">
+              <div className="flex items-center justify-center py-6 text-content-muted">
                 <Loader2 size={20} className="animate-spin mr-2" />
                 Loading staff...
               </div>
             ) : error ? (
-              <div className="py-4 px-3 text-center text-red-500">{error}</div>
+              <div className="py-4 px-3 text-center text-critical">{error}</div>
             ) : filteredStaff.length === 0 ? (
-              <div className="py-4 px-3 text-center text-content-muted dark:text-gray-400">
+              <div className="py-4 px-3 text-center text-content-muted">
                 {searchTerm ? 'No staff found matching your search' : 'No staff available'}
               </div>
             ) : (
@@ -258,7 +243,7 @@ export default function StaffSelect({
                   onClick={() => handleSelect(member)}
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
-                    hover:bg-surface-sunken dark:hover:bg-slate-700 transition-colors
+                    hover:bg-surface-sunken transition-colors
                     ${value === member.wallet_address || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
                   `}
                 >
@@ -268,10 +253,10 @@ export default function StaffSelect({
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-content dark:text-white truncate">
+                    <p className="font-medium text-content truncate">
                       {member.name}
                     </p>
-                    <div className="flex items-center gap-2 text-xs text-content-muted dark:text-gray-400">
+                    <div className="flex items-center gap-2 text-xs text-content-muted">
                       <span className={`inline-block px-1.5 py-0.5 rounded ${getRoleColor(member.role)}`}>
                         {member.role}
                       </span>

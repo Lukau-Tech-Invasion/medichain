@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { apiUrl, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
+import { useEffect, useState, useCallback } from 'react';
+import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation, formatTimestamp } from '@medichain/shared';
+import type { TelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -13,17 +14,6 @@ import {
   WifiOff,
   ExternalLink,
 } from 'lucide-react';
-
-interface TelehealthSession {
-  session_id: string;
-  provider_id: string;
-  provider_name?: string;
-  patient_join_url?: string;
-  scheduled_start: number;
-  scheduled_end?: number;
-  status?: string;
-  duration_minutes?: number;
-}
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -46,7 +36,7 @@ interface JoinResponse {
  * Features:
  * - View upcoming telehealth sessions with join button
  * - View past sessions with duration/status
- * - Opens patient_join_url in new tab
+ * - Joins the provider-issued room through the authenticated join endpoint
  *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -64,13 +54,29 @@ export function TelehealthPage() {
   const [activeSessionId, setActiveSessionId] = useState('');
   const [activeSubject, setActiveSubject] = useState<string | undefined>(undefined);
 
+  const loadSessions = useCallback(async () => {
+    if (!patient) return;
+    setLoading(true);
+    try {
+      const data = await listMyTelehealthSessions();
+      setSessions(data.sessions);
+      setApiConnected(true);
+    } catch (err) {
+      console.error('Failed to load telehealth sessions:', err);
+      setApiConnected(false);
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [patient]);
+
   useEffect(() => {
     if (!patient?.healthId) {
       setLoading(false);
       return;
     }
     loadSessions();
-  }, [patient]);
+  }, [patient, loadSessions]);
 
   /**
    * Deep-link auto-join (Phase 4): opening `/telehealth?session=...&join=1`
@@ -85,39 +91,9 @@ export function TelehealthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadSessions = async () => {
-    if (!patient) return;
-    setLoading(true);
-    try {
-      const response = await fetch(
-        apiUrl(`/api/telehealth/patient/${patient.healthId}/sessions`),
-        {
-          headers: {
-            'X-User-Id': patient.walletAddress,
-            'X-Health-Id': patient.healthId,
-          },
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setSessions(data.sessions || []);
-        setApiConnected(true);
-      } else {
-        setApiConnected(false);
-        setSessions([]);
-      }
-    } catch (err) {
-      console.error('Failed to load telehealth sessions:', err);
-      setApiConnected(false);
-      setSessions([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   /**
    * Join a session: ask the backend for Jitsi credentials (domain/room/JWT) and
-   * open the in-browser call. Falls back to the raw patient_join_url iframe if
+   * open the in-browser call. Falls back to the server-provided room URL if
    * the provider returns no credentials.
    */
   const joinById = async (sessionId: string, fallbackUrl?: string) => {
@@ -142,7 +118,7 @@ export function TelehealthPage() {
   };
 
   const handleJoin = (session: TelehealthSession) => {
-    void joinById(session.session_id, session.patient_join_url);
+    void joinById(session.session_id, session.video_room_url);
   };
 
   const now = Date.now() / 1000;
@@ -154,7 +130,7 @@ export function TelehealthPage() {
   );
 
   const formatDateTime = (unixTs: number) =>
-    new Date(unixTs * 1000).toLocaleString('en-US', {
+    formatTimestamp(unixTs * 1000, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -164,10 +140,6 @@ export function TelehealthPage() {
 
   const formatDuration = (session: TelehealthSession) => {
     if (session.duration_minutes) return t('telehealth.minutes', { mins: session.duration_minutes });
-    if (session.scheduled_end) {
-      const mins = Math.round((session.scheduled_end - session.scheduled_start) / 60);
-      return t('telehealth.minutes', { mins });
-    }
     return '';
   };
 
@@ -187,7 +159,7 @@ export function TelehealthPage() {
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
     );
   }
@@ -204,7 +176,7 @@ export function TelehealthPage() {
           apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
         }`}>
           {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {apiConnected ? t('common.live') : t('common.demo')}
+          {apiConnected ? t('common.live') : t('common.dataUnavailable')}
         </span>
       </div>
 
@@ -243,9 +215,7 @@ export function TelehealthPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-content">
-                    {session.provider_name
-                      ? t('telehealth.providerPrefix', { name: session.provider_name })
-                      : t('telehealth.providerFallback', { id: session.provider_id })}
+                    {t('telehealth.providerPrefix', { name: session.provider_id })}
                   </h3>
                   <p className="text-sm text-content-muted flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -276,7 +246,7 @@ export function TelehealthPage() {
             {activeTab === 'upcoming' && (
               <button
                 onClick={() => handleJoin(session)}
-                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
                 {t('telehealth.joinCall')}
@@ -295,7 +265,7 @@ export function TelehealthPage() {
         {((activeTab === 'upcoming' && upcomingSessions.length === 0) ||
           (activeTab === 'past' && pastSessions.length === 0)) && (
           <div className="text-center py-12">
-            <User className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+            <User className="w-12 h-12 text-content-muted mx-auto mb-3" />
             <p className="text-content-muted">{activeTab === 'upcoming' ? t('telehealth.noUpcoming') : t('telehealth.noPast')}</p>
           </div>
         )}

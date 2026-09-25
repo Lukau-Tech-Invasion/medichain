@@ -29,7 +29,8 @@ impl WoundAssessmentRepository for PgWoundAssessmentRepository {
             "INSERT INTO wound_assessments (
                 id, patient_id, wound_id, wound_location, wound_type, length_cm, width_cm, depth_cm,
                 tissue_type, drainage_amount, drainage_type, periwound_condition, pain_level,
-                treatment_applied, dressing_type, notes, photo_taken, assessed_by, assessed_at, facility_id
+                treatment_applied, dressing_type, notes, photo_taken, assessed_by, assessed_at, facility_id,
+                data
             ) "
         );
 
@@ -53,7 +54,8 @@ impl WoundAssessmentRepository for PgWoundAssessmentRepository {
                 .push_bind(a.photo_taken)
                 .push_bind(&a.assessed_by)
                 .push_bind(a.assessed_at)
-                .push_bind(&a.facility_id);
+                .push_bind(&a.facility_id)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");

@@ -2,7 +2,13 @@
 name = "medichain-api"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+# The repository LICENSE is a proprietary, all-rights-reserved grant
+# (Lukau Invasion (Pty) Ltd). There is no SPDX identifier for it, so it is
+# named by file rather than by expression -- declaring a permissive SPDX id
+# here would grant, in package metadata, exactly the rights that LICENSE
+# withholds. `publish = false` keeps that metadata off a public registry.
+license-file = "../LICENSE"
+publish = false
 description = "MediChain REST API Server - Emergency medical records access"
 
 [[bin]]
@@ -11,7 +17,18 @@ path = "src/main.rs"
 
 [dependencies]
 # Web framework
-actix-web = "4.9"
+# HTTP/1.1 only, on purpose. Nginx terminates TLS and HTTP/2 at the edge
+# (`nginx/default.prod.conf`: `http2 on`) and proxies to this service with
+# `proxy_http_version 1.1`, so actix's `http2` default feature compiled an
+# HTTP/2 stack this process never speaks -- and with it `h2 0.3.27`, which
+# actix-http still pins and which carries RUSTSEC-2026-0258 (unbounded empty
+# DATA frames). Removing the capability removes the advisory; an unused
+# protocol implementation is attack surface, not a safety net.
+#
+# `macros` is required: 424 handlers use the `#[get]`/`#[post]` attributes.
+# `cookies`, `compress-*` and `unicode` are dropped because nothing here reads
+# a cookie, installs `Compress`, or routes a non-ASCII path.
+actix-web = { version = "4.9", default-features = false, features = ["macros"] }
 actix-cors = "0.7"
 actix-rt = "2.10"
 
@@ -19,6 +36,7 @@ actix-rt = "2.10"
 tokio = { version = "1.42", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
+bytes = "1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -41,6 +59,10 @@ subxt-signer = { workspace = true }
 
 # Cryptography for NFC simulation
 sha3 = "0.10"
+# SHA-256 for the Class C body digest. ADR-0008 specifies SHA-256 over the
+# transmitted bytes; sha3 above is SHA3-256, a different function. Already in
+# the graph via medichain-crypto, so this adds no crates.
+sha2 = "0.10"
 hex = "0.4"
 
 # JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)
@@ -51,7 +73,6 @@ totp-rs = { version = "5.6", default-features = false, features = ["otpauth", "g
 prometheus = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
-tracing-log = "0.2"
 
 # Async task debugger (Phase 12.1) — opt-in, see the `tokio-console` feature below.
 console-subscriber = { version = "0.4", optional = true }
@@ -60,12 +81,37 @@ console-subscriber = { version = "0.4", optional = true }
 printpdf = "0.7"
 
 # QR Code generation
-qrcode = "0.14"
-image = "0.25"
+# QR rendering only. `qrcode`'s default features pull `image` with *its*
+# defaults, which is every codec the crate supports -- including AVIF, whose
+# encoder is `rav1e`, a full AV1 implementation that also drags in the
+# NCSA-licensed `libfuzzer-sys` and fails `cargo deny check licenses`.
+# MediChain writes exactly one format: an 8-bit greyscale QR bitmap as PNG
+# (`support.rs`, `nfc_simulator.rs`). Ask for that and nothing else.
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 
 # IPFS client
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+
+# SMTP, for the POPIA/HIPAA breach notification to the regulator.
+#
+# Added deliberately and narrowly. The previous `send_email` slept 150ms and
+# logged "Email successfully queued for delivery" with no SMTP client in the
+# binary at all, so `dispatch_breach_notification` counted every simulated send
+# as a delivered statutory notification. It was made to fail closed; this makes
+# it able to succeed.
+#
+# `rustls-tls` rather than native-tls: the graph already carries rustls (via
+# reqwest and subxt), so this adds a protocol implementation rather than a
+# second TLS stack. `default-features = false` drops the file/sendmail
+# transports and the blocking runtime, none of which this uses.
+lettre = { version = "0.11", default-features = false, features = [
+    "smtp-transport",
+    "tokio1-rustls-tls",
+    "builder",
+    "hostname",
+] }
 
 # Crypto module
 medichain-crypto = { path = "../crypto" }

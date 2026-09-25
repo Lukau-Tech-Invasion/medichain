@@ -16,7 +16,6 @@ pub async fn assign_role(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -28,7 +27,6 @@ pub async fn assign_role(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -37,7 +35,6 @@ pub async fn assign_role(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can assign roles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -53,7 +50,6 @@ pub async fn assign_role(
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: e,
                 code: "INVALID_ROLE".to_string(),
             });
@@ -63,7 +59,6 @@ pub async fn assign_role(
     // Cannot assign Admin role (must be done directly)
     if role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot assign Admin role via API".to_string(),
             code: "CANNOT_ASSIGN_ADMIN".to_string(),
         });
@@ -72,29 +67,54 @@ pub async fn assign_role(
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format. Must be SS58 encoded (48 chars starting with 5)"
                 .to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
     }
 
-    // Create new user with wallet address
-    let user = User {
-        wallet_address: body.wallet_address.clone(),
-        username: body.username.clone(),
-        name: body.name.clone(),
-        role: role.clone(),
-        created_at: Utc::now(),
-        created_by: Some(current_user_id.clone()),
-        linked_patient_id: None,
-        email: None,
-        phone: None,
-        department: None,
-        specialty: None,
-        license_number: None,
-        status: "active".to_string(),
-        last_login: None,
+    // Change the role of the person who is already there, if they are.
+    //
+    // This used to build a whole new `User` from the request body and persist
+    // it, and `persist_user` upserts every column — so assigning a role to an
+    // existing account overwrote their username, email, department, specialty,
+    // licence number, linked patient and creation date with NULL. The role
+    // changed and the person was erased around it. Verified on 2026-09-10: a
+    // lab technician promoted through this endpoint came back with
+    // `username = NULL`, which is the column staff sign-in resolves against.
+    //
+    // `UserManagementPage` calls this immediately after `updateUserProfile`
+    // whenever the role changed, so the profile edit a moment earlier was
+    // undone by the role change that followed it.
+    let existing = get_user(&data, &body.wallet_address);
+    let user = match existing {
+        Some(mut current) => {
+            current.role = role.clone();
+            // A name may accompany a role change; everything else is theirs.
+            if !body.name.trim().is_empty() {
+                current.name = body.name.clone();
+            }
+            if body.username.as_ref().is_some_and(|u| !u.trim().is_empty()) {
+                current.username = body.username.clone();
+            }
+            current
+        }
+        None => User {
+            wallet_address: body.wallet_address.clone(),
+            username: body.username.clone(),
+            name: body.name.clone(),
+            role: role.clone(),
+            created_at: Utc::now(),
+            created_by: Some(current_user_id.clone()),
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        },
     };
 
     if let Err(e) = data.persist_then_cache_user(user).await {
@@ -104,7 +124,6 @@ pub async fn assign_role(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Role assignment could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -137,7 +156,6 @@ pub async fn revoke_role(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -149,7 +167,6 @@ pub async fn revoke_role(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -158,7 +175,6 @@ pub async fn revoke_role(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can revoke roles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -172,7 +188,6 @@ pub async fn revoke_role(
     // Cannot revoke own role
     if body.wallet_address == current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Cannot revoke your own role".to_string(),
             code: "CANNOT_REVOKE_OWN_ROLE".to_string(),
         });
@@ -185,7 +200,6 @@ pub async fn revoke_role(
         .is_some_and(|users| users.contains_key(&body.wallet_address));
     if !exists {
         return HttpResponse::NotFound().json(ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
@@ -197,7 +211,6 @@ pub async fn revoke_role(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Role revocation could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -254,6 +267,105 @@ pub struct VerifyGuardianRequest {
     pub supersedes_relationship_id: Option<String>,
 }
 
+/// Who may act for this patient.
+///
+/// # Why this exists
+///
+/// `GuardianRelationshipRepository::get_by_ward` is documented as backing
+/// exactly this view -- "who may act for this patient (emergency contact
+/// surfacing, admin review)" -- and had no HTTP route, so nothing could ask.
+/// The three guardianship endpoints that did exist all *write*: verify, amend
+/// permissions, revoke. A screen could create delegated authority over a
+/// minor's records and then had no way to show what authority existed.
+///
+/// Returns relationships whether active or not. A revoked or expired
+/// guardianship is part of the answer to "who may act for this patient" --
+/// leaving it out would hide the fact that someone once could.
+#[get("/api/guardians/ward/{ward_patient_id}")]
+pub async fn list_guardians_for_ward(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let ward_patient_id = path.into_inner();
+
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    // The ward themselves, anyone acting for them, or a clinician who may read
+    // medical records. Delegated authority over a person's record is part of
+    // that record.
+    let is_own = crate::support::caller_owns_patient_record(
+        &data,
+        &current_user.wallet_address,
+        &ward_patient_id,
+    );
+    if !is_own && !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the patient or a clinician may see who acts for them".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    match data
+        .repositories
+        .guardian_relationships
+        .get_by_ward(&ward_patient_id)
+        .await
+    {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "ward_patient_id": ward_patient_id,
+            "relationships": items,
+            "count": items.len(),
+        })),
+        Err(e) => {
+            log::error!("guardian lookup by ward failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// The wards this caller may act for.
+///
+/// `get_by_guardian` is documented as driving the "my children" /
+/// profile-switcher list, and likewise had no route. Caller-scoped: it answers
+/// only for whoever is asking, so it needs no id and cannot be pointed at
+/// somebody else's family.
+#[get("/api/guardians/mine")]
+pub async fn list_my_wards(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let current_user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    match data
+        .repositories
+        .guardian_relationships
+        .get_by_guardian(&current_user.wallet_address)
+        .await
+    {
+        Ok(items) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "guardian_wallet": current_user.wallet_address,
+            "relationships": items,
+            "count": items.len(),
+        })),
+        Err(e) => {
+            log::error!("guardian lookup by guardian failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: e.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[post("/api/guardians/verify")]
 pub async fn verify_guardian_relationship(
     data: web::Data<AppState>,
@@ -264,7 +376,6 @@ pub async fn verify_guardian_relationship(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -275,7 +386,6 @@ pub async fn verify_guardian_relationship(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -284,7 +394,6 @@ pub async fn verify_guardian_relationship(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can verify guardian relationships".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -292,7 +401,6 @@ pub async fn verify_guardian_relationship(
 
     if body.guardian_wallet == current_user_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "An admin cannot verify a guardian relationship naming themselves".to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         });
@@ -300,8 +408,16 @@ pub async fn verify_guardian_relationship(
 
     if body.guardian_wallet.trim().is_empty() || body.ward_patient_id.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "guardian_wallet and ward_patient_id are required".to_string(),
+            code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
+        });
+    }
+    // Authority with no permissions is not authority: it would record a
+    // relationship that permits nothing while reading as though it does. The
+    // page refused this; the API did not.
+    if body.permissions.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A guardianship must grant at least one permission".to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         });
     }
@@ -326,7 +442,6 @@ pub async fn verify_guardian_relationship(
 
     if needs_documentary_evidence && !has_evidence {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: format!(
                 "relationship_type '{}' requires authority_evidence_type and \
                  authority_evidence_reference identifying the document that establishes \
@@ -374,36 +489,29 @@ pub async fn verify_guardian_relationship(
         dispute_notes: None,
     };
 
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_verified".into(),
+        "guardian_relationship".into(),
+        relationship.id.clone(),
+        serde_json::json!({"guardian_wallet": relationship.guardian_wallet, "ward_patient_id": relationship.ward_patient_id, "permissions": relationship.permissions, "verified_by": relationship.verified_by}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .create(relationship)
+        .create_with_audit(relationship, event.clone())
         .await
     {
         Ok(created) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_verified".into(),
-                    "guardian_relationship".into(),
-                    created.id.clone(),
-                    serde_json::json!({
-                        "guardian_wallet": created.guardian_wallet,
-                        "ward_patient_id": created.ward_patient_id,
-                        "permissions": created.permissions,
-                        "verified_by": created.verified_by,
-                    }),
-                    now,
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Created().json(created)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         }),
@@ -435,7 +543,6 @@ pub async fn update_guardian_permissions(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -443,7 +550,6 @@ pub async fn update_guardian_permissions(
     };
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can update guardian permissions".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -453,40 +559,50 @@ pub async fn update_guardian_permissions(
     }
 
     let relationship_id = path.into_inner();
+    // Removing every permission is ending the relationship, which is its own
+    // audited act (`/api/guardians/revoke`), not an edit.
+    if body.permissions.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A guardianship must keep at least one permission; revoke it to end it"
+                .to_string(),
+            code: "GUARDIAN_PERMISSIONS_UPDATE_REJECTED".to_string(),
+        });
+    }
     let permissions: Vec<String> = body
         .permissions
         .iter()
         .map(|p| p.as_str().to_string())
         .collect();
 
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_permissions_updated".into(),
+        "guardian_relationship".into(),
+        relationship_id.clone(),
+        serde_json::json!({"updated_by": current_user_id, "permissions": permissions}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .update_permissions(&relationship_id, permissions.clone(), body.expires_at)
+        .update_permissions_with_audit(
+            &relationship_id,
+            permissions,
+            body.expires_at,
+            event.clone(),
+        )
         .await
     {
         Ok(updated) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_permissions_updated".into(),
-                    "guardian_relationship".into(),
-                    updated.id.clone(),
-                    serde_json::json!({
-                        "updated_by": current_user_id,
-                        "permissions": permissions,
-                    }),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(updated)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_PERMISSIONS_UPDATE_REJECTED".to_string(),
         }),
@@ -510,7 +626,6 @@ pub async fn revoke_guardian_relationship(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -521,7 +636,6 @@ pub async fn revoke_guardian_relationship(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -546,41 +660,36 @@ pub async fn revoke_guardian_relationship(
 
     if !current_user.role.is_admin() && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin or the patient themselves can revoke guardian relationships"
                 .to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_revoked".into(),
+        "guardian_relationship".into(),
+        body.relationship_id.clone(),
+        serde_json::json!({"revoked_by": current_user_id, "reason": body.reason}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .revoke(&body.relationship_id, body.reason.clone())
+        .revoke_with_audit(&body.relationship_id, body.reason.clone(), event.clone())
         .await
     {
         Ok(()) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_revoked".into(),
-                    "guardian_relationship".into(),
-                    body.relationship_id.clone(),
-                    serde_json::json!({
-                        "revoked_by": current_user_id,
-                        "reason": body.reason,
-                    }),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(serde_json::json!({ "success": true }))
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: e.to_string(),
             code: "GUARDIAN_REVOCATION_REJECTED".to_string(),
         }),

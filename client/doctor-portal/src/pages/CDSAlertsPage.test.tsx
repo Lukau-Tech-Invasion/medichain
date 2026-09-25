@@ -26,7 +26,7 @@ describe('CDSAlertsPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
@@ -35,11 +35,16 @@ describe('CDSAlertsPage', () => {
       return Promise.resolve({
         ok: true,
         headers: new Headers({ 'content-type': 'application/json' }),
-        // listCdsAlerts() GETs a bare array from
-        // /api/platform/list/cds-alerts and wraps it as `items`. This page
-        // configures CDS *rules*, so records carry a ruleId/name/category and
-        // lower-case severity — not per-patient alert instances.
-        json: () => Promise.resolve([
+        // `GET /api/admin/cds/rules` answers `{ success, count, rules }`.
+        //
+        // This mocked `/api/platform/list/cds-alerts` — the alerts that have
+        // FIRED — because that is what the page used to read, so the test
+        // asserted the screen rendered alert instances under the heading
+        // "rules" and passed while doing it.
+        json: () => Promise.resolve({
+          success: true,
+          count: 1,
+          rules: [
           {
             ruleId: 'CDS-001',
             name: 'Drug Interaction Warning',
@@ -58,7 +63,8 @@ describe('CDSAlertsPage', () => {
             isEnabled: true,
             testMode: false,
           },
-        ]),
+          ],
+        }),
       });
     });
   });

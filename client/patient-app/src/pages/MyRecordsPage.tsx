@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { useState, useEffect, useCallback } from 'react';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -20,7 +20,6 @@ import {
   Shield,
   CheckCircle,
 } from 'lucide-react';
-import type { LabResultSubmission } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface MedicalRecord {
@@ -61,27 +60,6 @@ interface SoapNoteResponse {
   }>;
 }
 
-interface PrescriptionResponse {
-  prescriptions?: Array<{
-    prescription_id: string;
-    medication_name?: string;
-    prescriber_id?: string;
-    created_at?: number | string;
-    dosage?: string;
-    directions?: string;
-  }>;
-}
-
-interface TriageResponse {
-  assessments?: Array<{
-    assessment_id: string;
-    chief_complaint?: string;
-    performed_by?: string;
-    performed_at?: number;
-    esi_level?: string;
-  }>;
-}
-
 function timestampDate(value?: number | string): string {
   if (!value) return '';
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
@@ -98,17 +76,12 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
     : 'other';
 }
 
-async function fetchJson(url: string, headers: HeadersInit): Promise<Record<string, unknown>> {
-  const response = await fetch(apiUrl(url), { headers });
-  return response.ok ? response.json() : {};
-}
-
 /**
  * My Records Page
- * 
+ *
  * View and download medical records stored on IPFS.
  * Records are encrypted and blockchain-verified.
- * 
+ *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyRecordsPage() {
@@ -120,15 +93,18 @@ export function MyRecordsPage() {
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedRecord, setSelectedRecord] = useState<MedicalRecord | null>(null);
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
+  // Sections whose read failed. What is shown is then a partial record, and
+  // the patient is told so rather than left to believe it is complete.
+  const [unloadedSections, setUnloadedSections] = useState<string[]>([]);
   const patient = usePatientAuthStore(state => state.patient);
+  // Records name their author by wallet address, which is the API's identity
+  // and means nothing to a patient. The directory turns it into a name, and
+  // leaves an address it cannot resolve as it is rather than guessing.
+  const { providerName } = useProviderDirectory(patient?.walletAddress);
 
-  useEffect(() => {
-    loadRecords();
-  }, [patient?.healthId]);
-
-  const loadRecords = async () => {
+  const loadRecords = useCallback(async () => {
     setIsLoading(true);
-    
+
     if (!patient) {
       setRecords([]);
       setIsLoading(false);
@@ -136,14 +112,22 @@ export function MyRecordsPage() {
     }
 
     const patientId = patient.healthId;
-    const headers = {
-      'X-User-Id': patient.walletAddress,
-      'X-Health-Id': patientId,
-    };
-    
-    // Fetch records from API
+
     const allRecords: MedicalRecord[] = [];
-    
+    // One failed read used to reject the whole `Promise.all`, and the catch
+    // below logged it and showed an EMPTY page: a patient with forty records
+    // was told they had none because, say, the GCS read was refused. Each
+    // section now fails on its own and is named.
+    const failed: string[] = [];
+    const settle = <T,>(section: string, read: Promise<T>, empty: T): Promise<T> =>
+      read.catch((error: unknown) => {
+        console.error(`Failed to load ${section}:`, error);
+        failed.push(section);
+        return empty;
+      });
+    const documents = (kind: Parameters<typeof getPatientDocuments>[1]) =>
+      settle(kind, getPatientDocuments(patientId, kind), {} as Record<string, unknown>);
+
     try {
       const [
         labData,
@@ -155,22 +139,82 @@ export function MyRecordsPage() {
         progressData,
         woundData,
         vitalsData,
+        dischargeData,
+        imagingData,
+        pathologyData,
+        consultData,
+        carePlanData,
+        bloodData,
+        procedureData,
+        amaData,
+        gcsData,
+        emsData,
       ] = await Promise.all([
-        fetchJson(`/api/lab/patient/${patientId}`, headers),
-        fetchJson(`/api/records/${patientId}`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/soap`, headers),
-        fetchJson(`/api/e-prescriptions/patient/${patientId}`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/triage`, headers),
+        settle('lab', getPatientLabSubmissions(patientId), []),
+        settle('documents', getPatientRecords(patientId), []),
+        documents('soap'),
+        settle(
+          'prescriptions',
+          getPatientEPrescriptions(patientId),
+          { prescriptions: [] } as unknown as Awaited<ReturnType<typeof getPatientEPrescriptions>>,
+        ),
+        settle(
+          'triage',
+          getPatientTriageAssessments(patientId),
+          { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientTriageAssessments>>,
+        ),
         // A History & Physical, a progress note, a wound assessment and a
         // vitals reading are all written about the patient, and none of them
         // were reachable from this page before.
-        fetchJson(`/api/clinical/patient/${patientId}/history-physicals`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/progress-notes`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/wounds`, headers),
-        fetchJson(`/api/clinical/patient/${patientId}/vitals`, headers),
+        documents('history-physicals'),
+        documents('progress-notes'),
+        documents('wounds'),
+        settle(
+          'vitals',
+          getPatientVitals(patientId),
+          { readings: [] } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
+        ),
+        // The document a patient physically leaves hospital with. It was
+        // reachable only by an id the patient has never seen, so it could be
+        // written, approved by a second clinician, stored — and never read by
+        // the person it was written for.
+        documents('discharges'),
+        // The scan the patient was sent for, waited for and worried about.
+        // The report was readable only by an id they have never seen, behind a
+        // clinical-staff gate that refused them even with it.
+        documents('imaging'),
+        // Where a cancer diagnosis, a margin status and a staging live — the
+        // result a patient chases hardest, and the one they were least able to
+        // reach: it was keyed by an accession number they have never seen.
+        documents('pathology'),
+        // What the specialist actually said, and what they want done next. A
+        // patient told "the specialist has seen your notes" and unable to read
+        // the answer is being asked to take the recommendation on trust.
+        documents('consults'),
+        // The one clinical document written in the second person: what the
+        // goals of this admission are and what the patient is expected to do.
+        documents('care-plans'),
+        // A blood group is the single most reusable fact in a record — asked
+        // in every emergency department and on every pre-operative form.
+        documents('blood'),
+        // "What was done to me" is one question; it was split across five
+        // endpoints, none of which the patient could reach.
+        documents('procedures'),
+        // The document most likely to be cited against the patient later.
+        documents('ama-discharges'),
+        // Neurological observations. `POST /api/clinical/gcs` and this read had
+        // both existed with no caller at either end: nothing wrote a GCS
+        // assessment and nothing displayed one.
+        settle(
+          'gcs',
+          getPatientGCS(patientId),
+          { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientGCS>>,
+        ),
+        // What the ambulance crew found and did before the hospital door.
+        documents('ems-handoffs'),
       ]);
 
-      const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
+      const labRecords = labData.map(sub => ({
           id: sub.id,
           type: 'lab_result' as const,
           title: sub.test_name,
@@ -185,12 +229,12 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...labRecords);
 
-      const medRecords = ((genericData.records as Array<{
+      const medRecords = (genericData as Array<{
           content_hash: string;
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
-        }> | undefined) || []).map(rec => ({
+        }>).map(rec => ({
           id: rec.content_hash,
           type: medicalRecordType(rec.record_type),
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
@@ -216,12 +260,13 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...soapRecords);
 
-      const prescriptionRecords = ((prescriptionData as PrescriptionResponse).prescriptions || []).map(rx => ({
+      const prescriptionRecords = (prescriptionData.prescriptions ?? []).map(rx => ({
         id: rx.prescription_id,
         type: 'prescription' as const,
-        title: rx.medication_name || 'Prescription',
-        description: [rx.dosage, rx.directions].filter(Boolean).join(' — ') || 'Electronic prescription',
-        provider: rx.prescriber_id || 'MediChain provider',
+        title: rx.medication.name || 'Prescription',
+        description: [rx.medication.strength, rx.medication.directions, rx.patient_instructions]
+          .filter(Boolean).join(' — ') || 'Electronic prescription',
+        provider: rx.prescriber_name || rx.prescriber_id || 'MediChain provider',
         date: timestampDate(rx.created_at),
         contentHash: `rx-${rx.prescription_id}`,
         metadataHash: rx.prescription_id,
@@ -229,7 +274,7 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...prescriptionRecords);
 
-      const triageRecords = ((triageData as TriageResponse).assessments || []).map(assessment => ({
+      const triageRecords = (triageData.assessments ?? []).map(assessment => ({
         id: assessment.assessment_id,
         type: 'consultation' as const,
         title: 'Triage Assessment',
@@ -241,6 +286,258 @@ export function MyRecordsPage() {
         verified: true,
       }));
       allRecords.push(...triageRecords);
+
+      const dischargeRecords = (((dischargeData as {
+        summaries?: Array<Record<string, unknown>>;
+      }).summaries) || []).map(summary => ({
+        id: String(summary.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge summary',
+        description: String(
+          summary.discharge_diagnosis || summary.primary_diagnosis || 'Summary of this admission'
+        ),
+        provider: String(summary.attending_physician_id || summary.created_by || 'MediChain provider'),
+        date: timestampDate(summary.discharge_date as string | number | undefined),
+        contentHash: `discharge-${summary.id}`,
+        metadataHash: String(summary.id),
+        verified: true,
+      }));
+      allRecords.push(...dischargeRecords);
+
+      const dischargeInstructionRecords = (((dischargeData as {
+        instructions?: Array<Record<string, unknown>>;
+      }).instructions) || []).map(item => ({
+        id: String(item.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge instructions',
+        // What to do at home is the half of a discharge a patient actually
+        // acts on, so it is listed as its own record rather than folded into
+        // the summary.
+        description: String(
+          item.activity_restrictions || item.diet_instructions || 'Instructions for going home'
+        ),
+        provider: String(item.created_by || 'MediChain provider'),
+        date: timestampDate(item.created_at as string | number | undefined),
+        contentHash: `discharge-instructions-${item.id}`,
+        metadataHash: String(item.id),
+        verified: true,
+      }));
+      allRecords.push(...dischargeInstructionRecords);
+
+      const imagingReports = ((imagingData as {
+        reports?: Array<Record<string, unknown>>;
+      }).reports) || [];
+      const imagingRecords = imagingReports.map(report => ({
+        id: String(report.id),
+        type: 'imaging' as const,
+        title: String(report.study_type || report.modality || 'Imaging report'),
+        // The impression is the radiologist's conclusion — the line a patient
+        // reads first and the one a clinician acts on. `status` is carried
+        // because a preliminary report is not a final one, and a screen that
+        // cannot say which is misleading about both.
+        description: String(report.impression || report.findings || 'Imaging report'),
+        provider: String(report.radiologist_id || 'MediChain radiology'),
+        date: timestampDate(report.report_datetime as string | number | undefined),
+        contentHash: `imaging-report-${report.id}`,
+        metadataHash: String(report.status || report.id),
+        verified: String(report.status || '').toLowerCase() === 'final',
+      }));
+      allRecords.push(...imagingRecords);
+
+      // An order with no report yet is the honest answer to "what about my
+      // scan?". Omitting it makes a study that has been done but not yet read
+      // look identical to one that was never ordered.
+      const reportedOrderIds = new Set(imagingReports.map(r => String(r.order_id)));
+      const imagingOrderRecords = (((imagingData as {
+        orders?: Array<Record<string, unknown>>;
+      }).orders) || [])
+        .filter(order => !reportedOrderIds.has(String(order.id)))
+        .map(order => ({
+          id: String(order.id),
+          type: 'imaging' as const,
+          title: String(order.study_type || order.modality || 'Imaging study'),
+          description: String(order.clinical_indication || 'Requested — no report yet'),
+          provider: String(order.ordering_provider_id || 'MediChain provider'),
+          date: timestampDate(
+            (order.scheduled_datetime ?? order.created_at) as string | number | undefined
+          ),
+          contentHash: `imaging-order-${order.id}`,
+          metadataHash: String(order.status || order.id),
+          // Nothing has been reported, so there is nothing to have verified.
+          verified: false,
+        }));
+      allRecords.push(...imagingOrderRecords);
+
+      const pathologyRecords = (((pathologyData as {
+        reports?: Array<Record<string, unknown>>;
+      }).reports) || []).map(report => ({
+        id: String(report.id),
+        type: 'lab_result' as const,
+        title: `Pathology — ${String(report.specimen_type || 'specimen')}`,
+        // The diagnosis is the report. Falling back to the specimen source
+        // rather than to a cheerful placeholder, because "Pathology report"
+        // where a diagnosis should be reads as reassurance nobody wrote.
+        description: String(report.diagnosis || report.specimen_source || 'Pathology report'),
+        provider: String(report.pathologist_id || 'MediChain pathology'),
+        date: timestampDate(report.report_date as string | number | undefined),
+        contentHash: `pathology-${report.id}`,
+        metadataHash: String(report.status || report.id),
+        verified: String(report.status || '').toLowerCase() === 'final',
+      }));
+      allRecords.push(...pathologyRecords);
+
+      const consultRecords = (((consultData as {
+        consults?: Array<Record<string, unknown>>;
+      }).consults) || []).map(consult => ({
+        id: String(consult.id),
+        type: 'consultation' as const,
+        title: `${String(consult.consultation_type || 'Specialist')} consult`,
+        // The recommendation is what the patient acts on; the reason is what
+        // they recognise it by. Recommendation first, falling back to the
+        // reason while the consult is still only a request.
+        description: String(
+          consult.recommendations || consult.reason_for_consultation || 'Specialist opinion'
+        ),
+        provider: String(consult.consulting_provider || consult.requesting_provider || 'MediChain provider'),
+        date: timestampDate(
+          (consult.completed_at ?? consult.requested_at) as string | number | undefined
+        ),
+        contentHash: `consult-${consult.id}`,
+        metadataHash: String(consult.status || consult.id),
+        // A consult that has been answered is a document; one still awaiting a
+        // specialist is a request, and saying otherwise overstates it.
+        verified: Boolean(consult.completed_at),
+      }));
+      allRecords.push(...consultRecords);
+
+      const carePlanRecords = (((carePlanData as {
+        care_plans?: Array<Record<string, unknown>>;
+      }).care_plans) || []).map(plan => ({
+        id: String(plan.id),
+        type: 'consultation' as const,
+        title: 'Nursing care plan',
+        description: String(plan.plan_name || 'Plan of care for this admission'),
+        provider: String(plan.created_by || 'MediChain nursing'),
+        date: timestampDate(plan.created_at as string | number | undefined),
+        contentHash: `care-plan-${plan.id}`,
+        metadataHash: String(plan.care_level || plan.id),
+        verified: true,
+      }));
+      allRecords.push(...carePlanRecords);
+
+      // Blood-bank orders and transfusions are one subject to a patient, so
+      // they are read from one response and listed under one heading.
+      const bloodBody = bloodData as {
+        screens?: Array<Record<string, unknown>>;
+        transfusions?: Array<Record<string, unknown>>;
+      };
+      const bloodRecords = [
+        ...((bloodBody.screens) || []).map(screen => ({
+          id: String(screen.id),
+          type: 'lab_result' as const,
+          title: 'Blood type and screen',
+          description: String(
+            (screen.data as Record<string, unknown> | undefined)?.indication || 'Blood group on file'
+          ),
+          provider: 'MediChain blood bank',
+          date: timestampDate(screen.created_at as string | number | undefined),
+          contentHash: `blood-screen-${screen.id}`,
+          metadataHash: String(screen.id),
+          verified: true,
+        })),
+        ...((bloodBody.transfusions) || []).map(tx => ({
+          id: String(tx.id),
+          type: 'lab_result' as const,
+          title: 'Transfusion',
+          description: String(
+            (tx.data as Record<string, unknown> | undefined)?.product || 'Blood product given'
+          ),
+          provider: 'MediChain blood bank',
+          date: timestampDate(tx.created_at as string | number | undefined),
+          contentHash: `transfusion-${tx.id}`,
+          metadataHash: String(tx.id),
+          verified: true,
+        })),
+      ];
+      allRecords.push(...bloodRecords);
+
+      // Five kinds of procedure, one list. A patient asking what was done to
+      // them does not distinguish an intubation from a splint by which
+      // endpoint served it.
+      const procedureBody = procedureData as Record<string, Array<Record<string, unknown>> | undefined>;
+      const procedureKinds: Array<[string, string]> = [
+        ['intubations', 'Intubation'],
+        ['laceration_repairs', 'Wound repair'],
+        ['splints_and_casts', 'Splint or cast'],
+        ['burn_assessments', 'Burn assessment'],
+        ['anesthesia_records', 'Anaesthesia'],
+      ];
+      const procedureRecords = procedureKinds.flatMap(([key, label]) =>
+        (procedureBody[key] || []).map(item => ({
+          id: String(item.id),
+          type: 'consultation' as const,
+          title: label,
+          description: String(
+            item.location || item.procedure_type || item.anesthesia_type || label
+          ),
+          provider: String(item.performed_by || item.anesthesiologist_id || 'MediChain provider'),
+          date: timestampDate(
+            (item.performed_at ?? item.created_at) as string | number | undefined
+          ),
+          contentHash: `procedure-${key}-${item.id}`,
+          metadataHash: String(item.id),
+          verified: true,
+        }))
+      );
+      allRecords.push(...procedureRecords);
+
+      const amaRecords = (((amaData as {
+        ama_discharges?: Array<Record<string, unknown>>;
+      }).ama_discharges) || []).map(record => ({
+        id: String(record.id),
+        type: 'discharge_summary' as const,
+        title: 'Discharge against medical advice',
+        description: String(
+          record.recommended_treatment || record.diagnosis || 'Left against medical advice'
+        ),
+        provider: String(record.provider || record.attending_physician_id || 'MediChain provider'),
+        date: timestampDate(record.created_at as string | number | undefined),
+        contentHash: `ama-${record.id}`,
+        metadataHash: String(record.id),
+        // The record's evidentiary value is its signatures; until they are
+        // captured it is a pending document, and saying otherwise overstates it.
+        verified: Boolean(record.patient_signed && record.provider_signed),
+      }));
+      allRecords.push(...amaRecords);
+
+      const gcsRecords = (gcsData.assessments ?? []).map(assessment => ({
+        id: assessment.assessment_id,
+        type: 'consultation' as const,
+        title: `Glasgow Coma Scale ${assessment.total_score ?? ''}`.trim(),
+        // The server's interpretation, not a phrase composed here. The total
+        // and its meaning are scored server-side and displayed as returned.
+        description: assessment.interpretation || 'Neurological assessment',
+        provider: assessment.assessed_by || 'MediChain clinician',
+        date: timestampDate(assessment.assessed_at),
+        contentHash: `gcs-${assessment.assessment_id}`,
+        metadataHash: assessment.assessment_id,
+        verified: true,
+      }));
+      allRecords.push(...gcsRecords);
+
+      const emsRecords = (((emsData as { handoffs?: Array<Record<string, unknown>> })
+        .handoffs) || []).map(handoff => ({
+        id: String(handoff.id),
+        type: 'other' as const,
+        title: `Ambulance handover${handoff.ems_agency ? ` (${handoff.ems_agency})` : ''}`,
+        description: String(handoff.chief_complaint || ''),
+        provider: String(handoff.ems_agency || 'Ambulance service'),
+        date: timestampDate(handoff.received_at as string | undefined),
+        contentHash: `ems-${handoff.id}`,
+        metadataHash: String(handoff.id),
+        verified: true,
+      }));
+      allRecords.push(...emsRecords);
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({
@@ -284,35 +581,43 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...woundRecords);
 
-      const vitalsRecords = (((vitalsData as { vital_signs?: Array<Record<string, unknown>>; vitals?: Array<Record<string, unknown>> })
-        .vital_signs || (vitalsData as { vitals?: Array<Record<string, unknown>> }).vitals) || []).map(v => ({
-        id: String(v.id),
+      const vitalsRecords = vitalsData.readings.map(v => ({
+        id: v.reading_id,
         type: 'lab_result' as const,
         title: 'Vital signs',
         description: [
           v.heart_rate ? `HR ${v.heart_rate}` : null,
-          v.blood_pressure_systolic && v.blood_pressure_diastolic
-            ? `BP ${v.blood_pressure_systolic}/${v.blood_pressure_diastolic}`
+          v.systolic_bp != null && v.diastolic_bp != null
+            ? `BP ${v.systolic_bp}/${v.diastolic_bp}`
             : null,
-          v.temperature ? `${Number(v.temperature).toFixed(1)} C` : null,
+          v.temperature_celsius != null
+            ? `${v.temperature_celsius.toFixed(1)} C`
+            : null,
         ].filter(Boolean).join(' · ') || 'Recorded observations',
         provider: String(v.recorded_by || 'MediChain provider'),
         date: timestampDate(v.recorded_at as string | number | undefined),
-        contentHash: `vitals-${v.id}`,
-        metadataHash: String(v.id),
+        contentHash: `vitals-${v.reading_id}`,
+        metadataHash: v.reading_id,
         verified: true,
       }));
       allRecords.push(...vitalsRecords);
     } catch (error) {
+      // A read that answered with a shape this page cannot map lands here.
       console.error('Failed to fetch records:', error);
+      failed.push('records');
     }
 
     // Sort by date descending
     allRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     setRecords(allRecords);
+    setUnloadedSections(failed);
     setIsLoading(false);
-  };
+  }, [patient, t]);
+
+  useEffect(() => {
+    loadRecords();
+  }, [patient?.healthId, loadRecords]);
 
   const getRecordIcon = (type: string) => {
     switch (type) {
@@ -340,13 +645,13 @@ export function MyRecordsPage() {
       case 'imaging':
         return 'bg-surface-sunken text-content-secondary';
       case 'prescription':
-        return 'bg-success-50 text-success-600';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consultation':
         return 'bg-brand-subtle text-brand';
       case 'discharge_summary':
-        return 'bg-warning-50 text-warning-600';
+        return 'bg-caution-subtle text-caution';
       case 'vaccination':
-        return 'bg-emergency-50 text-critical-subtle-fg';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       default:
         return 'bg-surface-sunken text-content-muted';
     }
@@ -371,7 +676,7 @@ export function MyRecordsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -406,18 +711,14 @@ export function MyRecordsPage() {
   const handleView = async (record: MedicalRecord) => {
     setIsViewing(record.id);
     try {
-      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
-        headers: {
-          'X-User-Id': patient?.walletAddress || '',
-          'X-Health-Id': patient?.healthId || '',
-        },
-      });
-      if (!response.ok) {
+      let download: { blob: Blob; contentType: string };
+      try {
+        download = await downloadRecordContent(record.contentHash);
+      } catch {
         showError(t('records.viewFailed', { title: record.title }));
         return;
       }
-      const contentType = response.headers.get('content-type') || '';
-      const blob = await response.blob();
+      const { blob, contentType } = download;
 
       if (contentType.startsWith('text/') || contentType.includes('json')) {
         setPreview({
@@ -454,25 +755,20 @@ export function MyRecordsPage() {
   const handleDownload = async (record: MedicalRecord) => {
     setIsDownloading(record.id);
     try {
-      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
-        headers: {
-          'X-User-Id': patient?.walletAddress || '',
-          'X-Health-Id': patient?.healthId || '',
-        },
-      });
-      
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = record.title;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        console.error('Failed to download record');
+      let blob: Blob;
+      try {
+        ({ blob } = await downloadRecordContent(record.contentHash));
+      } catch (error) {
+        console.error('Failed to download record:', error);
         showError(t('records.downloadFailed', { title: record.title }));
+        return;
       }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.title;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading record:', error);
       showError(t('records.downloadError', { title: record.title }));
@@ -484,7 +780,7 @@ export function MyRecordsPage() {
   const filteredRecords = records.filter(record => {
     const needle = searchQuery.toLowerCase();
     const hit = (value: unknown) => String(value ?? '').toLowerCase().includes(needle);
-    const matchesSearch = hit(record.title) || hit(record.provider);
+    const matchesSearch = hit(record.title) || hit(providerName(record.provider));
     const matchesFilter = filterType === 'all' || record.type === filterType;
     return matchesSearch && matchesFilter;
   });
@@ -511,6 +807,19 @@ export function MyRecordsPage() {
         <p className="text-content-muted">{t('records.subtitle')}</p>
       </div>
 
+      {unloadedSections.length > 0 && (
+        <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
+          <p>{t('records.partialLoad')}</p>
+          <button
+            type="button"
+            onClick={() => void loadRecords()}
+            className="shrink-0 font-medium underline"
+          >
+            {t('records.retry')}
+          </button>
+        </div>
+      )}
+
       {/* Search & Filter */}
       <div className="space-y-4">
         <div className="relative">
@@ -520,7 +829,7 @@ export function MyRecordsPage() {
             placeholder={t('records.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -531,7 +840,7 @@ export function MyRecordsPage() {
               onClick={() => setFilterType(type)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                 filterType === type
-                  ? 'bg-primary-500 text-white'
+                  ? 'bg-primary-500 text-brand-fg'
                   : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
               }`}
             >
@@ -553,7 +862,7 @@ export function MyRecordsPage() {
           <div
             key={record.id}
             className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
-            onClick={() => setSelectedRecord(record)}
+            {...clickable(() => setSelectedRecord(record))}
           >
             <div className="flex items-start gap-4">
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getRecordColor(record.type)}`}>
@@ -563,14 +872,14 @@ export function MyRecordsPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-medium text-content truncate">{record.title}</h3>
                   {record.verified && (
-                    <Shield className="w-4 h-4 text-success-500 flex-shrink-0" />
+                    <Shield className="w-4 h-4 text-ok-subtle-fg flex-shrink-0" />
                   )}
                 </div>
                 <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
                 <div className="flex items-center gap-4 text-xs text-content-muted">
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    {record.provider}
+                    {providerName(record.provider)}
                   </span>
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -585,7 +894,7 @@ export function MyRecordsPage() {
 
         {filteredRecords.length === 0 && (
           <div className="text-center py-12">
-            <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
+            <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" />
             <p className="text-content-muted">{t('records.noRecords')}</p>
           </div>
         )}
@@ -626,7 +935,7 @@ export function MyRecordsPage() {
                   <User className="w-5 h-5 text-content-muted" />
                   <div>
                     <p className="text-sm text-content-muted">{t('records.provider')}</p>
-                    <p className="font-medium text-content">{selectedRecord.provider}</p>
+                    <p className="font-medium text-content">{providerName(selectedRecord.provider)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -641,7 +950,7 @@ export function MyRecordsPage() {
                   <div>
                     <p className="text-sm text-content-muted">{t('records.status')}</p>
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-warning-500'}`} />
+                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-caution'}`} />
                       <p className="font-medium text-content">
                         {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
                       </p>
@@ -652,7 +961,7 @@ export function MyRecordsPage() {
 
               {/* IPFS Hash */}
               <div className="p-4 bg-info-light rounded-xl">
-                <p className="text-sm text-info-dark mb-1 font-medium flex items-center gap-2">
+                <p className="text-sm text-info-dark mb-1 font-medium flex items-center gap-2 inline-flex items-center min-h-[24px] py-1">
                   <Shield className="w-4 h-4" />
                   {t('records.documentHash')}
                 </p>
@@ -665,7 +974,7 @@ export function MyRecordsPage() {
                   <div className="flex items-center gap-2">
                     <FlaskConical className="w-5 h-5 text-info" />
                     <h4 className="font-semibold text-content">{t('records.testResults')}</h4>
-                    <span className="text-xs text-success-600 flex items-center gap-1 bg-success-50 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-ok-subtle-fg flex items-center gap-1 bg-ok-subtle px-2 py-0.5 rounded-full">
                       <CheckCircle className="w-3 h-3" />
                       {t('records.doctorApproved')}
                     </span>
@@ -686,15 +995,15 @@ export function MyRecordsPage() {
                             <td className="px-4 py-2 text-right">
                               <span className={`font-medium ${
                                 result.flag === 'High' ? 'text-critical-subtle-fg' :
-                                result.flag === 'Low' ? 'text-warning-600' :
+                                result.flag === 'Low' ? 'text-caution' :
                                 'text-content'
                               }`}>
                                 {result.value} {result.unit}
                               </span>
                               {result.flag && (
                                 <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                  result.flag === 'High' ? 'bg-emergency-50 text-critical-subtle-fg' :
-                                  'bg-warning-50 text-warning-600'
+                                  result.flag === 'High' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                  'bg-caution-subtle text-caution'
                                 }`}>
                                   {result.flag}
                                 </span>
@@ -708,7 +1017,7 @@ export function MyRecordsPage() {
                   </div>
                   {selectedRecord.reviewedBy && (
                     <p className="text-xs text-content-muted flex items-center gap-1">
-                      <Shield className="w-3 h-3 text-success-500" />
+                      <Shield className="w-3 h-3 text-ok-subtle-fg" />
                       {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
                     </p>
                   )}
@@ -720,7 +1029,7 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => handleDownload(selectedRecord)}
                   disabled={isDownloading === selectedRecord.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {isDownloading === selectedRecord.id ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -732,7 +1041,7 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => void handleView(selectedRecord)}
                   disabled={isViewing === selectedRecord.id}
-                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   {isViewing === selectedRecord.id ? (
                     <div className="w-5 h-5 border-2 border-border-strong border-t-neutral-600 rounded-full animate-spin" />

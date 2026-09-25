@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Archive,
   Users,
   Activity,
   Shield,
@@ -25,13 +26,14 @@ import {
   BarChart3,
   Settings,
   Key,
+  Laptop,
   Loader2,
   Siren,
   Database,
   Server,
-  HardDrive,
   RefreshCw,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
 import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth, RestrictedSection } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -209,24 +211,27 @@ export default function AdminDashboardPage() {
     { id: 'analytics', label: t('docAdmin.qaAnalytics'), icon: BarChart3, href: '/analytics', color: 'blue' },
     { id: 'audit', label: t('docAdmin.qaAudit'), icon: FileText, href: '/access-logs', color: 'purple' },
     { id: 'roles', label: t('docAdmin.qaRoles'), icon: Key, href: '/user-management', color: 'amber' },
+    { id: 'devices', label: t('docAdmin.qaDevices'), icon: Laptop, href: '/devices', color: 'green' },
+    { id: 'national-id-reviews', label: t('docAdmin.qaNationalIdReviews'), icon: Shield, href: '/national-id-reviews', color: 'blue' },
+    { id: 'retention', label: t('docAdmin.qaRetention'), icon: Archive, href: '/retention', color: 'purple' },
     { id: 'nfc', label: t('docAdmin.qaNfc'), icon: CreditCard, href: '/barcode', color: 'green' },
     { id: 'settings', label: t('docAdmin.qaSettings'), icon: Settings, href: '/settings', color: 'teal' },
   ];
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'text-green-500';
-      case 'degraded': return 'text-amber-500';
-      case 'offline': return 'text-red-500';
+      case 'online': return 'text-ok-subtle-fg';
+      case 'degraded': return 'text-caution-subtle-fg';
+      case 'offline': return 'text-critical-subtle-fg';
       default: return 'text-content-muted';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'online': return <CheckCircle className="text-green-500" size={18} />;
-      case 'degraded': return <AlertTriangle className="text-amber-500" size={18} />;
-      case 'offline': return <AlertTriangle className="text-red-500" size={18} />;
+      case 'online': return <CheckCircle className="text-ok-subtle-fg" size={18} />;
+      case 'degraded': return <AlertTriangle className="text-caution-subtle-fg" size={18} />;
+      case 'offline': return <AlertTriangle className="text-critical" size={18} />;
       default: return <Clock className="text-content-muted" size={18} />;
     }
   };
@@ -295,7 +300,7 @@ export default function AdminDashboardPage() {
       {/* System Status Banner */}
       <div className="bg-surface rounded-lg shadow p-4 border border-border">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2 min-h-[24px] py-1">
             <Server size={16} />
             {t('docAdmin.systemStatus')}
           </h3>
@@ -303,7 +308,7 @@ export default function AdminDashboardPage() {
             <button
               onClick={loadHealthStatus}
               disabled={healthLoading}
-              className="flex items-center gap-1 text-xs text-notice-subtle-fg hover:text-notice-subtle-fg disabled:text-content-muted"
+              className="flex items-center gap-1 min-h-[24px] py-1 text-xs text-notice-subtle-fg hover:text-notice-subtle-fg disabled:text-content-muted"
             >
               <RefreshCw size={12} className={healthLoading ? 'animate-spin' : ''} />
               {t('docAdmin.refresh')}
@@ -328,10 +333,10 @@ export default function AdminDashboardPage() {
                   <span
                     className={`inline-block w-2 h-2 rounded-full ${
                       system.status === 'online'
-                        ? 'bg-green-500'
+                        ? 'bg-ok'
                         : system.status === 'degraded'
                         ? 'bg-caution'
-                        : 'bg-red-500'
+                        : 'bg-critical'
                     }`}
                     aria-hidden="true"
                   />
@@ -364,7 +369,7 @@ export default function AdminDashboardPage() {
           label={t('docAdmin.totalPatients')}
           value={data.system_stats?.total_patients || 0}
           color="bg-notice-subtle"
-          onClick={() => navigate('/patient-search')}
+          onClick={() => navigate('/patients')}
         />
         <StatCard
           icon={<Siren size={24} />}
@@ -385,7 +390,7 @@ export default function AdminDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Users by Role */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2 min-h-[24px] py-1">
             <Users size={16} />
             {t('docAdmin.usersByRole')}
           </h3>
@@ -399,7 +404,7 @@ export default function AdminDashboardPage() {
             ].map((item) => (
               <div key={item.role} className="flex items-center gap-3">
                 <div className="flex-1">
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="flex items-center justify-between text-sm mb-1 min-h-[24px] py-1">
                     <span className="text-content-secondary">{item.role}</span>
                     <span className="font-medium">{item.count}</span>
                   </div>
@@ -423,7 +428,7 @@ export default function AdminDashboardPage() {
 
         {/* Emergency Events */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2 min-h-[24px] py-1">
             <Siren size={16} />
             {t('docAdmin.emergencyEventsHeader')}
           </h3>
@@ -452,13 +457,13 @@ export default function AdminDashboardPage() {
       {/* Access Logs Table */}
       <div className="bg-surface rounded-lg shadow border border-border">
         <div className="px-4 py-3 border-b flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2 min-h-[24px] py-1">
             <FileText size={16} />
             {t('docAdmin.recentAccessLogs')}
           </h3>
           <button
             onClick={() => navigate('/access-logs')}
-            className="text-xs text-content-secondary hover:text-content-secondary"
+            className="inline-flex items-center min-h-[24px] py-1 text-xs text-content-secondary hover:text-content-secondary"
           >
             {t('docAdmin.viewAll')}
           </button>
@@ -490,7 +495,7 @@ export default function AdminDashboardPage() {
                     {formatWhen(log.accessed_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-content">
-                    {truncateId(log.accessor_id)}
+                    <StaffName id={log.accessor_id} />
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-content-muted">
                     {log.action || '—'}
@@ -536,7 +541,7 @@ export default function AdminDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* NFC Card Status */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2 min-h-[24px] py-1">
             <CreditCard size={16} />
             {t('docAdmin.nfcCardStatus')}
           </h3>
@@ -576,7 +581,7 @@ export default function AdminDashboardPage() {
 
         {/* Lab Submission Stats */}
         <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2 min-h-[24px] py-1">
             <Database size={16} />
             {t('docAdmin.labSubmissionStats')}
           </h3>

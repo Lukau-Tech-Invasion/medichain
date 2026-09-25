@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   UserCheck,
@@ -17,33 +17,26 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
-import { apiUrl, getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
+import {
+  approvePatientAccessRequest,
+  denyPatientAccessRequest,
+  getApiErrorMessage,
+  getPatientConsents,
+  getConsentTypes,
+  listPatientAccessGrants,
+  listPatientAccessRequests,
+  revokePatientAccessGrant,
+  revokeConsent,
+  signConsent,
+  useTranslation,
+  clickable,
+  formatTimestamp,
+} from '@medichain/shared';
+import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
-interface AccessGrant {
-  id: string;
-  providerId: string;
-  providerName: string;
-  providerRole: string;
-  organization: string;
-  accessType: 'full' | 'limited' | 'emergency';
-  grantedAt: string;
-  expiresAt: string | null;
-  status: 'active' | 'expired' | 'revoked';
-  lastAccessed: string | null;
-  accessCount: number;
-}
-
-interface AccessRequest {
-  id: string;
-  providerId: string;
-  providerName: string;
-  providerRole: string;
-  organization: string;
-  requestedAt: string;
-  reason: string;
-  status: 'pending' | 'approved' | 'denied';
-}
+type AccessGrant = PatientAccessGrant;
+type AccessRequest = PatientAccessRequest;
 
 /**
  * Consent Management Page
@@ -82,13 +75,61 @@ export function ConsentManagementPage() {
   const grantStatusLabel = (s: string) =>
     ({ active: t('consent.statusActive'), expired: t('consent.statusExpired'), revoked: t('consent.statusRevoked') }[s] || s);
   const [activeTab, setActiveTab] = useState<'grants' | 'requests' | 'history' | 'consents'>('grants');
+
+  // Withdrawing a consent.
+  //
+  // The page could sign one and never take it back: `POST /api/consent/{id}/revoke`
+  // existed with no caller anywhere. Signing without withdrawal is not consent
+  // management, and under POPIA withdrawal is a right the patient holds.
+  //
+  // Note this is NOT the same as revoking an access grant, which the page
+  // already did (`/api/access/grants/{id}/revoke`). A grant is one clinician's
+  // permission; a consent is the signed legal basis. Revoking one leaves the
+  // other standing, which is why both have to exist.
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawNotice, setWithdrawNotice] = useState<string | null>(null);
+  // Offered, never demanded: a patient does not owe a reason.
+  const [withdrawReason, setWithdrawReason] = useState('');
+
+  const handleWithdrawConsent = async (consentId: string) => {
+    if (!patient) return;
+    setWithdrawError(null);
+    setWithdrawNotice(null);
+    setWithdrawingId(consentId);
+    try {
+      // The reason is an optional field on the row, not a `window.prompt`.
+      // A blocking browser dialog is the wrong way to ask a patient anything --
+      // it cannot be styled, translated, or read by a screen reader in context.
+      await revokeConsent(consentId, withdrawReason.trim() || undefined);
+      // Read the list back rather than editing it here: what the server holds
+      // is the record, and a withdrawal this screen only remembers is no
+      // withdrawal at all.
+      const result = (await getPatientConsents(patient.healthId)) as { consents: SignedConsent[] };
+      setSignedConsents(result.consents || []);
+      // The row disappears on success -- the server excludes withdrawn
+      // consents from this list -- so say so, or the screen looks like it
+      // simply lost something.
+      setWithdrawNotice(t('consent.withdrawDone'));
+      setWithdrawReason('');
+    } catch (err) {
+      setWithdrawError(getApiErrorMessage(err, t('consent.withdrawFailed')));
+    } finally {
+      setWithdrawingId(null);
+    }
+  };
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // "Nobody has access to my records" and "the list could not be loaded" are
+  // opposite answers to the question this screen exists to answer, and an empty
+  // array asserts the first one.
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGrant, setSelectedGrant] = useState<AccessGrant | null>(null);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
+  const [approvalDays, setApprovalDays] = useState<Record<string, number>>({});
 
   // Consent forms state
   const [signedConsents, setSignedConsents] = useState<SignedConsent[]>([]);
@@ -96,11 +137,7 @@ export function ConsentManagementPage() {
   const [isSigning, setIsSigning] = useState<string | null>(null);
   const [consentError, setConsentError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [patient?.healthId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
 
     try {
@@ -117,29 +154,13 @@ export function ConsentManagementPage() {
         return;
       }
 
-      const userId = patient?.walletAddress || patientId;
-
-      // Fetch access grants from API
-      const grantsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/grants`), {
-        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
-      });
-      if (grantsResponse.ok) {
-        const data = await grantsResponse.json();
-        setGrants(data.grants || []);
-      } else {
-        setGrants([]);
-      }
-
-      // Fetch pending access requests from API
-      const requestsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/requests`), {
-        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
-      });
-      if (requestsResponse.ok) {
-        const data = await requestsResponse.json();
-        setRequests(data.requests || []);
-      } else {
-        setRequests([]);
-      }
+      const [grantResult, requestResult] = await Promise.all([
+        listPatientAccessGrants(patientId),
+        listPatientAccessRequests(patientId),
+      ]);
+      setGrants(grantResult.grants);
+      setRequests(requestResult.requests);
+      setLoadError('');
 
       // Fetch signed consents and consent types
       try {
@@ -163,7 +184,12 @@ export function ConsentManagementPage() {
     }
 
     setIsLoading(false);
-  };
+    // `t` is now read here, for the load-failure message.
+  }, [patient?.healthId, patient?.walletAddress, t]);
+
+  useEffect(() => {
+    loadData();
+  }, [patient?.healthId, loadData]);
 
   const handleSignConsent = async (consentType: string) => {
     if (!patient?.healthId) return;
@@ -192,7 +218,7 @@ export function ConsentManagementPage() {
   };
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -203,11 +229,11 @@ export function ConsentManagementPage() {
   const getAccessTypeColor = (type: string) => {
     switch (type) {
       case 'full':
-        return 'bg-success-100 text-success-700';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'limited':
         return 'bg-info-light text-info';
       case 'emergency':
-        return 'bg-emergency-100 text-critical-subtle-fg';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       default:
         return 'bg-surface-sunken text-content-muted';
     }
@@ -216,9 +242,9 @@ export function ConsentManagementPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
-        return 'text-success-600';
+        return 'text-ok-subtle-fg';
       case 'expired':
-        return 'text-warning-600';
+        return 'text-caution-subtle-fg';
       case 'revoked':
         return 'text-critical-subtle-fg';
       default:
@@ -242,24 +268,8 @@ export function ConsentManagementPage() {
     
     setIsRevoking(true);
     try {
-      const response = await fetch(apiUrl(`/api/access/grants/${selectedGrant.id}/revoke`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setGrants(grants.map(g => 
-          g.id === selectedGrant.id 
-            ? { ...g, status: 'revoked' as const } 
-            : g
-        ));
-      } else {
-        console.error('Failed to revoke access');
-      }
+      await revokePatientAccessGrant(selectedGrant.id);
+      setGrants(grants.map(g => g.id === selectedGrant.id ? { ...g, status: 'revoked' as const } : g));
     } catch (error) {
       console.error('Error revoking access:', error);
     } finally {
@@ -272,22 +282,9 @@ export function ConsentManagementPage() {
   const handleApproveRequest = async (requestId: string) => {
     if (!patient) return;
     try {
-      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/approve`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setRequests(requests.map(r => 
-          r.id === requestId 
-            ? { ...r, status: 'approved' as const } 
-            : r
-        ));
-      }
+      const days = approvalDays[requestId] ?? 7;
+      await approvePatientAccessRequest(requestId, new Date(Date.now() + days * 86_400_000).toISOString());
+      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'approved' as const } : r));
     } catch (error) {
       console.error('Error approving request:', error);
     }
@@ -296,22 +293,8 @@ export function ConsentManagementPage() {
   const handleDenyRequest = async (requestId: string) => {
     if (!patient) return;
     try {
-      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/deny`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-      
-      if (response.ok) {
-        setRequests(requests.map(r => 
-          r.id === requestId 
-            ? { ...r, status: 'denied' as const } 
-            : r
-        ));
-      }
+      await denyPatientAccessRequest(requestId);
+      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'denied' as const } : r));
     } catch (error) {
       console.error('Error denying request:', error);
     }
@@ -346,14 +329,20 @@ export function ConsentManagementPage() {
         <p className="text-content-muted">{t('consent.subtitle')}</p>
       </div>
 
+      {loadError && (
+        <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+          {loadError}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-success-600">{activeGrants.length}</div>
+          <div className="text-2xl font-bold text-ok-subtle-fg">{activeGrants.length}</div>
           <div className="text-xs text-content-muted">{t('consent.active')}</div>
         </div>
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-warning-600">{pendingRequests.length}</div>
+          <div className="text-2xl font-bold text-caution-subtle-fg">{pendingRequests.length}</div>
           <div className="text-xs text-content-muted">{t('consent.pending')}</div>
         </div>
         <div className="patient-card text-center">
@@ -364,26 +353,35 @@ export function ConsentManagementPage() {
 
       {/* Pending Requests Alert */}
       {pendingRequests.length > 0 && (
-        <div 
+        <div
           className="warning-card flex items-center gap-3 cursor-pointer"
-          onClick={() => setActiveTab('requests')}
+          {...clickable(() => setActiveTab('requests'))}
         >
-          <AlertTriangle className="w-5 h-5 text-warning-600 flex-shrink-0" />
+          <AlertTriangle className="w-5 h-5 text-caution-subtle-fg flex-shrink-0" />
           <div className="flex-1">
-            <p className="font-medium text-warning-800">
+            <p className="font-medium text-caution-subtle-fg">
               {t('consent.pendingRequestsCount', { count: pendingRequests.length })}
             </p>
-            <p className="text-sm text-warning-600">{t('consent.tapToReview')}</p>
+            <p className="text-sm text-caution-subtle-fg">{t('consent.tapToReview')}</p>
           </div>
-          <ChevronRight className="w-5 h-5 text-warning-400" />
+          <ChevronRight className="w-5 h-5 text-caution-subtle-fg" />
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 bg-surface-sunken p-1 rounded-xl">
+      {/*
+        `flex-wrap` and a minimum basis. Three `flex-1` buttons cannot shrink
+        below their own content width, so at 320 CSS px this row forced the
+        page to 366px and produced horizontal scrolling — a WCAG 2.2 SC
+        1.4.10 failure. 320px is not only a small phone: it is a 1280px
+        desktop at 400% zoom, which is how many low-vision users browse.
+        Wrapping to two rows keeps every label readable instead of
+        truncating a tab name.
+      */}
+      <div className="flex flex-wrap gap-2 bg-surface-sunken p-1 rounded-xl">
         <button
           onClick={() => setActiveTab('grants')}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
+          className={`flex-1 min-w-[8rem] py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'grants'
               ? 'bg-surface text-content shadow-sm'
               : 'text-content-muted hover:text-content'
@@ -394,7 +392,7 @@ export function ConsentManagementPage() {
         </button>
         <button
           onClick={() => setActiveTab('requests')}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors relative ${
+          className={`flex-1 min-w-[8rem] py-2.5 px-3 rounded-lg text-sm font-medium transition-colors relative ${
             activeTab === 'requests'
               ? 'bg-surface text-content shadow-sm'
               : 'text-content-muted hover:text-content'
@@ -403,14 +401,14 @@ export function ConsentManagementPage() {
           <UserCheck className="w-4 h-4 inline mr-1" />
           {t('consent.requests')}
           {pendingRequests.length > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-warning-500 text-white text-xs rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-5 h-5 bg-caution text-caution-fg text-xs rounded-full flex items-center justify-center">
               {pendingRequests.length}
             </span>
           )}
         </button>
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
+          className={`flex-1 min-w-[8rem] py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'history'
               ? 'bg-surface text-content shadow-sm'
               : 'text-content-muted hover:text-content'
@@ -421,7 +419,7 @@ export function ConsentManagementPage() {
         </button>
         <button
           onClick={() => setActiveTab('consents')}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
+          className={`flex-1 min-w-[8rem] py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'consents'
               ? 'bg-surface text-content shadow-sm'
               : 'text-content-muted hover:text-content'
@@ -443,7 +441,7 @@ export function ConsentManagementPage() {
             placeholder={t('consent.searchProviders')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
       )}
@@ -455,16 +453,43 @@ export function ConsentManagementPage() {
           {/* Signed Consents */}
           <div>
             <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" /> {t('consent.signedForms')}
+              <CheckCircle className="w-4 h-4 text-ok" /> {t('consent.signedForms')}
             </h3>
+            {/* Outside the list branch on purpose. Withdrawing the last
+                standing consent empties the list, and a confirmation rendered
+                inside it would unmount at exactly the moment it was needed --
+                the patient would watch the row vanish with nothing said. */}
+            {withdrawError && (
+              <div role="alert" className="mb-3 bg-critical-subtle border border-critical rounded-lg p-3">
+                <p className="text-sm text-critical-subtle-fg">{withdrawError}</p>
+              </div>
+            )}
+            {withdrawNotice && (
+              <div role="status" className="mb-3 bg-ok-subtle border border-ok rounded-lg p-3">
+                <p className="text-sm text-ok-subtle-fg">{withdrawNotice}</p>
+              </div>
+            )}
             {signedConsents.length === 0 ? (
               <p className="text-sm text-content-muted">{t('consent.noSigned')}</p>
             ) : (
               <div className="space-y-2">
+                <div>
+                  <label htmlFor="consent-withdraw-reason" className="block text-xs text-content-muted mb-1">
+                    {t('consent.withdrawReasonLabel')}
+                  </label>
+                  <input
+                    id="consent-withdraw-reason"
+                    type="text"
+                    value={withdrawReason}
+                    onChange={e => setWithdrawReason(e.target.value)}
+                    placeholder={t('consent.withdrawReasonPlaceholder')}
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
                 {signedConsents.map(c => (
                   <div key={c.consent_id} className="patient-card flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-primary-500" />
+                      <FileText className="w-5 h-5 text-brand" />
                       <div>
                         <p className="font-medium text-content">{c.consent_type}</p>
                         {c.signed_at && (
@@ -472,7 +497,27 @@ export function ConsentManagementPage() {
                         )}
                       </div>
                     </div>
-                    <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">{t('consent.signed')}</span>
+                    <div className="flex items-center gap-2">
+                      {/* Every consent in this list is a standing one:
+                          `GET /api/consent/patient/{id}` filters withdrawn
+                          consents out server-side
+                          (`.filter(|c| !c.revoked...)`), so there is no
+                          withdrawn state to render here -- withdrawing removes
+                          the row. */}
+                      <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">
+                        {t('consent.signed')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleWithdrawConsent(c.consent_id)}
+                        disabled={withdrawingId === c.consent_id}
+                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
+                      >
+                        {withdrawingId === c.consent_id
+                          ? t('consent.withdrawing')
+                          : t('consent.withdraw')}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -483,7 +528,7 @@ export function ConsentManagementPage() {
           {consentTypes.length > 0 && (
             <div>
               <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
-                <PenLine className="w-4 h-4 text-primary-500" /> {t('consent.availableForms')}
+                <PenLine className="w-4 h-4 text-brand" /> {t('consent.availableForms')}
               </h3>
               <div className="space-y-2">
                 {consentTypes.map(ct => {
@@ -505,7 +550,7 @@ export function ConsentManagementPage() {
                         <button
                           onClick={() => handleSignConsent(ct.consent_type)}
                           disabled={isSigning === ct.consent_type}
-                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
+                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                         >
                           {isSigning === ct.consent_type ? t('consent.signing') : t('consent.sign')}
                         </button>
@@ -524,7 +569,7 @@ export function ConsentManagementPage() {
         <div className="space-y-3">
           {pendingRequests.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="w-12 h-12 text-success-300 mx-auto mb-4" />
+              <CheckCircle className="w-12 h-12 text-ok mx-auto mb-4" />
               <p className="text-content-muted">{t('consent.noRequests')}</p>
             </div>
           ) : (
@@ -551,9 +596,20 @@ export function ConsentManagementPage() {
                 </div>
 
                 <div className="flex gap-3">
+                  <label className="sr-only" htmlFor={`access-expiry-${request.id}`}>Access duration</label>
+                  <select
+                    id={`access-expiry-${request.id}`}
+                    value={approvalDays[request.id] ?? 7}
+                    onChange={(event) => setApprovalDays((current) => ({ ...current, [request.id]: Number(event.target.value) }))}
+                    className="rounded-xl border border-border bg-surface px-3 text-sm text-content"
+                  >
+                    <option value={1}>1 day</option>
+                    <option value={7}>7 days</option>
+                    <option value={30}>30 days</option>
+                  </select>
                   <button
                     onClick={() => handleApproveRequest(request.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                   >
                     <CheckCircle className="w-5 h-5" />
                     {t('consent.approve')}
@@ -574,7 +630,7 @@ export function ConsentManagementPage() {
         <div className="space-y-3">
           {filteredGrants.length === 0 ? (
             <div className="text-center py-12">
-              <Shield className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
+              <Shield className="w-12 h-12 text-content-muted mx-auto mb-4" />
               <p className="text-content-muted">
                 {activeTab === 'grants' ? t('consent.noActiveGrants') : t('consent.noHistory')}
               </p>
@@ -584,7 +640,7 @@ export function ConsentManagementPage() {
               <div
                 key={grant.id}
                 className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
-                onClick={() => setSelectedGrant(grant)}
+                {...clickable(() => setSelectedGrant(grant))}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center text-brand-subtle-fg">
@@ -711,7 +767,7 @@ export function ConsentManagementPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
             <div className="text-center">
-              <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" />
               </div>
               <h3 className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>
@@ -730,7 +786,7 @@ export function ConsentManagementPage() {
               <button
                 onClick={handleRevokeAccess}
                 disabled={isRevoking}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 {isRevoking ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

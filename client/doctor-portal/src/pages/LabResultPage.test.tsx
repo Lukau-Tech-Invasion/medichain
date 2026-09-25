@@ -1,7 +1,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import LabResultPage from './LabResultPage';
+import LabResultPage, { labResultCsv } from './LabResultPage';
 import { useAuthStore } from '../store';
 
 // Mock the auth store
@@ -59,7 +59,7 @@ describe('LabResultPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
     });
@@ -111,5 +111,16 @@ describe('LabResultPage', () => {
     expect(screen.getByText(/Hemoglobin/i)).toBeInTheDocument();
     expect(screen.getAllByText(/7\.5 x10\^9\/L/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/14\.2 g\/dL/).length).toBeGreaterThan(0);
+  });
+
+  it('exports actual result rows as escaped CSV', () => {
+    const csv = labResultCsv({
+      id: 'LAB-1', patientId: 'PAT-1', patientName: 'Jane Doe', mrn: 'MRN-1', orderDate: new Date('2026-09-18'),
+      panelName: 'Basic "Metabolic" Panel', status: 'completed', orderedBy: 'Dr Test', specimen: 'Blood',
+      tests: [{ testCode: 'Na', testName: 'Sodium', result: '140', unit: 'mmol/L', referenceRange: '135-145', flag: 'normal' }],
+    });
+
+    expect(csv).toContain('"Basic ""Metabolic"" Panel"');
+    expect(csv).toContain('"Na","140","mmol/L","135-145","normal"');
   });
 });

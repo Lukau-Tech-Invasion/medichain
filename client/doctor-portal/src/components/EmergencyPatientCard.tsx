@@ -1,3 +1,11 @@
+import { useState } from 'react';
+import {
+  confirmDialog,
+  formatTimestamp,
+  getApiErrorMessage,
+  notifyEmergencyContacts,
+  useTranslation,
+} from '@medichain/shared';
 import { EmergencyInfo } from '../store';
 import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -12,11 +20,11 @@ interface EmergencyPatientCardProps {
  */
 const BLOOD_TYPE_COLORS: Record<string, string> = {
   'O+': 'bg-critical-subtle text-critical-subtle-fg',
-  'O-': 'bg-red-200 text-critical-subtle-fg',
+  'O-': 'bg-critical-subtle text-critical-subtle-fg',
   'A+': 'bg-notice-subtle text-notice-subtle-fg',
-  'A-': 'bg-blue-200 text-notice-subtle-fg',
+  'A-': 'bg-notice-subtle text-notice-subtle-fg',
   'B+': 'bg-ok-subtle text-ok-subtle-fg',
-  'B-': 'bg-green-200 text-ok-subtle-fg',
+  'B-': 'bg-ok-subtle text-ok-subtle-fg',
   'AB+': 'bg-surface-sunken text-content-secondary',
   'AB-': 'bg-purple-200 text-content-secondary',
 };
@@ -42,11 +50,38 @@ function formatBloodType(bloodType: string): string {
  * Emergency Patient Card - displays critical medical info
  */
 function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: EmergencyPatientCardProps) {
+  const { t } = useTranslation();
   // Extract optional properties with defaults to avoid undefined errors
   const patientBloodType = patient.bloodType || '';
   const chronicConditions = patient.chronicConditions || [];
   const emergencyContacts = patient.emergencyContacts || [];
-  const lastUpdated = patient.lastUpdated || new Date().toISOString();
+
+  const [notifying, setNotifying] = useState(false);
+  const [notifyResult, setNotifyResult] = useState('');
+
+  // `POST /api/medical-id/{id}/emergency-notify` sends the SMS and had no
+  // button. It honours the patient's opt-out and reports who was actually
+  // reached, which is what this shows -- never "family notified" on faith.
+  const notifyContacts = async () => {
+    const confirmed = await confirmDialog({
+      message: t('emergency.notifyContactsConfirm'),
+      confirmLabel: t('emergency.notifyContactsBtn'),
+    });
+    if (!confirmed) return;
+    setNotifying(true);
+    setNotifyResult('');
+    try {
+      const result = await notifyEmergencyContacts(patient.patientId, { emergency_type: 'medical' });
+      setNotifyResult(t('emergency.notifyContactsResult', {
+        sent: result.notifications_sent,
+        attempted: result.notifications_attempted,
+      }));
+    } catch (err) {
+      setNotifyResult(getApiErrorMessage(err, t('emergency.notifyContactsFailed')));
+    } finally {
+      setNotifying(false);
+    }
+  };
 
   const bloodType = formatBloodType(patientBloodType);
   const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-surface-sunken text-content-secondary';
@@ -65,7 +100,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
           </div>
           {accessId && (
             <div className="text-right text-sm">
-              <p className="opacity-75">Access ID</p>
+              <p>Access ID</p>
               <p className="font-mono">{accessId}</p>
             </div>
           )}
@@ -77,7 +112,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Blood Type - CRITICAL */}
         <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
-            <Droplets className="text-red-500" size={32} />
+            <Droplets className="text-critical" size={32} />
           </div>
           <div>
             <p className="text-sm text-content-muted">Blood Type</p>
@@ -92,18 +127,24 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* DNR Status */}
         <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
-            <FileHeart className={patient.dnrStatus ? 'text-red-500' : 'text-green-500'} size={32} />
+            <FileHeart className={patient.dnrStatus === true ? 'text-critical' : 'text-content-muted'} size={32} />
           </div>
           <div>
             <p className="text-sm text-content-muted">DNR Status</p>
             <span
               className={`inline-block mt-1 px-3 py-1 rounded-full font-bold ${
-                patient.dnrStatus
+                patient.dnrStatus === true
                   ? 'bg-critical-subtle text-critical-subtle-fg'
-                  : 'bg-ok-subtle text-ok-subtle-fg'
+                  : patient.dnrStatus === false
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}
             >
-              {patient.dnrStatus ? 'DNR Active' : 'Full Code'}
+              {patient.dnrStatus === true
+                ? 'DNR Active'
+                : patient.dnrStatus === false
+                ? 'Full Code'
+                : t('emergency.noneRecorded')}
             </span>
           </div>
         </div>
@@ -111,7 +152,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Allergies - CRITICAL */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="text-amber-500" size={20} />
+            <AlertTriangle className="text-caution" size={20} />
             <h3 className="font-semibold text-content">Allergies</h3>
           </div>
           {patient.allergies.length > 0 ? (
@@ -133,13 +174,13 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Current Medications */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <Pill className="text-blue-500" size={20} />
+            <Pill className="text-brand" size={20} />
             <h3 className="font-semibold text-content">Current Medications</h3>
           </div>
           {patient.currentMedications.length > 0 ? (
             <ul className="space-y-1">
               {patient.currentMedications.map((med, idx) => (
-                <li key={idx} className="text-sm text-content-secondary flex items-center gap-2">
+                <li key={idx} className="text-sm text-content-secondary flex items-center gap-2 min-h-[24px] py-1">
                   <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
                   {med}
                 </li>
@@ -153,7 +194,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {/* Chronic Conditions */}
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
-            <Heart className="text-red-500" size={20} />
+            <Heart className="text-critical" size={20} />
             <h3 className="font-semibold text-content">Chronic Conditions</h3>
           </div>
           {chronicConditions.length > 0 ? (
@@ -176,7 +217,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {showFullDetails && emergencyContacts.length > 0 && (
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
-              <Phone className="text-green-500" size={20} />
+              <Phone className="text-ok" size={20} />
               <h3 className="font-semibold text-content">Emergency Contacts</h3>
             </div>
             <div className="space-y-2">
@@ -195,6 +236,19 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
                 </div>
               ))}
             </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void notifyContacts()}
+                disabled={notifying}
+                className="px-4 py-2 rounded-lg border border-border-interactive text-content disabled:opacity-60 min-h-[24px]"
+              >
+                {notifying ? t('emergency.notifyingContacts') : t('emergency.notifyContactsBtn')}
+              </button>
+              {notifyResult && (
+                <p role="status" className="text-sm text-content-secondary">{notifyResult}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -202,19 +256,21 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         {showFullDetails && (
           <div className="md:col-span-2 flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
             <div className="w-10 h-10 flex items-center justify-center">
-              <Heart className={patient.organDonor ? 'text-pink-500' : 'text-content-muted'} size={24} />
+              <Heart className={patient.organDonor === true ? 'text-pink-500' : 'text-content-muted'} size={24} />
             </div>
             <div>
               <p className="text-sm text-content-muted">Organ Donor Status</p>
               <p className="font-medium inline-flex items-center gap-1.5">
-                {patient.organDonor ? (
+                {patient.organDonor === true ? (
                   <>
                     <CheckCircle2 size={16} className="text-ok-subtle-fg" aria-hidden="true" /> Registered Organ Donor
                   </>
-                ) : (
+                ) : patient.organDonor === false ? (
                   <>
                     <XCircle size={16} className="text-content-muted" aria-hidden="true" /> Not a Registered Donor
                   </>
+                ) : (
+                  t('emergency.noneRecorded')
                 )}
               </p>
             </div>
@@ -225,7 +281,9 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       {/* Footer with timestamp */}
       <div className="px-6 py-4 bg-surface-sunken border-t border-border">
         <p className="text-xs text-content-muted">
-          Last updated: {new Date(lastUpdated).toLocaleString()}
+          Last updated: {patient.lastUpdated
+            ? formatTimestamp(patient.lastUpdated)
+            : t('emergency.noneRecorded')}
         </p>
       </div>
     </div>

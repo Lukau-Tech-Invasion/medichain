@@ -19,197 +19,49 @@ pub struct AuthChallengeRequest {
 /// method, path, and body (Horizon HZ-007) — see
 /// `middleware::signature_auth::generate_auth_challenge`'s doc comment.
 #[post("/api/auth/challenge")]
-pub async fn get_auth_challenge(body: web::Json<AuthChallengeRequest>) -> impl Responder {
+pub async fn get_auth_challenge(
+    data: web::Data<AppState>,
+    body: web::Json<AuthChallengeRequest>,
+) -> impl Responder {
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Invalid wallet address format".to_string(),
             code: "INVALID_WALLET_ADDRESS".to_string(),
         });
     }
 
-    let challenge = generate_auth_challenge(&body.wallet_address);
-
-    log::info!(
-        "Auth challenge generated for wallet {}: timestamp={}",
-        body.wallet_address,
-        challenge.timestamp
-    );
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let challenge = match crate::auth_challenges::issue(pool, &body.wallet_address).await {
+        Ok(challenge) => challenge,
+        Err(crate::auth_challenges::IssueError::RateLimited) => {
+            return HttpResponse::TooManyRequests().json(ErrorResponse {
+                error: "Too many authentication challenges. Please try again shortly.".to_string(),
+                code: "AUTH_CHALLENGE_RATE_LIMITED".to_string(),
+            });
+        }
+        Err(crate::auth_challenges::IssueError::Database(error)) => {
+            log::error!("Could not create authentication challenge: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Authentication is temporarily unavailable".to_string(),
+                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "challenge": challenge,
         "instructions": {
-            "step1": "Sign the 'message' field with your wallet's sr25519 private key",
-            "step2": "Include X-User-Id header with your wallet address",
-            "step3": "Include X-Signature header with hex-encoded signature",
-            "step4": "Include X-Timestamp header with the timestamp value",
-            "note": format!("Challenge expires in {} seconds", challenge.expires_in_secs)
+            "step1": "Sign the challenge message with your wallet's sr25519 private key",
+            "step2": "Submit challenge_id, wallet_address, nonce and signature to /api/auth/jwt",
+            "note": format!("Challenge expires in {} seconds and can be used once", challenge.expires_in_secs)
         }
-    }))
-}
-
-/// Login with wallet address - validates wallet exists and returns user info
-#[post("/api/auth/login")]
-pub async fn wallet_login(
-    data: web::Data<AppState>,
-    body: web::Json<WalletLoginRequest>,
-) -> impl Responder {
-    // Validate wallet address format
-    if !is_valid_wallet_address(&body.wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "Invalid wallet address format".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    // Look up user by wallet address
-    let user = match get_user(&data, &body.wallet_address) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Wallet not registered. Contact admin for registration.".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
-            });
-        }
-    };
-
-    log::info!(
-        "User logged in: wallet={}, name={}, role={}",
-        user.wallet_address,
-        user.name,
-        user.role
-    );
-
-    HttpResponse::Ok().json(WalletLoginResponse {
-        success: true,
-        user: Some(WalletUserInfo {
-            wallet_address: user.wallet_address.clone(),
-            name: user.name.clone(),
-            role: user.role.to_string(),
-            username: user.username.clone(),
-            linked_patient_id: user.linked_patient_id.clone(),
-        }),
-        message: "Login successful".to_string(),
-    })
-}
-
-/// Login with wallet address (GET version for frontend compatibility)
-#[get("/api/auth/login/{address}")]
-pub async fn wallet_login_get(
-    data: web::Data<AppState>,
-    path: web::Path<String>,
-) -> impl Responder {
-    let wallet_address = path.into_inner();
-
-    // Validate wallet address format
-    if !is_valid_wallet_address(&wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "Invalid wallet address format".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    // Look up user by wallet address
-    let user = match get_user(&data, &wallet_address) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Wallet not registered. Contact admin for registration.".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
-            });
-        }
-    };
-
-    log::info!(
-        "User logged in (GET): wallet={}, name={}, role={}",
-        user.wallet_address,
-        user.name,
-        user.role
-    );
-
-    HttpResponse::Ok().json(WalletLoginResponse {
-        success: true,
-        user: Some(WalletUserInfo {
-            wallet_address: user.wallet_address.clone(),
-            name: user.name.clone(),
-            role: user.role.to_string(),
-            username: user.username.clone(),
-            linked_patient_id: user.linked_patient_id.clone(),
-        }),
-        message: "Login successful".to_string(),
-    })
-}
-
-/// Get all staff members (non-patient users) - paginated
-/// Requires: Authenticated user with Admin role
-/// Query params: ?page=1&limit=20
-#[get("/api/staff/all")]
-pub async fn get_all_staff(
-    data: web::Data<AppState>,
-    req: HttpRequest,
-    query: web::Query<PaginationQuery>,
-) -> impl Responder {
-    // Get current user from header
-    let current_user_id = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
-    };
-
-    // Check if current user is admin
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    if !current_user.role.is_admin() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Only Admin can view all staff".to_string(),
-            code: "INSUFFICIENT_ROLE".to_string(),
-        });
-    }
-
-    let users = data.users.read().unwrap();
-
-    let staff: Vec<serde_json::Value> = users
-        .values()
-        .filter(|u| u.role != Role::Patient)
-        .map(|u| {
-            serde_json::json!({
-                "wallet_address": u.wallet_address,
-                "name": u.name,
-                "role": u.role.to_string(),
-                "username": u.username,
-                "created_at": u.created_at,
-            })
-        })
-        .collect();
-
-    let (paginated_staff, pagination) = paginate(&staff, query.page, query.limit);
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "staff": paginated_staff,
-        "count": pagination.total_items,
-        "pagination": pagination,
     }))
 }
 
@@ -229,7 +81,6 @@ pub async fn get_providers(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -241,7 +92,6 @@ pub async fn get_providers(
         Some(_) => {}
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -282,43 +132,6 @@ pub async fn get_providers(
         "success": true,
         "providers": providers,
         "count": providers.len(),
-    }))
-}
-
-/// Lookup wallet address - returns user info if wallet is registered
-/// Used by frontend to validate wallet before setting up session
-#[get("/api/auth/wallet/{address}")]
-pub async fn wallet_lookup(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
-    let wallet_address = path.into_inner();
-
-    // Validate wallet address format
-    if !is_valid_wallet_address(&wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
-            error: "Invalid wallet address format".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    // Look up user by wallet address
-    let user = match get_user(&data, &wallet_address) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Wallet not registered".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
-            });
-        }
-    };
-
-    // Return user info in format expected by frontend
-    HttpResponse::Ok().json(serde_json::json!({
-        "address": user.wallet_address,
-        "name": user.name,
-        "role": user.role.to_string(),
-        "username": user.username,
-        "linked_patient_id": user.linked_patient_id,
     }))
 }
 
@@ -369,7 +182,6 @@ pub async fn get_user_with_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -380,7 +192,6 @@ pub async fn get_user_with_profile(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -390,7 +201,6 @@ pub async fn get_user_with_profile(
     // RBAC: Only admins or the user themselves can view full profile
     if current_user.role != Role::Admin && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Access denied - can only view own profile".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -401,7 +211,6 @@ pub async fn get_user_with_profile(
         Some(u) => u,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -448,7 +257,6 @@ pub async fn list_users(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -460,7 +268,6 @@ pub async fn list_users(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -469,7 +276,6 @@ pub async fn list_users(
 
     if !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can list users".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -494,7 +300,8 @@ pub async fn list_users(
     let user_list: Vec<User> = match &data.db_pool {
         Some(pool) => {
             let rows = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-                "SELECT u.*, p.department, p.specialty, p.license_number
+                "SELECT u.*, p.department, p.specialty, p.license_number,
+                        p.contact_encrypted, p.contact_key_version
                  FROM users u
                  LEFT JOIN user_profiles p ON p.user_id = u.id
                  ORDER BY u.created_at DESC",
@@ -503,11 +310,13 @@ pub async fn list_users(
             .await;
 
             match rows {
-                Ok(rows) => rows.into_iter().map(user_from_db_row).collect(),
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|row| user_from_db_row(row, &data.encryption_keyring))
+                    .collect(),
                 Err(e) => {
                     log::error!("list_users: user directory unavailable: {e}");
                     return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                        success: false,
                         error: "The user directory could not be read".to_string(),
                         code: "USER_DIRECTORY_UNAVAILABLE".to_string(),
                     });
@@ -535,7 +344,25 @@ pub async fn list_users(
 /// that one builds the authorization cache and is only ever fed active rows,
 /// whereas this one must faithfully carry `status` through so an administrator
 /// can see and act on inactive, suspended and pending accounts.
-fn user_from_db_row(row: crate::models::DbUserWithProfile) -> User {
+/// Rebuild the runtime `User` from a directory row.
+///
+/// Takes the keyring because the contact details are sealed:
+/// `user_profiles.phone` is plaintext and is never written, so the number lives
+/// in `contact_encrypted` and there is no way to produce a complete `User`
+/// without being able to open it. Returning `phone: None` here instead would be
+/// worse than incomplete — `update_user_profile` reads a user through this
+/// function and writes it back, so an unread phone number would be silently
+/// erased by an edit to an unrelated field.
+fn user_from_db_row(
+    row: crate::models::DbUserWithProfile,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> User {
+    let phone = crate::types::open_staff_contact(
+        row.contact_encrypted.as_ref(),
+        row.contact_key_version,
+        keyring,
+    )
+    .and_then(|contact| contact.phone);
     let db = row.user;
     User {
         wallet_address: db.wallet_address,
@@ -553,7 +380,7 @@ fn user_from_db_row(row: crate::models::DbUserWithProfile) -> User {
         created_by: db.created_by,
         linked_patient_id: db.linked_patient_id,
         email: db.email,
-        phone: None,
+        phone,
         department: row.department,
         specialty: row.specialty,
         license_number: row.license_number,
@@ -579,7 +406,6 @@ pub async fn get_user_details(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -591,7 +417,6 @@ pub async fn get_user_details(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -601,7 +426,6 @@ pub async fn get_user_details(
     // Allow admin to view any user, or users to view themselves
     if !current_user.role.is_admin() && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can view other user details".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -612,7 +436,6 @@ pub async fn get_user_details(
         Some(u) => u,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -654,11 +477,20 @@ fn apply_profile_update(
     mut user: User,
     body: &UpdateUserProfileRequest,
 ) -> Result<User, (&'static str, &'static str)> {
-    if body.phone.is_some() {
-        return Err((
-            "PHONE_UPDATE_UNAVAILABLE",
-            "Phone updates are disabled until encrypted profile storage is available",
-        ));
+    if let Some(value) = &body.phone {
+        // Sealed by `persist_user` into `user_profiles.contact_encrypted`; the
+        // plaintext `phone` column is never written. Until that column existed
+        // this returned PHONE_UPDATE_UNAVAILABLE, so a clinician who changed
+        // their number had no way to record it.
+        let trimmed = value.trim();
+        if trimmed.chars().count() > MAX_STAFF_PHONE_LEN {
+            return Err((
+                "INVALID_PHONE",
+                "Phone number must be at most 32 characters",
+            ));
+        }
+        // An explicit empty string clears the number rather than storing "".
+        user.phone = Some(trimmed.to_string()).filter(|value| !value.is_empty());
     }
     if let Some(email) = &body.email {
         if email.len() > 254 || !email.contains('@') {
@@ -706,7 +538,6 @@ pub async fn update_user_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -718,7 +549,6 @@ pub async fn update_user_profile(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -728,7 +558,6 @@ pub async fn update_user_profile(
     // Allow admin to update any user, or users to update themselves
     if !current_user.role.is_admin() && current_user_id != wallet_address {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can update other user profiles".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
@@ -736,7 +565,6 @@ pub async fn update_user_profile(
 
     if body.status.is_some() && !current_user.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
             error: "Only Admin can change account status".to_string(),
             code: "STATUS_CHANGE_FORBIDDEN".to_string(),
         });
@@ -768,7 +596,8 @@ pub async fn update_user_profile(
         None => {
             let from_db = match &data.db_pool {
                 Some(pool) => sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-                    "SELECT u.*, p.department, p.specialty, p.license_number
+                    "SELECT u.*, p.department, p.specialty, p.license_number,
+                            p.contact_encrypted, p.contact_key_version
                      FROM users u
                      LEFT JOIN user_profiles p ON p.user_id = u.id
                      WHERE u.wallet_address = $1",
@@ -777,7 +606,7 @@ pub async fn update_user_profile(
                 .fetch_optional(pool)
                 .await
                 .unwrap_or(None)
-                .map(user_from_db_row),
+                .map(|row| user_from_db_row(row, &data.encryption_keyring)),
                 None => None,
             };
 
@@ -785,7 +614,6 @@ pub async fn update_user_profile(
                 Some(user) => user,
                 None => {
                     return HttpResponse::NotFound().json(ErrorResponse {
-                        success: false,
                         error: "User not found".to_string(),
                         code: "USER_NOT_FOUND".to_string(),
                     });
@@ -798,7 +626,6 @@ pub async fn update_user_profile(
         Ok(user) => user,
         Err((code, message)) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
-                success: false,
                 error: message.to_string(),
                 code: code.to_string(),
             })
@@ -812,7 +639,6 @@ pub async fn update_user_profile(
             e
         );
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
             error: "Profile update could not be persisted".to_string(),
             code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
         });
@@ -839,7 +665,6 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "Missing X-User-Id header".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -851,7 +676,6 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
                 error: "User not found".to_string(),
                 code: "USER_NOT_FOUND".to_string(),
             });
@@ -872,13 +696,11 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
             Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
                 Some(profile) => HttpResponse::Ok().json(profile),
                 None => HttpResponse::NotFound().json(ErrorResponse {
-                    success: false,
                     error: "No medical records found for your account".to_string(),
                     code: "RECORD_NOT_FOUND".to_string(),
                 }),
             },
             Err(_) => HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
                 error: "No medical records found for your account".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             }),
@@ -905,14 +727,13 @@ const MAX_SETTINGS_BYTES: usize = 64 * 1024;
 fn settings_storage_error(operation: &str) -> HttpResponse {
     log::error!("User settings storage failed during {operation}");
     HttpResponse::ServiceUnavailable().json(ErrorResponse {
-        success: false,
         error: "Settings storage is temporarily unavailable".to_string(),
         code: "STORAGE_UNAVAILABLE".to_string(),
     })
 }
 
-async fn load_settings(
-    data: &web::Data<AppState>,
+pub(crate) async fn load_settings(
+    data: &AppState,
     wallet_address: &str,
 ) -> Result<serde_json::Value, HttpResponse> {
     if let Some(pool) = &data.db_pool {
@@ -946,7 +767,7 @@ async fn load_settings(
 }
 
 async fn persist_settings(
-    data: &web::Data<AppState>,
+    data: &AppState,
     wallet_address: &str,
     settings: serde_json::Value,
 ) -> Result<(), HttpResponse> {
@@ -1018,7 +839,6 @@ pub async fn save_settings(
         || encoded_size.unwrap_or(0) > MAX_SETTINGS_BYTES
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
-            success: false,
             error: "Settings must be a JSON object no larger than 64 KiB".to_string(),
             code: "INVALID_SETTINGS".to_string(),
         });
@@ -1032,4 +852,20 @@ pub async fn save_settings(
         "message": "Settings saved successfully",
         "user_id": user.wallet_address,
     }))
+}
+
+/// Store settings the way `POST /api/settings` does. Tests only.
+///
+/// Exists so `notifications::preference_tests` asserts against the real write
+/// path: a test that builds the JSON itself would keep passing if the shape
+/// this handler writes ever changed.
+#[cfg(test)]
+pub(crate) async fn persist_settings_for_test(
+    data: &AppState,
+    wallet_address: &str,
+    settings: serde_json::Value,
+) {
+    persist_settings(data, wallet_address, settings)
+        .await
+        .expect("settings should store on the memory backend");
 }

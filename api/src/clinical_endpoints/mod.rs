@@ -5,7 +5,6 @@
 //!
 //! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-use crate::clinical;
 pub use crate::clinical::*;
 pub use crate::repositories::traits::*;
 pub use crate::types::*;

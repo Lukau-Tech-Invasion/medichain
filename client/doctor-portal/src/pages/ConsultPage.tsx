@@ -1,5 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listConsults, createConsult, respondToConsult, useTranslation, lookupOr, componentOr } from '@medichain/shared';
+import {
+  getPatients,
+  listConsults,
+  createConsult,
+  respondToConsult,
+  useTranslation,
+  lookupOr,
+  componentOr,
+  Alert,
+  LoadingSpinner,
+  Textarea,
+  useValidatedForm,
+  consultRequestSchema,
+  consultResponseSchema,
+  formatTimestamp,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -17,6 +32,8 @@ import {
   AlertCircle,
   HelpCircle,
 } from 'lucide-react';
+import StaffName from '../components/StaffName';
+import PatientSelect from '../components/PatientSelect';
 
 type ConsultSpecialty =
   | 'cardiology'
@@ -79,10 +96,61 @@ interface Consult {
   notes?: string;
 }
 
+
+/**
+ * Map one consult as the API returns it onto the shape this page renders.
+ *
+ * `GET /api/platform/list/consults` returns snake_case -- `consult_id`,
+ * `patient_id`, `requested_at` -- and this page reads camelCase. The rows were
+ * being cast with `as Consult[]`, which silences the compiler without changing
+ * a single field name, so EVERY field was `undefined` and the first
+ * `.toLowerCase()` in the search filter took the whole page down through the
+ * ErrorBoundary.
+ *
+ * It went unnoticed because the list endpoint returned nothing until it was
+ * fixed to read `consultation_notes` (2026-09-10). A page that crashes only
+ * once its list is non-empty looks perfect on an empty database.
+ *
+ * `as` is what made this possible. It is an assertion, not a conversion.
+ */
+function toConsult(raw: unknown): Consult {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const str = (...keys: string[]): string => {
+    for (const key of keys) {
+      const value = r[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return '';
+  };
+  return {
+    consultId: str('consult_id', 'consultId'),
+    patientId: str('patient_id', 'patientId'),
+    // The list carries no patient name; the id is what it has, and showing the
+    // id beats showing "undefined".
+    patientName: str('patient_name', 'patientName') || str('patient_id', 'patientId'),
+    specialty: (str('specialty', 'consultation_type') || 'other') as ConsultSpecialty,
+    urgency: (str('urgency') || 'routine') as ConsultUrgency,
+    status: (str('status') || 'pending') as ConsultStatus,
+    reason: str('reason'),
+    clinicalQuestion: str('clinical_question', 'clinicalQuestion'),
+    relevantHistory: str('relevant_history', 'relevantHistory'),
+    currentMedications: str('current_medications', 'currentMedications'),
+    vitalSigns: str('vital_signs', 'vitalSigns'),
+    labResults: str('lab_results', 'labResults'),
+    imagingResults: str('imaging_results', 'imagingResults'),
+    requestedBy: str('requested_by', 'requesting_provider', 'requestedBy'),
+    requestedAt: str('requested_at', 'requestedAt'),
+    acknowledgedBy: str('consulting_provider', 'acknowledgedBy') || undefined,
+    acknowledgedAt: str('completed_at', 'acknowledgedAt') || undefined,
+    notes: str('notes') || undefined,
+  };
+}
+
+
 const ConsultPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [consults, setConsults] = useState<Consult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -120,7 +188,7 @@ const ConsultPage: React.FC = () => {
       setError(null);
       const response = await listConsults();
       if (response.success && Array.isArray(response.items)) {
-        setConsults(response.items as Consult[]);
+        setConsults(response.items.map(toConsult));
       }
     } catch (err) {
       console.error('Error fetching consults:', err);
@@ -128,7 +196,7 @@ const ConsultPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -142,9 +210,14 @@ const ConsultPage: React.FC = () => {
     fetchConsults();
   }, [fetchConsults]);
 
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(consultRequestSchema);
   const handleRequestConsult = async () => {
-    if (!newConsult.patientId || !newConsult.reason || !newConsult.clinicalQuestion) {
-      showWarning(t('docConsult.errorRequiredFields'));
+    // The clinical question is the consultation. A referral saying only
+    // "please review" makes the consultant guess what was asked, and the answer
+    // comes back addressing something else -- so the message belongs on that
+    // box.
+    if (!validate(newConsult)) {
       return;
     }
 
@@ -158,32 +231,34 @@ const ConsultPage: React.FC = () => {
       return;
     }
 
-    const consult: Consult = {
-      consultId: `CONS-${String(consults.length + 1).padStart(3, '0')}`,
-      patientId: patient.patient_id,
-      patientName: patient.full_name,
-      specialty: newConsult.specialty,
-      urgency: newConsult.urgency,
-      status: 'requested',
-      reason: newConsult.reason,
-      clinicalQuestion: newConsult.clinicalQuestion,
-      relevantHistory: newConsult.relevantHistory,
-      currentMedications: newConsult.currentMedications || undefined,
-      vitalSigns: newConsult.vitalSigns || undefined,
-      labResults: newConsult.labResults || undefined,
-      imagingResults: newConsult.imagingResults || undefined,
-      requestedBy: user?.userId || 'USER-001',
-      requestedAt: new Date().toISOString(),
-      notes: newConsult.notes || undefined,
-    };
-
+    // Only what the form collected. The id, the requester and the time are the
+    // server's to assign, and it does: this used to invent `CONS-001` and keep
+    // it in the list, so responding to a consult straight after filing it
+    // addressed an id the server had never issued.
+    let consultId: string;
     try {
-      await createConsult(consult);
+      const created = await createConsult({
+        patientId: patient.patient_id,
+        specialty: newConsult.specialty,
+        urgency: newConsult.urgency,
+        reason: newConsult.reason,
+        clinicalQuestion: newConsult.clinicalQuestion,
+        relevantHistory: newConsult.relevantHistory,
+        currentMedications: newConsult.currentMedications || undefined,
+        vitalSigns: newConsult.vitalSigns || undefined,
+        labResults: newConsult.labResults || undefined,
+        imagingResults: newConsult.imagingResults || undefined,
+        notes: newConsult.notes || undefined,
+      });
+      consultId = created.consult_id;
     } catch (err) {
       console.error('Failed to save consult:', err);
+      // Stop here. Falling through announced success for a write that
+      // never happened.
+      showError(t('common.saveFailed'));
+      return;
     }
 
-    setConsults([consult, ...consults]);
     setNewConsult({
       patientId: '',
       specialty: 'cardiology',
@@ -198,12 +273,27 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    showSuccess(t('docConsult.successRequested', { id: consult.consultId }));
+    showSuccess(t('docConsult.successRequested', { id: consultId }));
+    // Read the list back: the row shown is then the stored one.
+    void fetchConsults();
   };
 
+  const {
+    errors: responseErrors,
+    validate: validateResponse,
+    validateField: validateResponseField,
+    clearField: clearResponseField,
+  } = useValidatedForm(consultResponseSchema);
+
   const handleRespondToConsult = async () => {
-    if (!selectedConsult || !consultResponse.assessment || !consultResponse.recommendations) {
-      showWarning(t('docConsult.errorRequiredResponseFields'));
+    // The assessment and the recommendations are the two halves a referrer acts
+    // on: what the consultant thinks, and what they want done. A response with
+    // one of them sends the referrer back to ask again.
+    if (!selectedConsult) {
+      showError(t('docConsult.errorRequiredResponseFields'));
+      return;
+    }
+    if (!validateResponse(consultResponse)) {
       return;
     }
 
@@ -279,7 +369,7 @@ const ConsultPage: React.FC = () => {
         routine: 'bg-surface-sunken text-content-secondary',
         urgent: 'bg-surface-sunken text-content-secondary',
         emergent: 'bg-critical-subtle text-critical-subtle-fg',
-        stat: 'bg-red-200 text-critical-subtle-fg',
+        stat: 'bg-critical-subtle text-critical-subtle-fg',
       },
       urgency,
       'bg-surface-sunken text-content-secondary'
@@ -289,36 +379,38 @@ const ConsultPage: React.FC = () => {
     return t(`docConsult.specialty_${specialty}`);
   };
 
-  const _formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString();
-  };
 
   const formatDateTime = (isoString: string) => {
-    return new Date(isoString).toLocaleString();
+    // See formatTimestamp: an absent timestamp renders as nothing, never as
+    // the literal string "Invalid Date".
+    return formatTimestamp(isoString);
   };
 
-  const _filteredConsults = consults.filter((c) => {
-    const matchesSearch =
-      c.consultId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.reason.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
-    const matchesSpecialty = specialtyFilter === 'all' || c.specialty === specialtyFilter;
-
-    return matchesSearch && matchesStatus && matchesSpecialty;
-  });
 
   const activeConsults = consults.filter((c) => c.status !== 'completed' && c.status !== 'cancelled');
   const completedConsults = consults.filter((c) => c.status === 'completed');
-  const myConsults = consults.filter((c) => c.requestedBy === (user?.userId || 'USER-001'));
+  const myConsults = consults.filter((c) => c.requestedBy === user?.userId);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
+      <div className="bg-gradient-to-r from-blue-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docConsult.title')}</h1>
-        <p className="text-blue-100">{t('docConsult.subtitle')}</p>
+        <p className="text-white">{t('docConsult.subtitle')}</p>
       </div>
+
+      {/* The page already tracked this; it just never showed it. A failed
+          save left the screen unchanged, which reads as success. */}
+      {error && (
+        <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {isLoading && (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-content-muted">
+          <LoadingSpinner size="sm" />
+          {t('common.loading')}
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b">
         <button
@@ -369,7 +461,7 @@ const ConsultPage: React.FC = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docConsult.searchPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
                   />
                 </div>
               </div>
@@ -379,7 +471,7 @@ const ConsultPage: React.FC = () => {
                   id="consult-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as ConsultStatus | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docConsult.filterAllStatuses')}</option>
                   <option value="requested">{t('docConsult.status_requested')}</option>
@@ -396,7 +488,7 @@ const ConsultPage: React.FC = () => {
                   id="consult-specialty-filter"
                   value={specialtyFilter}
                   onChange={(e) => setSpecialtyFilter(e.target.value as ConsultSpecialty | 'all')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docConsult.filterAllSpecialties')}</option>
                   <option value="cardiology">{t('docConsult.specialty_cardiology')}</option>
@@ -451,7 +543,13 @@ const ConsultPage: React.FC = () => {
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblPatient')}</p>
                         <p className="font-semibold text-content">{consult.patientName}</p>
-                        <p className="text-sm text-content-muted">{consult.patientId}</p>
+                        {/* `text-content-muted` is calibrated against the page
+                            surface, not against a `*-subtle` panel: on
+                            `bg-notice-subtle` in dark mode it is 4.08:1, under
+                            WCAG AA's 4.5:1. The token that pairs with this
+                            background is the one the sibling labels already
+                            use. */}
+                        <p className="text-sm text-notice-subtle-fg">{consult.patientId}</p>
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblSpecialty')}</p>
@@ -459,7 +557,7 @@ const ConsultPage: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblRequestedBy')}</p>
-                        <p className="text-sm text-content">{consult.requestedBy}</p>
+                        <StaffName id={consult.requestedBy} className="text-sm text-content block" />
                       </div>
                     </div>
 
@@ -574,7 +672,7 @@ const ConsultPage: React.FC = () => {
                 );
               })}
 
-            {(activeTab === 'active' ? activeConsults : activeTab === 'completed' ? completedConsults : myConsults).filter((c) => {
+            {!error && !isLoading && (activeTab === 'active' ? activeConsults : activeTab === 'completed' ? completedConsults : myConsults).filter((c) => {
               const matchesSearch =
                 c.consultId.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -602,13 +700,15 @@ const ConsultPage: React.FC = () => {
                   <label htmlFor="consult-assessment" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docConsult.assessmentLabel')} <span className="text-critical-subtle-fg">*</span>
                   </label>
-                  <textarea
+                  <Textarea
                     id="consult-assessment"
                     value={consultResponse.assessment}
-                    onChange={(e) => setConsultResponse({ ...consultResponse, assessment: e.target.value })}
+                    onChange={(e) => { clearResponseField('assessment'); setConsultResponse({ ...consultResponse, assessment: e.target.value }); }}
+                    onBlur={() => validateResponseField('assessment', consultResponse)}
+                    error={responseErrors.assessment}
                     placeholder={t('docConsult.assessmentPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     rows={4}
+                    required
                   />
                 </div>
 
@@ -616,13 +716,15 @@ const ConsultPage: React.FC = () => {
                   <label htmlFor="consult-recommendations" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docConsult.recommendationsLabel')} <span className="text-critical-subtle-fg">*</span>
                   </label>
-                  <textarea
+                  <Textarea
                     id="consult-recommendations"
                     value={consultResponse.recommendations}
-                    onChange={(e) => setConsultResponse({ ...consultResponse, recommendations: e.target.value })}
+                    onChange={(e) => { clearResponseField('recommendations'); setConsultResponse({ ...consultResponse, recommendations: e.target.value }); }}
+                    onBlur={() => validateResponseField('recommendations', consultResponse)}
+                    error={responseErrors.recommendations}
                     placeholder={t('docConsult.recommendationsPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     rows={6}
+                    required
                   />
                 </div>
 
@@ -633,7 +735,7 @@ const ConsultPage: React.FC = () => {
                     value={consultResponse.followUp}
                     onChange={(e) => setConsultResponse({ ...consultResponse, followUp: e.target.value })}
                     placeholder={t('docConsult.followUpPlanPh')}
-                    className="w-full border border-border-strong rounded-lg px-3 py-2"
+                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
                     rows={3}
                   />
                 </div>
@@ -642,7 +744,7 @@ const ConsultPage: React.FC = () => {
                   <button
                     onClick={handleRespondToConsult}
                     disabled={isRespondingBusy}
-                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
                     <Send className="w-4 h-4" />
                     {isRespondingBusy
@@ -675,22 +777,12 @@ const ConsultPage: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="consult-patient" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docConsult.patientLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <PatientSelect
                   id="consult-patient"
+                  label={t('docConsult.patientLabel')}
                   value={newConsult.patientId}
-                  onChange={(e) => setNewConsult({ ...newConsult, patientId: e.target.value })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
-                >
-                  <option value="">{t('docConsult.selectPatientPh')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(selectedPatientId) => setNewConsult({ ...newConsult, patientId: selectedPatientId })}
+                />
               </div>
 
               <div>
@@ -701,7 +793,7 @@ const ConsultPage: React.FC = () => {
                   id="consult-specialty"
                   value={newConsult.specialty}
                   onChange={(e) => setNewConsult({ ...newConsult, specialty: e.target.value as ConsultSpecialty })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="cardiology">{t('docConsult.specialty_cardiology')}</option>
                   <option value="neurology">{t('docConsult.specialty_neurology')}</option>
@@ -737,7 +829,7 @@ const ConsultPage: React.FC = () => {
                   id="consult-urgency"
                   value={newConsult.urgency}
                   onChange={(e) => setNewConsult({ ...newConsult, urgency: e.target.value as ConsultUrgency })}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
                   <option value="routine">{t('docConsult.urgency_routine')}</option>
                   <option value="urgent">{t('docConsult.urgency_urgent')}</option>
@@ -757,7 +849,7 @@ const ConsultPage: React.FC = () => {
                 value={newConsult.reason}
                 onChange={(e) => setNewConsult({ ...newConsult, reason: e.target.value })}
                 placeholder={t('docConsult.reasonPh')}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
               />
             </div>
 
@@ -765,12 +857,14 @@ const ConsultPage: React.FC = () => {
               <label htmlFor="consult-clinical-question" className="block text-sm font-semibold text-content-secondary mb-2">
                 {t('docConsult.clinicalQuestionLabel')} <span className="text-critical-subtle-fg">*</span>
               </label>
-              <textarea
+              <Textarea
                 id="consult-clinical-question"
                 value={newConsult.clinicalQuestion}
-                onChange={(e) => setNewConsult({ ...newConsult, clinicalQuestion: e.target.value })}
+                onChange={(e) => { clearField('clinicalQuestion'); setNewConsult({ ...newConsult, clinicalQuestion: e.target.value }); }}
+                onBlur={() => validateField('clinicalQuestion', newConsult)}
+                error={errors.clinicalQuestion}
                 placeholder={t('docConsult.clinicalQuestionPh')}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                required
                 rows={3}
               />
             </div>
@@ -782,7 +876,7 @@ const ConsultPage: React.FC = () => {
                 value={newConsult.relevantHistory}
                 onChange={(e) => setNewConsult({ ...newConsult, relevantHistory: e.target.value })}
                 placeholder={t('docConsult.relevantHistoryPh')}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 rows={2}
               />
             </div>
@@ -795,7 +889,7 @@ const ConsultPage: React.FC = () => {
                   value={newConsult.currentMedications}
                   onChange={(e) => setNewConsult({ ...newConsult, currentMedications: e.target.value })}
                   placeholder={t('docConsult.currentMedicationsPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -807,7 +901,7 @@ const ConsultPage: React.FC = () => {
                   value={newConsult.vitalSigns}
                   onChange={(e) => setNewConsult({ ...newConsult, vitalSigns: e.target.value })}
                   placeholder={t('docConsult.vitalSignsPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -819,7 +913,7 @@ const ConsultPage: React.FC = () => {
                   value={newConsult.labResults}
                   onChange={(e) => setNewConsult({ ...newConsult, labResults: e.target.value })}
                   placeholder={t('docConsult.labResultsPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -831,7 +925,7 @@ const ConsultPage: React.FC = () => {
                   value={newConsult.imagingResults}
                   onChange={(e) => setNewConsult({ ...newConsult, imagingResults: e.target.value })}
                   placeholder={t('docConsult.imagingResultsPh')}
-                  className="w-full border border-border-strong rounded-lg px-3 py-2"
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -844,13 +938,13 @@ const ConsultPage: React.FC = () => {
                 value={newConsult.notes}
                 onChange={(e) => setNewConsult({ ...newConsult, notes: e.target.value })}
                 placeholder={t('docConsult.additionalNotesPh')}
-                className="w-full border border-border-strong rounded-lg px-3 py-2"
+                className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 rows={2}
               />
             </div>
 
             <div className="bg-notice-subtle border border-notice rounded-lg p-4">
-              <p className="text-sm font-semibold text-notice-subtle-fg mb-2 flex items-center gap-2">
+              <p className="text-sm font-semibold text-notice-subtle-fg mb-2 flex items-center gap-2 min-h-[24px] py-1">
                 <AlertTriangle className="w-4 h-4" />
                 {t('docConsult.guidelinesTitle')}
               </p>

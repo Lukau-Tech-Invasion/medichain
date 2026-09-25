@@ -126,6 +126,8 @@ mod tests {
             aud: jwt::JWT_AUDIENCE.to_string(),
             sub: ADMIN.to_string(),
             role: "Admin".to_string(),
+            // This matrix exercises step-up policy, not session revocation.
+            sid: None,
             context: None,
             patient_profile_id: None,
             organization_id: None,
@@ -389,5 +391,44 @@ mod tests {
         let status =
             assign_role_status(state, &[("Authorization", format!("Bearer {}", token))]).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// Authority with no permissions is not authority, on either path.
+    #[actix_rt::test]
+    async fn a_guardianship_with_no_permissions_is_refused() {
+        let state = state_with_admin(true).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .service(crate::handlers::verify_guardian_relationship)
+                .service(crate::handlers::update_guardian_permissions),
+        )
+        .await;
+        let bearer = format!("Bearer {}", token_with_exp(true, 3600));
+
+        let grant = test::TestRequest::post()
+            .uri("/api/guardians/verify")
+            .insert_header(("Authorization", bearer.clone()))
+            .set_json(json!({
+                "guardian_wallet": TARGET,
+                "ward_patient_id": "PAT-WARD-1",
+                "relationship_type": "parent_or_guardian",
+                "permissions": []
+            }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, grant).await.status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let change = test::TestRequest::put()
+            .uri("/api/guardians/GR-1/permissions")
+            .insert_header(("Authorization", bearer))
+            .set_json(json!({ "permissions": [], "expires_at": null }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, change).await.status(),
+            StatusCode::BAD_REQUEST
+        );
     }
 }

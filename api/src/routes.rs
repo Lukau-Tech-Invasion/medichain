@@ -15,18 +15,28 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::middleware::metrics::metrics_endpoint),
         )
         .service(health_check)
+        .service(api_health_check)
         .service(readiness_check)
         .service(db_health_check)
         .service(detailed_health_check)
         .service(register_patient)
         .service(update_patient)
-        .service(add_emergency_contact)
         .service(replace_emergency_contacts)
         .service(update_demographics)
         .service(list_patient_history_physicals)
         .service(list_patient_progress_notes)
         .service(list_patient_wounds)
-        .service(emergency_access)
+        .service(list_patient_discharges)
+        .service(list_patient_imaging)
+        .service(list_patient_pathology)
+        .service(list_patient_consults)
+        .service(list_patient_care_plans)
+        .service(list_patient_pharmacy_decisions)
+        .service(list_patient_ems_handoffs)
+        .service(list_patient_blood)
+        .service(list_patient_procedures)
+        .service(list_patient_ama_discharges)
+        .service(list_patient_intake_output)
         .service(simulate_nfc_tap)
         .service(get_all_access_logs)
         .service(get_access_logs)
@@ -34,11 +44,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_patient_by_id)
         .service(demo_info)
         .service(demo_login)
+        // Demo-only: hands the sign-in shortcut the seeded fixture
+        // credentials so it can drive the real credential flow. 403s
+        // outside dev+demo mode, so production has no shortcut to reach.
+        .service(demo_credentials)
         // RBAC endpoints
         .service(assign_role)
         .service(revoke_role)
         // Guardian relationships (Horizon HZ-008; extended with granular
         // permissions + expiry for the pediatric/guardian identity architecture)
+        .service(list_my_wards)
+        .service(list_guardians_for_ward)
         .service(verify_guardian_relationship)
         .service(update_guardian_permissions)
         .service(revoke_guardian_relationship)
@@ -46,25 +62,38 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_users)
         .service(get_user_details)
         .service(update_user_profile)
+        // Settings offered "Change avatar" with no upload behind it. Kept out
+        // of the User row so it is not serialised into every user list.
+        .service(set_my_avatar)
+        .service(get_user_avatar)
         .service(get_my_records)
         // Wallet authentication endpoints
         .service(get_auth_challenge) // SEC-005: Auth challenge for signing
         .service(bootstrap_admin)
         .service(wallet_register)
-        .service(wallet_login)
-        .service(wallet_login_get)
-        .service(wallet_lookup)
+        // Legacy anonymous wallet lookup/login routes remain unregistered.
+        // Private account information is returned only after challenge proof.
         // Staff credential sign-in: employee identifier + password proof.
         // Enrolment is wallet-signed; login returns the client-openable
         // keystore, never a session (see handlers/staff_credentials.rs).
         .service(staff_login) // POST /api/auth/staff/login
         .service(enrol_credentials) // POST /api/auth/credentials
+        // A rotation, not a reset: the client re-encrypts its own keystore and
+        // the server only swaps the verifier beside it.
+        .service(rotate_credentials) // POST /api/auth/staff/rotate-credentials
         // Session token endpoints
-        .service(create_session_token) // POST /api/auth/session
-        .service(verify_session_token) // GET  /api/auth/verify
         // JWT auth (Phase 9.4)
         .service(issue_jwt) // POST /api/auth/jwt
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
+        .service(logout) // POST /api/auth/logout
+        .service(logout_all) // POST /api/auth/logout-all
+        // ADR-0008 assurance classes. Class B elevates the session; Class C
+        // authorizes one exact mutation. Both run through one challenge
+        // mechanism so their replay and single-use guarantees cannot diverge.
+        .service(step_up_challenge) // POST /api/auth/step-up/challenge
+        .service(step_up_verify) // POST /api/auth/step-up/verify
+        .service(transaction_challenge) // POST /api/auth/transaction/challenge
+        .service(session_assurance) // GET  /api/auth/assurance
         // Phase 1 identity contexts: work and personal health remain separate.
         .service(enter_work_context)
         .service(enter_patient_context)
@@ -76,12 +105,16 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(transition_organization_key)
         .service(get_active_organization_key)
         // Phase 4 approved device credentials and lifecycle.
+        .service(list_organizations)
+        .service(list_managed_devices)
+        .service(list_available_devices)
         .service(enroll_managed_device)
         .service(rotate_managed_device)
         .service(revoke_managed_device)
         .service(get_device_compliance)
         // Phase 5 server-side emergency grants.
         .service(issue_emergency_grant)
+        .service(list_emergency_grants)
         .service(get_emergency_grant)
         .service(revoke_emergency_grant)
         .service(grant_bound_emergency_access)
@@ -104,6 +137,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // NFC-hash-to-token exchange (Horizon HZ-001)
         .service(exchange_nfc_hash_for_token)
         // Phase 6 encrypted patient mobile-record capabilities.
+        .service(list_patient_mobile_devices)
         .service(register_patient_mobile_device)
         .service(authorise_mobile_record)
         .service(issue_mobile_lockscreen_token)
@@ -121,8 +155,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_cds_thresholds) // GET /api/admin/cds/thresholds/{facility_id}
         .service(set_cds_thresholds) // PUT /api/admin/cds/thresholds/{facility_id}
         .service(get_cds_audit) // GET /api/admin/cds/audit
+        .service(create_cds_rule) // POST /api/admin/cds/rules
+        .service(list_cds_rules) // GET /api/admin/cds/rules
+        .service(set_cds_rule_enablement) // POST /api/admin/cds/rules/{id}/enablement
+        .service(retire_cds_rule) // POST /api/admin/cds/rules/{id}/retire
         // Data retention: report-only assessment + legal holds (POPIA gate §4)
         .service(get_retention_report) // GET  /api/admin/retention/report
+        .service(list_retention_job_runs) // GET  /api/admin/retention/runs
         .service(list_active_legal_holds) // GET  /api/admin/retention/holds
         .service(create_legal_hold) // POST /api/admin/retention/holds
         .service(release_legal_hold) // POST /api/admin/retention/holds/{id}/release
@@ -135,6 +174,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_processing_restrictions) // GET  /api/admin/retention/restrictions
         .service(lift_processing_restriction) // POST /api/admin/retention/restrictions/{id}/lift
         // Emergency capsule lifecycle: versioned, revocable, access-logged (POPIA gate §1)
+        .service(get_emergency_capsule_versions) // GET  /api/patients/{id}/emergency-capsule
         .service(publish_emergency_capsule) // POST /api/patients/{id}/emergency-capsule
         .service(revoke_emergency_capsule) // POST /api/patients/{id}/emergency-capsule/revoke
         .service(get_emergency_capsule_access_log) // GET  /api/patients/{id}/emergency-capsule/access-log
@@ -149,11 +189,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(update_insurance_card) // PUT    /api/insurance/cards/{id}
         .service(delete_insurance_card) // DELETE /api/insurance/cards/{id}
         .service(upload_insurance_card_image) // POST /api/insurance/cards/{id}/image
+        .service(download_insurance_card_image) // GET /api/insurance/cards/{id}/image/{side}
         // PDF export (Phase 13.3)
         .service(export_pdf_document) // POST /api/pdf/document
         .service(register_device)
         .service(get_current_user_info)
-        .service(get_all_staff)
         .service(get_providers)
         .service(get_settings)
         .service(save_settings)
@@ -173,12 +213,18 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_patient_lab_submissions)
         // NFC card simulation endpoints
         .service(generate_nfc_card)
-        .service(nfc_tap)
         .service(verify_my_nfc_card)
-        .service(verify_qr_code)
         .service(get_card_info)
         .service(suspend_card)
         .service(list_nfc_cards)
+        // Clinical scoring catalog: the thresholds and formula constants that
+        // used to be duplicated inside the forms. Registered before the
+        // `/api/clinical/...` records so `scoring` is never matched as an id.
+        .service(get_scoring_catalog)
+        // Stateless family-history referral screening. Registered before the
+        // `/api/surgical/family-history/{id}` read so `assess` is never matched
+        // as a record id.
+        .service(clinical_endpoints::assess_family_history)
         // Clinical documentation endpoints (Phase 1)
         // IMPORTANT: get_triage_queue must be registered BEFORE get_triage_assessment
         // otherwise /api/clinical/triage/queue matches {assessment_id} as "queue"
@@ -190,8 +236,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_soap_note)
         .service(get_patient_soap_notes)
         .service(add_soap_addendum)
-        .service(create_sample_history)
-        .service(get_sample_history)
         .service(create_gcs_assessment)
         .service(get_gcs_assessment)
         .service(get_patient_gcs_assessments)
@@ -200,11 +244,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_vitals_flowsheet)
         .service(get_patient_latest_vitals)
         .service(get_lab_panels)
-        .service(get_lab_panel)
         // Emergency protocol endpoints (Phase 2) - from clinical_endpoints module
         .service(clinical_endpoints::create_code_blue)
         .service(clinical_endpoints::get_code_blue)
         .service(clinical_endpoints::list_patient_code_blues)
+        .service(clinical_endpoints::list_mar_administrations)
         .service(clinical_endpoints::create_trauma)
         .service(clinical_endpoints::get_trauma)
         .service(clinical_endpoints::list_patient_trauma)
@@ -218,16 +262,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_sepsis)
         .service(clinical_endpoints::list_patient_sepsis)
         .service(clinical_endpoints::create_ems_handoff)
+        .service(clinical_endpoints::list_recent_ems_handoffs)
         .service(clinical_endpoints::get_ems_handoff)
         .service(clinical_endpoints::get_patient_emergency_records)
         // Nursing documentation endpoints (Phase 3)
-        .service(clinical_endpoints::create_mar)
         // Static list routes must precede `/{id}` routes. Actix resolves in
         // registration order, so otherwise "list" is treated as an ID.
         .service(clinical_endpoints::list_mar)
         .service(clinical_endpoints::get_mar)
         .service(clinical_endpoints::create_io)
-        .service(clinical_endpoints::list_io)
         .service(clinical_endpoints::get_io)
         .service(clinical_endpoints::create_care_plan)
         .service(clinical_endpoints::list_care_plans)
@@ -247,6 +290,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_incident)
         .service(clinical_endpoints::get_incident)
         .service(clinical_endpoints::create_fall_risk)
+        // IMPORTANT: the patient list must be registered BEFORE the by-id
+        // route, or `/fall-risk/patient/{id}` matches `patient` as an {id}.
+        .service(clinical_endpoints::list_patient_fall_risk)
         .service(clinical_endpoints::get_fall_risk)
         // Specialized assessment endpoints (Phase 4)
         .service(clinical_endpoints::create_burn)
@@ -264,6 +310,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_laceration)
         .service(clinical_endpoints::get_laceration)
         .service(clinical_endpoints::list_laceration_repairs)
+        .service(clinical_endpoints::list_intubation_records)
+        .service(clinical_endpoints::list_splint_records)
         .service(clinical_endpoints::create_splint)
         .service(clinical_endpoints::get_splint)
         // Specialty population endpoints (Phase 6)
@@ -276,13 +324,25 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_specimen)
         .service(clinical_endpoints::list_specimens)
         .service(clinical_endpoints::create_chain_of_custody)
+        .service(clinical_endpoints::transfer_chain_of_custody)
         .service(clinical_endpoints::get_chain_of_custody)
         .service(clinical_endpoints::create_lab_qc)
+        .service(clinical_endpoints::create_lab_calibration)
         .service(clinical_endpoints::get_lab_qc)
         .service(clinical_endpoints::create_critical_value)
         .service(clinical_endpoints::get_critical_value)
+        .service(clinical_endpoints::acknowledge_critical_value)
+        .service(clinical_endpoints::cancel_critical_value)
         .service(clinical_endpoints::create_specimen_rejection)
         .service(clinical_endpoints::get_specimen_rejection)
+        // Specimen recollection (SCR-009b). Separate from `notify`: telling the
+        // ordering provider a specimen failed and asking the patient to attend
+        // again are different acts.
+        .service(clinical_endpoints::request_specimen_recollection)
+        .service(clinical_endpoints::complete_specimen_recollection)
+        .service(clinical_endpoints::cancel_specimen_recollection)
+        .service(clinical_endpoints::list_recollections_for_rejection)
+        .service(clinical_endpoints::notify_rejection_ordering_provider)
         // Physician documentation endpoints (Phase 8)
         .service(clinical_endpoints::create_order)
         .service(clinical_endpoints::get_order)
@@ -291,8 +351,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_discharge_instructions)
         .service(clinical_endpoints::get_discharge_instructions)
         .service(clinical_endpoints::create_ama)
+        // The signature is the evidence an AMA discharge exists to carry; the
+        // record had only a boolean saying one had been taken.
+        .service(clinical_endpoints::collect_ama_signatures)
         .service(clinical_endpoints::get_ama)
         .service(clinical_endpoints::create_hp)
+        .service(clinical_endpoints::update_hp_draft)
+        .service(clinical_endpoints::add_hp_addendum)
         .service(clinical_endpoints::get_hp)
         .service(clinical_endpoints::list_hps)
         .service(clinical_endpoints::create_consult)
@@ -312,8 +377,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_patient_post_op)
         // Phase 10: Anesthesia endpoints
         .service(clinical_endpoints::create_anesthesia)
-        .service(clinical_endpoints::get_anesthesia)
+        // `list_anesthesia` BEFORE `get_anesthesia`: actix matches in
+        // registration order, and `/api/surgical/anesthesia/{id}` happily
+        // matches the literal path `/api/surgical/anesthesia/list` with
+        // id="list". So the list endpoint was unreachable -- it answered 404,
+        // looking exactly like "no such record" rather than "this route is
+        // shadowed". Verified 2026-09-15.
         .service(clinical_endpoints::list_anesthesia)
+        .service(clinical_endpoints::get_anesthesia)
         // Phase 11: Radiology endpoints
         .service(clinical_endpoints::create_radiology_order)
         .service(clinical_endpoints::get_radiology_order)
@@ -321,6 +392,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_radiology_report)
         // Phase 12: Pathology endpoints
         .service(clinical_endpoints::create_pathology)
+        .service(clinical_endpoints::update_pathology_report)
         .service(clinical_endpoints::get_pathology)
         // Phase 13: Immunization endpoints
         .service(clinical_endpoints::create_immunization)
@@ -328,22 +400,22 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 14: Family History endpoints
         .service(clinical_endpoints::create_family_history)
         .service(clinical_endpoints::get_family_history)
+        .service(clinical_endpoints::get_my_family_history)
         // Phase 15: Blood Bank endpoints
         .service(clinical_endpoints::create_blood_type_screen)
         .service(clinical_endpoints::get_blood_type_screen)
         .service(clinical_endpoints::create_transfusion)
         .service(clinical_endpoints::get_transfusion)
-        // Phase 16: E-Prescribing endpoints
-        .service(clinical_endpoints::create_e_prescription)
-        .service(clinical_endpoints::get_e_prescription)
-        // Phase 17: Appointment endpoints
-        .service(clinical_endpoints::create_appointment)
-        .service(clinical_endpoints::get_surgical_appointment)
         // Phase 18: Death Certificate & Autopsy endpoints
         .service(clinical_endpoints::create_death_certificate)
+        // The draft lifecycle. IMPORTANT: `/draft` is registered before the
+        // `{id}` routes below it, or actix matches "draft" as a certificate id
+        // and a new draft becomes a lookup of a record that does not exist —
+        // the same ordering trap documented on the triage queue above.
+        .service(clinical_endpoints::draft_death_certificate)
+        .service(clinical_endpoints::file_death_certificate)
+        .service(clinical_endpoints::update_death_certificate_draft)
         .service(clinical_endpoints::get_death_certificate)
-        .service(clinical_endpoints::create_autopsy_request)
-        .service(clinical_endpoints::get_autopsy_request)
         .service(clinical_endpoints::create_autopsy_report)
         .service(clinical_endpoints::get_autopsy_report)
         // Phase 19: Patient Satisfaction endpoints
@@ -359,19 +431,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::fhir_get_diagnostic_reports)
         .service(clinical_endpoints::fhir_get_procedures)
         .service(clinical_endpoints::fhir_get_immunizations)
+        .service(clinical_endpoints::fhir_ingest_transaction)
         .service(clinical_endpoints::fhir_capability_statement)
         // Insurance Verification endpoints
         .service(clinical_endpoints::verify_insurance)
-        // `check_eligibility` (insurance_pharmacy/insurance.rs) is NOT registered here:
-        // it was duplicate-registered on the same `POST /api/insurance/eligibility`
-        // path as `check_insurance_eligibility` below (billing/insurance_eligibility.rs,
-        // the fuller implementation with real policy-date/deductible/plan-type logic).
-        // Actix takes the first registration for an exact path+method match, so the
-        // richer handler was silently dead code — removed this duplicate registration
-        // rather than the crude handler's body (flagged as a dead-code cleanup
-        // candidate, not deleted, per this repo's "never delete without asking" rule).
         // Dashboard & Workflow endpoints
-        .service(clinical_endpoints::patient_dashboard)
         .service(clinical_endpoints::doctor_dashboard)
         .service(clinical_endpoints::nurse_dashboard)
         .service(clinical_endpoints::lab_dashboard)
@@ -379,27 +443,41 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::pharmacist_dashboard)
         .service(clinical_endpoints::get_patient_list)
         .service(clinical_endpoints::get_order_sets)
+        .service(clinical_endpoints::create_order_set)
+        .service(clinical_endpoints::decide_order_set)
+        .service(clinical_endpoints::deactivate_order_set)
         .service(clinical_endpoints::get_notifications)
+        .service(clinical_endpoints::mark_notifications_read)
         .service(clinical_endpoints::get_medication_reminders)
         .service(clinical_endpoints::get_nurse_tasks)
         // Symptom Tracker endpoints
         .service(clinical_endpoints::log_symptom)
         .service(clinical_endpoints::get_symptom_history)
+        .service(clinical_endpoints::retract_symptom)
         // Secure Messaging endpoints
         .service(clinical_endpoints::send_message)
         .service(clinical_endpoints::get_messages)
+        .service(clinical_endpoints::mark_message_read)
         // Consent Form endpoints
         .service(clinical_endpoints::get_consent_types)
         .service(clinical_endpoints::sign_consent)
+        .service(clinical_endpoints::revoke_consent)
         .service(clinical_endpoints::get_patient_consents)
         // Barcode/Sample Tracking endpoints
-        .service(clinical_endpoints::generate_barcode)
         .service(clinical_endpoints::scan_barcode)
         .service(clinical_endpoints::track_barcode)
         .service(clinical_endpoints::get_barcode_scan_history)
+        // The scanner panel's five toggles were literals in the JSX, and
+        // "Clear history" had nowhere to go. Clearing moves a marker rather
+        // than deleting a custody record (ADR-0005).
+        .service(clinical_endpoints::get_scanner_settings)
+        .service(clinical_endpoints::update_scanner_settings)
+        .service(clinical_endpoints::clear_scan_history)
         // Quick Note Templates endpoints
         .service(clinical_endpoints::get_note_templates)
         .service(clinical_endpoints::use_note_template)
+        .service(clinical_endpoints::create_note_template)
+        .service(clinical_endpoints::deactivate_note_template)
         // Medical ID Card endpoints
         .service(clinical_endpoints::get_medical_id)
         .service(clinical_endpoints::get_medical_id_qr)
@@ -411,11 +489,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_medication_reminder)
         .service(clinical_endpoints::get_patient_reminders)
         .service(clinical_endpoints::log_medication_adherence)
+        .service(clinical_endpoints::get_patient_adherence)
         .service(clinical_endpoints::delete_medication_reminder)
         // Phase 21: Drug Interaction Checking endpoints
         .service(clinical_endpoints::get_drug_database)
         .service(clinical_endpoints::get_interaction_database)
         .service(clinical_endpoints::check_drug_interactions)
+        // What a pharmacist does about a safety alert. The dashboard offered
+        // Reject, Contact MD and DEA report with no endpoint behind any of
+        // them, so a refusal to dispense reached nobody.
+        .service(clinical_endpoints::record_pharmacy_decision)
+        .service(clinical_endpoints::controlled_substance_report)
         .service(clinical_endpoints::get_interaction_history)
         // Phase 22: Family Account Linking endpoints
         .service(clinical_endpoints::create_family_group)
@@ -427,18 +511,22 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::book_appointment)
         .service(clinical_endpoints::get_patient_appointments)
         .service(clinical_endpoints::get_provider_appointments)
-        .service(clinical_endpoints::cancel_appointment)
         .service(clinical_endpoints::check_in_appointment)
         .service(clinical_endpoints::transition_appointment) // POST /api/appointments/{id}/status
         .service(clinical_endpoints::get_available_slots)
+        // A provider's working hours, so "available" means available.
+        .service(clinical_endpoints::get_provider_schedule)
+        .service(clinical_endpoints::set_provider_schedule)
         .service(clinical_endpoints::get_appointment)
         // Phase 24: Wearable Device Integration endpoints
         .service(clinical_endpoints::get_supported_wearables)
         .service(clinical_endpoints::register_wearable_device)
         .service(clinical_endpoints::get_wearable_devices)
+        .service(clinical_endpoints::disconnect_wearable_device)
         .service(clinical_endpoints::submit_wearable_reading)
         .service(clinical_endpoints::get_wearable_readings)
         .service(clinical_endpoints::create_wearable_alert_rule)
+        .service(clinical_endpoints::list_wearable_alert_rules)
         .service(clinical_endpoints::get_wearable_alerts)
         // Phase 25: AI Symptom Checker
         .service(clinical_endpoints::start_symptom_check)
@@ -454,24 +542,30 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::telehealth_event) // POST /…/event (Phase 7 SSE relay + audit)
         .service(clinical_endpoints::telehealth_recording) // POST /…/recording (Phase 6)
         .service(clinical_endpoints::end_telehealth_session)
-        .service(clinical_endpoints::submit_device_check)
         .service(clinical_endpoints::get_patient_telehealth_sessions)
+        .service(clinical_endpoints::list_my_telehealth_sessions)
         .service(clinical_endpoints::telehealth_join_redirect) // GET /…/join/{id} 302 in-app (Phase 4)
         .service(clinical_endpoints::telehealth_join_qr) // GET /…/{id}/qr  in-app QR (Phase 4)
         // Phase 27: Clinical Decision Support endpoints
-        .service(clinical_endpoints::create_cds_alert)
-        .service(clinical_endpoints::get_cds_alerts)
         .service(clinical_endpoints::get_cds_alert)
         .service(clinical_endpoints::respond_to_cds_alert)
         .service(clinical_endpoints::get_patient_cds_alerts)
         // Phase 28: Lab Result Trending endpoints
         .service(clinical_endpoints::get_lab_trends)
-        .service(clinical_endpoints::analyze_lab_trends)
-        .service(clinical_endpoints::get_lab_trend_result)
         // Phase 29: E-Prescription with Signing endpoints
         .service(clinical_endpoints::create_esignature_prescription)
         .service(clinical_endpoints::sign_e_prescription)
         .service(clinical_endpoints::transmit_e_prescription)
+        // Pharmacy dispensing (SCR-013). The lifecycle used to stop at
+        // Transmitted, leaving four declared states unreachable.
+        .service(clinical_endpoints::receive_prescription)
+        .service(clinical_endpoints::start_prescription_fill)
+        .service(clinical_endpoints::request_secondary_verification)
+        .service(clinical_endpoints::decide_secondary_verification)
+        .service(clinical_endpoints::revoke_secondary_verification)
+        .service(clinical_endpoints::dispense_prescription)
+        .service(clinical_endpoints::reverse_dispense)
+        .service(clinical_endpoints::list_dispense_events)
         .service(clinical_endpoints::get_esignature_prescription)
         .service(clinical_endpoints::get_patient_e_prescriptions)
         // Phase 30: Insurance Claim Integration endpoints
@@ -480,6 +574,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_insurance_claim)
         .service(clinical_endpoints::get_patient_insurance_claims)
         .service(clinical_endpoints::check_insurance_eligibility)
+        .service(clinical_endpoints::get_eligibility_checks)
         // Phase 31: Analytics Dashboard endpoints
         .service(clinical_endpoints::get_dashboard_metrics)
         .service(clinical_endpoints::get_patient_analytics)
@@ -487,13 +582,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_quality_metrics)
         .service(clinical_endpoints::get_operational_metrics)
         // Phase 32: Multi-language Support endpoints
-        .service(clinical_endpoints::get_supported_languages)
         .service(clinical_endpoints::set_language_preference)
         .service(clinical_endpoints::get_language_preference)
         .service(clinical_endpoints::translate_content)
         // Phase 33: Offline Mode Sync endpoints
         .service(clinical_endpoints::get_sync_status)
         .service(clinical_endpoints::register_sync_device)
+        .service(clinical_endpoints::list_sync_devices)
         .service(clinical_endpoints::perform_sync)
         .service(clinical_endpoints::get_sync_conflicts)
         .service(clinical_endpoints::resolve_sync_conflict)
@@ -505,10 +600,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_discharges)
         .service(clinical_endpoints::approve_discharge)
         .service(clinical_endpoints::administer_medication)
-        .service(clinical_endpoints::record_fluid)
         // Phase 35: Additional list endpoints for frontend pages
         .service(clinical_endpoints::list_chain_of_custody)
         .service(clinical_endpoints::list_lab_qc)
+        .service(clinical_endpoints::list_lab_calibrations)
         .service(clinical_endpoints::list_critical_values)
         .service(clinical_endpoints::list_radiology_orders)
         .service(clinical_endpoints::list_radiology_reports)
@@ -516,12 +611,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_immunizations)
         .service(clinical_endpoints::list_my_immunizations)
         .service(clinical_endpoints::list_blood_bank)
-        .service(clinical_endpoints::list_autopsy)
         .service(clinical_endpoints::list_autopsy_reports)
+        .service(clinical_endpoints::list_death_certificates)
         .service(clinical_endpoints::list_consults)
         .service(clinical_endpoints::list_cds_alerts)
         // Additional frontend-compatible endpoints
-        .service(clinical_endpoints::record_vital_signs)
         .service(clinical_endpoints::list_progress_notes)
         .service(clinical_endpoints::list_incident_reports)
         .service(clinical_endpoints::list_intake_output)
@@ -530,5 +624,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // SSE push-notification endpoint
         .service(crate::websocket::sse_events)
         // Item 5: National ID verification
-        .service(verify_national_id);
+        .service(verify_national_id)
+        .service(list_national_id_manual_reviews)
+        .service(decide_national_id_manual_review);
 }

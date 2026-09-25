@@ -73,7 +73,8 @@ export interface CurrentProvider {
  */
 function fallbackPermissions(role: Role | null) {
   const provider: Role[] = ['Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist'];
-  const editor: Role[] = ['Admin', 'Doctor', 'Nurse'];
+  // Not Admin — see `Role::can_edit_medical_records` in api/src/types/domain.rs.
+  const editor: Role[] = ['Doctor', 'Nurse'];
   return {
     is_admin: role === 'Admin',
     is_healthcare_provider: role ? provider.includes(role) : false,

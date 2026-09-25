@@ -35,8 +35,19 @@ const BUNDLES: Partial<Record<SupportedLocale, TranslationRecord>> = {
   'ha-NG': haNG,
 };
 
-/** Locales offered in the switcher (target markets + English). */
-export const ACTIVE_LOCALES: SupportedLocale[] = ['en-US', 'fr-FR', 'sw-KE', 'am-ET', 'zu-ZA', 'ha-NG'];
+/**
+ * Locales safe to present as complete clinical interfaces.
+ *
+ * The five African-language bundles are deliberately retained for the
+ * translation workflow, but are not selectable until qualified medical
+ * translators have completed them. Falling back to English after a patient
+ * selected a language is misleading in a clinical product.
+ */
+export const ACTIVE_LOCALES: SupportedLocale[] = ['en-US'];
+
+function activeLocaleOrDefault(locale: SupportedLocale): SupportedLocale {
+  return ACTIVE_LOCALES.includes(locale) ? locale : 'en-US';
+}
 
 /** Deep-merge `override` onto `base` (objects merged, scalars overridden). */
 function deepMerge(base: TranslationRecord, override: TranslationRecord): TranslationRecord {
@@ -62,7 +73,7 @@ const I18nContext = createContext<I18nState | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<SupportedLocale>(
-    () => loadLocaleFromStorage() || detectLocale()
+    () => activeLocaleOrDefault(loadLocaleFromStorage() || detectLocale())
   );
 
   const t = useMemo(() => {
@@ -78,8 +89,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   }, [locale]);
 
   const setLocale = useCallback((l: SupportedLocale) => {
-    setLocaleState(l);
-    saveLocaleToStorage(l);
+    const activeLocale = activeLocaleOrDefault(l);
+    setLocaleState(activeLocale);
+    saveLocaleToStorage(activeLocale);
   }, []);
 
   const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);

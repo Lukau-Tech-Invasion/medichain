@@ -298,7 +298,7 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
                 start_datetime, end_datetime, frequency, duration, special_instructions,
                 requires_cosign, cosigned_by, cosigned_at, verified_by, verified_at,
                 executed_by, executed_at, discontinued_by, discontinued_at,
-                discontinue_reason, linked_order_id, notes
+                discontinue_reason, linked_order_id, notes, data
             ) ",
         );
 
@@ -329,7 +329,10 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
                 .push_bind(o.discontinued_at)
                 .push_bind(&o.discontinue_reason)
                 .push_bind(&o.linked_order_id)
-                .push_bind(&o.notes);
+                .push_bind(&o.notes)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000005`, so every order read back as `null`.
+                .push_bind(&o.data);
         });
 
         qb.push(" RETURNING *");
@@ -519,7 +522,7 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
                 pending_results, pending_studies, primary_care_notified,
                 specialist_follow_up, durable_medical_equipment, home_health_orders,
                 physical_therapy_orders, dictated_by, dictated_at, transcribed_by,
-                signed_by, signed_at, addendum, addendum_by, addendum_at
+                signed_by, signed_at, addendum, addendum_by, addendum_at, data
             ) ",
         );
 
@@ -561,7 +564,11 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
                 .push_bind(s.signed_at)
                 .push_bind(&s.addendum)
                 .push_bind(&s.addendum_by)
-                .push_bind(s.addendum_at);
+                .push_bind(s.addendum_at)
+                // The blob the read handlers serve. Omitted here until
+                // `20260910000003`, so every summary read back as `null` on
+                // PostgreSQL while the typed columns held the record.
+                .push_bind(&s.data);
         });
 
         qb.push(" RETURNING *");
@@ -621,6 +628,29 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
             QueryBuilder::new("SELECT * FROM discharge_summaries WHERE patient_id = ");
         qb.push_bind(patient_id);
         qb.push(" ORDER BY discharge_datetime DESC LIMIT ");
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<DischargeSummaryEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<DischargeSummaryEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM discharge_summaries")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM discharge_summaries ORDER BY discharge_datetime DESC LIMIT ",
+        );
         qb.push_bind(pagination.limit() as i32);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i32);
@@ -702,7 +732,8 @@ impl DischargeInstructionsRepository for PgDischargeInstructionsRepository {
                 special_instructions, equipment_needed, home_health_arranged,
                 transportation_arranged, pharmacy_notified, printed_at, emailed_at,
                 patient_portal_posted, acknowledged_by_patient, acknowledged_at,
-                witness_signature, provided_by
+                witness_signature, provided_by,
+                data
             ) ",
         );
 
@@ -738,7 +769,8 @@ impl DischargeInstructionsRepository for PgDischargeInstructionsRepository {
                 .push_bind(i.acknowledged_by_patient)
                 .push_bind(i.acknowledged_at)
                 .push_bind(&i.witness_signature)
-                .push_bind(&i.provided_by);
+                .push_bind(&i.provided_by)
+                .push_bind(&i.data);
         });
 
         qb.push(" RETURNING *");
@@ -875,11 +907,14 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 patient_verbalized_understanding, decision_making_capacity,
                 capacity_assessment, alternatives_offered, patient_refused_alternatives,
                 ama_form_signed, ama_form_refused_reason, witness_present, witness_name,
-                witness_signature, patient_given_prescriptions, prescriptions_given,
+                witness_signature, patient_signature, patient_signature_at,
+                witness_signature_at, signatures_collected_by,
+                patient_given_prescriptions, prescriptions_given,
                 follow_up_offered, follow_up_instructions, patient_contact_info_verified,
                 emergency_contact_notified, belongings_returned, security_escort,
                 police_notified, social_work_notified, documentation_complete,
-                physician_narrative, nurse_notes
+                physician_narrative, nurse_notes,
+                data
             ) ",
         );
 
@@ -902,6 +937,10 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 .push_bind(d.witness_present)
                 .push_bind(&d.witness_name)
                 .push_bind(&d.witness_signature)
+                .push_bind(&d.patient_signature)
+                .push_bind(d.patient_signature_at)
+                .push_bind(d.witness_signature_at)
+                .push_bind(&d.signatures_collected_by)
                 .push_bind(d.patient_given_prescriptions)
                 .push_bind(&d.prescriptions_given)
                 .push_bind(d.follow_up_offered)
@@ -914,7 +953,8 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
                 .push_bind(d.social_work_notified)
                 .push_bind(d.documentation_complete)
                 .push_bind(&d.physician_narrative)
-                .push_bind(&d.nurse_notes);
+                .push_bind(&d.nurse_notes)
+                .push_bind(&d.data);
         });
 
         qb.push(" RETURNING *");
@@ -992,6 +1032,18 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
             .push_bind(discharge.ama_form_signed);
         qb.push(", witness_signature = ")
             .push_bind(&discharge.witness_signature);
+        // The signature columns move with the boolean beside them. An update
+        // that set `ama_form_signed` without them would report a signed
+        // discharge holding no signature, which is the state these columns
+        // exist to make impossible.
+        qb.push(", patient_signature = ")
+            .push_bind(&discharge.patient_signature);
+        qb.push(", patient_signature_at = ")
+            .push_bind(discharge.patient_signature_at);
+        qb.push(", witness_signature_at = ")
+            .push_bind(discharge.witness_signature_at);
+        qb.push(", signatures_collected_by = ")
+            .push_bind(&discharge.signatures_collected_by);
         qb.push(", documentation_complete = ")
             .push_bind(discharge.documentation_complete);
         qb.push(", physician_narrative = ")
@@ -1066,7 +1118,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
                 isolation_precautions, fall_risk_level, skin_integrity_issues,
                 iv_access, drains_tubes, family_concerns, anticipated_disposition,
                 contingency_plans, questions_asked, read_back_confirmed,
-                acknowledged_by_incoming, acknowledged_at, handoff_tool_used
+                acknowledged_by_incoming, acknowledged_at, handoff_tool_used,
+                data
             ) ",
         );
 
@@ -1100,7 +1153,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
                 .push_bind(h.read_back_confirmed)
                 .push_bind(h.acknowledged_by_incoming)
                 .push_bind(h.acknowledged_at)
-                .push_bind(&h.handoff_tool_used);
+                .push_bind(&h.handoff_tool_used)
+                .push_bind(&h.data);
         });
 
         qb.push(" RETURNING *");
@@ -1156,10 +1210,10 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
-    async fn get_by_provider(
+    async fn get_by_provider_since(
         &self,
         provider_id: &str,
-        date: NaiveDate,
+        since: NaiveDate,
     ) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT * FROM shift_handoffs 
@@ -1168,8 +1222,25 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
         qb.push_bind(provider_id);
         qb.push(" OR incoming_provider_id = ");
         qb.push_bind(provider_id);
-        qb.push(") AND DATE(handoff_datetime) = ");
-        qb.push_bind(date);
+        qb.push(") AND DATE(handoff_datetime) >= ");
+        qb.push_bind(since);
+        qb.push(" ORDER BY handoff_datetime DESC");
+
+        let items = qb
+            .build_query_as::<ShiftHandoffEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(items)
+    }
+
+    async fn get_by_batch(&self, batch_id: &str) -> RepositoryResult<Vec<ShiftHandoffEntity>> {
+        // `LIKE 'batch-%'` with the pattern bound, never concatenated. The
+        // batch id is server-generated and hex, but a parameterised query is
+        // the rule here regardless of who supplies the value.
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM shift_handoffs WHERE id LIKE ");
+        qb.push_bind(format!("{batch_id}-%"));
         qb.push(" ORDER BY handoff_datetime DESC");
 
         let items = qb
@@ -1245,7 +1316,7 @@ impl IncidentReportRepository for PgIncidentReportRepository {
                 corrective_actions, follow_up_required, follow_up_assigned_to,
                 follow_up_due_date, follow_up_completed, follow_up_completed_at,
                 investigation_status, reviewed_by, reviewed_at, review_comments,
-                regulatory_reportable, reported_to_agencies, confidential
+                regulatory_reportable, reported_to_agencies, confidential, data
             ) ",
         );
 
@@ -1285,7 +1356,12 @@ impl IncidentReportRepository for PgIncidentReportRepository {
                 .push_bind(&r.review_comments)
                 .push_bind(r.regulatory_reportable)
                 .push_bind(&r.reported_to_agencies)
-                .push_bind(r.confidential);
+                .push_bind(r.confidential)
+                // The blob the read handlers serve. Omitted until
+                // `20260910000006`, so every read of it on PostgreSQL
+                // returned null while the in-memory backend returned
+                // the record.
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

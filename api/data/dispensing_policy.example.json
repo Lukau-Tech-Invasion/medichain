@@ -1,0 +1,13 @@
+{
+  "version": "deployment-approved-policy-version",
+  "verification_ttl_seconds": 900,
+  "rules": [
+    {
+      "id": "example-organization-category",
+      "medication_code": null,
+      "category": "organization-approved-category",
+      "medication_name": null,
+      "requires_secondary_verification": true
+    }
+  ]
+}

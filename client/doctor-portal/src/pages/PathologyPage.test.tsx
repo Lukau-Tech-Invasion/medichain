@@ -1,5 +1,4 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PathologyPage from './PathologyPage';
 import { useAuthStore } from '../store/authStore';
@@ -20,6 +19,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listPathology: vi.fn(),
+  updatePathologyReport: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -49,11 +49,12 @@ describe('PathologyPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuthStore as any).mockReturnValue({
+    vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
-    (shared.listPathology as any).mockResolvedValue({ success: true, items: [SPECIMEN] });
+    vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listPathology).mockResolvedValue({ success: true, total: 1, items: [SPECIMEN] });
+    vi.mocked(shared.updatePathologyReport).mockResolvedValue({ success: true, id: SPECIMEN.specimenId } as never);
   });
 
   it('renders pathology page', () => {
@@ -88,5 +89,26 @@ describe('PathologyPage', () => {
     const input = screen.getByLabelText(/Gross Examination/i);
     fireEvent.change(input, { target: { value: 'Specimen consists of a 2cm skin punch biopsy.' } });
     expect(input).toHaveValue('Specimen consists of a 2cm skin punch biopsy.');
+  });
+
+  it('persists a preliminary report before returning to the worklist', async () => {
+    render(<PathologyPage />);
+    await openReport();
+
+    fireEvent.change(screen.getByLabelText(/Gross Examination/i), { target: { value: 'Two tissue fragments.' } });
+    fireEvent.change(screen.getByLabelText(/Microscopic Examination/i), { target: { value: 'Benign epidermis.' } });
+    fireEvent.change(screen.getByLabelText(/^Diagnosis$/i), { target: { value: 'Benign lesion' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Preliminary/i }));
+
+    await waitFor(() => expect(shared.updatePathologyReport).toHaveBeenCalledWith(
+      SPECIMEN.specimenId,
+      expect.objectContaining({
+        gross_description: 'Two tissue fragments.',
+        microscopic_description: 'Benign epidermis.',
+        diagnosis: 'Benign lesion',
+        status: 'prelim',
+      }),
+    ));
+    expect(shared.listPathology).toHaveBeenCalledTimes(2);
   });
 });

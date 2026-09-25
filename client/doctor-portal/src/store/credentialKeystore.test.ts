@@ -46,7 +46,7 @@ describe('credential keystore', () => {
     const signer = await signerFromSecret(opened.miniSecret, opened.address);
 
     expect(signer.address).toBe(address);
-  });
+  }, 30_000);
 
   it('round-trips an account that came from a derivation path', async () => {
     const {

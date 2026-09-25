@@ -2,8 +2,7 @@
 //!
 //! Split out of `main.rs` (Phase 10.2). Re-exported at the crate root.
 
-use crate::clinical::*;
-use crate::ipfs::{IpfsClient, MedicalRecordReference};
+use crate::ipfs::IpfsClient;
 use crate::nfc_simulator::CardRegistry;
 use crate::repositories::*;
 use crate::support::*;
@@ -19,17 +18,15 @@ use std::sync::RwLock;
 pub struct AppState {
     /// PostgreSQL connection pool (optional - for persistent demo users)
     pub db_pool: Option<sqlx::PgPool>,
+    /// In-process idempotency claims, used only on the memory backend.
+    /// See `middleware::idempotency::MemoryOperationStore` for why this exists
+    /// and why it is not a bypass of the durable guard.
+    pub idempotency_memory: crate::middleware::idempotency::MemoryOperationStore,
     /// Repository container for database abstraction layer
-    /// Provides access to PatientRepository, AllergyRepository, etc.
+    /// Provides access to PatientRepository, MedicalRecordRepository, etc.
     /// Uses memory backend by default, PostgreSQL when MEDICHAIN_STORAGE=postgres
     pub repositories: RepositoryContainer,
-    pub nfc_tags: RwLock<HashMap<String, NfcTagData>>,
-    pub access_logs: RwLock<Vec<AccessLogEntry>>,
     pub users: RwLock<HashMap<String, User>>,
-    /// Medical record references (patient_id -> list of record refs)
-    pub medical_records: RwLock<HashMap<String, Vec<MedicalRecordReference>>>,
-    /// Lab result submissions pending approval (submission_id -> submission)
-    pub lab_submissions: RwLock<HashMap<String, LabResultSubmission>>,
     /// IPFS client for encrypted document storage
     pub ipfs_client: IpfsClient,
     /// Substrate blockchain client (None if SUBSTRATE_WS_URL not set)
@@ -61,141 +58,10 @@ pub struct AppState {
     pub patient_access: crate::patient_access::PatientAccessService,
     /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
     pub mobile_records: crate::mobile_records::MobileRecordStore,
-    /// One-time emergency-token JTIs retained until their expiry.
-    pub used_emergency_tokens: RwLock<HashMap<String, i64>>,
-    /// Phase 7 policy metadata for sensitive telehealth artifact retention.
-    pub telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore,
     /// Phase 8 local audit events for retryable chain anchoring and governance.
     pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
     pub card_registry: CardRegistry,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 1)
-    // ============================================================================
-    /// Triage assessments (assessment_id -> TriageAssessment)
-    pub triage_assessments: RwLock<HashMap<String, TriageAssessment>>,
-    /// SOAP notes (note_id -> SOAPNote)
-    pub soap_notes: RwLock<HashMap<String, SOAPNote>>,
-    /// Glasgow Coma Scale assessments (assessment_id -> GlasgowComaScale)
-    pub gcs_assessments: RwLock<HashMap<String, GlasgowComaScale>>,
-    /// Vital signs flowsheets (patient_id -> VitalSignsFlowsheet)
-    pub vital_signs: RwLock<HashMap<String, VitalSignsFlowsheet>>,
-    /// EMS handoff reports (report_id -> EMSHandoff)
-    pub ems_handoffs: RwLock<HashMap<String, EMSHandoff>>,
-    /// Medication Administration Records (patient_id+date -> MAR)
-    pub medication_records: RwLock<HashMap<String, MedicationAdministrationRecord>>,
-    /// Intake/Output records (patient_id+date+shift -> IntakeOutputRecord)
-    pub io_records: RwLock<HashMap<String, IntakeOutputRecord>>,
-    /// Nursing care plans (care_plan_id -> NursingCarePlan)
-    pub nursing_care_plans: RwLock<HashMap<String, NursingCarePlan>>,
-    /// Wound assessments (assessment_id -> WoundAssessment)
-    pub wound_assessments: RwLock<HashMap<String, WoundAssessment>>,
-    /// IV site assessments (assessment_id -> IVSiteAssessment)
-    pub iv_assessments: RwLock<HashMap<String, IVSiteAssessment>>,
-    /// Shift handoffs (handoff_id -> ShiftHandoff)
-    pub shift_handoffs: RwLock<HashMap<String, ShiftHandoff>>,
-    /// Incident reports (report_id -> IncidentReport)
-    pub incident_reports: RwLock<HashMap<String, IncidentReport>>,
-    /// Fall risk assessments (assessment_id -> FallRiskAssessment)
-    pub fall_risk_assessments: RwLock<HashMap<String, FallRiskAssessment>>,
-    /// Burn assessments (assessment_id -> BurnAssessment)
-    pub burn_assessments: RwLock<HashMap<String, BurnAssessment>>,
-    /// Mass casualty incidents (incident_id -> MassCasualtyIncident)
-    pub mci_records: RwLock<HashMap<String, MassCasualtyIncident>>,
-    /// Intubation records (record_id -> IntubationRecord)
-    pub intubation_records: RwLock<HashMap<String, IntubationRecord>>,
-    /// Splint/cast records (record_id -> SplintCastRecord)
-    pub splint_cast_records: RwLock<HashMap<String, SplintCastRecord>>,
-    /// Pediatric assessments (assessment_id -> PediatricAssessment)
-    pub pediatric_assessments: RwLock<HashMap<String, PediatricAssessment>>,
-    /// Obstetric emergencies (assessment_id -> ObstetricEmergency)
-    pub obstetric_emergencies: RwLock<HashMap<String, ObstetricEmergency>>,
-    /// Chain of custody records (form_id -> ChainOfCustody)
-    pub chain_of_custody: RwLock<HashMap<String, ChainOfCustody>>,
-    /// Lab QC records (qc_id -> LabQCRecord)
-    pub lab_qc_records: RwLock<HashMap<String, LabQCRecord>>,
-    /// Critical value notifications (notification_id -> CriticalValueNotification)
-    pub critical_values: RwLock<HashMap<String, CriticalValueNotification>>,
-    /// Specimen rejections (rejection_id -> SpecimenRejection)
-    pub specimen_rejections: RwLock<HashMap<String, SpecimenRejection>>,
-    /// Physician orders (order_id -> PhysicianOrder)
-    pub physician_orders: RwLock<HashMap<String, PhysicianOrder>>,
-    /// Discharge summaries (summary_id -> DischargeSummary)
-    pub discharge_summaries: RwLock<HashMap<String, DischargeSummary>>,
-    /// Discharge instructions (instructions_id -> DischargeInstructions)
-    pub discharge_instructions: RwLock<HashMap<String, DischargeInstructions>>,
-    /// AMA discharges (ama_id -> AMADischarge)
-    pub ama_discharges: RwLock<HashMap<String, AMADischarge>>,
-    /// History & Physical documents (hp_id -> HistoryAndPhysical)
-    pub history_physicals: RwLock<HashMap<String, HistoryAndPhysical>>,
-    /// Progress notes (note_id -> ProgressNote)
-    pub progress_notes: RwLock<HashMap<String, ProgressNote>>,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 9-19) - Complete Hospital System
-    // ============================================================================
-    /// Pre-operative assessments (assessment_id -> PreOperativeAssessment)
-    pub pre_op_assessments: RwLock<HashMap<String, PreOperativeAssessment>>,
-    /// Operative notes (note_id -> OperativeNote)
-    pub operative_notes: RwLock<HashMap<String, OperativeNote>>,
-    /// Post-operative notes (note_id -> PostOperativeNote)
-    pub post_op_notes: RwLock<HashMap<String, PostOperativeNote>>,
-    /// Anesthesia records (record_id -> AnesthesiaRecord)
-    pub anesthesia_records: RwLock<HashMap<String, AnesthesiaRecord>>,
-    /// Radiology orders (order_id -> RadiologyOrder)
-    pub radiology_orders: RwLock<HashMap<String, RadiologyOrder>>,
-    /// Radiology reports (report_id -> RadiologyReport)
-    pub radiology_reports: RwLock<HashMap<String, RadiologyReport>>,
-    /// Pathology reports (report_id -> PathologyReport)
-    pub pathology_reports: RwLock<HashMap<String, PathologyReport>>,
-    /// Immunization records (record_id -> ImmunizationRecord)
-    pub immunization_records: RwLock<HashMap<String, ImmunizationRecord>>,
-    /// Blood type screens (test_id -> BloodTypeScreen)
-    pub blood_type_screens: RwLock<HashMap<String, BloodTypeScreen>>,
-    /// Autopsy requests (request_id -> AutopsyRequest)
-    pub autopsy_requests: RwLock<HashMap<String, AutopsyRequest>>,
-    /// Autopsy reports (report_id -> AutopsyReport)
-    pub autopsy_reports: RwLock<HashMap<String, AutopsyReport>>,
-    /// Patient satisfaction surveys (survey_id -> PatientSatisfactionSurvey)
-    pub satisfaction_surveys: RwLock<HashMap<String, PatientSatisfactionSurvey>>,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 20-33) - Extended Features
-    // ============================================================================
-    /// Medication reminders (reminder_id -> MedicationReminder)
-    pub medication_reminders: RwLock<HashMap<String, crate::clinical::MedicationReminder>>,
-    /// Medication adherence logs (log_id -> MedicationAdherenceLog)
-    pub adherence_logs: RwLock<HashMap<String, crate::clinical::MedicationAdherenceLog>>,
-    /// Drug interaction results (result_id -> DrugInteractionResult)
-    pub drug_interactions: RwLock<HashMap<String, crate::clinical::DrugInteractionResult>>,
-    /// Family groups (family_id -> FamilyGroup)
-    pub family_groups: RwLock<HashMap<String, crate::clinical::FamilyGroup>>,
-    /// Wearable devices (device_id -> WearableDevice)
-    pub wearable_devices: RwLock<HashMap<String, crate::clinical::WearableDevice>>,
-    /// Wearable readings (reading_id -> WearableReading)
-    pub wearable_readings: RwLock<HashMap<String, crate::clinical::WearableReading>>,
-    /// Wearable alert rules (rule_id -> WearableAlertRule)
-    pub wearable_alert_rules: RwLock<HashMap<String, crate::clinical::WearableAlertRule>>,
-    /// Wearable alerts (alert_id -> WearableAlert)
-    pub wearable_alerts: RwLock<HashMap<String, crate::clinical::WearableAlert>>,
-    /// Symptom check sessions (session_id -> SymptomCheckSession)
-    pub symptom_sessions: RwLock<HashMap<String, crate::clinical::SymptomCheckSession>>,
-    /// Telehealth sessions (session_id -> TelehealthSession)
-    pub telehealth_sessions: RwLock<HashMap<String, crate::clinical::TelehealthSession>>,
-    /// CDS alerts (alert_id -> CDSAlert)
-    pub cds_alerts: RwLock<HashMap<String, crate::clinical::CDSAlert>>,
-    /// Lab trend results (result_id -> LabTrendResult)
-    pub lab_trends: RwLock<HashMap<String, crate::clinical::LabTrendResult>>,
-    /// E-prescriptions with signing (prescription_id -> EPrescription)
-    pub e_prescriptions_v2: RwLock<HashMap<String, crate::clinical::EPrescription>>,
-    /// Insurance claims (claim_id -> InsuranceClaim)
-    pub insurance_claims: RwLock<HashMap<String, crate::clinical::InsuranceClaim>>,
-    /// Eligibility check responses (check_id -> EligibilityCheckResponse)
-    pub eligibility_checks: RwLock<HashMap<String, crate::clinical::EligibilityCheckResponse>>,
-    /// Language preferences (user_id -> LanguagePreference)
-    pub language_preferences: RwLock<HashMap<String, crate::clinical::LanguagePreference>>,
-    /// Sync conflicts (conflict_id -> SyncConflict)
-    pub sync_conflicts: RwLock<HashMap<String, crate::clinical::SyncConflict>>,
-    /// Patient allergies (patient_id -> Vec<AllergyInfo>)
-    pub allergies: RwLock<HashMap<String, Vec<crate::clinical::AllergyInfo>>>,
     /// Server start time for uptime calculation
     pub start_time: std::time::Instant,
     // ============================================================================
@@ -231,15 +97,13 @@ impl AppState {
             crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
 
         let security = crate::security::SecurityState::new(db_pool.clone());
+        let emergency_grants = crate::emergency_grants::EmergencyGrantStore::new();
 
         Self {
             db_pool,
+            idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
-            nfc_tags: RwLock::new(HashMap::new()),
-            access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
-            medical_records: RwLock::new(HashMap::new()),
-            lab_submissions: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
             substrate_client: None, // Use new_with_pool_async for blockchain support
             ws_manager: crate::websocket::WsSessionManager::new(),
@@ -249,77 +113,11 @@ impl AppState {
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
-            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            emergency_grants,
             patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
-            used_emergency_tokens: RwLock::new(HashMap::new()),
-            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
-            // Clinical documentation storage (Phase 1)
-            triage_assessments: RwLock::new(HashMap::new()),
-            soap_notes: RwLock::new(HashMap::new()),
-            gcs_assessments: RwLock::new(HashMap::new()),
-            vital_signs: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 2-8)
-            ems_handoffs: RwLock::new(HashMap::new()),
-            medication_records: RwLock::new(HashMap::new()),
-            io_records: RwLock::new(HashMap::new()),
-            nursing_care_plans: RwLock::new(HashMap::new()),
-            wound_assessments: RwLock::new(HashMap::new()),
-            iv_assessments: RwLock::new(HashMap::new()),
-            shift_handoffs: RwLock::new(HashMap::new()),
-            incident_reports: RwLock::new(HashMap::new()),
-            fall_risk_assessments: RwLock::new(HashMap::new()),
-            burn_assessments: RwLock::new(HashMap::new()),
-            mci_records: RwLock::new(HashMap::new()),
-            intubation_records: RwLock::new(HashMap::new()),
-            splint_cast_records: RwLock::new(HashMap::new()),
-            pediatric_assessments: RwLock::new(HashMap::new()),
-            obstetric_emergencies: RwLock::new(HashMap::new()),
-            chain_of_custody: RwLock::new(HashMap::new()),
-            lab_qc_records: RwLock::new(HashMap::new()),
-            critical_values: RwLock::new(HashMap::new()),
-            specimen_rejections: RwLock::new(HashMap::new()),
-            physician_orders: RwLock::new(HashMap::new()),
-            discharge_summaries: RwLock::new(HashMap::new()),
-            discharge_instructions: RwLock::new(HashMap::new()),
-            ama_discharges: RwLock::new(HashMap::new()),
-            history_physicals: RwLock::new(HashMap::new()),
-            progress_notes: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 9-19)
-            pre_op_assessments: RwLock::new(HashMap::new()),
-            operative_notes: RwLock::new(HashMap::new()),
-            post_op_notes: RwLock::new(HashMap::new()),
-            anesthesia_records: RwLock::new(HashMap::new()),
-            radiology_orders: RwLock::new(HashMap::new()),
-            radiology_reports: RwLock::new(HashMap::new()),
-            pathology_reports: RwLock::new(HashMap::new()),
-            immunization_records: RwLock::new(HashMap::new()),
-            blood_type_screens: RwLock::new(HashMap::new()),
-            autopsy_requests: RwLock::new(HashMap::new()),
-            autopsy_reports: RwLock::new(HashMap::new()),
-            satisfaction_surveys: RwLock::new(HashMap::new()),
-            // Patient portal storage
-            medication_reminders: RwLock::new(HashMap::new()),
-            adherence_logs: RwLock::new(HashMap::new()),
-            drug_interactions: RwLock::new(HashMap::new()),
-            family_groups: RwLock::new(HashMap::new()),
-            wearable_devices: RwLock::new(HashMap::new()),
-            wearable_readings: RwLock::new(HashMap::new()),
-            wearable_alert_rules: RwLock::new(HashMap::new()),
-            wearable_alerts: RwLock::new(HashMap::new()),
-            symptom_sessions: RwLock::new(HashMap::new()),
-            telehealth_sessions: RwLock::new(HashMap::new()),
-            cds_alerts: RwLock::new(HashMap::new()),
-            lab_trends: RwLock::new(HashMap::new()),
-            e_prescriptions_v2: RwLock::new(HashMap::new()),
-            insurance_claims: RwLock::new(HashMap::new()),
-            eligibility_checks: RwLock::new(HashMap::new()),
-            language_preferences: RwLock::new(HashMap::new()),
-            // Offline sync storage
-            sync_conflicts: RwLock::new(HashMap::new()),
-            allergies: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
             national_id_service: crate::national_id::NationalIdService::new(),
             telehealth_service: crate::telehealth::TelehealthService::new(),
@@ -374,15 +172,61 @@ impl AppState {
             crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
 
         let security = crate::security::SecurityState::new(db_pool.clone());
+        let emergency_grants = match (repositories.backend, db_pool.clone()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                crate::emergency_grants::EmergencyGrantStore::with_pool(pool)
+            }
+            _ => crate::emergency_grants::EmergencyGrantStore::new(),
+        };
+        let mobile_records = match (repositories.backend, db_pool.clone()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                crate::mobile_records::MobileRecordStore::with_pool(pool)
+            }
+            _ => crate::mobile_records::MobileRecordStore::new(),
+        };
+        // The key directory had no durable reader at all: rows sat in
+        // `organization_keys` (a table since 20260727000002) while the registry
+        // started every process empty, so `active()` answered `None` for an
+        // organisation that had published a key months earlier.
+        let organization_keys = match (repositories.backend, db_pool.as_ref()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                match crate::organization_keys::OrganizationKeyRegistry::load_from_pool(pool).await
+                {
+                    Ok(registry) => registry,
+                    Err(error) => {
+                        // Fail closed, loudly. An empty registry refuses every
+                        // wrapping-key lookup, which is the safe direction; the
+                        // unsafe one is carrying on with a directory that
+                        // silently omits a revoked key.
+                        log::error!(
+                            "Organisation-key reload failed; key lookups will fail closed: {error}"
+                        );
+                        crate::organization_keys::OrganizationKeyRegistry::new()
+                    }
+                }
+            }
+            _ => crate::organization_keys::OrganizationKeyRegistry::new(),
+        };
+        let device_lifecycle = match (repositories.backend, db_pool.as_ref()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                match crate::device_lifecycle::DeviceLifecycleStore::load_from_pool(pool).await {
+                    Ok(store) => store,
+                    Err(error) => {
+                        log::error!(
+                            "Managed-device reload failed; access will fail closed: {error}"
+                        );
+                        crate::device_lifecycle::DeviceLifecycleStore::new()
+                    }
+                }
+            }
+            _ => crate::device_lifecycle::DeviceLifecycleStore::new(),
+        };
 
         Self {
             db_pool,
+            idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
-            nfc_tags: RwLock::new(HashMap::new()),
-            access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
-            medical_records: RwLock::new(HashMap::new()),
-            lab_submissions: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
             substrate_client,
             ws_manager: crate::websocket::WsSessionManager::new(),
@@ -390,79 +234,13 @@ impl AppState {
             encryption_keyring,
             security,
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
-            organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
-            device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
-            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            organization_keys,
+            device_lifecycle,
+            emergency_grants,
             patient_access,
-            mobile_records: crate::mobile_records::MobileRecordStore::new(),
-            used_emergency_tokens: RwLock::new(HashMap::new()),
-            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
+            mobile_records,
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
-            // Clinical documentation storage (Phase 1)
-            triage_assessments: RwLock::new(HashMap::new()),
-            soap_notes: RwLock::new(HashMap::new()),
-            gcs_assessments: RwLock::new(HashMap::new()),
-            vital_signs: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 2-8)
-            ems_handoffs: RwLock::new(HashMap::new()),
-            medication_records: RwLock::new(HashMap::new()),
-            io_records: RwLock::new(HashMap::new()),
-            nursing_care_plans: RwLock::new(HashMap::new()),
-            wound_assessments: RwLock::new(HashMap::new()),
-            iv_assessments: RwLock::new(HashMap::new()),
-            shift_handoffs: RwLock::new(HashMap::new()),
-            incident_reports: RwLock::new(HashMap::new()),
-            fall_risk_assessments: RwLock::new(HashMap::new()),
-            burn_assessments: RwLock::new(HashMap::new()),
-            mci_records: RwLock::new(HashMap::new()),
-            intubation_records: RwLock::new(HashMap::new()),
-            splint_cast_records: RwLock::new(HashMap::new()),
-            pediatric_assessments: RwLock::new(HashMap::new()),
-            obstetric_emergencies: RwLock::new(HashMap::new()),
-            chain_of_custody: RwLock::new(HashMap::new()),
-            lab_qc_records: RwLock::new(HashMap::new()),
-            critical_values: RwLock::new(HashMap::new()),
-            specimen_rejections: RwLock::new(HashMap::new()),
-            physician_orders: RwLock::new(HashMap::new()),
-            discharge_summaries: RwLock::new(HashMap::new()),
-            discharge_instructions: RwLock::new(HashMap::new()),
-            ama_discharges: RwLock::new(HashMap::new()),
-            history_physicals: RwLock::new(HashMap::new()),
-            progress_notes: RwLock::new(HashMap::new()),
-            // Surgical and imaging storage
-            pre_op_assessments: RwLock::new(HashMap::new()),
-            operative_notes: RwLock::new(HashMap::new()),
-            post_op_notes: RwLock::new(HashMap::new()),
-            anesthesia_records: RwLock::new(HashMap::new()),
-            radiology_orders: RwLock::new(HashMap::new()),
-            radiology_reports: RwLock::new(HashMap::new()),
-            pathology_reports: RwLock::new(HashMap::new()),
-            immunization_records: RwLock::new(HashMap::new()),
-            blood_type_screens: RwLock::new(HashMap::new()),
-            autopsy_requests: RwLock::new(HashMap::new()),
-            autopsy_reports: RwLock::new(HashMap::new()),
-            satisfaction_surveys: RwLock::new(HashMap::new()),
-            // Patient portal storage
-            medication_reminders: RwLock::new(HashMap::new()),
-            adherence_logs: RwLock::new(HashMap::new()),
-            drug_interactions: RwLock::new(HashMap::new()),
-            family_groups: RwLock::new(HashMap::new()),
-            wearable_devices: RwLock::new(HashMap::new()),
-            wearable_readings: RwLock::new(HashMap::new()),
-            wearable_alert_rules: RwLock::new(HashMap::new()),
-            wearable_alerts: RwLock::new(HashMap::new()),
-            symptom_sessions: RwLock::new(HashMap::new()),
-            telehealth_sessions: RwLock::new(HashMap::new()),
-            cds_alerts: RwLock::new(HashMap::new()),
-            lab_trends: RwLock::new(HashMap::new()),
-            e_prescriptions_v2: RwLock::new(HashMap::new()),
-            insurance_claims: RwLock::new(HashMap::new()),
-            eligibility_checks: RwLock::new(HashMap::new()),
-            language_preferences: RwLock::new(HashMap::new()),
-            // Offline sync storage
-            sync_conflicts: RwLock::new(HashMap::new()),
-            allergies: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
             national_id_service: crate::national_id::NationalIdService::new(),
             telehealth_service: crate::telehealth::TelehealthService::new(),
@@ -482,7 +260,8 @@ impl AppState {
         };
 
         let users_result = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
-            "SELECT u.*, p.department, p.specialty, p.license_number
+            "SELECT u.*, p.department, p.specialty, p.license_number,
+                    p.contact_encrypted, p.contact_key_version
              FROM users u
              LEFT JOIN user_profiles p ON p.user_id = u.id
              WHERE u.is_active = true AND u.status = 'active'",
@@ -517,7 +296,17 @@ impl AppState {
                         created_by: db_user.created_by.clone(),
                         linked_patient_id: db_user.linked_patient_id.clone(),
                         email: db_user.email.clone(),
-                        phone: None,
+                        // Decrypted, not read from the plaintext `phone`
+                        // column, which the API never writes. `None` covers
+                        // three cases that must stay indistinguishable to a
+                        // caller: no contact recorded, a key version this
+                        // process does not hold, and a blob that will not open.
+                        phone: open_staff_contact(
+                            row.contact_encrypted.as_ref(),
+                            row.contact_key_version,
+                            &self.encryption_keyring,
+                        )
+                        .and_then(|contact| contact.phone),
                         department: row.department.clone(),
                         specialty: row.specialty.clone(),
                         license_number: row.license_number.clone(),
@@ -587,29 +376,118 @@ impl AppState {
         .await
         .map_err(|e| e.to_string())?;
 
-        // Always upsert the professional profile, including three NULL values.
+        // Contact details are sealed here and never written to the plaintext
+        // `user_profiles.phone` column, which stays deprecated. A cleared phone
+        // number seals to NULL, so clearing one is durable rather than a value
+        // that resurrects on the next restart.
+        let contact = StaffContact {
+            phone: user.phone.clone(),
+        };
+        let contact_encrypted = seal_staff_contact(&contact, &self.encryption_keyring);
+
+        // Always upsert the professional profile, including NULL values.
         // Skipping the write when every field is None would make a "clear all"
         // profile edit survive only in memory and resurrect stale values after a
         // restart.
         sqlx::query(
-            "INSERT INTO user_profiles (user_id, department, specialty, license_number)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO user_profiles (
+                 user_id, department, specialty, license_number,
+                 contact_encrypted, contact_key_version
+             )
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (user_id) DO UPDATE SET
                  department = EXCLUDED.department,
                  specialty = EXCLUDED.specialty,
                  license_number = EXCLUDED.license_number,
+                 contact_encrypted = EXCLUDED.contact_encrypted,
+                 contact_key_version = EXCLUDED.contact_key_version,
                  updated_at = NOW()",
         )
         .bind(user_id)
         .bind(&user.department)
         .bind(&user.specialty)
         .bind(&user.license_number)
+        .bind(contact_encrypted)
+        .bind(self.encryption_keyring.current_version() as i32)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
 
         tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Write a health ID card to durable storage.
+    ///
+    /// The card registry is a cache; `nfc_tags` is the record. Until this
+    /// existed, `POST /api/nfc/generate` wrote only to the cache, so every card
+    /// ever issued stopped working at the next restart while the plastic in the
+    /// patient's wallet carried on looking exactly as valid as before.
+    ///
+    /// `create` for a new card, `update` for a status change: the caller knows
+    /// which, and an upsert here would let a suspend silently re-create a card
+    /// somebody had deliberately removed.
+    pub async fn persist_card(&self, card: &crate::nfc_simulator::NFCCard) -> Result<(), String> {
+        let entity = card_to_tag(card);
+        let exists = self
+            .repositories
+            .nfc_tags
+            .get_by_id(&entity.id)
+            .await
+            .is_ok();
+        let result = if exists {
+            self.repositories.nfc_tags.update(entity).await
+        } else {
+            self.repositories.nfc_tags.create(entity).await
+        };
+        result.map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// Refill the card registry from `nfc_tags`.
+    ///
+    /// Rows that will not convert are skipped and logged rather than failing
+    /// the whole load: one card with an unreadable status must not take every
+    /// other patient's card offline.
+    pub async fn hydrate_card_registry(&self) -> Result<usize, String> {
+        // Bounded, per NASA rule 2: `MAX_CARDS / MAX_PER_PAGE` pages is the
+        // most the registry can hold, so the loop cannot run away even if the
+        // repository were to keep reporting a full page.
+        let per_page = crate::repositories::Pagination::MAX_PER_PAGE;
+        let max_pages = (crate::nfc_simulator::MAX_CARDS as u32).div_ceil(per_page);
+        let mut cards = Vec::new();
+
+        for page_index in 0..max_pages {
+            let page = self
+                .repositories
+                .nfc_tags
+                .list(crate::repositories::Pagination::new(page_index, per_page))
+                .await
+                .map_err(|e| e.to_string())?;
+            let fetched = page.items.len();
+            for tag in page.items {
+                // `nfc_tags` also holds emergency tags, which are a different
+                // feature with a different `tag_type` vocabulary. Those are not
+                // health ID cards and their absence from this registry is
+                // correct, so they are skipped quietly; only a row that IS a
+                // card and still will not convert is worth warning about.
+                if !is_health_id_card(&tag) {
+                    continue;
+                }
+                match tag_to_card(&tag) {
+                    Some(card) => cards.push(card),
+                    None => log::warn!(
+                        "nfc_tags row {} names a health ID card that could not be read back                          (status {:?}) and was skipped",
+                        tag.id,
+                        tag.status
+                    ),
+                }
+            }
+            if fetched < per_page as usize {
+                break;
+            }
+        }
+
+        self.card_registry.hydrate(cards)
     }
 
     /// Persist a user before publishing the change to the authorization cache.
@@ -708,7 +586,7 @@ impl AppState {
                             }
                         },
                         Err(e) => {
-                            log::warn!("Failed to decrypt MFA secret for {}: {}", wallet, e);
+                            log::warn!("Failed to decrypt MFA secret: {e}");
                             continue;
                         }
                     };
@@ -788,10 +666,6 @@ impl AppState {
 
     /// Load demo patients from PostgreSQL into the patient repository
     /// Called at startup when DATABASE_URL is configured
-    // The `nfc_tags` guard is explicitly `drop()`-ed before the repository-sync
-    // loop's await points; clippy's await_holding_lock doesn't recognize manual
-    // drops here.
-    #[allow(clippy::await_holding_lock)]
     pub async fn load_patients_from_db(&self) -> Result<usize, String> {
         let pool = match &self.db_pool {
             Some(p) => p,
@@ -828,8 +702,8 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to load patients: {}", e))?;
 
-        let mut nfc_tags = self.nfc_tags.write().map_err(|e| e.to_string())?;
         let mut count = 0;
+        let mut unrecorded_blood_type = 0;
         let mut to_repo: Vec<(PatientProfile, NfcTagData)> = Vec::new();
 
         for row in rows {
@@ -856,10 +730,14 @@ impl AppState {
             let conditions_json: Option<serde_json::Value> = row.get("chronic_conditions");
             let languages_json: Option<serde_json::Value> = row.get("languages");
 
-            // Parse blood type
-            let blood_type = blood_type_str
-                .and_then(|s| parse_blood_type(&s).ok())
-                .unwrap_or(BloodType::OPositive); // Default to O+ (universal donor)
+            // A patient with no recorded blood group is not loaded. This used to
+            // default to O+ ("universal donor"), which put a blood group nobody
+            // measured in front of whoever read the record; the profile type has
+            // no way to say "unknown", so absent is the only honest option.
+            let Some(blood_type) = blood_type_str.and_then(|s| parse_blood_type(&s).ok()) else {
+                unrecorded_blood_type += 1;
+                continue;
+            };
 
             // Parse JSON arrays to Vec<String>
             let allergies: Vec<String> = allergies_json
@@ -933,17 +811,21 @@ impl AppState {
             let nfc_tag_id = format!("NFC-{}", patient_id.replace("PAT-", ""));
             let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
             let nfc_tag = NfcTagData {
-                tag_id: nfc_tag_id.clone(),
+                tag_id: nfc_tag_id,
                 patient_id: patient_id.clone(),
                 hash,
                 created_at: Utc::now(),
             };
-            nfc_tags.insert(nfc_tag_id, nfc_tag.clone());
             to_repo.push((patient, nfc_tag));
 
             count += 1;
         }
-        drop(nfc_tags);
+        if unrecorded_blood_type > 0 {
+            log::warn!(
+                "{unrecorded_blood_type} patients have no recorded blood group and were not \
+                 loaded into the in-memory store"
+            );
+        }
 
         // In the memory-backend demo config (DATABASE_URL set but MEDICHAIN_STORAGE
         // unset), also populate the repositories so loaded demo patients are visible
@@ -955,8 +837,10 @@ impl AppState {
         ) {
             for (profile, tag) in to_repo {
                 let entity = patient_profile_to_entity(&profile, &self.encryption_keyring);
-                let _ = self.repositories.patients.create(entity).await;
-                let _ = self.repositories.nfc_tags.create(tag.into()).await;
+                self.repositories
+                    .create_patient_with_nfc(entity, tag.into())
+                    .await
+                    .map_err(|error| format!("load patient into memory repository: {error}"))?;
             }
         }
 
@@ -980,4 +864,68 @@ pub fn normalized_user_status(status: &str) -> &'static str {
         "pending" => "pending",
         _ => "inactive",
     }
+}
+
+/// Map an issued card onto its durable row.
+///
+/// `tag_uid` carries the card hash because that is the value a tap presents and
+/// the only one a reader has to match on.
+fn card_to_tag(card: &crate::nfc_simulator::NFCCard) -> crate::repositories::traits::NfcTagEntity {
+    crate::repositories::traits::NfcTagEntity {
+        id: card.card_id.clone(),
+        tag_uid: card.card_hash.clone(),
+        patient_id: card.patient_id.clone(),
+        tag_type: card.national_id_type.to_string(),
+        is_active: card.status == crate::nfc_simulator::CardStatus::Active,
+        pin_hash: None,
+        issued_at: seconds_to_datetime(card.created_at),
+        expires_at: None,
+        last_used_at: card.last_used_at.map(seconds_to_datetime),
+        use_count: 0,
+        issued_by: None,
+        status: card.status.to_string(),
+    }
+}
+
+/// Whether this row is a health ID card rather than some other kind of tag.
+///
+/// `nfc_tags` is shared with the emergency-tag feature, whose rows carry
+/// `tag_type = "emergency"`. The card registry is not their home and must not
+/// report them as unreadable cards on every startup.
+fn is_health_id_card(tag: &crate::repositories::traits::NfcTagEntity) -> bool {
+    tag.tag_type
+        .parse::<crate::nfc_simulator::NationalIdType>()
+        .is_ok()
+}
+
+/// Map a durable row back to a card.
+///
+/// `None` when the row carries a status or an ID type this build does not
+/// recognise. Failing closed is deliberate: a card whose status could not be
+/// read must not be hydrated as usable.
+fn tag_to_card(
+    tag: &crate::repositories::traits::NfcTagEntity,
+) -> Option<crate::nfc_simulator::NFCCard> {
+    let status: crate::nfc_simulator::CardStatus = tag.status.parse().ok()?;
+    let national_id_type: crate::nfc_simulator::NationalIdType = tag.tag_type.parse().ok()?;
+    Some(crate::nfc_simulator::NFCCard {
+        card_id: tag.id.clone(),
+        patient_id: tag.patient_id.clone(),
+        card_hash: tag.tag_uid.clone(),
+        national_id_type,
+        status,
+        created_at: datetime_to_seconds(tag.issued_at),
+        last_used_at: tag.last_used_at.map(datetime_to_seconds),
+    })
+}
+
+/// Seconds since the epoch as a timestamp, clamped rather than panicking.
+fn seconds_to_datetime(seconds: u64) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(seconds as i64, 0).unwrap_or_else(chrono::Utc::now)
+}
+
+/// A timestamp as seconds since the epoch. Negative timestamps clamp to zero:
+/// a card issued before 1970 is not a case this system has.
+fn datetime_to_seconds(value: chrono::DateTime<chrono::Utc>) -> u64 {
+    value.timestamp().max(0) as u64
 }

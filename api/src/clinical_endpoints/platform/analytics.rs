@@ -8,16 +8,12 @@ use super::*;
 /// `YYYY-MM-DD` bounds; both are optional and an absent bound is unbounded.
 #[derive(Debug, Deserialize)]
 pub struct AnalyticsQueryRequest {
+    /// Accepted because `AnalyticsPage` sends them, and **not applied**: every
+    /// figure below is an all-time total or a live process measurement. The
+    /// response says so in `date_range_applied` rather than letting the picker
+    /// imply a filter that does not exist.
     pub start_date: Option<String>,
     pub end_date: Option<String>,
-    /// Accepted and deserialised so an existing caller's query string is not
-    /// rejected, but no handler narrows on them yet. Kept rather than dropped
-    /// because the frontend already sends them; they become live when a
-    /// metric-specific or per-patient view needs them.
-    #[allow(dead_code)]
-    pub metric_type: Option<String>,
-    #[allow(dead_code)]
-    pub patient_id: Option<String>,
 }
 
 /// Get high-level dashboard metrics for administrators
@@ -80,6 +76,10 @@ pub async fn get_dashboard_metrics(
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
+        // The counts are of everything on file. An administrator who narrowed
+        // the date picker needs to know the numbers did not narrow with it.
+        "scope": "all_time",
+        "date_range_applied": false,
         "metrics": {
             "total_patients": total_patients,
             "total_medical_records": total_records,
@@ -100,11 +100,22 @@ pub async fn get_patient_analytics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
-    let total_population = data.repositories.patients.count().await.unwrap_or(0);
+    // An unreadable register is not an empty one (rule 12).
+    let total_population = match data.repositories.patients.count().await {
+        Ok(count) => count,
+        Err(e) => {
+            log::error!("patient analytics: population count unavailable: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Population analytics are unavailable because the patient register could not be read"
+                    .to_string(),
+                code: "ANALYTICS_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     // This was an always-empty map — a population analytics screen whose only
     // breakdown reported that the register contains nobody of any gender. It is
@@ -116,7 +127,6 @@ pub async fn get_patient_analytics(
         Err(e) => {
             log::error!("patient analytics: gender distribution unavailable: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Population analytics are unavailable because the patient register could not be read"
                     .to_string(),
                 code: "ANALYTICS_UNAVAILABLE".to_string(),
@@ -144,7 +154,7 @@ pub async fn get_appointment_analytics(
     http_req: HttpRequest,
     query: web::Query<AnalyticsQueryRequest>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
@@ -219,14 +229,17 @@ pub async fn get_operational_metrics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
     let repos = &data.repositories;
 
     // Radiology work still queued, by the order's own status.
-    let radiology = repos.radiology_orders.list_all().await.unwrap_or_default();
+    let radiology = match repos.radiology_orders.list_all().await {
+        Ok(values) => values,
+        Err(error) => return operational_metrics_unavailable("radiology", &error),
+    };
     let radiology_queue = radiology
         .iter()
         .filter(|o| {
@@ -240,11 +253,10 @@ pub async fn get_operational_metrics(
     // Lab turnaround: order to result, in whole minutes, over completed work
     // only. The median rather than the mean, because one specimen stuck for a
     // week should not move the number a clinician plans around.
-    let submissions = repos
-        .lab_submissions
-        .get_pending_by_priority()
-        .await
-        .unwrap_or_default();
+    let submissions = match repos.lab_submissions.get_pending_by_priority().await {
+        Ok(values) => values,
+        Err(error) => return operational_metrics_unavailable("laboratory", &error),
+    };
     let lab_pending = submissions
         .iter()
         .filter(|s| s.status.eq_ignore_ascii_case("pending"))
@@ -264,20 +276,17 @@ pub async fn get_operational_metrics(
 
     // Critical values a clinician has not yet acknowledged: the one number on
     // this page that is genuinely time-critical.
-    let unacknowledged_critical_values = repos
-        .critical_values
-        .get_unacknowledged()
-        .await
-        .map(|values| values.len())
-        .unwrap_or(0);
+    let unacknowledged_critical_values = match repos.critical_values.get_unacknowledged().await {
+        Ok(values) => values.len(),
+        Err(error) => return operational_metrics_unavailable("critical-value", &error),
+    };
 
     // Patient satisfaction, averaged over submitted surveys. `None` when nobody
     // has answered — an average over zero responses is not 100%, it is nothing.
-    let surveys = repos
-        .satisfaction_surveys
-        .list_all()
-        .await
-        .unwrap_or_default();
+    let surveys = match repos.satisfaction_surveys.list_all().await {
+        Ok(values) => values,
+        Err(error) => return operational_metrics_unavailable("satisfaction", &error),
+    };
     let ratings: Vec<f64> = surveys
         .iter()
         .filter_map(|s| {
@@ -313,13 +322,21 @@ pub async fn get_operational_metrics(
     }))
 }
 
+fn operational_metrics_unavailable(source: &str, error: &dyn std::fmt::Display) -> HttpResponse {
+    log::error!("Operational metrics {source} read failed: {error}");
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Operational metrics are temporarily unavailable".to_string(),
+        code: "METRICS_UNAVAILABLE".to_string(),
+    })
+}
+
 /// Get quality and compliance metrics
 #[get("/api/platform/analytics/quality")]
 pub async fn get_quality_metrics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_administrator(&data, &http_req) {
         return resp;
     }
 
@@ -333,7 +350,6 @@ pub async fn get_quality_metrics(
             Err(e) => {
                 log::error!("quality metrics: CDS alert counts unavailable: {e}");
                 return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    success: false,
                     error: "Quality metrics are unavailable because alert counts could not be read"
                         .to_string(),
                     code: "METRICS_UNAVAILABLE".to_string(),
@@ -352,7 +368,6 @@ pub async fn get_quality_metrics(
         Err(e) => {
             log::error!("quality metrics: audit anchoring counts unavailable: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
                 error: "Quality metrics are unavailable because audit coverage could not be read"
                     .to_string(),
                 code: "METRICS_UNAVAILABLE".to_string(),

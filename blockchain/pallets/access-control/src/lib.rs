@@ -650,7 +650,23 @@ pub mod pallet {
             Self::is_healthcare_provider(account)
         }
 
-        /// Check if account can edit medical records (Doctor, Nurse, Admin)
+        /// Check if account can submit a medical-record extrinsic.
+        ///
+        /// Deliberately broader than the API predicate of the same name.
+        ///
+        /// `Role::can_edit_medical_records` in `api/src/types/domain.rs` excludes
+        /// `Admin`, because there it answers "may this *person* write to a
+        /// patient's chart?" and an administrator who assigns roles must not also
+        /// act clinically.
+        ///
+        /// Here the question is "may this *chain account* submit the extrinsic?",
+        /// and the API's own service signer holds `Role::Admin` — the dev genesis
+        /// grants `//Alice` Admin precisely because it is the API's default
+        /// signer (see `runtime/src/genesis_config_presets.rs`). Narrowing this
+        /// to match the API would stop every on-chain write the API makes.
+        ///
+        /// The divergence is the point. Do not "fix" it without moving the
+        /// service signer to a role that still satisfies this.
         pub fn can_edit_medical_records(account: &T::AccountId) -> bool {
             Self::is_healthcare_provider(account)
         }

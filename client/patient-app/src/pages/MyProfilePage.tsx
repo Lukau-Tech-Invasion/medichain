@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  apiUrl,
+  getPatient,
   isValidPhoneNumber,
   useTranslation,
   updateDemographics,
   replaceEmergencyContacts,
+  formatTimestamp,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -85,8 +86,8 @@ interface PatientProfile {
   currentMedications: string[];
   chronicConditions: string[];
   emergencyContacts: EmergencyContact[];
-  organDonor: boolean;
-  dnrStatus: boolean;
+  organDonor: boolean | null;
+  dnrStatus: boolean | null;
   phone: string;
   gender: string;
   languages: string[];
@@ -128,11 +129,7 @@ export function MyProfilePage() {
   const [editingInsurance, setEditingInsurance] = useState(false);
   const [insuranceDraft, setInsuranceDraft] = useState<PatientInsurance>(EMPTY_INSURANCE);
 
-  useEffect(() => {
-    loadProfile();
-  }, [patient?.healthId]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setIsLoading(true);
     
     try {
@@ -142,16 +139,7 @@ export function MyProfilePage() {
         return;
       }
 
-      const response = await fetch(apiUrl(`/api/patients/${patient.healthId}`), {
-        headers: {
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const data = await getPatient(patient.healthId);
         const emergencyInfo = data.emergency_info || {};
 
         setProfile({
@@ -171,8 +159,12 @@ export function MyProfilePage() {
               canMakeMedicalDecisions: c.can_make_medical_decisions ?? false,
             })
           ),
-          organDonor: emergencyInfo.organ_donor || false,
-          dnrStatus: emergencyInfo.dnr_status || false,
+          organDonor: typeof emergencyInfo.organ_donor === 'boolean'
+            ? emergencyInfo.organ_donor
+            : null,
+          dnrStatus: typeof emergencyInfo.dnr_status === 'boolean'
+            ? emergencyInfo.dnr_status
+            : null,
           phone: data.phone || '',
           gender: data.gender || '',
           languages: emergencyInfo.languages || [],
@@ -192,27 +184,39 @@ export function MyProfilePage() {
                 groupNumber: data.insurance.group_number || '',
                 validFrom: data.insurance.valid_from || '',
                 validTo: data.insurance.valid_to || '',
-                coverageType: data.insurance.coverage_type || 'Private',
+                coverageType: data.insurance.coverage_type,
                 isActive: data.insurance.is_active ?? true,
               }
             : null,
-          lastUpdated: data.last_updated || new Date().toISOString(),
+          lastUpdated: data.last_updated,
         });
-      } else {
-        setProfile(null);
-      }
     } catch (error) {
       console.error('Failed to load profile:', error);
       setProfile(null);
     }
     
     setIsLoading(false);
-  };
+  }, [patient]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [patient?.healthId, loadProfile]);
 
   /** Show a message for a few seconds, then clear it. */
   const flash = (message: string) => {
     setSaveSuccess(message);
     setTimeout(() => setSaveSuccess(null), 3000);
+  };
+
+  const coverageTypeLabel = (coverageType: PatientInsurance['coverageType']) => {
+    switch (coverageType) {
+      case 'Public': return t('profile.coveragePublic');
+      case 'Private': return t('profile.coveragePrivate');
+      case 'Employer': return t('profile.coverageEmployer');
+      case 'NHIS': return t('profile.coverageNHIS');
+      case 'Community': return t('profile.coverageCommunity');
+      case 'None': return t('profile.coverageNone');
+    }
   };
 
   /**
@@ -380,8 +384,12 @@ export function MyProfilePage() {
           provider: insuranceDraft.provider.trim(),
           policy_number: insuranceDraft.policyNumber.trim(),
           group_number: insuranceDraft.groupNumber.trim() || null,
-          valid_from: insuranceDraft.validFrom,
-          valid_to: insuranceDraft.validTo,
+          // null, not '': the form marks both dates optional, and an empty
+          // string would be stored as a policy "valid from ''" -- a value
+          // where the patient entered nothing. Rule 9: a form sends only what
+          // it collected.
+          valid_from: insuranceDraft.validFrom.trim() || null,
+          valid_to: insuranceDraft.validTo.trim() || null,
           coverage_type: insuranceDraft.coverageType,
           is_active: insuranceDraft.isActive,
         },
@@ -398,7 +406,7 @@ export function MyProfilePage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return formatTimestamp(dateString, {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
@@ -442,8 +450,8 @@ export function MyProfilePage() {
       <div className="flex items-start gap-3 p-4 bg-info-light rounded-xl border border-info/20">
         <Info className="w-5 h-5 text-info mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-info-dark">{t('profile.viewOnly')}</p>
-          <p className="text-sm text-info-dark/80">
+          <p className="text-sm font-medium text-info-dark inline-flex items-center min-h-[24px] py-1">{t('profile.viewOnly')}</p>
+          <p className="text-sm text-info-dark/80 inline-flex items-center min-h-[24px] py-1">
             {t('profile.viewOnlyNote')}
           </p>
         </div>
@@ -452,7 +460,7 @@ export function MyProfilePage() {
       {/* Success Message */}
       {saveSuccess && (
         <div className="success-card flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-success-500" />
+          <CheckCircle className="w-5 h-5 text-ok-subtle-fg" />
           <span>{saveSuccess}</span>
         </div>
       )}
@@ -460,11 +468,11 @@ export function MyProfilePage() {
       {/* Error Message */}
       {error && (
         <div className="error-card flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-danger-500" />
+          <AlertTriangle className="w-5 h-5 text-critical" />
           <span>{error}</span>
           <button 
             onClick={() => setError(null)}
-            className="ml-auto text-danger-500 hover:text-danger-600"
+            className="ml-auto text-critical hover:text-critical/80"
           >
             <X className="w-4 h-4" />
           </button>
@@ -512,7 +520,7 @@ export function MyProfilePage() {
       {/* Medical Info Card */}
       <div className="patient-card">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-emergency-50 rounded-xl flex items-center justify-center">
+          <div className="w-12 h-12 bg-critical-subtle rounded-xl flex items-center justify-center">
             <Heart className="w-6 h-6 text-critical-subtle-fg" />
           </div>
           <div>
@@ -523,10 +531,10 @@ export function MyProfilePage() {
 
         <div className="space-y-6">
           {/* Blood Type */}
-          <div className="flex items-center justify-between p-4 bg-emergency-50 rounded-xl">
+          <div className="flex items-center justify-between p-4 bg-critical-subtle rounded-xl">
             <div className="flex items-center gap-3">
               <Droplets className="w-6 h-6 text-critical-subtle-fg" />
-              <span className="font-medium text-content">{t('profile.bloodType')}</span>
+              <span className="font-medium text-critical-subtle-fg">{t('profile.bloodType')}</span>
             </div>
             <span className="text-2xl font-bold text-critical-subtle-fg">{profile?.bloodType}</span>
           </div>
@@ -541,7 +549,7 @@ export function MyProfilePage() {
               {profile?.allergies.map((allergy, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1.5 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
+                  className="px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm font-medium"
                 >
                   {allergy}
                 </span>
@@ -577,14 +585,14 @@ export function MyProfilePage() {
           {/* Chronic Conditions */}
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <Activity className="w-5 h-5 text-warning-500" />
+              <Activity className="w-5 h-5 text-caution" />
               <span className="font-medium text-content">{t('profile.chronicConditions')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {profile?.chronicConditions.map((condition, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1.5 bg-warning-50 text-warning-700 rounded-full text-sm font-medium"
+                  className="px-3 py-1.5 bg-caution-subtle text-caution-subtle-fg rounded-full text-sm font-medium"
                 >
                   {condition}
                 </span>
@@ -600,17 +608,33 @@ export function MyProfilePage() {
             <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
               <span className="text-sm font-medium text-content-secondary">{t('profile.organDonor')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.organDonor ? 'bg-success-100 text-success-700' : 'bg-surface-sunken text-content-muted'
+                profile?.organDonor === true
+                  ? 'bg-ok-subtle text-ok-subtle-fg'
+                  : profile?.organDonor === false
+                  ? 'bg-surface-sunken text-content-muted'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
-                {profile?.organDonor ? t('common.yes') : t('common.no')}
+                {profile?.organDonor === true
+                  ? t('common.yes')
+                  : profile?.organDonor === false
+                  ? t('common.no')
+                  : t('emergency.noneRecorded')}
               </span>
             </div>
             <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
               <span className="text-sm font-medium text-content-secondary">{t('profile.dnrStatus')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.dnrStatus ? 'bg-emergency-100 text-critical-subtle-fg' : 'bg-surface-sunken text-content-muted'
+                profile?.dnrStatus === true
+                  ? 'bg-critical-subtle text-critical-subtle-fg'
+                  : profile?.dnrStatus === false
+                  ? 'bg-surface-sunken text-content-muted'
+                  : 'bg-caution-subtle text-caution-subtle-fg'
               }`}>
-                {profile?.dnrStatus ? t('common.yes') : t('common.no')}
+                {profile?.dnrStatus === true
+                  ? t('common.yes')
+                  : profile?.dnrStatus === false
+                  ? t('common.no')
+                  : t('emergency.noneRecorded')}
               </span>
             </div>
           </div>
@@ -651,7 +675,7 @@ export function MyProfilePage() {
                   id="profile-phone"
                   value={detailsDraft.phone}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, phone: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder={t('profile.phonePlaceholder')}
                 />
               </div>
@@ -663,7 +687,7 @@ export function MyProfilePage() {
                   id="profile-gender"
                   value={detailsDraft.gender}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, gender: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
                   <option value="">{t('profile.genderUnspecified')}</option>
                   <option value="female">{t('profile.genderFemale')}</option>
@@ -680,7 +704,7 @@ export function MyProfilePage() {
                   id="profile-languages"
                   value={detailsDraft.languages}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, languages: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder={t('profile.spokenLanguagesHint')}
                 />
               </div>
@@ -695,7 +719,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveDetails}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -765,7 +789,7 @@ export function MyProfilePage() {
                   id="address-street"
                   value={addressDraft.street}
                   onChange={(e) => setAddressDraft({ ...addressDraft, street: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -778,7 +802,7 @@ export function MyProfilePage() {
                   id="address-city"
                   value={addressDraft.city}
                   onChange={(e) => setAddressDraft({ ...addressDraft, city: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -790,7 +814,7 @@ export function MyProfilePage() {
                   id="address-state"
                   value={addressDraft.state}
                   onChange={(e) => setAddressDraft({ ...addressDraft, state: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -802,7 +826,7 @@ export function MyProfilePage() {
                   id="address-country"
                   value={addressDraft.country}
                   onChange={(e) => setAddressDraft({ ...addressDraft, country: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder="ZA"
                 />
               </div>
@@ -815,7 +839,7 @@ export function MyProfilePage() {
                   id="address-postal"
                   value={addressDraft.postalCode}
                   onChange={(e) => setAddressDraft({ ...addressDraft, postalCode: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               </div>
@@ -830,7 +854,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveAddress}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -887,7 +911,7 @@ export function MyProfilePage() {
                   id="insurance-provider"
                   value={insuranceDraft.provider}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, provider: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -899,7 +923,7 @@ export function MyProfilePage() {
                   id="insurance-policy"
                   value={insuranceDraft.policyNumber}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, policyNumber: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -911,7 +935,7 @@ export function MyProfilePage() {
                   id="insurance-group"
                   value={insuranceDraft.groupNumber}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, groupNumber: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -927,7 +951,7 @@ export function MyProfilePage() {
                       coverageType: e.target.value as PatientInsurance['coverageType'],
                     })
                   }
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
                   <option value="Public">{t('profile.coveragePublic')}</option>
                   <option value="Private">{t('profile.coveragePrivate')}</option>
@@ -946,7 +970,7 @@ export function MyProfilePage() {
                   id="insurance-from"
                   value={insuranceDraft.validFrom}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validFrom: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
@@ -958,7 +982,7 @@ export function MyProfilePage() {
                   id="insurance-to"
                   value={insuranceDraft.validTo}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validTo: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
             </div>
@@ -967,7 +991,7 @@ export function MyProfilePage() {
                 type="checkbox"
                 checked={insuranceDraft.isActive}
                 onChange={(e) => setInsuranceDraft({ ...insuranceDraft, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-border-strong text-brand focus:ring-primary-500"
+                className="w-4 h-4 rounded border-border-interactive text-brand focus:ring-primary-500"
               />
               {t('profile.insuranceActive')}
             </label>
@@ -982,7 +1006,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveInsurance}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -1001,7 +1025,7 @@ export function MyProfilePage() {
             </div>
             <div>
               <label className="text-sm text-content-muted">{t('profile.insuranceCoverageType')}</label>
-              <p className="font-medium text-content">{profile.insurance.coverageType}</p>
+              <p className="font-medium text-content">{coverageTypeLabel(profile.insurance.coverageType)}</p>
             </div>
             <div>
               <label className="text-sm text-content-muted">{t('profile.insuranceValidTo')}</label>
@@ -1017,8 +1041,8 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-success-50 rounded-xl flex items-center justify-center">
-              <Phone className="w-6 h-6 text-success-500" />
+            <div className="w-12 h-12 bg-ok-subtle rounded-xl flex items-center justify-center">
+              <Phone className="w-6 h-6 text-ok-subtle-fg" />
             </div>
             <div>
               <h2 className="font-semibold text-lg text-content">{t('profile.emergencyContacts')}</h2>
@@ -1028,7 +1052,7 @@ export function MyProfilePage() {
           {!isAddingContact && profile !== null && profile.emergencyContacts.length < MAX_EMERGENCY_CONTACTS && (
             <button
               onClick={() => setIsAddingContact(true)}
-              className="flex items-center gap-2 px-4 py-2 text-success-600 hover:bg-success-50 rounded-xl transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-xl transition-colors"
             >
               <Plus className="w-5 h-5" />
               {t('common.add')}
@@ -1038,7 +1062,7 @@ export function MyProfilePage() {
 
         {/* Add New Contact Form */}
         {isAddingContact && (
-          <div className="mb-6 p-4 bg-success-50 rounded-xl border border-success-200">
+          <div className="mb-6 p-4 bg-ok-subtle rounded-xl border border-ok-subtle-fg/20">
             <h3 className="font-medium text-content mb-4">{t('profile.addEmergencyContact')}</h3>
             <div className="space-y-4">
               <div>
@@ -1048,7 +1072,7 @@ export function MyProfilePage() {
                   id="emergency-contact-name"
                   value={newContact.name}
                   onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                   placeholder={t('profile.namePlaceholder')}
                 />
               </div>
@@ -1059,7 +1083,7 @@ export function MyProfilePage() {
                   id="emergency-contact-phone"
                   value={newContact.phone}
                   onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                   placeholder={t('profile.phonePlaceholder')}
                 />
               </div>
@@ -1069,7 +1093,7 @@ export function MyProfilePage() {
                   id="emergency-contact-relationship"
                   value={newContact.relationship}
                   onChange={(e) => setNewContact({ ...newContact, relationship: e.target.value })}
-                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                 >
                   <option value="">{t('profile.selectRelationship')}</option>
                   <option value="Spouse">{t('profile.relSpouse')}</option>
@@ -1087,7 +1111,7 @@ export function MyProfilePage() {
                   onChange={(e) =>
                     setNewContact({ ...newContact, canMakeMedicalDecisions: e.target.checked })
                   }
-                  className="w-4 h-4 rounded border-border-strong text-success-600 focus:ring-success-500"
+                  className="w-4 h-4 rounded border-border-interactive text-ok focus:ring-success-500"
                 />
                 {t('profile.canMakeDecisions')}
               </label>
@@ -1102,7 +1126,7 @@ export function MyProfilePage() {
                 <button
                   onClick={handleAddContact}
                   disabled={isSaving || !newContact.name || !newContact.phone || !newContact.relationship}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1137,7 +1161,7 @@ export function MyProfilePage() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
                   href={`tel:${sanitizePhoneForTel(contact.phone)}`}
-                  className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                 >
                   <Phone className="w-4 h-4" />
                   {t('profile.call')}
@@ -1146,7 +1170,7 @@ export function MyProfilePage() {
                   onClick={() => handleRemoveContact(idx)}
                   disabled={isSaving}
                   aria-label={`${t('profile.removeContact')} ${contact.name}`}
-                  className="p-2 text-danger-500 hover:bg-danger-50 rounded-xl transition-colors disabled:opacity-50"
+                  className="p-2 text-critical hover:bg-critical-subtle rounded-xl transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

@@ -12,6 +12,99 @@ use sha3::{Digest, Sha3_256};
 // Helper Functions
 // ============================================================================
 
+/// Persist an audit record required before a handler may report success or
+/// release protected health information.
+///
+/// This is deliberately fail-closed. Callers must return the supplied response;
+/// logging the repository error and continuing would recreate the hidden
+/// `sensitive action -> lost audit -> HTTP success` failure mode.
+pub async fn require_durable_audit(
+    data: &web::Data<AppState>,
+    entry: crate::repositories::traits::AccessLogEntity,
+) -> Result<(), HttpResponse> {
+    let alert = access_alert_for(&entry);
+    if let Err(error) = data.repositories.access_logs.create(entry).await {
+        log::error!("required audit persistence failed: {error}");
+        return Err(HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "success": false,
+            "error": "Required audit persistence is unavailable",
+            "code": "AUDIT_PERSISTENCE_UNAVAILABLE"
+        })));
+    }
+    // After the audit is durable, never before: a patient must not be told
+    // about an access the record does not have. Spawned because a notification
+    // is not part of the decision the caller is waiting on, and a push outage
+    // must not delay the release of a record to a clinician.
+    if let Some((patient_id, accessor_role, emergency)) = alert {
+        let state = data.clone();
+        tokio::spawn(async move {
+            let body = if emergency {
+                format!("{accessor_role} opened your emergency record.")
+            } else {
+                format!("{accessor_role} viewed your records.")
+            };
+            crate::notifications::notify_patient(
+                &state,
+                &patient_id,
+                &["accessAlerts", "pushNotifications"],
+                "Record Accessed",
+                &body,
+                "access_alert",
+            )
+            .await;
+        });
+    }
+    Ok(())
+}
+
+/// The access alert this audit entry warrants, if any.
+///
+/// Returns `(patient_id, accessor_role, is_emergency)`.
+///
+/// **An allowlist, not a denylist.** Reads alert; writes do not. A denylist
+/// would silently enrol every action added later -- the next `create_*` handler
+/// would start telling patients their records had been *viewed* by the person
+/// who wrote to them, which is both wrong and the kind of noise that makes a
+/// real break-glass alert invisible.
+///
+/// Emergency access alerts regardless of action: a record opened under
+/// break-glass is precisely what the patient most needs to hear about, and the
+/// flag is set independently of what the action is called.
+fn access_alert_for(
+    entry: &crate::repositories::traits::AccessLogEntity,
+) -> Option<(String, String, bool)> {
+    let patient_id = entry.patient_id.clone()?;
+    let action = entry.action.as_str();
+    // `is_emergency_access` is deliberately NOT part of this test. The
+    // emergency module stamps it on every audit it writes, documentation
+    // included, where it means "during an emergency workflow" rather than
+    // "opened under break-glass" -- so trusting it alerted the patient every
+    // time somebody wrote up their resuscitation. Every genuine break-glass
+    // read is already named here: `nfc_tap` and `nfc_self_verify` under the
+    // `nfc_` prefix, plus `emergency` itself.
+    let is_read = action.starts_with("view")
+        || action.starts_with("download")
+        || action.starts_with("nfc_")
+        || action == "list_records"
+        || action == "qr_verification"
+        || action == "emergency";
+    if !is_read {
+        return None;
+    }
+    // Reading your own record is not an access alert. The accessor is a wallet
+    // address and the subject is a `PAT-` id, so this is the same namespace
+    // bridge `notify_patient` documents -- compared here rather than there
+    // because only this caller knows who the accessor was.
+    if entry.accessor_id == patient_id {
+        return None;
+    }
+    Some((
+        patient_id,
+        entry.accessor_role.clone(),
+        entry.is_emergency_access,
+    ))
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -36,6 +129,53 @@ fn national_id_hash_key() -> String {
         .unwrap_or_else(|_| "medichain-dev-national-id-key-change-in-production".to_string())
 }
 
+/// Resolve the independent key for patient-name blind indexes.
+///
+/// This must never reuse `NATIONAL_ID_HASH_KEY`: rotating a name-search key is
+/// an operationally independent event, and key reuse couples two unrelated
+/// equality-leakage domains. The fixed fallback is development-only and is
+/// rejected by `validate_production_secrets`.
+fn patient_search_index_key() -> String {
+    std::env::var("PATIENT_SEARCH_INDEX_KEY").unwrap_or_else(|_| {
+        "medichain-dev-patient-search-index-key-change-in-production".to_string()
+    })
+}
+
+/// Return keyed equality tokens for a patient name without retaining plaintext.
+///
+/// Names are case-folded, split on non-alphanumeric boundaries, de-duplicated,
+/// and independently domain-separated before hashing. Search therefore supports
+/// whole-name-token equality (for example `"Ama"` or `"Ama Mensah"`), not
+/// substring/prefix search. That limitation is deliberate: prefix indexes add
+/// substantially more frequency information about a sensitive name.
+pub fn patient_name_search_tokens(name: &str) -> Vec<String> {
+    name_search_tokens_with_key(name, &patient_search_index_key())
+}
+
+/// The token construction itself, with the key passed in.
+///
+/// Separate so a test can compare two keys without writing
+/// `PATIENT_SEARCH_INDEX_KEY` into the process environment: tests run in
+/// parallel, and a test that changed the key between indexing a patient and
+/// searching for them made any concurrent name-search test fail at random.
+fn name_search_tokens_with_key(name: &str, key: &str) -> Vec<String> {
+    let normalized = name
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect::<std::collections::BTreeSet<_>>();
+    normalized
+        .into_iter()
+        .map(|token| {
+            let mut hasher = Sha3_256::new();
+            hasher.update(key.as_bytes());
+            hasher.update(b":patient-name-token:");
+            hasher.update(token.as_bytes());
+            hex::encode(hasher.finalize())
+        })
+        .collect()
+}
+
 /// Hash a national ID number for storage/indexing (Horizon HZ-005).
 ///
 /// National ID numbers are short, structured, and low-entropy relative to a
@@ -49,8 +189,15 @@ fn national_id_hash_key() -> String {
 /// `national_index`) keep working — the key, not the algorithm, is what makes the
 /// digest non-reversible without server-side knowledge.
 pub fn hash_national_id(id: &str) -> String {
+    hash_national_id_with_key(id, &national_id_hash_key())
+}
+
+/// The digest itself, with the key passed in, so tests can compare keys
+/// without writing `NATIONAL_ID_HASH_KEY` into the shared process environment
+/// (see `name_search_tokens_with_key`).
+fn hash_national_id_with_key(id: &str, key: &str) -> String {
     let mut hasher = Sha3_256::new();
-    hasher.update(national_id_hash_key().as_bytes());
+    hasher.update(key.as_bytes());
     hasher.update(b":");
     hasher.update(id.as_bytes());
     hex::encode(hasher.finalize())
@@ -354,14 +501,12 @@ pub fn require_registered_caller(
 ) -> Result<crate::User, HttpResponse> {
     let user_id = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
             error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
     get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         })
@@ -392,8 +537,35 @@ pub fn require_clinical_staff(
     let user = require_registered_caller(data, req)?;
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-            success: false,
             error: "This endpoint is restricted to clinical staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    Ok(user)
+}
+
+/// Resolve the caller and require that they are an administrator.
+///
+/// The distinction from [`require_clinical_staff`] is the whole point.
+/// `can_view_medical_records()` is true for Doctor, Nurse, LabTechnician *and*
+/// Pharmacist, which is the right question for "may this person see a patient's
+/// record" and the wrong one for a deployment-wide aggregate.
+///
+/// The five analytics endpoints used the clinical predicate, so a lab
+/// technician signed in as themselves could read the compliance score, the
+/// audit-entry totals and the critical-alert counts for every patient in the
+/// deployment. The navigation had already made the opposite decision —
+/// `/analytics` appears in `ADMIN_NAV` and in no other role's — so this is the
+/// same failure `roles.spec.ts` names for `/mar`: the navigation and the
+/// authorization disagreed, and the router was not the one enforcing it.
+pub fn require_administrator(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user = require_registered_caller(data, req)?;
+    if !user.role.is_admin() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            error: "This endpoint is restricted to administrators".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
     }
@@ -488,7 +660,6 @@ pub fn resolve_attributed_provider(
     let target = get_user(data, requested).filter(|u| u.role.is_healthcare_provider());
     let Some(target) = target else {
         return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
-            success: false,
             error: "The named provider is not a registered, active healthcare provider".to_string(),
             code: "UNKNOWN_PROVIDER".to_string(),
         }));
@@ -498,7 +669,6 @@ pub fn resolve_attributed_provider(
     // administrator scheduling for a colleague.
     if caller.role.can_view_medical_records() && !caller.role.is_admin() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-            success: false,
             error: "You may only file records under your own name".to_string(),
             code: "PROVIDER_MISMATCH".to_string(),
         }));
@@ -530,7 +700,6 @@ pub fn require_actor_is_caller(
     if let Some(claimed) = claimed {
         if claimed != caller.wallet_address {
             return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
-                success: false,
                 error: "This record must be filed under your own name".to_string(),
                 code: "ACTOR_MISMATCH".to_string(),
             }));
@@ -812,35 +981,45 @@ mod attributed_provider_tests {
 mod tests {
     use super::*;
 
-    /// HZ-005 regression, run as one test (not three) to avoid cross-test races
-    /// on the shared `NATIONAL_ID_HASH_KEY` env var — the same reason
-    /// `blockchain.rs::test_operator_signer_fail_closed` does the same thing.
+    /// HZ-005 regression. Keys are passed explicitly: this test used to set
+    /// `NATIONAL_ID_HASH_KEY` in the process environment, which every other
+    /// test that registers or looks up a patient by national ID also reads.
     #[test]
     fn hash_national_id_is_keyed_deterministic_and_not_bare_sha3() {
         let id = "8001015009087";
 
         // Depends on the key, not just the ID.
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "key-one");
-        let with_key_one = hash_national_id(id);
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "key-two");
-        let with_key_two = hash_national_id(id);
         assert_ne!(
-            with_key_one, with_key_two,
+            hash_national_id_with_key(id, "key-one"),
+            hash_national_id_with_key(id, "key-two"),
             "same ID under two different keys must produce different digests"
         );
 
         // Deterministic per (key, id) — required so equality-based lookups
         // (e.g. `national_index`) keep working.
-        std::env::set_var("NATIONAL_ID_HASH_KEY", "fixed-key");
-        let first = hash_national_id(id);
-        let second = hash_national_id(id);
-        assert_eq!(first, second);
+        let first = hash_national_id_with_key(id, "fixed-key");
+        assert_eq!(first, hash_national_id_with_key(id, "fixed-key"));
 
         // Never degrades to the bare, unkeyed construction the finding named.
         let bare = hex::encode(Sha3_256::digest(id.as_bytes()));
         assert_ne!(first, bare);
+        assert_eq!(
+            hash_national_id(id),
+            hash_national_id_with_key(id, &national_id_hash_key())
+        );
+    }
 
-        std::env::remove_var("NATIONAL_ID_HASH_KEY");
+    #[test]
+    fn patient_name_tokens_are_normalized_keyed_and_distinct() {
+        let first = name_search_tokens_with_key("Ama-Mensah Ama", "name-index-key-one");
+        let normalized = name_search_tokens_with_key("  ama   mensah ", "name-index-key-one");
+        assert_eq!(first, normalized);
+        assert_eq!(first.len(), 2, "duplicate words must not leak frequency");
+
+        assert_ne!(
+            first,
+            name_search_tokens_with_key("Ama Mensah", "name-index-key-two")
+        );
     }
 
     // ------------------------------------------------------------------
@@ -945,5 +1124,104 @@ mod tests {
             Some(v) => std::env::set_var("IS_DEMO", v),
             None => std::env::remove_var("IS_DEMO"),
         }
+    }
+}
+
+#[cfg(test)]
+mod access_alert_rule_tests {
+    use super::access_alert_for;
+    use crate::repositories::traits::AccessLogEntity;
+    use chrono::Utc;
+
+    fn entry(action: &str, emergency: bool, accessor: &str) -> AccessLogEntity {
+        AccessLogEntity {
+            id: "AL-1".to_string(),
+            accessor_id: accessor.to_string(),
+            accessor_role: "Doctor".to_string(),
+            patient_id: Some("PAT-1".to_string()),
+            resource_type: "medical_record".to_string(),
+            resource_id: None,
+            action: action.to_string(),
+            access_reason: None,
+            is_emergency_access: emergency,
+            ip_address: None,
+            user_agent: None,
+            blockchain_tx_hash: None,
+            accessed_at: Utc::now(),
+            facility_id: None,
+        }
+    }
+
+    #[test]
+    fn reads_alert() {
+        for action in [
+            "view_medical_id",
+            "download_record",
+            "nfc_tap",
+            "list_records",
+            "qr_verification",
+            "emergency",
+        ] {
+            let alert = access_alert_for(&entry(action, false, "5Doctor"));
+            assert!(alert.is_some(), "{action} should alert the patient");
+        }
+    }
+
+    #[test]
+    fn writes_do_not_alert() {
+        for action in [
+            "create",
+            "create_soap_note",
+            "add_vital_signs",
+            "upload_record",
+            "log_symptom",
+            "lab_submission",
+        ] {
+            assert!(
+                access_alert_for(&entry(action, false, "5Doctor")).is_none(),
+                "{action} is a write; alerting on it would drown the real ones"
+            );
+        }
+    }
+
+    #[test]
+    fn emergency_flag_alone_does_not_make_a_write_a_read() {
+        // `emergency/mod.rs` stamps `is_emergency_access: true` on every audit
+        // it writes, documentation included. Three emergency writes alerted
+        // the patient before this was fixed.
+        for action in [
+            "create_stroke_assessment",
+            "create_code_blue",
+            "create_trauma_assessment",
+        ] {
+            assert!(
+                access_alert_for(&entry(action, true, "5Doctor")).is_none(),
+                "{action} documents care; it is not somebody viewing the record"
+            );
+        }
+    }
+
+    #[test]
+    fn break_glass_read_still_alerts_and_says_so() {
+        let (patient, role, emergency) = access_alert_for(&entry("nfc_tap", true, "5Paramedic"))
+            .expect("break-glass must alert");
+        assert_eq!(patient, "PAT-1");
+        assert_eq!(role, "Doctor");
+        assert!(
+            emergency,
+            "the alert must be able to say it was an emergency open"
+        );
+    }
+
+    #[test]
+    fn reading_your_own_record_is_not_an_access_alert() {
+        assert!(access_alert_for(&entry("view_medical_id", false, "PAT-1")).is_none());
+    }
+
+    #[test]
+    fn an_entry_with_no_patient_alerts_nobody() {
+        let mut e = entry("download_record", false, "5Doctor");
+        e.patient_id = None;
+        assert!(access_alert_for(&e).is_none());
     }
 }

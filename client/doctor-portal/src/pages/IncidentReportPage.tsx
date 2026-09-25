@@ -17,10 +17,13 @@ import {
   AlertCircle
 } from 'lucide-react';
 import {
-  apiUrl,
   listIncidentReports,
   createIncidentReport,
   useTranslation,
+  Input,
+  Textarea,
+  useValidatedForm,
+  incidentReportSchema,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -91,11 +94,16 @@ function toIncident(row: IncidentRow): Incident {
     const d = new Date(value || '');
     return isNaN(d.getTime()) ? new Date() : d;
   };
+  // The API's vocabulary is snake_case (`medication_error`); this page's is
+  // hyphenated (`medication-error`). Normalise on the way in, or every badge
+  // lookup for such a row is `undefined`.
+  const vocabulary = (value: string | null | undefined, fallback: string) =>
+    (value || fallback).trim().replace(/_/g, '-').toLowerCase();
   return {
     id: row.id,
-    type: row.incident_type as IncidentType,
-    severity: row.severity as IncidentSeverity,
-    status: (row.investigation_status || 'open') as IncidentStatus,
+    type: vocabulary(row.incident_type, 'other') as IncidentType,
+    severity: vocabulary(row.severity, 'moderate') as IncidentSeverity,
+    status: vocabulary(row.investigation_status, 'open') as IncidentStatus,
     dateTime: asDate(row.incident_datetime),
     location: row.location || '',
     department: row.department || '',
@@ -124,7 +132,7 @@ const IncidentReportPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
-  const { showSuccess, showError, showWarning } = useToastActions();
+  const { showSuccess, showError } = useToastActions();
 
   const [formData, setFormData] = useState({
     type: 'fall' as IncidentType,
@@ -165,11 +173,15 @@ const IncidentReportPage: React.FC = () => {
     };
     
     fetchIncidents();
-  }, [user]);
+  }, [user, t]);
+
+  const { errors, validate, validateField, clearField } = useValidatedForm(incidentReportSchema);
 
   const handleSubmitReport = async () => {
-    if (!formData.description || !formData.location || !formData.dateTime) {
-      showError(t('docIncidentReport.errorRequiredFields'));
+    // Was a toast naming three fields at once, which is the least useful place
+    // to put an error: it is not attached to any control, and this form is a
+    // three-step wizard, so the offending field may not even be on screen.
+    if (!validate(formData)) {
       return;
     }
 
@@ -232,7 +244,9 @@ const IncidentReportPage: React.FC = () => {
       'exposure': { bg: 'bg-surface-sunken text-content-secondary', icon: <AlertTriangle className="w-3 h-3" /> },
       'other': { bg: 'bg-surface-sunken text-content-secondary', icon: <FileText className="w-3 h-3" /> }
     };
-    const { bg, icon } = config[type];
+    // A value the map does not know is a display problem, not a reason to
+    // crash the router.
+    const { bg, icon } = config[type] ?? config.other;
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
@@ -247,10 +261,10 @@ const IncidentReportPage: React.FC = () => {
       'minor': 'bg-caution-subtle text-caution-subtle-fg',
       'moderate': 'bg-surface-sunken text-content-secondary',
       'major': 'bg-critical-subtle text-critical-subtle-fg',
-      'sentinel': 'bg-critical text-white'
+      'sentinel': 'bg-critical text-critical-fg'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity]}`}>
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity] ?? styles.moderate}`}>
         {t(`docIncidentReport.severity_${severity}`)}
       </span>
     );
@@ -264,7 +278,7 @@ const IncidentReportPage: React.FC = () => {
       'closed': { bg: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'escalated': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
-    const { bg, icon } = config[status];
+    const { bg, icon } = config[status] ?? config.open;
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
@@ -292,12 +306,12 @@ const IncidentReportPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-rose-700 to-red-600 text-white p-6">
+      <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <AlertOctagon className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docIncidentReport.title')}</h1>
         </div>
-        <p className="text-critical-fg">{t('docIncidentReport.subtitle')}</p>
+        <p className="text-white">{t('docIncidentReport.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -311,10 +325,10 @@ const IncidentReportPage: React.FC = () => {
       {/* Error State */}
       {error && !loading && (
         <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-red-500 mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
+            <p className="text-xs text-critical mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -381,12 +395,12 @@ const IncidentReportPage: React.FC = () => {
               className="px-4 py-2 border rounded-lg"
             >
               <option value="all">{t('docIncidentReport.allTypes')}</option>
-              <option value="fall">{t('docIncidentReport.type_fall')}</option>
-              <option value="medication-error">{t('docIncidentReport.type_medication-error')}</option>
-              <option value="equipment-failure">{t('docIncidentReport.type_equipment-failure')}</option>
-              <option value="security">{t('docIncidentReport.type_security')}</option>
-              <option value="behavioral">{t('docIncidentReport.type_behavioral')}</option>
-              <option value="exposure">{t('docIncidentReport.type_exposure')}</option>
+              <option value="fall">{t('docIncidentReport.typeOption_fall')}</option>
+              <option value="medication-error">{t('docIncidentReport.typeOption_medication-error')}</option>
+              <option value="equipment-failure">{t('docIncidentReport.typeOption_equipment-failure')}</option>
+              <option value="security">{t('docIncidentReport.typeOption_security')}</option>
+              <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
+              <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
             </select>
             <select
               value={statusFilter}
@@ -412,7 +426,7 @@ const IncidentReportPage: React.FC = () => {
                       {getSeverityBadge(incident.severity)}
                       {getStatusBadge(incident.status)}
                     </div>
-                    <p className="text-sm text-content-muted mt-1 flex items-center gap-2">
+                    <p className="text-sm text-content-muted mt-1 flex items-center gap-2 min-h-[24px] py-1">
                       <Calendar className="w-4 h-4" />
                       {incident.dateTime.toLocaleString()}
                       <MapPin className="w-4 h-4 ml-2" />
@@ -423,7 +437,7 @@ const IncidentReportPage: React.FC = () => {
                     <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="View incident details">
                       <Eye className="w-5 h-5 text-content-muted" />
                     </button>
-                    <button className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
+                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
@@ -473,7 +487,7 @@ const IncidentReportPage: React.FC = () => {
                   <div
                     key={step}
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      formStep === step ? 'bg-critical text-critical-fg' : formStep > step ? 'bg-green-500 text-critical-fg' : 'bg-surface-sunken'
+                      formStep === step ? 'bg-critical text-critical-fg' : formStep > step ? 'bg-ok text-ok-fg' : 'bg-surface-sunken'
                     }`}
                   >
                     {formStep > step ? <CheckCircle className="w-4 h-4" /> : step}
@@ -520,12 +534,16 @@ const IncidentReportPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">{t('docIncidentReport.dateTimeRequired')} *</label>
-                    <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2"
-                      value={formData.dateTime}
-                      onChange={(e) => setFormData(f => ({ ...f, dateTime: e.target.value }))} />
-                  </div>
+                  <Input
+                    id="inc-date-time"
+                    type="datetime-local"
+                    label={t('docIncidentReport.dateTimeRequired')}
+                    value={formData.dateTime}
+                    onChange={(e) => { clearField('dateTime'); setFormData(f => ({ ...f, dateTime: e.target.value })); }}
+                    onBlur={() => validateField('dateTime', formData)}
+                    error={errors.dateTime}
+                    required
+                  />
                   <div>
                     <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
                     <select id="inc-department" className="w-full border rounded-lg px-3 py-2"
@@ -539,24 +557,34 @@ const IncidentReportPage: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">{t('docIncidentReport.exactLocationRequired')} *</label>
-                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.exactLocationPh')}
-                    value={formData.location}
-                    onChange={(e) => setFormData(f => ({ ...f, location: e.target.value }))} />
-                </div>
+                <Input
+                  id="inc-exact-location"
+                  type="text"
+                  label={t('docIncidentReport.exactLocationRequired')}
+                  placeholder={t('docIncidentReport.exactLocationPh')}
+                  value={formData.location}
+                  onChange={(e) => { clearField('location'); setFormData(f => ({ ...f, location: e.target.value })); }}
+                  onBlur={() => validateField('location', formData)}
+                  error={errors.location}
+                  required
+                />
               </div>
             )}
 
             {formStep === 2 && (
               <div className="space-y-4">
                 <h3 className="font-medium text-content">{t('docIncidentReport.step2Heading')}</h3>
-                <div>
-                  <label htmlFor="inc-description" className="block text-sm font-medium mb-1">{t('docIncidentReport.descriptionRequired')} *</label>
-                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')}
-                    value={formData.description}
-                    onChange={(e) => setFormData(f => ({ ...f, description: e.target.value }))} />
-                </div>
+                <Textarea
+                  id="inc-description"
+                  rows={6}
+                  label={t('docIncidentReport.descriptionRequired')}
+                  placeholder={t('docIncidentReport.descriptionPh')}
+                  value={formData.description}
+                  onChange={(e) => { clearField('description'); setFormData(f => ({ ...f, description: e.target.value })); }}
+                  onBlur={() => validateField('description', formData)}
+                  error={errors.description}
+                  required
+                />
                 <div className="flex items-center gap-3 p-3 bg-surface-sunken rounded-lg">
                   <input
                     id="inc-patient-involved"

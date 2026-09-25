@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { ConsentManagementPage } from './ConsentManagementPage';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -32,7 +33,7 @@ describe('ConsentManagementPage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (usePatientAuthStore as any).mockReturnValue({
+    (usePatientAuthStore as unknown as Mock).mockReturnValue({
       patient: mockPatient,
       isAuthenticated: true,
     });
@@ -61,12 +62,51 @@ describe('ConsentManagementPage (Patient)', () => {
           }),
         });
       }
+      // The server's shape: camelCase (`AccessRequestEntity` is
+      // `rename_all = "camelCase"`) under a `requests` key.
+      if (url.includes('/api/access/patient/HEALTH123/requests')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({
+            requests: [
+              {
+                id: 'req1',
+                providerId: 'PROV2',
+                providerName: 'Dr. Mensah',
+                providerRole: 'Physician',
+                organization: 'Korle Bu',
+                requestedAt: new Date().toISOString(),
+                reason: 'Follow-up after discharge',
+                status: 'pending',
+              }
+            ]
+          }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
+  });
+
+  it('renders a pending request with the fields the server sends', async () => {
+    render(
+      <MemoryRouter>
+        <ConsentManagementPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Dr. Smith/i)).toBeInTheDocument();
+    });
+    // The tab, not the pending-requests banner that also names them.
+    fireEvent.click(screen.getByRole('button', { name: /^Requests/i }));
+
+    expect(screen.getByText(/Dr. Mensah/i)).toBeInTheDocument();
+    expect(screen.getByText(/Follow-up after discharge/i)).toBeInTheDocument();
   });
 
   it('renders consent management page with active grants', async () => {
@@ -90,13 +130,13 @@ describe('ConsentManagementPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Access Control/i)).toBeInTheDocument();
+      expect(screen.getByText(/Dr. Smith/i)).toBeInTheDocument();
     });
 
-    const requestsTab = screen.getByText(/Requests/i);
-    fireEvent.click(requestsTab);
+    fireEvent.click(screen.getByRole('button', { name: /^Requests/i }));
     
-    expect(screen.getByText(/Pending Requests/i)).toBeInTheDocument();
+    expect(screen.getByText(/Dr. Mensah/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Dr. Smith/i)).not.toBeInTheDocument();
 
     // 'History' appears as both a tab and a section label.
     const historyTab = screen.getAllByText(/History/i)[0];

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import * as shared from '@medichain/shared';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
@@ -46,7 +46,7 @@ const ORDER_SETS = [
 ];
 
 beforeEach(() => {
-  (shared.getOrderSets as any).mockResolvedValue(ORDER_SETS);
+  vi.mocked(shared.getOrderSets).mockResolvedValue({ success: true, order_sets: ORDER_SETS });
 });
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import OrderSetsPage from './OrderSetsPage';

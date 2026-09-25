@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, apiUrl, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { createStroke, getPatients, getPatientStrokes, formatTimestamp, useTranslation, type StrokeListRow } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -13,15 +12,22 @@ import {
   CheckCircle,
   History
 } from 'lucide-react';
+import PatientSelect from '../components/PatientSelect';
+
+
 
 export default function StrokePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // The roster this page fetched existed only to fill a patient dropdown.
+  // `PatientSelect` queries the server as the clinician types.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [emergencyHistory, setEmergencyHistory] = useState<Array<{event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string}>>([]);
+  // The list endpoint returns summary rows keyed `id`. This panel read
+  // `event_id`, `event_type` and `outcome` off them -- names from the
+  // full-record shape -- so every row showed a blank ID and "N/A".
+  const [emergencyHistory, setEmergencyHistory] = useState<StrokeListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   
   // Stroke Assessment State
@@ -46,8 +52,7 @@ export default function StrokePage() {
 
   const loadPatients = async () => {
     try {
-      const data = await getPatients();
-      setPatients(data);
+      await getPatients();
     } catch (error) {
       console.error('Failed to load patients', error);
     }
@@ -57,13 +62,7 @@ export default function StrokePage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/emergency/stroke/patient/${patientId}`), {
-        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEmergencyHistory(data.events || data || []);
-      }
+      setEmergencyHistory(await getPatientStrokes(patientId));
     } catch (e) {
       console.error(e);
     } finally {
@@ -77,7 +76,6 @@ export default function StrokePage() {
 
     try {
       const strokeData = {
-        assessment_id: `STR-${Date.now()}`,
         patient_id: selectedPatient,
         last_known_well: new Date(lastKnownWell).getTime() / 1000,
         symptom_onset: new Date(symptomOnset).getTime() / 1000,
@@ -92,7 +90,6 @@ export default function StrokePage() {
         ct_head_interpretation: ctHeadResult,
         tpa_eligibility: tpaCandidate,
         notes,
-        assessed_by: user?.userId || 'unknown',
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
@@ -126,20 +123,12 @@ export default function StrokePage() {
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-5 w-5 text-content-muted" />
             </div>
-            <select
+            <PatientSelect
               id="stroke-patient"
-              className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
               value={selectedPatient}
-              onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
+              onChange={(selectedPatientId) => { setSelectedPatient(selectedPatientId); fetchEmergencyHistory(selectedPatientId); }}
               required
-            >
-              <option value="">{t('docStroke.selectPatientPlaceholder')}</option>
-              {patients.map(patient => (
-                <option key={patient.patient_id} value={patient.patient_id}>
-                  {patient.full_name} ({patient.national_id})
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -160,24 +149,21 @@ export default function StrokePage() {
                   <thead className="bg-surface-sunken">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colEventId')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colType')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colNihss')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colTime')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colOutcome')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docStroke.colTpaEligible')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {emergencyHistory.map((ev) => (
-                      <tr key={ev.event_id} className="hover:bg-surface-sunken">
-                        <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                        <td className="px-4 py-2">{ev.event_type || t('docStroke.stroke')}</td>
+                      <tr key={ev.id} className="hover:bg-surface-sunken">
+                        <td className="px-4 py-2 font-mono text-xs">{ev.id}</td>
+                        <td className="px-4 py-2">{ev.nihss_total ?? t('docStroke.na')}</td>
+                        <td className="px-4 py-2">{formatTimestamp(ev.assessed_at * 1000) || '-'}</td>
                         <td className="px-4 py-2">
-                          {ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleString() :
-                           ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary">
-                            {ev.outcome || t('docStroke.na')}
-                          </span>
+                          {ev.tpa_eligible === null
+                            ? t('docStroke.na')
+                            : ev.tpa_eligible ? t('docStroke.yes') : t('docStroke.no')}
                         </td>
                       </tr>
                     ))}
