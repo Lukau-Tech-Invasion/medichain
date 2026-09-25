@@ -170,7 +170,7 @@ pub async fn demo_info() -> impl Responder {
                 "my_records": "GET /api/my-records (Patient: own records only)"
             },
             "emergency": {
-                "access": "POST /api/emergency-access",
+                "access": "POST /api/emergency/grants (device-bound break-glass)",
                 "simulate_nfc": "POST /api/simulate-nfc-tap",
                 "access_logs": "GET /api/access-logs/{patient_id}"
             },

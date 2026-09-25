@@ -108,7 +108,6 @@ BASELINE: dict[tuple[str, str], str] = {
     ("BloodBankPage.tsx", "status"): "'ordered' — the state a new blood order is created in.",
     ("ChainOfCustodyPage.tsx", "status"): "'collected' — the specimen is being collected on this form.",
     ("CriticalValuePage.tsx", "notificationStatus"): "'pending' — nobody has been notified yet.",
-    ("DeathCertificatePage.tsx", "status"): "'filed' — this submission is the filing.",
     ("FallRiskPage.tsx", "assessment_tool"): "'morse' — the page implements the Morse Fall Scale.",
     ("PathologyPage.tsx", "status"): "'received' — the specimen is being received on this form.",
     ("ShiftHandoffPage.tsx", "status"): "'pending' — a handoff is pending until acknowledged.",

@@ -318,9 +318,8 @@ pub async fn exchange_nfc_hash_for_token(
     body: web::Json<NfcTokenExchangeRequest>,
 ) -> impl Responder {
     let responder = match get_current_user_id(&req).and_then(|id| get_user(&data, &id)) {
-        // The token this endpoint mints is what opens the capsule, so it
-        // carries the same bar as `POST /api/emergency-access`. Narrowing one
-        // and not the other narrows nothing.
+        // The token this endpoint mints is what opens the capsule, so only a
+        // role that may break glass may be given one.
         Some(user) if user.role.may_break_glass() => user,
         _ => {
             return emergency_error(

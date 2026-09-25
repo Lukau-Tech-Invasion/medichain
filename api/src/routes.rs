@@ -21,7 +21,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(detailed_health_check)
         .service(register_patient)
         .service(update_patient)
-        .service(add_emergency_contact)
         .service(replace_emergency_contacts)
         .service(update_demographics)
         .service(list_patient_history_physicals)
@@ -36,7 +35,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_patient_procedures)
         .service(list_patient_ama_discharges)
         .service(list_patient_intake_output)
-        .service(emergency_access)
         .service(simulate_nfc_tap)
         .service(get_all_access_logs)
         .service(get_access_logs)
@@ -194,7 +192,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(export_pdf_document) // POST /api/pdf/document
         .service(register_device)
         .service(get_current_user_info)
-        .service(get_all_staff)
         .service(get_providers)
         .service(get_settings)
         .service(save_settings)
@@ -214,9 +211,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_patient_lab_submissions)
         // NFC card simulation endpoints
         .service(generate_nfc_card)
-        .service(nfc_tap)
         .service(verify_my_nfc_card)
-        .service(verify_qr_code)
         .service(get_card_info)
         .service(suspend_card)
         .service(list_nfc_cards)
@@ -249,7 +244,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_vitals_flowsheet)
         .service(get_patient_latest_vitals)
         .service(get_lab_panels)
-        .service(get_lab_panel)
         // Emergency protocol endpoints (Phase 2) - from clinical_endpoints module
         .service(clinical_endpoints::create_code_blue)
         .service(clinical_endpoints::get_code_blue)
@@ -271,13 +265,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_ems_handoff)
         .service(clinical_endpoints::get_patient_emergency_records)
         // Nursing documentation endpoints (Phase 3)
-        .service(clinical_endpoints::create_mar)
         // Static list routes must precede `/{id}` routes. Actix resolves in
         // registration order, so otherwise "list" is treated as an ID.
         .service(clinical_endpoints::list_mar)
         .service(clinical_endpoints::get_mar)
         .service(clinical_endpoints::create_io)
-        .service(clinical_endpoints::list_io)
         .service(clinical_endpoints::get_io)
         .service(clinical_endpoints::create_care_plan)
         .service(clinical_endpoints::list_care_plans)
@@ -349,7 +341,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::complete_specimen_recollection)
         .service(clinical_endpoints::cancel_specimen_recollection)
         .service(clinical_endpoints::list_recollections_for_rejection)
-        .service(clinical_endpoints::list_open_recollections)
         .service(clinical_endpoints::notify_rejection_ordering_provider)
         // Physician documentation endpoints (Phase 8)
         .service(clinical_endpoints::create_order)
@@ -446,7 +437,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Insurance Verification endpoints
         .service(clinical_endpoints::verify_insurance)
         // Dashboard & Workflow endpoints
-        .service(clinical_endpoints::patient_dashboard)
         .service(clinical_endpoints::doctor_dashboard)
         .service(clinical_endpoints::nurse_dashboard)
         .service(clinical_endpoints::lab_dashboard)
@@ -524,7 +514,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::book_appointment)
         .service(clinical_endpoints::get_patient_appointments)
         .service(clinical_endpoints::get_provider_appointments)
-        .service(clinical_endpoints::cancel_appointment)
         .service(clinical_endpoints::check_in_appointment)
         .service(clinical_endpoints::transition_appointment) // POST /api/appointments/{id}/status
         .service(clinical_endpoints::get_available_slots)
@@ -562,8 +551,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::telehealth_join_redirect) // GET /…/join/{id} 302 in-app (Phase 4)
         .service(clinical_endpoints::telehealth_join_qr) // GET /…/{id}/qr  in-app QR (Phase 4)
         // Phase 27: Clinical Decision Support endpoints
-        .service(clinical_endpoints::create_cds_alert)
-        .service(clinical_endpoints::get_cds_alerts)
         .service(clinical_endpoints::get_cds_alert)
         .service(clinical_endpoints::respond_to_cds_alert)
         .service(clinical_endpoints::get_patient_cds_alerts)
@@ -620,7 +607,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_discharges)
         .service(clinical_endpoints::approve_discharge)
         .service(clinical_endpoints::administer_medication)
-        .service(clinical_endpoints::record_fluid)
         // Phase 35: Additional list endpoints for frontend pages
         .service(clinical_endpoints::list_chain_of_custody)
         .service(clinical_endpoints::list_lab_qc)

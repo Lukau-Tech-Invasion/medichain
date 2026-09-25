@@ -2,22 +2,12 @@
   {
     "method": "PUT",
     "url": "/api/admin/cds/thresholds/{facility_id}",
-    "shared_functions": [
-      "getCdsThresholds",
-      "setCdsThresholds"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/national-id-reviews/{review_id}/decision",
     "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/admin/security/breach",
-    "shared_functions": [
-      "declareBreach"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -29,16 +19,17 @@
   {
     "method": "POST",
     "url": "/api/auth/bootstrap",
-    "shared_functions": [
-      "bootstrapAdmin"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/auth/credentials",
-    "shared_functions": [
-      "enrolCredentials"
-    ]
+    "shared_functions": []
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/demo-login",
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -58,65 +49,37 @@
   {
     "method": "POST",
     "url": "/api/barcode/generate",
-    "shared_functions": [
-      "generateBarcode"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/cds/alerts",
-    "shared_functions": [
-      "createCdsAlert"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/clinical/sample",
-    "shared_functions": [
-      "createSampleHistory"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/clinical/specimen-recollection/{recollection_id}/cancel",
-    "shared_functions": [
-      "cancelSpecimenRecollection"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/clinical/specimen-rejection",
-    "shared_functions": [
-      "createSpecimenRejection"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/e-prescriptions/{prescription_id}/verification/revoke",
-    "shared_functions": [
-      "revokeSecondaryVerification"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/emergency-access",
-    "shared_functions": [
-      "requestEmergencyAccess"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/emergency/ems-handoff",
-    "shared_functions": [
-      "createEmsHandoff"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/emergency/nfc-token",
-    "shared_functions": [
-      "exchangeNfcHashForToken"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -126,84 +89,44 @@
     ]
   },
   {
-    "method": "DELETE",
-    "url": "/api/family/groups/{group_id}/members/{patient_id}",
-    "shared_functions": [
-      "removeFamilyMember"
-    ]
-  },
-  {
     "method": "POST",
     "url": "/api/fhir/r4/Bundle",
-    "shared_functions": [
-      "fhirCreatePatient"
-    ]
+    "shared_functions": []
   },
   {
     "method": "PUT",
     "url": "/api/guardians/{id}/permissions",
-    "shared_functions": [
-      "updateGuardianPermissions"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/identity/claim",
-    "shared_functions": [
-      "claimMedicalIdentity"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/identity/context/patient",
-    "shared_functions": [
-      "enterPatientContext"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/identity/context/switch",
-    "shared_functions": [
-      "switchIdentityContext"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/insurance/cards",
-    "shared_functions": [
-      "createInsuranceCard"
-    ]
-  },
-  {
-    "method": "PUT",
-    "url": "/api/insurance/cards/{id}",
-    "shared_functions": [
-      "deleteInsuranceCard",
-      "getInsuranceCards",
-      "updateInsuranceCard"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/insurance/claims",
-    "shared_functions": [
-      "createInsuranceClaim"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/insurance/claims/{claim_id}/submit",
-    "shared_functions": [
-      "submitInsuranceClaim"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/insurance/eligibility",
-    "shared_functions": [
-      "checkEligibility",
-      "checkInsuranceEligibility"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -215,9 +138,7 @@
   {
     "method": "POST",
     "url": "/api/lab-trends/analyze",
-    "shared_functions": [
-      "analyzeLabTrends"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -227,51 +148,27 @@
   {
     "method": "POST",
     "url": "/api/medical-id/{patient_id}/emergency-notify",
-    "shared_functions": [
-      "triggerEmergencyNotification"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/mobile/devices/register",
-    "shared_functions": [
-      "registerMobileDevice"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/mobile/devices/{id}/lockscreen-token",
-    "shared_functions": [
-      "issueLockscreenToken"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/mobile/records/authorise",
-    "shared_functions": [
-      "authoriseMobileRecord"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/nfc/tap",
-    "shared_functions": [
-      "nfcTap"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/nfc/verify-mine",
-    "shared_functions": [
-      "verifyMyNfcCard"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/nfc/verify-qr",
-    "shared_functions": [
-      "verifyQRCode"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
@@ -281,90 +178,61 @@
   {
     "method": "POST",
     "url": "/api/notifications/sms/opt-in",
-    "shared_functions": [
-      "optInToSms"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/notifications/sms/opt-out",
-    "shared_functions": [
-      "optOutOfSms"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/organizations/{organization_id}/keys",
-    "shared_functions": [
-      "registerOrganizationKey"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/organizations/{organization_id}/keys/{key_id}/status",
-    "shared_functions": [
-      "transitionOrganizationKey"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/platform/translate",
-    "shared_functions": [
-      "translateContent"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/platform/vitals",
     "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/simulate-nfc-tap",
-    "shared_functions": [
-      "simulateNfcTap"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/surgical/autopsy",
-    "shared_functions": [
-      "createAutopsyRequest"
-    ]
+    "shared_functions": []
+  },
+  {
+    "method": "POST",
+    "url": "/api/surgical/death-certificate/{id}/file",
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/sync",
-    "shared_functions": [
-      "performSync"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/sync/register",
-    "shared_functions": [
-      "registerSyncDevice"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/telehealth/device-check",
-    "shared_functions": [
-      "submitDeviceCheck"
-    ]
-  },
-  {
-    "method": "POST",
-    "url": "/api/templates/notes/use",
-    "shared_functions": [
-      "useNoteTemplate"
-    ]
+    "shared_functions": []
   },
   {
     "method": "POST",
     "url": "/api/wearables/readings",
-    "shared_functions": [
-      "submitWearableReading"
-    ]
+    "shared_functions": []
   }
 ]

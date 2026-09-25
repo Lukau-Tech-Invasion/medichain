@@ -46,16 +46,6 @@ pub struct GenerateNFCCardResponse {
     pub message: String,
 }
 
-/// Response for NFC tap simulation
-#[derive(Debug, Serialize)]
-pub struct NFCTapResponse {
-    pub success: bool,
-    pub patient_id: Option<String>,
-    pub card_hash: String,
-    pub timestamp: u64,
-    pub error: Option<String>,
-}
-
 /// Response for card info
 #[derive(Debug, Clone, Serialize)]
 pub struct CardInfoResponse {
@@ -186,101 +176,6 @@ pub async fn generate_nfc_card(
     })
 }
 
-/// Simulate an NFC card tap (for demo purposes)
-#[post("/api/nfc/tap")]
-pub async fn nfc_tap(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    // RBAC: Only healthcare providers can use NFC tap
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
-    };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Only healthcare providers can use NFC tap".to_string(),
-            code: "INSUFFICIENT_ROLE".to_string(),
-        });
-    }
-
-    // Get card_hash from body
-    let card_hash = match body.get("card_hash").and_then(|v| v.as_str()) {
-        Some(h) => h.to_string(),
-        None => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: "Missing card_hash in request body".to_string(),
-                code: "MISSING_FIELD".to_string(),
-            });
-        }
-    };
-
-    // Simulate the tap
-    let tap_result = match data.card_registry.tap_card(&card_hash) {
-        Ok(result) => result,
-        Err(e) => {
-            return HttpResponse::NotFound().json(NFCTapResponse {
-                success: false,
-                patient_id: None,
-                card_hash,
-                timestamp: chrono::Utc::now().timestamp() as u64,
-                error: Some(e),
-            });
-        }
-    };
-
-    if tap_result.success {
-        let audit = AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: tap_result.patient_id.clone(),
-            accessor_id: current_user_id.clone(),
-            accessor_role: current_user.role.to_string(),
-            access_type: "nfc_tap".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: true,
-        };
-        if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
-            return response;
-        }
-
-        log::info!(
-            "NFC tap successful for patient {} by {}",
-            tap_result.patient_id,
-            current_user_id
-        );
-    }
-
-    HttpResponse::Ok().json(NFCTapResponse {
-        success: tap_result.success,
-        patient_id: if tap_result.success {
-            Some(tap_result.patient_id)
-        } else {
-            None
-        },
-        card_hash: tap_result.card_hash,
-        timestamp: tap_result.timestamp,
-        error: tap_result.error,
-    })
-}
-
 /// Request body for a patient verifying their own physical NFC card.
 #[derive(Debug, Deserialize)]
 pub struct VerifyMyCardRequest {
@@ -303,10 +198,10 @@ pub struct VerifyMyCardResponse {
 /// theirs and still active — e.g. right after a clinic issues a new card, or
 /// periodically to catch a suspended/revoked card before an emergency.
 ///
-/// Deliberately patient-only and self-scoped: `nfc_tap` (above) is the
-/// provider-only emergency-read path for tapping ANOTHER patient's card;
-/// this is the self-service counterpart a patient's own phone can actually
-/// use, mirroring the QR-scanning scope split already made for the mobile
+/// Deliberately patient-only and self-scoped: a provider tapping ANOTHER
+/// patient's card goes through the device-bound break-glass grant
+/// (`POST /api/emergency/grants`); this is the self-service counterpart a
+/// patient's own phone can actually use, mirroring the QR-scanning scope split already made for the mobile
 /// app (see `mobile-examples/expo-starter`'s `FamilyScreen` doc comment).
 #[post("/api/nfc/verify-mine")]
 pub async fn verify_my_nfc_card(
@@ -336,7 +231,8 @@ pub async fn verify_my_nfc_card(
 
     if current_user.role != Role::Patient {
         return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Only patients can self-verify a card; providers use /api/nfc/tap".to_string(),
+            error: "Only patients can self-verify a card; providers use an emergency grant"
+                .to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
@@ -384,119 +280,6 @@ pub async fn verify_my_nfc_card(
         last_used_at: card.last_used_at,
         message: "Card verified — this is your active MediChain card.".to_string(),
     })
-}
-
-/// Verify a QR code for emergency access
-#[post("/api/nfc/verify-qr")]
-pub async fn verify_qr_code(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    // RBAC: Only healthcare providers can verify QR codes
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
-    };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Only healthcare providers can verify QR codes".to_string(),
-            code: "INSUFFICIENT_ROLE".to_string(),
-        });
-    }
-
-    // Get QR data from body
-    let qr_json = match body.get("qr_data").and_then(|v| v.as_str()) {
-        Some(d) => d.to_string(),
-        None => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: "Missing qr_data in request body".to_string(),
-                code: "MISSING_FIELD".to_string(),
-            });
-        }
-    };
-
-    // Decode QR data
-    let qr_data = match QRCodeData::decode(&qr_json) {
-        Ok(d) => d,
-        Err(e) => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: e,
-                code: "INVALID_QR_DATA".to_string(),
-            });
-        }
-    };
-
-    // Check expiration
-    if qr_data.is_expired() {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "QR code has expired".to_string(),
-            code: "QR_EXPIRED".to_string(),
-        });
-    }
-
-    // Verify card exists and matches
-    let card = match data.card_registry.get_card(&qr_data.card_hash) {
-        Some(c) => c,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "Card not found".to_string(),
-                code: "CARD_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Verify patient ID matches
-    if card.patient_id != qr_data.patient_id {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "QR data mismatch".to_string(),
-            code: "QR_MISMATCH".to_string(),
-        });
-    }
-
-    let audit = AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: qr_data.patient_id.clone(),
-        accessor_id: current_user_id.clone(),
-        accessor_role: current_user.role.to_string(),
-        access_type: "qr_verification".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: true,
-    };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
-        return response;
-    }
-
-    log::info!(
-        "QR code verified for patient {} by {}",
-        qr_data.patient_id,
-        current_user_id
-    );
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": qr_data.patient_id,
-        "card_hash": qr_data.card_hash,
-        "verified": true,
-        "message": "QR code verified successfully"
-    }))
 }
 
 /// Get card information by patient ID

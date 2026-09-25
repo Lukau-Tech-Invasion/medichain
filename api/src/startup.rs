@@ -328,8 +328,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!();
     println!("  NFC Simulation Endpoints:");
     println!("     POST /api/nfc/generate        - Generate NFC card for patient");
-    println!("     POST /api/nfc/tap             - Simulate NFC card tap");
-    println!("     POST /api/nfc/verify-qr       - Verify QR code for emergency");
     println!("     GET  /api/nfc/card/{{patient}} - Get card info by patient");
     println!("     POST /api/nfc/suspend         - Suspend a card (Admin)");
     println!("     GET  /api/nfc/cards           - List all cards (Admin)");
@@ -350,7 +348,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     GET  /api/clinical/patient/{{id}}/emergency - All emergency records");
     println!();
     println!("  Dashboard & Workflow Endpoints:");
-    println!("     GET  /api/dashboard/patient   - Patient home dashboard");
     println!("     GET  /api/dashboard/doctor    - Doctor dashboard (patients, labs)");
     println!("     GET  /api/dashboard/nurse     - Nurse dashboard (tasks, vitals)");
     println!("     GET  /api/dashboard/lab       - Lab tech dashboard (queue, QC)");

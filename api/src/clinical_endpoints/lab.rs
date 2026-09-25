@@ -1380,11 +1380,44 @@ pub async fn get_critical_value(
     }
 }
 
-/// Create specimen rejection
+/// The categories `specimen_rejections.rejection_category` accepts.
+const REJECTION_CATEGORIES: [&str; 6] = [
+    "collection_error",
+    "transport_error",
+    "labeling_error",
+    "specimen_quality",
+    "container_issue",
+    "other",
+];
+
+/// What a laboratory records when it refuses a specimen.
+///
+/// Deliberately not the patient, the author or the notification state. The
+/// handler used to read all of them from the body: the patient a rejection was
+/// filed against could differ from the specimen's own, `rejected_by` was
+/// whatever the caller typed (and blank when they typed nothing), and a body
+/// could say the ordering provider had already been notified -- which the
+/// notify endpoint then refused to do, as ALREADY_NOTIFIED. The patient comes
+/// from the specimen, the author from the session, and notification from
+/// `POST /api/clinical/specimen-rejection/{id}/notify`.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateSpecimenRejectionRequest {
+    pub specimen_id: String,
+    pub rejection_reason: String,
+    pub rejection_category: String,
+    #[serde(default)]
+    pub detailed_notes: Option<String>,
+    /// Whether another sample is needed. Asking for one is its own action
+    /// (`/recollect`); this records that the laboratory expects to.
+    #[serde(default)]
+    pub recollection_required: bool,
+}
+
+/// Reject a collected specimen.
 #[post("/api/clinical/specimen-rejection")]
 pub async fn create_specimen_rejection(
     data: web::Data<AppState>,
-    req: web::Json<serde_json::Value>,
+    req: web::Json<CreateSpecimenRejectionRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -1404,98 +1437,65 @@ pub async fn create_specimen_rejection(
         });
     }
 
-    let body = req.into_inner();
+    let request = req.into_inner();
+    let specimen_id = request.specimen_id.trim().to_string();
+    let reason = request.rejection_reason.trim().to_string();
+    if specimen_id.is_empty() || reason.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A rejection names the specimen it rejects and why".to_string(),
+            code: "MISSING_FIELD".to_string(),
+        });
+    }
+    if !REJECTION_CATEGORIES.contains(&request.rejection_category.as_str()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: format!(
+                "rejection_category must be one of: {}",
+                REJECTION_CATEGORIES.join(", ")
+            ),
+            code: "INVALID_CATEGORY".to_string(),
+        });
+    }
 
-    // A rejection names the specimen it rejects: `specimen_rejections.specimen_id`
-    // is `NOT NULL REFERENCES specimen_collections(id)`, and that is right —
-    // rejecting nothing in particular is not a meaningful record. But the value
-    // was read with `unwrap_or_default()`, so a missing one became the empty
-    // string and the request died on a foreign-key violation reported as a bare
-    // 500 DATABASE_ERROR. Say which field is missing, and which specimen was not
-    // found, instead of making the caller guess from a database error.
-    let specimen_id = match body.get("specimen_id").and_then(|v| v.as_str()) {
-        Some(id) if !id.trim().is_empty() => id.trim().to_string(),
-        _ => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: "specimen_id is required: a rejection must name the specimen it rejects"
-                    .to_string(),
-                code: "MISSING_FIELD".to_string(),
-            })
-        }
-    };
-
-    if data
+    let specimen = match data
         .repositories
         .specimen_collections
         .get_by_id(&specimen_id)
         .await
-        .is_err()
     {
-        return HttpResponse::NotFound().json(ErrorResponse {
-            error: format!(
-                "Specimen '{specimen_id}' has not been collected, so it cannot be rejected"
-            ),
-            code: "SPECIMEN_NOT_FOUND".to_string(),
-        });
-    }
+        Ok(specimen) => specimen,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: format!(
+                    "Specimen '{specimen_id}' has not been collected, so it cannot be rejected"
+                ),
+                code: "SPECIMEN_NOT_FOUND".to_string(),
+            })
+        }
+    };
 
-    let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let rejection_id = format!("REJ-{}", uuid::Uuid::new_v4().simple());
+    let now = chrono::Utc::now();
     let entity = SpecimenRejectionEntity {
         id: rejection_id.clone(),
         specimen_id,
-        patient_id: body
-            .get("patient_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        rejection_reason: body
-            .get("rejection_reason")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        rejection_category: body
-            .get("rejection_category")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("collection_error")
-            .to_string(),
-        detailed_notes: body
-            .get("detailed_notes")
-            .and_then(|v| v.as_str())
+        patient_id: specimen.patient_id,
+        rejection_reason: reason,
+        rejection_category: request.rejection_category.clone(),
+        detailed_notes: request
+            .detailed_notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
             .map(str::to_string),
-        rejected_by: body
-            .get("rejected_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        rejected_at: body
-            .get("rejected_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or(now),
-        recollection_required: body
-            .get("recollection_required")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        recollection_scheduled: body
-            .get("recollection_scheduled")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
-        notified_ordering_provider: body
-            .get("notified_ordering_provider")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        notification_sent_at: body
-            .get("notification_sent_at")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc)),
+        rejected_by: current_user.wallet_address.clone(),
+        rejected_at: now,
+        recollection_required: request.recollection_required,
+        recollection_scheduled: None,
+        notified_ordering_provider: false,
+        notification_sent_at: None,
         created_at: now,
-        data: body.clone(),
+        data: serde_json::to_value(&request).unwrap_or_default(),
     };
 
     match data.repositories.specimen_rejections.create(entity).await {
@@ -1507,10 +1507,13 @@ pub async fn create_specimen_rejection(
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("specimen rejection could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The rejection could not be recorded".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -1936,31 +1939,6 @@ pub async fn list_recollections_for_rejection(
         Ok(rows) => HttpResponse::Ok().json(serde_json::json!({ "recollections": rows })),
         Err(e) => {
             log::error!("Recollection list failed: {e}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Recollections could not be read".to_string(),
-                code: "RECOLLECTION_UNAVAILABLE".to_string(),
-            })
-        }
-    }
-}
-
-/// The laboratory's queue of samples still awaited.
-#[get("/api/clinical/specimen-recollections/open")]
-pub async fn list_open_recollections(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
-    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u,
-        Err(resp) => return resp,
-    };
-    if !may_handle_recollection(&current_user.role) {
-        return recollection_role_refused(&current_user.role);
-    }
-    match data.repositories.specimen_recollections.list_open().await {
-        Ok(rows) => HttpResponse::Ok().json(serde_json::json!({ "recollections": rows })),
-        Err(e) => {
-            log::error!("Open recollection list failed: {e}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "Recollections could not be read".to_string(),
                 code: "RECOLLECTION_UNAVAILABLE".to_string(),
@@ -2443,6 +2421,74 @@ mod rejection_notification_tests {
         )
         .await;
         assert_eq!(resp.status(), 404);
+    }
+
+    /// The patient, the author and the notification state are the server's.
+    #[actix_web::test]
+    async fn a_rejection_is_filed_against_the_specimens_patient_by_the_caller() {
+        let state = web::Data::new(state_with_chain(true).await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(create_specimen_rejection),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/specimen-rejection")
+                .insert_header(("x-user-id", "lab_tech"))
+                .set_json(serde_json::json!({
+                    "specimen_id": "SPC-N1",
+                    "rejection_reason": "Clotted",
+                    "rejection_category": "specimen_quality",
+                    "recollection_required": true,
+                    // None of these is the caller's to say.
+                    "patient_id": "PAT-SOMEONE-ELSE",
+                    "rejected_by": "somebody_else",
+                    "notified_ordering_provider": true
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 201);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let id = body["rejection_id"].as_str().expect("id");
+        let stored = state
+            .repositories
+            .specimen_rejections
+            .get_by_id(id)
+            .await
+            .expect("stored");
+        assert_eq!(stored.patient_id, "PAT-N1");
+        assert_eq!(stored.rejected_by, "lab_tech");
+        assert!(!stored.notified_ordering_provider);
+        assert!(stored.recollection_required);
+    }
+
+    #[actix_web::test]
+    async fn a_rejection_needs_a_known_category() {
+        let state = web::Data::new(state_with_chain(true).await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(create_specimen_rejection),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/specimen-rejection")
+                .insert_header(("x-user-id", "lab_tech"))
+                .set_json(serde_json::json!({
+                    "specimen_id": "SPC-N1",
+                    "rejection_reason": "Clotted",
+                    "rejection_category": "bad_vibes"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 400);
     }
 }
 

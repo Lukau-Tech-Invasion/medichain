@@ -45,9 +45,8 @@ fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
 ///
 /// HZ-020 (resource-id IDOR): the card mutators previously gated on `require_auth`
 /// only — any authenticated account could update, image, or delete another
-/// patient's card by its id. `cancel_appointment` already applied owner-or-
-/// provider after fetching the resource; the card handlers had not. This
-/// centralises that check for the three mutators.
+/// patient's card by its id. This applies owner-or-provider after fetching the
+/// resource, centralised for the three mutators.
 async fn require_card_access(
     data: &web::Data<AppState>,
     caller: &str,

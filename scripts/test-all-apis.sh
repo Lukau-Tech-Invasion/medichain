@@ -115,7 +115,6 @@ test_endpoint "GET" "/api/dashboard/admin" "$ADMIN" "200"
 test_endpoint "GET" "/api/dashboard/doctor" "$DOCTOR" "200"
 test_endpoint "GET" "/api/dashboard/nurse" "$NURSE" "200"
 test_endpoint "GET" "/api/dashboard/lab" "$LABTECH" "200"
-test_endpoint "GET" "/api/dashboard/patient" "$PATIENT" "200"
 # Cross-role access should work (admins can see all)
 test_endpoint "GET" "/api/dashboard/admin" "$DOCTOR" "403"
 

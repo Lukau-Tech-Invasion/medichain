@@ -49,10 +49,12 @@ impl Role {
     /// covered by the `Nurse` arm.
     ///
     /// Decided 2026-09-10 by the product owner, closing the open question
-    /// `docs/NEXT_WEEK_TODO.md` printed on every CI run. The two endpoints move
-    /// together on purpose: `POST /api/emergency-access` reveals the capsule and
-    /// `POST /api/emergency/nfc-token` mints the one-time token that opens it,
-    /// so narrowing one and not the other narrows nothing.
+    /// `docs/NEXT_WEEK_TODO.md` printed on every CI run. It gates
+    /// `POST /api/emergency/nfc-token`, which mints the one-time token that
+    /// opens the capsule. (`POST /api/emergency-access`, which revealed the
+    /// capsule directly and checked the same method, has been removed; the
+    /// device-bound grant is gated on a professional work context and an
+    /// enrolled managed device instead.)
     pub fn may_break_glass(&self) -> bool {
         matches!(self, Role::Doctor | Role::Nurse | Role::Admin)
     }

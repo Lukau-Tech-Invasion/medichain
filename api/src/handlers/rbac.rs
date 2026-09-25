@@ -412,6 +412,15 @@ pub async fn verify_guardian_relationship(
             code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
         });
     }
+    // Authority with no permissions is not authority: it would record a
+    // relationship that permits nothing while reading as though it does. The
+    // page refused this; the API did not.
+    if body.permissions.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A guardianship must grant at least one permission".to_string(),
+            code: "GUARDIAN_VERIFICATION_REJECTED".to_string(),
+        });
+    }
 
     // A legal-proxy or power-of-attorney relationship derives its authority
     // from a specific document. Recording one without citing that document
@@ -550,6 +559,15 @@ pub async fn update_guardian_permissions(
     }
 
     let relationship_id = path.into_inner();
+    // Removing every permission is ending the relationship, which is its own
+    // audited act (`/api/guardians/revoke`), not an edit.
+    if body.permissions.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A guardianship must keep at least one permission; revoke it to end it"
+                .to_string(),
+            code: "GUARDIAN_PERMISSIONS_UPDATE_REJECTED".to_string(),
+        });
+    }
     let permissions: Vec<String> = body
         .permissions
         .iter()

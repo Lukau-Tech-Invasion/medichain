@@ -92,7 +92,7 @@ pub async fn create_anesthesia(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "anesthesiologist".to_string(),
+            accessor_role: current_user.role.to_string(),
             access_type: "create_anesthesia".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -368,10 +368,11 @@ pub async fn create_radiology_report(
     http_req: HttpRequest,
     req: web::Json<RadiologyReport>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let report = req.into_inner();
     let owner_id = report.patient_id.clone();
@@ -383,7 +384,7 @@ pub async fn create_radiology_report(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id,
-            accessor_role: "radiologist".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_radiology_report".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),

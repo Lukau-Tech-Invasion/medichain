@@ -593,16 +593,3 @@ pub fn evaluate_cds_rules(
 
     alerts
 }
-
-/// Create CDS alert request
-#[derive(Debug, Deserialize)]
-pub struct CreateCDSAlertRequest {
-    pub patient_id: String,
-    pub alert_type: String,
-    pub severity: String,
-    pub title: String,
-    pub description: String,
-    pub clinical_context: String,
-    pub guideline_reference: Option<String>,
-    pub expires_at: Option<i64>,
-}

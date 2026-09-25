@@ -730,7 +730,7 @@ say "15. Forged identities refused across the clinical surface (SEC-11)"
 # were used on purpose: clinical endpoints require a clinical ROLE, while
 # patient-facing ones only require the caller to RESOLVE — gating those on a
 # clinical role would lock patients out of their own features.
-for ep in /api/emergency/mar/list /api/emergency/io/list /api/emergency/care-plan/list \
+for ep in /api/emergency/mar/list /api/emergency/care-plan/list \
           /api/emergency/wound/list /api/dashboard/doctor /api/dashboard/nurse \
           /api/dashboard/lab /api/dashboard/pharmacist; do
   check "clinical $ep refuses a forged identity" 401 "$(code GET "$ep" '' 0xPROVforged)"

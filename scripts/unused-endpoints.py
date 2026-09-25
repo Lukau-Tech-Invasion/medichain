@@ -127,11 +127,20 @@ def backend_routes():
 
 
 def frontend_calls():
+    """Every path a shipped client (the two web apps, or the Expo app) calls."""
     called = set()
     # Walk explicitly and prune node_modules: rglob descends into it first and
     # dies on the broken `@medichain/wasm-crypto` symlink before any filtering.
-    for base in ('doctor-portal/src', 'patient-app/src', 'shared/src'):
-        root = CLIENT_SRC / base
+    # The Expo app under mobile-examples/ is a client too: it is the only
+    # caller of `/api/my-records` and `/api/nfc/verify-mine`, and a report
+    # that ignored it would recommend deleting what it depends on.
+    for root in (
+        CLIENT_SRC / 'doctor-portal/src',
+        CLIENT_SRC / 'patient-app/src',
+        CLIENT_SRC / 'shared/src',
+        ROOT / 'mobile-examples/expo-starter/src',
+        ROOT / 'mobile-examples/expo-starter/services',
+    ):
         if not root.exists():
             continue
         for dirpath, dirnames, filenames in os.walk(root):

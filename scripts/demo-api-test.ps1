@@ -574,16 +574,6 @@ if ($script:createdPatientId) {
     if ($generateNfc.Success) {
         Write-Host "  NFC Tag ID: $($generateNfc.Data.tag_id)"
     }
-    
-    # Simulate NFC tap
-    $tapData = @{
-        tag_id = "NFC-$($script:createdPatientId)"
-        reader_location = "Emergency Room - Bed 3"
-    }
-    
-    $nfcTap = Invoke-ApiCall -Method "POST" -Endpoint "/api/nfc/tap" -Body $tapData
-    Write-TestResult -Name "Simulate NFC Tap" -Success $nfcTap.Success -Details $nfcTap.Error
-
 } else {
     Write-Host "[SKIP] NFC tests - no patient ID" -ForegroundColor Gray
 }
@@ -694,24 +684,6 @@ if ($script:createdPatientId) {
     # FHIR AllergyIntolerance
     $fhirAllergies = Invoke-ApiCall -Method "GET" -Endpoint "/api/fhir/r4/AllergyIntolerance?patient=$($script:createdPatientId)"
     Write-TestResult -Name "FHIR Get Allergies" -Success $fhirAllergies.Success -Details $fhirAllergies.Error
-}
-
-Write-Host ""
-
-# ============================================
-# 14. Emergency Access
-# ============================================
-Write-Host "--- Emergency Access ---" -ForegroundColor Yellow
-
-if ($script:createdPatientId) {
-    $emergencyData = @{
-        patient_id = $script:createdPatientId
-        reason = "Cardiac arrest - patient unresponsive. Immediate access required for treatment history."
-        access_type = "emergency"
-    }
-    
-    $requestEmergencyAccess = Invoke-ApiCall -Method "POST" -Endpoint "/api/emergency-access/request" -Body $emergencyData
-    Write-TestResult -Name "Request Emergency Access" -Success $requestEmergencyAccess.Success -Details $requestEmergencyAccess.Error
 }
 
 Write-Host ""

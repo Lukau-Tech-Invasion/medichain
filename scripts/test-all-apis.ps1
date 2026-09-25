@@ -222,7 +222,6 @@ Test-Endpoint -Name "Auth Me" -Category "Auth" -Method "GET" -Endpoint "/api/aut
 Test-Endpoint -Name "Auth Wallet Lookup" -Category "Auth" -Method "GET" -Endpoint "/api/auth/wallet/$($USERS.Doctor)" -Description "Lookup user by wallet"
 Test-Endpoint -Name "Auth Login GET" -Category "Auth" -Method "GET" -Endpoint "/api/auth/login/$($USERS.Doctor)" -Description "GET login endpoint"
 Test-Endpoint -Name "Demo Login" -Category "Auth" -Method "POST" -Endpoint "/api/auth/demo-login" -Body @{ wallet_address = $USERS.Doctor } -Description "Demo login"
-Test-Endpoint -Name "Staff List" -Category "Auth" -Method "GET" -Endpoint "/api/staff/all" -UserId $USERS.Admin -Description "List all staff members"
 
 # ============================================
 # 3. USER MANAGEMENT ENDPOINTS
@@ -630,7 +629,6 @@ Test-Endpoint -Name "Nurse Dashboard" -Category "Dashboards" -Method "GET" -Endp
 Test-Endpoint -Name "Lab Dashboard" -Category "Dashboards" -Method "GET" -Endpoint "/api/dashboard/lab" -UserId $USERS.LabTech -Description "Lab technician dashboard"
 Test-Endpoint -Name "Pharmacist Dashboard" -Category "Dashboards" -Method "GET" -Endpoint "/api/dashboard/pharmacist" -UserId $USERS.Pharmacist -Description "Pharmacist dashboard"
 Test-Endpoint -Name "Admin Dashboard" -Category "Dashboards" -Method "GET" -Endpoint "/api/dashboard/admin" -UserId $USERS.Admin -Description "Admin dashboard"
-Test-Endpoint -Name "Patient Dashboard" -Category "Dashboards" -Method "GET" -Endpoint "/api/dashboard/patient" -UserId $USERS.Patient -Description "Patient dashboard"
 
 # ============================================
 # 13. EMERGENCY PROTOCOLS
@@ -1064,7 +1062,6 @@ Test-Endpoint -Name "Analyze Symptoms" -Category "Symptoms" -Method "POST" -Endp
     current_medications = @("lisinopril", "metformin")
 } -ExpectedStatus 200 -Description "AI symptom analysis"
 
-Test-Endpoint -Name "CDS Alerts" -Category "CDS" -Method "GET" -Endpoint "/api/cds/alerts" -Description "Clinical decision support alerts"
 Test-Endpoint -Name "Patient CDS Alerts" -Category "CDS" -Method "GET" -Endpoint "/api/cds/patient/$patientId/alerts" -Description "Patient-specific CDS alerts"
 
 # ============================================

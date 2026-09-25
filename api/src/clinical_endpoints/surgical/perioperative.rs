@@ -157,10 +157,11 @@ pub async fn create_pre_op(
     http_req: HttpRequest,
     req: web::Json<CreatePreOpRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
@@ -179,7 +180,7 @@ pub async fn create_pre_op(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "doctor".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_pre_op".to_string(),
             location: None,
             timestamp: now,
@@ -482,10 +483,11 @@ pub async fn create_operative_note(
     http_req: HttpRequest,
     req: web::Json<CreateOperativeNoteRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -501,7 +503,7 @@ pub async fn create_operative_note(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id,
-            accessor_role: "surgeon".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_operative_note".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -769,10 +771,11 @@ pub async fn create_post_op(
     http_req: HttpRequest,
     req: web::Json<CreatePostOpNoteRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -794,7 +797,7 @@ pub async fn create_post_op(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: owner_id.clone(),
             accessor_id: current_user_id,
-            accessor_role: "doctor".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_post_op".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),

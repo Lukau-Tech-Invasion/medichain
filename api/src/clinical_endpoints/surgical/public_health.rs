@@ -565,10 +565,11 @@ pub async fn create_transfusion(
     http_req: HttpRequest,
     req: web::Json<CreateTransfusionRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
@@ -598,7 +599,7 @@ pub async fn create_transfusion(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: record.patient_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "nurse".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_transfusion".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -705,8 +706,11 @@ pub async fn get_transfusion(
 /// worse than refusing it.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateDeathCertificateRequest {
-    #[serde(default)]
-    pub id: Option<String>,
+    // No `id` and no `status`: the server mints the one and this route only
+    // ever produces a filed certificate. Both used to be accepted and copied
+    // into the stored record, so the register carried a client-chosen `id`
+    // beside the real `certificate_id`, and a body saying `"status": "draft"`
+    // produced a record reading as a draft that was never one.
     pub patient_id: String,
     pub deceased_name: String,
     #[serde(default)]
@@ -730,8 +734,6 @@ pub struct CreateDeathCertificateRequest {
     pub certifier_type: Option<String>,
     #[serde(default)]
     pub signature: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
 }
 
 #[post("/api/surgical/death-certificate")]
@@ -740,10 +742,11 @@ pub async fn create_death_certificate(
     http_req: HttpRequest,
     req: web::Json<CreateDeathCertificateRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let certificate = req.into_inner();
 
@@ -789,7 +792,7 @@ pub async fn create_death_certificate(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: certificate.patient_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "doctor".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_death_certificate".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -813,6 +816,7 @@ pub async fn create_death_certificate(
             let mut blob = serde_json::to_value(&certificate).unwrap_or_default();
             if let Some(object) = blob.as_object_mut() {
                 object.insert("certificate_id".into(), serde_json::json!(id));
+                object.insert("status".into(), serde_json::json!(DC_STATUS_FILED));
                 object.insert("filed_by".into(), serde_json::json!(current_user_id));
                 object.insert("filed_at".into(), serde_json::json!(now.to_rfc3339()));
             }
@@ -1071,10 +1075,11 @@ pub async fn file_death_certificate(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
     let id = path.into_inner();
 
     let existing = match data
@@ -1133,8 +1138,8 @@ pub async fn file_death_certificate(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: existing.owner_id.clone(),
             accessor_id: current_user_id.clone(),
-            accessor_role: "doctor".to_string(),
-            access_type: "create_death_certificate".to_string(),
+            accessor_role: caller.role.to_string(),
+            access_type: "file_death_certificate".to_string(),
             location: None,
             timestamp: now,
             emergency: false,
@@ -1233,10 +1238,11 @@ pub async fn create_autopsy_request(
     http_req: HttpRequest,
     req: web::Json<AutopsyRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let mut request = req.into_inner();
     // Server-generated. The store's create is an upsert on `id`, owner
@@ -1252,7 +1258,7 @@ pub async fn create_autopsy_request(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: request.patient_id.clone(),
             accessor_id: current_user_id,
-            accessor_role: "doctor".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_autopsy_request".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -1334,10 +1340,11 @@ pub async fn create_autopsy_report(
     http_req: HttpRequest,
     req: web::Json<CreateAutopsyReportRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
     let mut report = req.into_inner();
     // Server-generated. The page numbered reports from the length of its own
@@ -1352,7 +1359,7 @@ pub async fn create_autopsy_report(
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: report.patient_id.clone(),
             accessor_id: current_user_id,
-            accessor_role: "doctor".to_string(),
+            accessor_role: caller.role.to_string(),
             access_type: "create_autopsy_report".to_string(),
             location: None,
             timestamp: chrono::Utc::now(),
@@ -1550,5 +1557,147 @@ pub async fn get_satisfaction_survey(
         }
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(_) => satisfaction_storage_unavailable("read"),
+    }
+}
+
+/// A draft becomes a certificate by being filed, once; the register shows it
+/// as the server recorded it, not as the request described it.
+#[cfg(test)]
+mod death_certificate_lifecycle_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    fn complete() -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": "PAT-DC-1",
+            "deceased_name": "Sipho Dlamini",
+            "date_of_death": "2026-09-20",
+            "place_of_death": "Ward 3",
+            "manner_of_death": "natural",
+            "cause_of_death": "Myocardial infarction",
+            "certifier_name": "Dr Naidoo"
+        })
+    }
+
+    #[actix_rt::test]
+    async fn a_draft_is_filed_once_and_then_reads_as_filed() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        seed_patient(&state, "PAT-DC-1").await;
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(super::draft_death_certificate)
+                .service(super::file_death_certificate),
+        )
+        .await;
+
+        let draft: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/surgical/death-certificate/draft")
+                .insert_header(("X-User-Id", "5Doctor"))
+                .set_json(complete())
+                .to_request(),
+        )
+        .await;
+        let id = draft["id"].as_str().expect("draft id").to_string();
+
+        let file = |id: String| {
+            test::TestRequest::post()
+                .uri(&format!("/api/surgical/death-certificate/{id}/file"))
+                .insert_header(("X-User-Id", "5Doctor"))
+                .to_request()
+        };
+        assert_eq!(
+            test::call_service(&app, file(id.clone())).await.status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            test::call_service(&app, file(id.clone())).await.status(),
+            StatusCode::CONFLICT,
+            "a certificate is filed once"
+        );
+        let stored = data
+            .repositories
+            .death_certificate_records
+            .get_by_id(&id)
+            .await
+            .expect("read")
+            .expect("stored");
+        assert_eq!(stored.data["status"], "filed");
+        assert_eq!(stored.data["filed_by"], "5Doctor");
+    }
+
+    #[actix_rt::test]
+    async fn an_incomplete_draft_cannot_be_filed() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        seed_patient(&state, "PAT-DC-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::draft_death_certificate)
+                .service(super::file_death_certificate),
+        )
+        .await;
+        let draft: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/surgical/death-certificate/draft")
+                .insert_header(("X-User-Id", "5Doctor"))
+                .set_json(serde_json::json!({ "patient_id": "PAT-DC-1" }))
+                .to_request(),
+        )
+        .await;
+        let id = draft["id"].as_str().expect("draft id");
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/surgical/death-certificate/{id}/file"))
+                .insert_header(("X-User-Id", "5Doctor"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn a_created_certificate_is_filed_whatever_the_body_says() {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        seed_patient(&state, "PAT-DC-1").await;
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(super::create_death_certificate),
+        )
+        .await;
+        let mut body = complete();
+        body["id"] = serde_json::json!("DC-CLIENT-CHOSEN");
+        body["status"] = serde_json::json!("draft");
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/surgical/death-certificate")
+                .insert_header(("X-User-Id", "5Doctor"))
+                .set_json(body)
+                .to_request(),
+        )
+        .await;
+        let id = created["id"].as_str().expect("id");
+        assert_ne!(id, "DC-CLIENT-CHOSEN");
+        let stored = data
+            .repositories
+            .death_certificate_records
+            .get_by_id(id)
+            .await
+            .expect("read")
+            .expect("stored");
+        assert_eq!(stored.data["status"], "filed");
+        assert!(stored.data.get("id").is_none(), "{}", stored.data);
     }
 }

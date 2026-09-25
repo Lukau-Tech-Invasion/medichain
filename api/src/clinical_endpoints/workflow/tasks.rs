@@ -453,7 +453,15 @@ fn nursing_task_kind(order: &crate::repositories::traits::PhysicianOrderEntity) 
     }
 }
 
-/// Get nurse tasks (medication administrations, monitoring)
+/// The nursing work outstanding on the physician order book.
+///
+/// This also listed "medication administration" tasks, built from
+/// `medication_reminders` -- the reminders a PATIENT sets on their own phone,
+/// across the whole deployment. A patient's 08:00 vitamin reminder became a
+/// ward task, and after 08:00 a "high" priority one. Ward administrations come
+/// from prescriptions, which carry directions rather than a schedule (see
+/// `list_mar`), so there is no honest source of "due now" doses to list here;
+/// the MAR page is where administrations are recorded.
 #[get("/api/nurse/tasks")]
 pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
@@ -469,35 +477,6 @@ pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -
     if !matches!(current_user.role, crate::Role::Nurse | crate::Role::Admin) {
         return HttpResponse::Forbidden().finish();
     }
-
-    // Medication administration tasks from repository
-    let all_reminders = required_worklist_read!(
-        data.repositories
-            .medication_reminders
-            .list_all_active()
-            .await,
-        "nurse medication task"
-    );
-    let med_tasks: Vec<_> = all_reminders
-        .into_iter()
-        .filter(|m| m.is_active)
-        .map(|m| {
-            let scheduled_at = chrono::Utc::now()
-                .date_naive()
-                .and_time(m.scheduled_time)
-                .and_utc()
-                .timestamp();
-            serde_json::json!({
-                "id": m.id,
-                "type": "medication_admin",
-                "patient_id": m.patient_id,
-                "medication": m.medication_name,
-                "dosage": m.dosage,
-                "scheduled_at": scheduled_at,
-                "priority": if scheduled_at < chrono::Utc::now().timestamp() { "high" } else { "medium" }
-            })
-        })
-        .collect();
 
     // Monitoring tasks.
     //
@@ -545,11 +524,8 @@ pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -
     })
     .collect();
 
-    let mut tasks = med_tasks;
-    tasks.extend(monitoring_tasks);
-
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "tasks": tasks
+        "tasks": monitoring_tasks
     }))
 }
