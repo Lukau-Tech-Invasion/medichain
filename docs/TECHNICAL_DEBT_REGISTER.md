@@ -17,9 +17,151 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-09-24.
+Last updated: 2026-09-25.
 
 ---
+
+## 2026-09-25 — The closing round: what nothing used, and what nothing could reach
+
+Asked for: every unfinished feature finished, everything unused removed, each
+removal investigated first, and nothing broken. Everything below was verified
+by compiling, by both unit suites and both typechecks, by all static gates, and
+by the full API suite on PostgreSQL.
+
+### The endpoint-coverage number was inflated
+
+`scripts/unused-endpoints.py` reported 440 of 448 routes called. It counted a
+wrapper in `endpoints.ts` as a caller, and 157 wrappers were imported by
+nothing, so 140 routes were "called" by code no screen ran. With the dead
+wrappers gone the report is honest; it now also counts the Expo app under
+`mobile-examples/` as a client (the only caller of `/api/my-records` and
+`/api/nfc/verify-mine`, which an earlier draft of this round nearly removed).
+
+The dead-export check itself was fooled the same way: matching words, a page's
+local `recordFluid` function or an i18n key named `cancelAppointment` kept a
+dead wrapper alive. It now reads import statements.
+
+Every route still uncalled was opened and is one of:
+
+  * **Integration, device or operations, UI-less by design** — the ten FHIR
+    resources and `Bundle` ingest; the SMS webhook and opt-in/out; offline
+    sync; the mobile device and lock-screen capabilities; the NFC token
+    exchange and demo tap simulator; wearable reading ingestion; identity
+    claim and context switching; federation key management; bootstrap,
+    credentials and demo login; health probes.
+  * **Read-back by id** — `GET /api/.../{id}` for records whose screens use the
+    list or the patient-scoped read. The crate's own tests and the harnesses
+    read writes back through them.
+  * **Needs a decision, not code** — listed at the end of this entry.
+
+### Removed after investigation
+
+Parallel emergency paths not bound to a managed device: `POST
+/api/emergency-access` (revealed the capsule on an NFC tag id alone),
+`/api/nfc/tap`, `/api/nfc/verify-qr`.
+
+Duplicated by what the screens use: `/api/staff/all`, a single lab panel, the
+patient dashboard aggregate, manual CDS alert create/list, the unscoped I/O
+list, `/api/emergency/record-fluid`, appointment `/cancel`, the clinician
+emergency-contact POST, the open-recollection list, the client-authored
+whole-day MAR (`POST /api/emergency/mar`), the staff-only pharmacy-decision
+read, the languages list (it advertised six languages; the app offers one).
+
+Broken and unreachable: `POST /api/barcode/generate` (stored nothing; its value
+came from the clock, so two labels in one second collided);
+`/api/telehealth/device-check` (stored nothing; unmeasured bandwidth counted as
+0 Mbps); autopsy requests (AutopsyPage never created or showed one); the
+standalone SAMPLE-history endpoints and their repository. `POST
+/api/lab-trends/analyze` and its stored results: it called a coefficient of
+variation above 10% "statistically significant" and attached
+clinical-significance prose; `GET /api/lab-trends/patient/{id}` serves the same
+statistics to the patient and their clinicians without the claim.
+
+Ten in-memory maps on `AppState` that nothing read — `access_logs`,
+`lab_submissions`, `vital_signs`, `chain_of_custody`, `critical_values`,
+`radiology_orders`, `satisfaction_surveys`, `e_prescriptions_v2`, `allergies`,
+and `nfc_tags`, which the startup loader filled and nothing ever consulted. Each
+record type has lived in a repository for months; the maps were what was left.
+With them went the domain types only they and the old endpoints named:
+`VitalSignsFlowsheet`, `ChainOfCustody`, `CriticalValueNotification`,
+`SAMPLEHistory`, `EMSHandoff` and their component types.
+
+Read and never written — the table dropped with its code: `allergies`,
+`drug_interactions`, `blood_type_screens`, `e_prescription_records`,
+`autopsy_requests`, `sample_histories`, `lab_trend_results` (all 0 rows,
+measured 2026-09-25).
+
+Front end: 157 wrappers, ~250 exports and 13 files no entry point reached;
+MARPage (it read a response shape the API never sent, so it never listed a
+prescribed medicine); the patient app's "Create Demo Wallet".
+
+### Defects found and fixed on the way
+
+  * **Allergies were never screened.** Drug checks, the Medical ID card and QR,
+    the emergency and lock-screen views and FHIR AllergyIntolerance all read
+    the `allergies` table, which nothing writes. A penicillin allergy captured
+    at registration never flagged a prescription. They now read the profile,
+    and the drug check matches by drug class (amoxicillin under penicillin).
+  * **Vital-sign thresholds** had two definitions that disagreed (critical
+    systolic 70 on the page, 90 on the server); one now, served in the scoring
+    catalog. A transposed blood pressure is refused before it is stored.
+  * **The MAR invented a route of administration** (injection became IV,
+    everything else PO) and showed it pre-ticked in the five-rights check. The
+    nurse records the route used.
+  * **The nurse worklist listed patients' phone reminders as ward tasks.**
+  * **Death-certificate drafts** reopened as an empty form that overwrote the
+    draft on save, and a completed draft could never be filed.
+  * **Specimen rejections** took their patient, author and "notified" flag from
+    the request body.
+  * **Surgical-module audit rows** recorded a hardcoded role.
+  * **A guardianship with no permissions** was accepted by the API.
+  * **Pharmacy decisions** were unreadable by the patient they concern; the
+    handler's doc claimed a patient copy that did not exist.
+  * **Telehealth join links** fell back to a domain nobody operates.
+  * The patient app labelled a failed load "Demo".
+  * **The patient's Lab Trends page was empty for everybody.** It asked by
+    wallet address, and the endpoint read only analyses nothing stored. It now
+    asks by record id and trends are computed from the patient's released
+    results; a single result has no direction or percentage change (rule 12),
+    and the page no longer shows "stable" for one.
+  * **An unrecorded blood group became O+.** The patient loader used by the
+    in-memory store defaulted a missing or `Unknown` blood group to O+
+    ("universal donor"). Such a patient is no longer loaded, and the count is
+    logged; the profile type cannot say "unknown", so absent is the honest
+    option until it can.
+
+### Workflows that had an endpoint and no screen, now reachable
+
+Death-certificate filing; specimen rejection and recollection cancel;
+guardian permission changes; security incidents and breach declaration;
+withdrawing a secondary verification; the nursing-order worklist; texting a
+patient's emergency contacts; filed drug-interaction history; the population
+panel; the patient's pharmacy notes; the telehealth join QR.
+
+**The ambulance handover** was the largest. `POST /api/emergency/ems-handoff`
+took the 30-field `EMSHandoff` domain type (rule 11) and its id from the body;
+there was no list and no patient read. It now takes a request type in the
+order a handover is spoken (who and when, what happened, observations, what
+was done, SAMPLE, pre-alerts), assigns the id and receiver itself, refuses an
+empty observations set, a transposed pressure, an out-of-range GCS and
+out-of-order times, and has an arrivals board, a patient-scoped read (shown on
+the patient's My Records) and `EmsHandoffPage`. The standalone SAMPLE-history
+endpoints, which no screen used, went: SAMPLE travels inside the handover.
+
+### Still open — each needs a decision
+
+  * **CDS thresholds per facility.** Configurable through the API, but applied
+    only to lab results that name a facility; vital signs always use the
+    defaults. A screen would imply control the engine does not honour until
+    there is a rule for which facility a reading belongs to.
+  * **Insurance claims and eligibility.** Nothing writes an insurance record,
+    so eligibility can only answer "none on file". Waits on the card-versus-
+    payer-policy decision already in `handoff.md`.
+  * **Clinical translation.** Complete behind `TRANSLATION_PROVIDER`; blocked on
+    the provider agreement.
+  * **ADR-0008 Class B/C signature authorisation** (`/api/auth/step-up/*`,
+    `/api/auth/transaction/challenge`): complete and unadopted, as before.
+
 
 ## 2026-09-24 — The front-end round, and the register walked end to end
 
@@ -3718,7 +3860,7 @@ Result: 13 verb+path pairs reported uncalled, now 10, with nothing removed from
 the API. The three that disappeared all had callers all along.
 
 
-## Endpoints with no client caller, triaged 2026-09-15
+## Endpoints with no client caller, triaged 2026-09-15 (SUPERSEDED 2026-09-25 — see the closing round above; this count was inflated by unimported wrappers)
 
 The uncalled-endpoint audit went from 62 to 13 over this campaign. What is left
 is not a backlog: every remaining entry has been opened and is one of three

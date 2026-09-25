@@ -3,6 +3,13 @@
 **Opened 2026-09-15.** Scope: every write endpoint (`POST`/`PUT`/`PATCH`/
 `DELETE`) the API registers, and whether anything in either client calls it.
 
+> **Closed 2026-09-25.** Every entry below was either given a screen, removed
+> after investigation, or classified as integration/read-back/decision-needed.
+> The outcome, route by route, is the "closing round" entry at the top of
+> `docs/TECHNICAL_DEBT_REGISTER.md`. A fourth way this was measured wrong turned
+> up there: a wrapper in `endpoints.ts` that nothing imported still counted as
+> a caller, which is how 140 routes read as reachable when no screen ran them.
+
 ## How this was measured, and the three ways I got it wrong first
 
 This matters more than the list, because each wrong method produced a confident

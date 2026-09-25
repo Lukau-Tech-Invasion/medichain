@@ -41,6 +41,7 @@ Priority is "how badly does the patient need this", not how hard it is.
 | 9 | **AMA discharge** | Doctor, `AMAPage` | Now yes | **DONE** |
 | 10 | **Intake/output** | Nurse | Now yes | **DONE** |
 | 11 | **Pharmacy allergy decisions** — refused to dispense, prescriber queried | Pharmacist, `PharmacistDashboardPage` | Now yes (2026-09-25, `MedicationsPage`) | **DONE** |
+| 12 | **Ambulance handover** (with the crew's SAMPLE history) | Receiving clinician, `EmsHandoffPage` | Now yes (2026-09-25, `MyRecordsPage`) | **DONE** |
 
 ### Deliberately NOT patient-facing
 
@@ -338,6 +339,7 @@ the clinician and opens it in the patient's session.
 | 9 | `GET /api/clinical/patient/{id}/ama-discharges` | `/api/clinical/ama/{ama_id}`, plus the register |
 | 10 | `GET /api/clinical/patient/{id}/intake-output` | two ward-wide provider lists |
 | 11 | `GET /api/clinical/patient/{id}/pharmacy-decisions` | `/api/pharmacy/allergy-decisions/patient/{id}`, clinical staff only (removed; its doc claimed a patient copy that did not exist) |
+| 12 | `GET /api/clinical/patient/{id}/ems-handoffs` | `/api/emergency/ems-handoff/{id}`, clinical staff only |
 
 Why each one matters, in the order a patient would care:
 
