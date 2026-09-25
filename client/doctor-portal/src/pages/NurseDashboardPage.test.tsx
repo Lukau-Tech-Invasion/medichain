@@ -68,4 +68,31 @@ describe('NurseDashboardPage', () => {
       expect(screen.getByText(/Record Vitals/i)).toBeInTheDocument();
     });
   });
+
+  it('lists the nursing orders outstanding on the order book', async () => {
+    mockFetch.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(String(url).includes('/api/nurse/tasks')
+        ? { success: true, tasks: [{
+            id: 'ORD-1', type: 'wound_care', patient_id: 'PAT-7', frequency: 'BD',
+            last_done: 0, priority: 'medium', instructions: 'Change sacral dressing',
+          }] }
+        : {}),
+    }));
+    render(<MemoryRouter><NurseDashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Wound care ordered/i)).toBeInTheDocument();
+    expect(screen.getByText('PAT-7')).toBeInTheDocument();
+    expect(screen.getByText(/BD — Change sacral dressing/)).toBeInTheDocument();
+  });
+
+  it('says the orders could not be read rather than that nothing is outstanding', async () => {
+    mockFetch.mockImplementation((url: string) => String(url).includes('/api/nurse/tasks')
+      ? Promise.resolve({ ok: false, status: 503, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({}) })
+      : Promise.resolve({ ok: true, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({}) }));
+    render(<MemoryRouter><NurseDashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Nursing orders could not be loaded/i)).toBeInTheDocument();
+  });
 });

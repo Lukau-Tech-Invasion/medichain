@@ -302,9 +302,9 @@ function NursingPage() {
   // administered_time, status}` to `/api/nursing/mar/administer`, which
   // requires `patient_id` and knows nothing about indices — so every click of
   // the Give button answered `400 MISSING_PATIENT_ID` and no dose was ever
-  // recorded from this screen. `MARPage` posts to the same endpoint with the
-  // patient, the drug, the dose and the route, which is the shape the endpoint
-  // documents; this now sends the same thing.
+  // recorded from this screen. It now sends the patient, the drug, the dose and
+  // the route, which is the shape the endpoint documents (and what
+  // `MedicationAdminPage` sends).
   const administerMedication = async (
     mar: MAR,
     med: MedicationEntry,

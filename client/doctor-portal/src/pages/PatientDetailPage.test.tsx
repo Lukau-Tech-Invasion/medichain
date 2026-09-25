@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import PatientDetailPage, { downloadPatientSummary } from './PatientDetailPage';
 import { useAuthStore } from '../store';
@@ -19,6 +19,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   publishEmergencyCapsule: vi.fn(),
   revokeEmergencyCapsule: vi.fn(),
   getGuardiansForWard: vi.fn(),
+  updateGuardianPermissions: vi.fn(),
   updatePatient: vi.fn(),
 }));
 
@@ -336,4 +337,30 @@ describe('PatientDetailPage', () => {
     expect(screen.getByText(/blood_type, allergies/)).toBeInTheDocument();
   });
 
+
+  it('changes what a guardian may do and keeps the relationship expiry', async () => {
+    vi.mocked(shared.getGuardiansForWard).mockResolvedValue({
+      success: true,
+      count: 1,
+      relationships: [{
+        id: 'GR-1', guardian_wallet: '5Guardian', ward_patient_id: 'PAT-001',
+        relationship_type: 'parent_or_guardian', permissions: ['view_records'],
+        verified_by: '5Admin', verified_at: '2026-09-01T00:00:00Z', active: true,
+        expires_at: '2027-01-01T00:00:00Z',
+      }],
+    } as never);
+    vi.mocked(shared.updateGuardianPermissions).mockResolvedValue({} as never);
+    await openAccessTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Change permissions/i }));
+    const editor = within(screen.getByTestId('guardian-list')).getByRole('group', { name: /What they may do/i });
+    fireEvent.click(within(editor).getByLabelText(/Book appointments/i));
+    fireEvent.click(screen.getByRole('button', { name: /Save permissions/i }));
+
+    await waitFor(() => expect(shared.updateGuardianPermissions).toHaveBeenCalledWith(
+      'GR-1',
+      ['view_records', 'book_appointments'],
+      '2027-01-01T00:00:00Z',
+    ));
+  });
 });

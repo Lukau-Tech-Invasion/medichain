@@ -211,6 +211,7 @@ export const ADMIN_NAV: NavSection[] = [
     icon: ShieldAlert,
     items: [
       { id: 'access-logs', to: '/access-logs', label: 'Access Logs', icon: FileText, priority: 'high' },
+      { id: 'security-incidents', to: '/security-incidents', label: 'Security Incidents', icon: ShieldAlert, priority: 'high' },
       { id: 'national-id-reviews', to: '/national-id-reviews', label: 'National ID Reviews', icon: ShieldCheck, priority: 'high' },
       { id: 'health-id-cards', to: '/health-id-cards', label: 'Health ID Cards', icon: CreditCard, priority: 'high' },
       // Renamed: this route is the barcode SCANNER. Calling it a registry

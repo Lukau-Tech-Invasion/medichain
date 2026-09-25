@@ -251,6 +251,30 @@ describe('PharmacistDashboardPage secondary verification actions', () => {
     expect(await screen.findByRole('button', { name: /^dispense$/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /approve verification/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /reject verification/i })).toBeNull();
+    // Not a party to the check: nothing to withdraw.
+    expect(screen.queryByRole('button', { name: /withdraw verification/i })).toBeNull();
+  });
+
+  it('lets the verifying pharmacist withdraw the check, with a reason', async () => {
+    const prescription = {
+      prescription_id: 'RX-VERIFY-WITHDRAW', patient_id: 'PAT-4', medication_name: 'Medicine',
+      dosage: '1mg', status: 'InProgress', priority: 'Routine',
+      secondary_verification: {
+        required: true, status: 'Verified', first_pharmacist_id: 'pharmacist-first',
+        requested_by: 'pharmacist-first', verified_by: pharmacistId,
+      },
+    };
+    mockFetch.mockImplementation(() => response(dashboard(prescription)));
+    render(<MemoryRouter><PharmacistDashboardPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: /withdraw verification/i }));
+    await answerPrompt('Dose query from prescriber');
+    await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([url]) =>
+        String(url).includes('/api/e-prescriptions/RX-VERIFY-WITHDRAW/verification/revoke'));
+      expect(call).toBeTruthy();
+      expect(String(call?.[1]?.body)).toContain('Dose query from prescriber');
+    });
   });
 });
 

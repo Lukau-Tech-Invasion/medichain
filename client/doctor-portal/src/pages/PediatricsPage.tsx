@@ -13,8 +13,9 @@ import {
   FileSignature
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
-import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
 import {
+  createPeds,
+  listPedsForPatient,
   getPatients,
   useTranslation,
   clickable,

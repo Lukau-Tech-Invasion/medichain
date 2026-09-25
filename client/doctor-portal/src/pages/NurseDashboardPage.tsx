@@ -16,8 +16,9 @@ import {
   ClipboardList,
   FileText,
 } from 'lucide-react';
-import { getNurseDashboard, useTranslation,
+import { getNurseDashboard, getNurseTasks, useTranslation,
   type NurseDashboardResponse,
+  type NursingOrderTask,
 } from '@medichain/shared';
 import {
   StatCard,
@@ -34,6 +35,10 @@ export default function NurseDashboardPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<NurseDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // Outstanding nursing orders. `null` while unknown, so a failed read is not
+  // shown as "nothing outstanding".
+  const [orderTasks, setOrderTasks] = useState<NursingOrderTask[] | null>(null);
+  const [orderTasksUnknown, setOrderTasksUnknown] = useState(false);
 
   useEffect(() => {
     loadDashboard();
@@ -42,8 +47,16 @@ export default function NurseDashboardPage() {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-      const response = await getNurseDashboard();
-      setData(response);
+      const [response, tasks] = await Promise.allSettled([getNurseDashboard(), getNurseTasks()]);
+      if (response.status === 'fulfilled') setData(response.value);
+      else console.error('Failed to load nurse dashboard:', response.reason);
+      if (tasks.status === 'fulfilled') {
+        setOrderTasks(tasks.value.tasks ?? []);
+        setOrderTasksUnknown(false);
+      } else {
+        setOrderTasks(null);
+        setOrderTasksUnknown(true);
+      }
     } catch (error) {
       console.error('Failed to load nurse dashboard:', error);
     } finally {
@@ -126,12 +139,22 @@ export default function NurseDashboardPage() {
   // specific room — are worse than an empty panel: a nurse either acts on
   // them or stops believing the panel, and both outcomes are caused by the
   // screen rather than by the ward.
-  const tasksData = (data?.vitals_needing_attention ?? []).map((v) => ({
-    id: v.flowsheet_id ?? v.patient_id ?? v.patient_name,
-    task: t('docNurseDashboard.taskVitalsFor'),
-    patient: v.patient_name ?? v.patient_id ?? '',
-    detail: v.abnormal_values?.join(', ') ?? '',
-  }));
+  const tasksData = [
+    ...(data?.vitals_needing_attention ?? []).map((v) => ({
+      id: v.flowsheet_id ?? v.patient_id ?? v.patient_name,
+      task: t('docNurseDashboard.taskVitalsFor'),
+      patient: v.patient_name ?? v.patient_id ?? '',
+      detail: v.abnormal_values?.join(', ') ?? '',
+    })),
+    // What the physicians ordered the nurses to do, still outstanding
+    // (`GET /api/nurse/tasks`, which had no screen).
+    ...(orderTasks ?? []).map((task) => ({
+      id: task.id,
+      task: t(`docNurseDashboard.taskKind_${task.type}`),
+      patient: task.patient_id,
+      detail: [task.frequency, task.instructions].filter(Boolean).join(' — '),
+    })),
+  ];
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
@@ -251,6 +274,11 @@ export default function NurseDashboardPage() {
             <ClipboardList size={16} aria-hidden="true" /> {t('docNurseDashboard.tasksDue')}
           </h3>
           <div className="space-y-2">
+            {orderTasksUnknown && (
+              <p className="text-xs text-content-muted p-2" role="status">
+                {t('docNurseDashboard.orderTasksUnknown')}
+              </p>
+            )}
             {tasksData.length === 0 ? (
               <p className="text-sm text-content-muted p-2">
                 {t('docNurseDashboard.tasksNone')}

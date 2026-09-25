@@ -26,6 +26,7 @@ import {
   dispensePrescription,
   requestPrescriptionVerification,
   decidePrescriptionVerification,
+  revokePrescriptionVerification,
   getDispenseEvents,
   reverseDispense,
   getApiErrorCode,
@@ -41,6 +42,7 @@ interface SecondaryVerification {
   status: 'NotRequired' | 'Required' | 'Pending' | 'Verified' | 'Rejected' | 'Expired' | 'Revoked';
   first_pharmacist_id?: string | null;
   requested_by?: string | null;
+  verified_by?: string | null;
 }
 import {
   StatCard,
@@ -277,7 +279,7 @@ export default function PharmacistDashboardPage() {
    */
   const handlePharmacyAction = async (
     prescriptionId: string,
-    action: 'receive' | 'start' | 'dispense' | 'requestVerification' | 'approve' | 'reject'
+    action: 'receive' | 'start' | 'dispense' | 'requestVerification' | 'approve' | 'reject' | 'revoke'
   ) => {
     let quantity = 0;
     let rejectionReason: string | undefined;
@@ -296,8 +298,11 @@ export default function PharmacistDashboardPage() {
         return;
       }
     }
-    if (action === 'reject') {
-      const entered = await promptDialog({ message: t('docPharmDashboard.rejectionReasonPrompt'), required: true });
+    if (action === 'reject' || action === 'revoke') {
+      const entered = await promptDialog({
+        message: t(action === 'reject' ? 'docPharmDashboard.rejectionReasonPrompt' : 'docPharmDashboard.revokeReasonPrompt'),
+        required: true,
+      });
       if (entered === null) return;
       rejectionReason = entered.trim();
       if (!rejectionReason) {
@@ -319,6 +324,9 @@ export default function PharmacistDashboardPage() {
       } else if (action === 'requestVerification') {
         await requestPrescriptionVerification(prescriptionId);
         message = t('docPharmDashboard.verificationRequested');
+      } else if (action === 'revoke') {
+        await revokePrescriptionVerification(prescriptionId, rejectionReason ?? '');
+        message = t('docPharmDashboard.verificationRevoked');
       } else if (action === 'approve' || action === 'reject') {
         await decidePrescriptionVerification(
           prescriptionId,
@@ -567,6 +575,22 @@ export default function PharmacistDashboardPage() {
                                 {t('docPharmDashboard.rejectVerification')}
                               </button>
                             </>
+                          )}
+                          {/* The server lets a party to the check withdraw it while it
+                              is pending or approved; the earlier decision stays on record. */}
+                          {rx.secondary_verification?.required &&
+                            ['Pending', 'Verified'].includes(rx.secondary_verification.status) &&
+                            rx.status !== 'Dispensed' &&
+                            (rx.secondary_verification.requested_by === data?.pharmacist_id ||
+                              rx.secondary_verification.verified_by === data?.pharmacist_id) && (
+                            <button
+                              type="button"
+                              onClick={() => void handlePharmacyAction(rx.prescription_id, 'revoke')}
+                              disabled={busyRx === rx.prescription_id}
+                              className="inline-flex items-center min-h-[24px] py-1 text-xs font-medium underline text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                            >
+                              {t('docPharmDashboard.revokeVerification')}
+                            </button>
                           )}
                           {rx.status === 'Dispensed' && (
                             <span className="text-xs text-content-muted">{t('docPharmDashboard.completed')}</span>

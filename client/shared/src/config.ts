@@ -265,13 +265,6 @@ export const clearPatientAuth = (): void => {
   }
 };
 
-/**
- * Check if user is authenticated
- */
-export const isAuthenticated = (): boolean => {
-  return getConnectedWalletAddress() !== null;
-};
-
 // ============================================================================
 // CONNECTION HEALTH UTILITIES
 // ============================================================================

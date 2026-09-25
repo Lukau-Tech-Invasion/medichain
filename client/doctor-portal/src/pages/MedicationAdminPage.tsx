@@ -32,20 +32,34 @@ import StaffName from '../components/StaffName';
  * - Administration audit trail
  */
 
+const ADMINISTRATION_ROUTES = ['PO', 'IV', 'IM', 'SC', 'SL', 'PR', 'Topical', 'Inhaled', 'Ophthalmic', 'Otic'] as const;
+type AdministrationRoute = (typeof ADMINISTRATION_ROUTES)[number];
+
+/** A parenteral route needs the site recorded. */
+function needsSite(route: '' | AdministrationRoute): boolean {
+  return route === 'IM' || route === 'SC' || route === 'IV';
+}
+
 interface ScheduledMedication {
   medId: string;
   patientId: string;
   patientName: string;
   medicationName: string;
   dose: string;
-  route: 'PO' | 'IV' | 'IM' | 'SC' | 'SL' | 'PR' | 'Topical' | 'Inhaled' | 'Ophthalmic' | 'Otic';
+  /**
+   * The route the prescription names, or '' when it names none. A prescription
+   * records a form (tablet, cream, injection), not a route; the nurse records
+   * the route actually used when the dose is given.
+   */
+  route: '' | AdministrationRoute;
   frequency: string;
   scheduledTimes: string[];
   startDate: string;
   endDate?: string;
   indication: string;
   prescriber: string;
-  priority: 'routine' | 'stat' | 'prn';
+  /** Only when the order says so; nothing is assumed routine. */
+  priority?: 'stat' | 'prn';
   allergies?: string[];
   interactions?: string[];
 }
@@ -143,14 +157,14 @@ const MedicationAdminPage: React.FC = () => {
         patientName: m.patient_name || m.patientName || '',
         medicationName: m.medication_name || m.medicationName || '',
         dose: m.dose || '',
-        route: (m.route as ScheduledMedication['route']) || 'PO',
+        route: ADMINISTRATION_ROUTES.includes(m.route as AdministrationRoute) ? (m.route as AdministrationRoute) : '',
         frequency: m.frequency || '',
         scheduledTimes: m.scheduled_times || m.scheduledTimes || [],
         startDate: m.start_date || m.startDate || '',
         endDate: m.end_date || m.endDate,
         indication: m.indication || '',
         prescriber: m.prescriber || '',
-        priority: (m.priority as ScheduledMedication['priority']) || 'routine',
+        priority: m.priority === 'stat' || m.priority === 'prn' ? m.priority : undefined,
         allergies: m.allergies,
         interactions: m.interactions,
       }));
@@ -182,8 +196,13 @@ const MedicationAdminPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  // The route this dose was given by. Starts from the prescription's, when it
+  // names one; otherwise the nurse must choose -- it is recorded on the MAR.
+  const [administeredRoute, setAdministeredRoute] = useState<'' | AdministrationRoute>('');
+
   const handleAdministerMed = (med: ScheduledMedication, time: string) => {
     setSelectedMed(med);
+    setAdministeredRoute(med.route);
     setSelectedTime(time);
     setActualTime(new Date().toTimeString().slice(0, 5));
     setStatus('given');
@@ -218,6 +237,10 @@ const MedicationAdminPage: React.FC = () => {
     // the message now appears on the control the nurse has to act on. The
     // five-rights message still also surfaces as a toast, because that checkbox
     // is in a different card from the submit button.
+    if (status === 'given' && !administeredRoute) {
+      showError(t('docMedicationAdmin.errorRouteRequired'));
+      return;
+    }
     if (!validate(marEntry())) {
       if (errors.fiveRightsVerified) {
         showError(t('docMedicationAdmin.errorFiveRights'));
@@ -232,10 +255,11 @@ const MedicationAdminPage: React.FC = () => {
         medication_id: selectedMed.medId,
         medication_name: selectedMed.medicationName,
         dose: selectedMed.dose,
-        route: selectedMed.route,
+        route: administeredRoute,
         scheduled_time: selectedTime || 'PRN',
         actual_time: actualTime,
-        administered_by: user?.userId || 'Unknown',
+        // No `administered_by`: the server records the authenticated caller
+        // and ignored this, which was 'Unknown' whenever the store was empty.
         status,
         reason_not_given: reasonNotGiven || undefined,
         site: administrationSite || undefined,
@@ -461,7 +485,7 @@ const MedicationAdminPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-content">{med.dose}</div>
-                      <div className="text-xs text-content-muted">{med.route}</div>
+                      <div className="text-xs text-content-muted">{med.route || t('docMedicationAdmin.routeNotPrescribed')}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 text-xs font-semibold rounded ${
@@ -560,8 +584,20 @@ const MedicationAdminPage: React.FC = () => {
                 <p className="text-content">{selectedMed.dose}</p>
               </div>
               <div>
-                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.routeDetailLabel')}</span>
-                <p className="text-content">{selectedMed.route}</p>
+                <label htmlFor="medadmin-route" className="font-medium text-content-secondary">
+                  {t('docMedicationAdmin.routeDetailLabel')}
+                </label>
+                <select
+                  id="medadmin-route"
+                  value={administeredRoute}
+                  onChange={(e) => setAdministeredRoute(e.target.value as '' | AdministrationRoute)}
+                  className="w-full mt-1 px-2 py-1 border rounded-md bg-surface text-content"
+                >
+                  <option value="">{t('docMedicationAdmin.routeNotChosen')}</option>
+                  {ADMINISTRATION_ROUTES.map((route) => (
+                    <option key={route} value={route}>{route}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <span className="font-medium text-content-secondary">{t('docMedicationAdmin.scheduledTimeDetailLabel')}</span>
@@ -604,7 +640,7 @@ const MedicationAdminPage: React.FC = () => {
               <label className="flex items-center text-sm min-h-[24px] py-1">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightRouteLabel')}</span>
-                <span className="ml-2 text-content-secondary">{selectedMed.route}</span>
+                <span className="ml-2 text-content-secondary">{administeredRoute || t('docMedicationAdmin.routeNotChosen')}</span>
               </label>
               <label className="flex items-center text-sm min-h-[24px] py-1">
                 <input type="checkbox" className="mr-2" disabled checked />
@@ -685,7 +721,7 @@ const MedicationAdminPage: React.FC = () => {
                   <div>
                     <label htmlFor="medadmin-site" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docMedicationAdmin.administrationSiteLabel')}
-                      {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') &&
+                      {needsSite(administeredRoute) &&
                         <span className="text-critical"> *</span>
                       }
                     </label>
@@ -696,7 +732,7 @@ const MedicationAdminPage: React.FC = () => {
                       onChange={(e) => setAdministrationSite(e.target.value)}
                       placeholder={t('docMedicationAdmin.administrationSitePh')}
                       className="w-full px-3 py-2 border rounded-md"
-                      required={selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV'}
+                      required={needsSite(administeredRoute)}
                     />
                   </div>
 

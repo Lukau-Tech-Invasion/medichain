@@ -11,6 +11,7 @@ import {
   getGuardiansForWard,
   revokeGuardian,
   verifyGuardian,
+  updateGuardianPermissions,
   useStepUp,
   StepUpDialog,
   useTranslation,
@@ -100,6 +101,22 @@ export function downloadPatientSummary(patient: PatientDetails): void {
   anchor.remove();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * The permissions a guardianship can grant, as offered on this page.
+ *
+ * Consenting to treatment and consenting to data processing are separate
+ * decisions in South African law (Children's Act §129 vs POPIA §35) and the
+ * server keeps them apart, so they are offered separately rather than as one
+ * "give consent" box.
+ */
+const GUARDIAN_PERMISSION_OPTIONS: ReadonlyArray<readonly [string, string]> = [
+  ['view_records', 'docPatientDetail.permViewRecords'],
+  ['book_appointments', 'docPatientDetail.permBookAppointments'],
+  ['consent_to_treatment', 'docPatientDetail.permConsentTreatment'],
+  ['consent_to_data_processing', 'docPatientDetail.permConsentData'],
+  ['upload_vaccinations', 'docPatientDetail.permUploadVaccinations'],
+];
 
 function PatientDetailPage() {
   const { t } = useTranslation();
@@ -233,6 +250,9 @@ function PatientDetailPage() {
   const [newGuardianWallet, setNewGuardianWallet] = useState('');
   const [newGuardianType, setNewGuardianType] = useState('parent_or_guardian');
   const [newGuardianPermissions, setNewGuardianPermissions] = useState<string[]>([]);
+  // The relationship whose permissions are being changed, and the set as edited.
+  const [editingGuardianId, setEditingGuardianId] = useState<string | null>(null);
+  const [editedPermissions, setEditedPermissions] = useState<string[]>([]);
 
   const loadGuardians = useCallback(async () => {
     if (!patientId) return;
@@ -392,6 +412,31 @@ function PatientDetailPage() {
       await loadGuardians();
     } catch (err) {
       setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardianRecordFailed')));
+    } finally {
+      setGuardianBusy(false);
+    }
+  };
+
+  /**
+   * Save a changed permission set. The relationship's own expiry is sent back
+   * unchanged: the server writes `expires_at` as given, so omitting it would
+   * quietly make a time-limited authority permanent.
+   */
+  const saveGuardianPermissions = async (relationship: GuardianRelationship) => {
+    setGuardianError(null);
+    if (editedPermissions.length === 0) {
+      setGuardianError(t('docPatientDetail.guardianPermissionsRequired'));
+      return;
+    }
+    try {
+      setGuardianBusy(true);
+      await stepUp.run(() =>
+        updateGuardianPermissions(relationship.id, editedPermissions, relationship.expires_at ?? null)
+      );
+      setEditingGuardianId(null);
+      await loadGuardians();
+    } catch (err) {
+      setGuardianError(getApiErrorMessage(err, t('docPatientDetail.guardianUpdateFailed')));
     } finally {
       setGuardianBusy(false);
     }
@@ -904,6 +949,46 @@ function PatientDetailPage() {
                       <p className="text-sm text-content-muted">
                         {relationship.relationship_type} — {relationship.permissions.join(', ')}
                       </p>
+                      {editingGuardianId === relationship.id && (
+                        <fieldset className="mt-2" aria-label={t('docPatientDetail.guardianPermissionsLabel')}>
+                          <div className="flex flex-wrap gap-3">
+                            {GUARDIAN_PERMISSION_OPTIONS.map(([value, labelKey]) => (
+                              <label key={value} className="flex items-center gap-2 text-sm min-h-[24px]">
+                                <input
+                                  type="checkbox"
+                                  checked={editedPermissions.includes(value)}
+                                  onChange={() =>
+                                    setEditedPermissions((current) =>
+                                      current.includes(value)
+                                        ? current.filter((p) => p !== value)
+                                        : [...current, value]
+                                    )
+                                  }
+                                  className="w-4 h-4"
+                                />
+                                {t(labelKey)}
+                              </label>
+                            ))}
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => void saveGuardianPermissions(relationship)}
+                              disabled={guardianBusy}
+                              className="px-3 py-1 text-xs rounded-lg bg-brand text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px]"
+                            >
+                              {t('docPatientDetail.guardianSavePermissions')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingGuardianId(null)}
+                              className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content min-h-[24px]"
+                            >
+                              {t('docPatientDetail.guardianCancelEdit')}
+                            </button>
+                          </div>
+                        </fieldset>
+                      )}
                       {/* An ended relationship still shows, and says so. */}
                       {!relationship.active && (
                         <p className="text-xs text-content-muted mt-1">
@@ -914,14 +999,27 @@ function PatientDetailPage() {
                       )}
                     </div>
                     {relationship.active && (
-                      <button
-                        type="button"
-                        onClick={() => void endGuardianship(relationship.id)}
-                        disabled={guardianBusy}
-                        className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
-                      >
-                        {t('docPatientDetail.guardianEnd')}
-                      </button>
+                      <div className="flex flex-col items-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingGuardianId(relationship.id);
+                            setEditedPermissions(relationship.permissions);
+                          }}
+                          disabled={guardianBusy}
+                          className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
+                        >
+                          {t('docPatientDetail.guardianChangePermissions')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void endGuardianship(relationship.id)}
+                          disabled={guardianBusy}
+                          className="px-3 py-1 text-xs rounded-lg border border-critical text-critical-subtle-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[24px] whitespace-nowrap"
+                        >
+                          {t('docPatientDetail.guardianEnd')}
+                        </button>
+                      </div>
                     )}
                   </li>
                 ))}
@@ -961,18 +1059,9 @@ function PatientDetailPage() {
                 <legend className="block text-sm font-medium mb-1">
                   {t('docPatientDetail.guardianPermissionsLabel')}
                 </legend>
-                {/* Consenting to treatment and consenting to data processing are
-                    separate decisions in South African law (Children's Act §129
-                    vs POPIA §35) and the server keeps them apart, so this offers
-                    them separately rather than as one "give consent" box. */}
                 <div className="flex flex-wrap gap-3">
-                  {[
-                    ['view_records', t('docPatientDetail.permViewRecords')],
-                    ['book_appointments', t('docPatientDetail.permBookAppointments')],
-                    ['consent_to_treatment', t('docPatientDetail.permConsentTreatment')],
-                    ['consent_to_data_processing', t('docPatientDetail.permConsentData')],
-                    ['upload_vaccinations', t('docPatientDetail.permUploadVaccinations')],
-                  ].map(([value, label]) => (
+                  {GUARDIAN_PERMISSION_OPTIONS.map(([value, labelKey]) => (
+
                     <label key={value} className="flex items-center gap-2 text-sm min-h-[24px]">
                       <input
                         type="checkbox"
@@ -980,7 +1069,7 @@ function PatientDetailPage() {
                         onChange={() => togglePermission(value)}
                         className="w-4 h-4"
                       />
-                      {label}
+                      {t(labelKey)}
                     </label>
                   ))}
                 </div>

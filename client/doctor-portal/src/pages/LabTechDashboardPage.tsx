@@ -19,6 +19,7 @@ import {
   notifyRejectionOrderingProvider,
   requestSpecimenRecollection,
   completeSpecimenRecollection,
+  cancelSpecimenRecollection,
   useTranslation,
   getApiErrorCode,
   type LabDashboardResponse,
@@ -151,6 +152,34 @@ export default function LabTechDashboardPage() {
       setNotifyResult((p) => ({ ...p, [rejectionId]: friendly }));
     } finally {
       setNotifyingId(null);
+    }
+  };
+
+  /**
+   * Stop asking for another sample -- the order was withdrawn, or the patient
+   * was discharged. The server keeps the request and records why; it needs a
+   * reason, so the prompt requires one.
+   */
+  const handleCancelRecollection = async (recollectionId: string) => {
+    const reason = await promptDialog({ message: t('docLabDashboard.cancelRecollectionPrompt'), required: true });
+    if (reason === null || reason.trim() === '') return;
+    setCompletingId(recollectionId);
+    setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));
+    try {
+      await cancelSpecimenRecollection(recollectionId, reason.trim());
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: t('docLabDashboard.recollectionCancelled'),
+      }));
+      await loadDashboard();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCompletionResult((previous) => ({
+        ...previous,
+        [recollectionId]: `${t('docLabDashboard.recollectionCancelFailed')} — ${message}`,
+      }));
+    } finally {
+      setCompletingId(null);
     }
   };
 
@@ -376,6 +405,16 @@ export default function LabTechDashboardPage() {
                   {completingId === request.id
                     ? t('docLabDashboard.completingRecollection')
                     : t('docLabDashboard.completeRecollection')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCancelRecollection(request.id)}
+                  disabled={completingId === request.id}
+                  className="mt-2 ml-4 text-xs font-medium underline text-critical-subtle-fg disabled:no-underline disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                >
+                  {completingId === request.id
+                    ? t('docLabDashboard.cancellingRecollection')
+                    : t('docLabDashboard.cancelRecollection')}
                 </button>
                 {completionResult[request.id] && (
                   <p role="status" className="mt-1 text-xs text-content-muted">

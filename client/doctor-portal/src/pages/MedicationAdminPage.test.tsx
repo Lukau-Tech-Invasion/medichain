@@ -114,4 +114,33 @@ describe('MedicationAdminPage', () => {
       expect(screen.getAllByText(/Administer/i).length).toBeGreaterThan(0)
     );
   });
+
+  it('records the route the nurse used when the prescription names none', async () => {
+    vi.mocked(shared.listMar).mockResolvedValue([{
+      med_id: 'RX-1', patient_id: 'PAT-001', patient_name: 'John Doe',
+      medication_name: 'Ceftriaxone', dose: '1g', route: null, form: 'injection',
+      frequency: 'Once daily', scheduled_times: [],
+    }]);
+    vi.mocked(shared.administerMedication).mockResolvedValue({ success: true } as never);
+    render(<MedicationAdminPage />);
+
+    // Nothing is presented as prescribed that was not.
+    expect(await screen.findByText(/Route not prescribed/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Administer$/i }));
+    fireEvent.click(await screen.findByLabelText(/I verify all Five Rights/i));
+
+    // No route chosen: refused before it is sent.
+    fireEvent.click(screen.getByRole('button', { name: /Record Administration/i }));
+    expect(shared.administerMedication).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/^Route:/i), { target: { value: 'IM' } });
+    fireEvent.change(screen.getByLabelText(/Administration Site/i), { target: { value: 'Left deltoid' } });
+    fireEvent.click(screen.getByRole('button', { name: /Record Administration/i }));
+
+    await waitFor(() => expect(shared.administerMedication).toHaveBeenCalledWith(
+      expect.objectContaining({ medication_id: 'RX-1', route: 'IM', site: 'Left deltoid' })
+    ));
+    const payload = vi.mocked(shared.administerMedication).mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('administered_by');
+  });
 });

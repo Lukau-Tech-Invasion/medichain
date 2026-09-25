@@ -175,22 +175,6 @@ export async function updatePatient(
   return getApiClient().put(`/api/patients/${patientId}`, data);
 }
 
-export async function addEmergencyContact(
-  patientId: string,
-  contact: {
-    name: string;
-    phone: string;
-    relationship: string;
-  }
-): Promise<{ 
-  success: boolean; 
-  patient_id: string; 
-  contact: { name: string; phone: string; relationship: string };
-  message: string;
-}> {
-  return getApiClient().post(`/api/patients/${patientId}/emergency-contacts`, contact);
-}
-
 export interface PatientAddressInput {
   street?: string | null;
   city: string;
@@ -532,6 +516,21 @@ export async function updateDeathCertificateDraft(
     `/api/surgical/death-certificate/${encodeURIComponent(id)}`,
     draft
   );
+}
+
+/**
+ * File a draft as a certificate.
+ *
+ * The server runs the certificate checks (deceased, date and place of death,
+ * cause, certifier) and refuses a draft missing any of them; filing twice
+ * answers 409. Filing the draft itself, rather than posting a new certificate,
+ * is what keeps a completed draft from staying on the register beside the
+ * certificate it became.
+ */
+export async function fileDeathCertificate(
+  id: string
+): Promise<{ success: boolean; id: string; status: string }> {
+  return getApiClient().post(`/api/surgical/death-certificate/${encodeURIComponent(id)}/file`, {});
 }
 
 // ============================================================================
@@ -1027,6 +1026,23 @@ export async function verifyGuardian(data: {
 }
 
 /** End a guardian relationship. */
+/**
+ * Change what a guardian may do for their ward (Admin; needs MFA step-up).
+ *
+ * `expires_at` is written as sent -- the server replaces it -- so pass the
+ * relationship's current expiry to keep it.
+ */
+export async function updateGuardianPermissions(
+  relationshipId: string,
+  permissions: string[],
+  expiresAt: string | null
+): Promise<GuardianRelationship> {
+  return getApiClient().put(`/api/guardians/${encodeURIComponent(relationshipId)}/permissions`, {
+    permissions,
+    expires_at: expiresAt,
+  });
+}
+
 export async function revokeGuardian(
   relationshipId: string,
   reason?: string
@@ -1418,6 +1434,32 @@ export async function reviewLabResult(
   return getApiClient().post('/api/lab/review', data);
 }
 
+/** Why a laboratory refused a specimen; the values the server accepts. */
+export type SpecimenRejectionCategory =
+  | 'collection_error'
+  | 'transport_error'
+  | 'labeling_error'
+  | 'specimen_quality'
+  | 'container_issue'
+  | 'other';
+
+/**
+ * Reject a collected specimen.
+ *
+ * The patient comes from the specimen and the author from the session; the
+ * ordering provider is told separately, with `notifyRejectionOrderingProvider`,
+ * and another sample is asked for with `requestSpecimenRecollection`.
+ */
+export async function rejectSpecimen(body: {
+  specimen_id: string;
+  rejection_reason: string;
+  rejection_category: SpecimenRejectionCategory;
+  detailed_notes?: string;
+  recollection_required: boolean;
+}): Promise<{ success: boolean; rejection_id: string }> {
+  return getApiClient().post('/api/clinical/specimen-rejection', body);
+}
+
 /**
  * Tell the ordering provider that their specimen was rejected.
  *
@@ -1490,6 +1532,18 @@ export async function dispensePrescription(
 /** Start the server-governed distinct-pharmacist verification workflow. */
 export async function requestPrescriptionVerification(prescriptionId: string): Promise<void> {
   await getApiClient().post(`/api/e-prescriptions/${prescriptionId}/verification/request`, {});
+}
+
+/**
+ * Withdraw a pending or approved verification. The earlier decision stays on
+ * record; the server needs a reason, and only a party to the check (or an
+ * administrator) may withdraw it.
+ */
+export async function revokePrescriptionVerification(prescriptionId: string, reason: string): Promise<void> {
+  await getApiClient().post(
+    `/api/e-prescriptions/${encodeURIComponent(prescriptionId)}/verification/revoke`,
+    { reason }
+  );
 }
 
 /** Approve or reject a pending verification as the distinct second pharmacist. */
@@ -1587,6 +1641,17 @@ export async function completeSpecimenRecollection(
   );
 }
 
+/** Stop asking for another sample. The server requires, and keeps, the reason. */
+export async function cancelSpecimenRecollection(
+  recollectionId: string,
+  reason: string
+): Promise<{ success: boolean; recollection: SpecimenRecollectionRequest }> {
+  return getApiClient().post(
+    `/api/clinical/specimen-recollection/${encodeURIComponent(recollectionId)}/cancel`,
+    { reason }
+  );
+}
+
 /**
  * Get lab submissions for a specific patient
  * Healthcare providers see all, patients only see approved
@@ -1648,10 +1713,6 @@ export async function getPatientSepsisAssessments(patientId: string): Promise<Se
 // Nursing Documentation (Phase 3)
 // ============================================================================
 
-export async function createMar(data: unknown): Promise<ClinicalCreateResult> {
-  return getApiClient().post('/api/emergency/mar', data);
-}
-
 export async function listMar(): Promise<unknown[]> {
   const response = await getApiClient().get<unknown>('/api/emergency/mar/list');
   // Handle different response formats from API
@@ -1708,10 +1769,6 @@ export async function recordWardFluid(data: {
   time: string;
 }): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/nursing/intake-output/record', data);
-}
-
-export async function recordFluid(data: unknown): Promise<ClinicalCreateResult> {
-  return getApiClient().post('/api/emergency/record-fluid', data);
 }
 
 export async function createCarePlan(data: unknown): Promise<ClinicalCreateResult> {
@@ -2347,13 +2404,6 @@ export async function getPatientAppointmentSummaries(
   patientId: string
 ): Promise<{ success: boolean; appointments: PatientAppointmentListItem[]; count: number }> {
   return getApiClient().get(`/api/appointments/patient/${patientId}`);
-}
-
-export async function cancelAppointment(
-  appointmentId: string,
-  data: unknown
-): Promise<{ success: boolean; message: string }> {
-  return getApiClient().post(`/api/appointments/${appointmentId}/cancel`, data);
 }
 
 export async function checkInAppointment(appointmentId: string): Promise<{ success: boolean; message: string }> {
@@ -4492,14 +4542,6 @@ export async function getSessionAssurance(): Promise<{
 // Reads and actions that existed server-side with no client function
 // ============================================================================
 
-/** One staff member, as the directory exposes them. */
-export interface StaffMember {
-  wallet_address: string;
-  name: string;
-  role: string;
-  [key: string]: unknown;
-}
-
 /**
  * Every death certificate on the register.
  *
@@ -4617,3 +4659,64 @@ export async function disconnectWearableDevice(deviceId: string): Promise<{
     {}
   );
 }
+
+// ============================================================================
+// Security incidents (administrators)
+// ============================================================================
+
+/** Something the detectors raised, or a breach an administrator declared. */
+export interface SecurityAlert {
+  id: string;
+  /** `failed_auth_burst`, `abnormal_access` or `breach_declared`. */
+  kind: string;
+  severity: string;
+  /** The account implicated, when one is known. */
+  actor: string | null;
+  message: string;
+  /** Set on a declared breach: POPIA's 72-hour notification deadline. */
+  notify_deadline: string | null;
+  created_at: string;
+}
+
+/** The most recent security alerts, newest first (administrators). */
+export async function listSecurityAlerts(): Promise<{ success: boolean; alerts: SecurityAlert[]; count: number }> {
+  return getApiClient().get('/api/admin/security/alerts');
+}
+
+/**
+ * Declare a data breach. Starts the 72-hour POPIA clock and notifies the
+ * security officer and regulator contacts that are configured; the counts say
+ * how many were actually reached. Needs an MFA step-up.
+ */
+export async function declareBreach(body: { description: string; actor?: string }): Promise<{
+  success: boolean;
+  alert: SecurityAlert;
+  officers_notified: number;
+  regulator_emails_notified: number;
+  message: string;
+}> {
+  return getApiClient().post('/api/admin/security/breach', body);
+}
+
+// ============================================================================
+// Nursing worklist
+// ============================================================================
+
+/** One outstanding nursing order from the physician order book. */
+export interface NursingOrderTask {
+  id: string;
+  /** `vital_signs`, `wound_care` or `nursing_care`. */
+  type: string;
+  patient_id: string;
+  frequency: string;
+  /** Unix seconds: the last execution, or when a never-executed order was due. */
+  last_done: number;
+  priority: 'high' | 'medium' | 'low';
+  instructions: string | null;
+}
+
+/** The nursing work outstanding on the order book (Nurse, Admin). */
+export async function getNurseTasks(): Promise<{ success: boolean; tasks: NursingOrderTask[] }> {
+  return getApiClient().get('/api/nurse/tasks');
+}
+

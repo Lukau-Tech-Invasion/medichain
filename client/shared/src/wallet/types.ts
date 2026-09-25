@@ -74,19 +74,6 @@ export interface WalletAccount {
   registeredBy?: SubstrateAddress;
 }
 
-/**
- * Patient account
- */
-export interface PatientAccount extends WalletAccount {
-  role: 'Patient';
-  /** Type of national ID used */
-  nationalIdType: NationalIdType;
-  /** Hash of national ID (never store plaintext) */
-  nationalIdHash: Hash256;
-  /** MediChain Health ID (derived from wallet + national ID) */
-  healthId: string;
-}
-
 // ============================================================================
 // WALLET CONNECTION STATE
 // ============================================================================
@@ -98,29 +85,4 @@ export interface PatientAccount extends WalletAccount {
 // ============================================================================
 // HELPER TYPE GUARDS
 // ============================================================================
-
-/**
- * Check if an account is a patient
- */
-export function isPatient(account: WalletAccount): account is PatientAccount {
-  return account.role === 'Patient';
-}
-
-/**
- * Check if a role can edit medical records.
- *
- * Mirrors `Role::can_edit_medical_records` in `api/src/types/domain.rs`, which
- * is the authority — this is here so the UI can hide an affordance the server
- * would refuse, never to decide anything on its own.
- *
- * `Admin` is deliberately absent from both. An administrator creates accounts
- * and assigns roles; letting the same account write clinical records means it
- * can grant itself anything and then act, with the audit trail showing a
- * legitimate role at the moment of the act. Note the contrast with
- * `canRegisterPatients` just above, which *does* include Admin — registering a
- * patient is an administrative act, and it is gated on `is_healthcare_provider`.
- */
-export function canEditMedicalRecords(role: Role): boolean {
-  return role === 'Doctor' || role === 'Nurse';
-}
 

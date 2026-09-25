@@ -30,6 +30,7 @@ const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
 const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
 const RetentionPage = lazy(() => import('./pages/RetentionPage'));
+const SecurityIncidentsPage = lazy(() => import('./pages/SecurityIncidentsPage'));
 const NationalIdReviewsPage = lazy(() => import('./pages/NationalIdReviewsPage'));
 const LabReviewPage = lazy(() => import('./pages/LabReviewPage'));
 
@@ -60,7 +61,6 @@ const MCIPage = lazy(() => import('./pages/MCIPage'));
 // Nursing
 const NursingPage = lazy(() => import('./pages/NursingPage'));
 const NursingCarePlanPage = lazy(() => import('./pages/NursingCarePlanPage'));
-const MARPage = lazy(() => import('./pages/MARPage'));
 const CarePlanPage = lazy(() => import('./pages/CarePlanPage'));
 const IntakeOutputPage = lazy(() => import('./pages/IntakeOutputPage'));
 const WoundCarePage = lazy(() => import('./pages/WoundCarePage'));
@@ -243,6 +243,7 @@ function App() {
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
         <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />
         <Route path="retention" element={<LazyRoute element={<RetentionPage />} />} />
+        <Route path="security-incidents" element={<LazyRoute element={<SecurityIncidentsPage />} />} />
         <Route path="national-id-reviews" element={<LazyRoute element={<NationalIdReviewsPage />} />} />
         <Route path="lab-review" element={<LazyRoute element={<LabReviewPage />} />} />
 
@@ -269,7 +270,11 @@ function App() {
         {/* Nursing */}
         <Route path="nursing" element={<LazyRoute element={<NursingPage />} />} />
         <Route path="nursing-care-plan" element={<LazyRoute element={<NursingCarePlanPage />} />} />
-        <Route path="mar" element={<LazyRoute element={<MARPage />} />} />
+        {/* The nurse's MAR. MARPage, which this used to render, read a response
+            shape the API never sent and so never listed a prescribed medicine;
+            it also invented an 08:00 dose for any free-text frequency. This is
+            the page that records doses against real prescriptions. */}
+        <Route path="mar" element={<LazyRoute element={<MedicationAdminPage />} />} />
         <Route path="care-plan" element={<LazyRoute element={<CarePlanPage />} />} />
         <Route path="intake-output" element={<LazyRoute element={<IntakeOutputPage />} />} />
         <Route path="wound-care" element={<LazyRoute element={<WoundCarePage />} />} />

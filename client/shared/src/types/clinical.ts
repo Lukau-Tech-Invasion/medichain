@@ -22,60 +22,6 @@
 // Emergency Protocols
 // ============================================================================
 
-export interface CodeBlueRecord {
-  event_id: string;
-  patient_id: string;
-  location: string;
-  code_called_at: number;
-  team_arrived_at: number | null;
-  initial_rhythm: string;
-  witnessed: boolean;
-  cpr_started_at: number | null;
-  cpr_metrics: Record<string, unknown> | null;
-  defibrillations: Record<string, unknown>[];
-  medications: Record<string, unknown>[];
-  airway_management: Record<string, unknown> | null;
-  vascular_access: Record<string, unknown>[];
-  rosc_at: number | null;
-  code_ended_at: number | null;
-  outcome: string;
-  duration_minutes: number | null;
-  team_members: Record<string, unknown>[];
-  code_leader: string;
-  post_rosc_care: Record<string, unknown> | null;
-  family_notified: boolean;
-  family_notified_at: number | null;
-  documented_by: string;
-  documented_at: number;
-}
-
-export interface CardiacEvent {
-  event_id: string;
-  patient_id: string;
-  chief_complaint: string;
-  symptom_onset: number | null;
-  door_time: number;
-  first_ecg_time: number | null;
-  door_to_ecg_minutes: number | null;
-  ecg_findings: Record<string, unknown>;
-  biomarkers: Record<string, unknown>;
-  event_type: string;
-  timi_score: number | null;
-  heart_score: number | null;
-  cath_lab_activated: boolean;
-  cath_lab_activation_time: number | null;
-  pci_performed: boolean;
-  door_to_balloon_minutes: number | null;
-  culprit_vessel: string | null;
-  interventions: string[];
-  antiplatelet_therapy: string[];
-  anticoagulation: string | null;
-  complications: string[];
-  disposition: string;
-  documented_by: string;
-  documented_at: number;
-}
-
 /**
  * One row of a per-patient emergency list (`GET /api/emergency/{type}/patient/{id}`).
  *
@@ -154,33 +100,6 @@ export interface SepsisListRow extends EmergencyListRow {
 // Nursing Documentation
 // ============================================================================
 
-export interface IntakeOutputRecord {
-  patient_id: string;
-  date: string;
-  shift: string;
-  intake: Record<string, unknown>[];
-  output: Record<string, unknown>[];
-  totals: Record<string, unknown>;
-  fluid_restriction_ml: number | null;
-  target_output_ml: number | null;
-  documented_by: string;
-}
-
-export interface NursingCarePlan {
-  care_plan_id: string;
-  patient_id: string;
-  admission_date: string;
-  nursing_diagnoses: Record<string, unknown>[];
-  goals: Record<string, unknown>[];
-  interventions: Record<string, unknown>[];
-  education_needs: Record<string, unknown>[];
-  discharge_planning: Record<string, unknown>;
-  created_by: string;
-  created_at: number;
-  updated_by: string;
-  updated_at: number;
-}
-
 export interface WoundAssessment {
   assessment_id: string;
   patient_id: string;
@@ -203,22 +122,6 @@ export interface WoundAssessment {
   assessed_by: string;
   assessed_at: number;
   next_assessment_due: string | null;
-}
-
-export interface ShiftHandoff {
-  handoff_id: string;
-  patient_id: string;
-  from_nurse: string;
-  to_nurse: string;
-  handoff_time: number;
-  situation: Record<string, unknown>;
-  background: Record<string, unknown>;
-  assessment: Record<string, unknown>;
-  recommendation: Record<string, unknown>;
-  safety_checks: Record<string, unknown>;
-  pending_tasks: Record<string, unknown>[];
-  questions: string | null;
-  acknowledged: boolean;
 }
 
 export interface IncidentReport {
@@ -268,116 +171,13 @@ export interface FallRiskAssessment {
 // Specialty Emergency Documentation
 // ============================================================================
 
-export interface IntubationRecord {
-  record_id: string;
-  patient_id: string;
-  indication: string;
-  pre_assessment: Record<string, unknown>;
-  preoxygenation: string;
-  preoxygenation_spo2: number | null;
-  medications: Record<string, unknown>[];
-  laryngoscope: string;
-  blade: string;
-  cormack_lehane_grade: number;
-  ett_size: number;
-  ett_depth_cm: number;
-  cuff_inflated: boolean;
-  cuff_pressure_cmh2o: number | null;
-  attempts: number;
-  successful: boolean;
-  confirmation: string[];
-  etco2: number | null;
-  cxr_ordered: boolean;
-  complications: string[];
-  ventilator_settings: Record<string, unknown> | null;
-  performed_by: string;
-  assisted_by: string | null;
-  procedure_time: number;
-}
-
-export interface LacerationRepair {
-  record_id: string;
-  patient_id: string;
-  location: string;
-  mechanism: string;
-  injury_time: number | null;
-  wound: Record<string, unknown>;
-  neuro_before: Record<string, unknown>;
-  tetanus: Record<string, unknown>;
-  anesthesia: Record<string, unknown>;
-  wound_explored: boolean;
-  exploration_findings: string | null;
-  foreign_body: string | null;
-  irrigated: boolean;
-  irrigation: string | null;
-  closure: Record<string, unknown>;
-  neuro_after: Record<string, unknown>;
-  dressing: string;
-  antibiotics: string | null;
-  follow_up: string;
-  suture_removal_days: number | null;
-  photo_documented: boolean;
-  performed_by: string;
-  procedure_time: number;
-}
-
 // ============================================================================
 // Laboratory
 // ============================================================================
 
-export interface ChainOfCustody {
-  form_id: string;
-  specimen_id: string;
-  patient_id: string;
-  reason: string;
-  chain: Record<string, unknown>[];
-  seal_intact: boolean;
-  storage_conditions_met: boolean;
-  final_disposition: string;
-}
-
-export interface CriticalValueNotification {
-  notification_id: string;
-  patient_id: string;
-  test_name: string;
-  critical_value: string;
-  unit: string;
-  critical_range: string;
-  verified_by: string | null;
-  verification_time: number | null;
-  provider_notified: string;
-  notification_time: number;
-  notification_method: string;
-  read_back_verified: boolean;
-  provider_acknowledgment: string | null;
-  lab_technician: string;
-  comments: string | null;
-}
-
 // ============================================================================
 // Physician Documentation
 // ============================================================================
-
-export interface PhysicianOrder {
-  order_id: string;
-  patient_id: string;
-  category: string;
-  order_text: string;
-  priority: string;
-  start_time: number;
-  end_time: number | null;
-  frequency: string | null;
-  instructions: string | null;
-  ordering_provider: string;
-  order_time: number;
-  verbal_order: boolean;
-  read_back: boolean | null;
-  cosign_required: boolean;
-  cosigned_by: string | null;
-  status: string;
-  acknowledged_by: string | null;
-  acknowledged_time: number | null;
-}
 
 export interface DischargeSummary {
   summary_id: string;
@@ -489,62 +289,6 @@ export interface ProgressNoteProblem {
 // ============================================================================
 // Surgical / Perioperative
 // ============================================================================
-
-export interface OperativeNote {
-  note_id: string;
-  patient_id: string;
-  surgery_date: string;
-  pre_op_diagnosis: string[];
-  post_op_diagnosis: string[];
-  procedure_performed: string;
-  cpt_codes: string[];
-  surgeons: Record<string, unknown>[];
-  anesthesia_team: string[];
-  anesthesia_type: string;
-  surgical_approach: string;
-  incision: string;
-  findings: string;
-  procedure_details: string;
-  specimens: Record<string, unknown>[];
-  estimated_blood_loss: number;
-  fluids_given: string;
-  blood_products: string[];
-  drains: Record<string, unknown>[];
-  implants: Record<string, unknown>[];
-  wound_closure: string;
-  dressing: string;
-  complications: string | null;
-  condition_at_end: string;
-  disposition: string;
-  time_in_or: number;
-  time_out_or: number;
-  dictated_by: string;
-  dictation_time: number;
-}
-
-export interface AnesthesiaRecord {
-  record_id: string;
-  patient_id: string;
-  date: string;
-  procedure: string;
-  anesthesiologist: string;
-  crna: string | null;
-  asa_class: string;
-  anesthesia_type: string;
-  pre_assessment: Record<string, unknown>;
-  airway: Record<string, unknown>;
-  induction: Record<string, unknown>;
-  maintenance: Record<string, unknown>;
-  intraop_events: Record<string, unknown>[];
-  vital_signs: Record<string, unknown>[];
-  medications: Record<string, unknown>[];
-  fluids: Record<string, unknown>[];
-  blood_products: string[];
-  emergence: Record<string, unknown>;
-  anesthesia_time_minutes: number;
-  complications: string[];
-  pacu_handoff: Record<string, unknown>;
-}
 
 // ============================================================================
 // Diagnostics
@@ -673,40 +417,6 @@ export interface Appointment {
   instructions: string | null;
   insurance_verified: boolean;
   notes: string | null;
-}
-
-export interface DeathCertificate {
-  certificate_id: string;
-  patient_id: string;
-  decedent_name: string;
-  date_of_birth: string;
-  date_of_death: string;
-  time_of_death: string;
-  place_of_death: Record<string, unknown>;
-  manner_of_death: string;
-  cause_of_death: Record<string, unknown>;
-  autopsy_performed: boolean;
-  autopsy_findings_available: boolean | null;
-  certifying_physician: string;
-  physician_license: string;
-  date_certified: string;
-  me_case: boolean;
-  me_case_number: string | null;
-}
-
-export interface AutopsyReport {
-  report_id: string;
-  patient_id: string;
-  autopsy_date: string;
-  pathologist: string;
-  external_exam: string;
-  internal_exam: Record<string, unknown>;
-  microscopic: string;
-  toxicology: string | null;
-  diagnoses: string[];
-  cause_of_death: Record<string, unknown>;
-  opinion: string;
-  report_date: string;
 }
 
 export interface SatisfactionSurveyResponseInput {

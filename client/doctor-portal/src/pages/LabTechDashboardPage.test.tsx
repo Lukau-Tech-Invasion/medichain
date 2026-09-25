@@ -180,4 +180,35 @@ describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
     });
     expect(screen.getByText(/ACC-1 - Haemolysed/i)).toBeTruthy();
   });
+
+  it('cancels an open recollection with the reason the technician gives', async () => {
+    const open = {
+      ...dashboardWithRejection,
+      open_recollections: [{
+        id: 'RECOLLECT-2', rejection_id: 'REJ-1', original_specimen_id: 'SPEC-OLD',
+        reason: 'Haemolysed', status: 'requested',
+      }],
+    };
+    mockFetch
+      .mockImplementationOnce(() => Promise.resolve({
+        ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(open),
+      }))
+      .mockImplementationOnce(() => Promise.resolve({
+        ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ success: true }),
+      }))
+      .mockImplementationOnce(() => Promise.resolve({
+        ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ ...dashboardWithRejection, open_recollections: [] }),
+      }));
+    render(<MemoryRouter><LabTechDashboardPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: /cancel recollection/i }));
+    await answerPrompt('Order withdrawn');
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+    const cancelCall = mockFetch.mock.calls[1];
+    expect(String(cancelCall[0])).toContain('/api/clinical/specimen-recollection/RECOLLECT-2/cancel');
+    expect(String(cancelCall[1]?.body)).toContain('Order withdrawn');
+  });
 });

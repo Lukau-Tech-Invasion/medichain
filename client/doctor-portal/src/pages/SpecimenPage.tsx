@@ -22,7 +22,11 @@ import {
   useValidatedForm,
   specimenSchema,
   createSpecimen,
+  rejectSpecimen,
+  getApiErrorMessage,
+  formatTimestamp,
 } from '@medichain/shared';
+import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 import StaffName from '../components/StaffName';
@@ -68,6 +72,16 @@ interface Specimen {
   notes?: string;
 }
 
+/** The categories the server's rejection record accepts. */
+const REJECTION_CATEGORIES: SpecimenRejectionCategory[] = [
+  'collection_error',
+  'transport_error',
+  'labeling_error',
+  'specimen_quality',
+  'container_issue',
+  'other',
+];
+
 function persistedPriority(value: unknown): Priority {
   return value === 'routine' || value === 'urgent' || value === 'stat' ? value : 'unknown';
 }
@@ -93,6 +107,15 @@ const SpecimenPage: React.FC = () => {
   // The roster existed only to fill a patient dropdown; `PatientSelect`
   // queries the server as the clinician types.
   const [saving, setSaving] = useState(false);
+  // Rejecting the specimen open in the detail view. Nothing is preselected:
+  // a category the technician did not choose would be a finding they did not
+  // make.
+  const [rejectCategory, setRejectCategory] = useState<SpecimenRejectionCategory | ''>('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectNotes, setRejectNotes] = useState('');
+  const [rejectRecollect, setRejectRecollect] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectMessage, setRejectMessage] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const CHECKS = ['verify-id', 'requirements', 'label', 'time'];
   const [form, setForm] = useState({
@@ -115,6 +138,34 @@ const SpecimenPage: React.FC = () => {
     }));
 
   const { errors, validate, validateField, clearField } = useValidatedForm(specimenSchema);
+
+  const submitRejection = async (specimenId: string) => {
+    if (!rejectCategory || !rejectReason.trim()) {
+      setRejectMessage(t('docSpecimen.rejectIncomplete'));
+      return;
+    }
+    setRejecting(true);
+    setRejectMessage(null);
+    try {
+      const notes = rejectNotes.trim();
+      const result = await rejectSpecimen({
+        specimen_id: specimenId,
+        rejection_reason: rejectReason.trim(),
+        rejection_category: rejectCategory,
+        ...(notes ? { detailed_notes: notes } : {}),
+        recollection_required: rejectRecollect,
+      });
+      setRejectMessage(t('docSpecimen.rejectRecorded', { id: result.rejection_id }));
+      setRejectCategory('');
+      setRejectReason('');
+      setRejectNotes('');
+      setRejectRecollect(false);
+    } catch (err) {
+      setRejectMessage(getApiErrorMessage(err, t('docSpecimen.rejectFailed')));
+    } finally {
+      setRejecting(false);
+    }
+  };
 
   const recordCollection = async () => {
     if (!user?.walletAddress) return;
@@ -382,7 +433,10 @@ const SpecimenPage: React.FC = () => {
             {filteredSpecimens.map(specimen => (
               <div
                 key={specimen.id}
-                {...clickable(() => setSelectedSpecimen(specimen))}
+                {...clickable(() => {
+                  setRejectMessage(null);
+                  setSelectedSpecimen(specimen);
+                })}
                 className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                   specimen.priority === 'stat' ? 'border-l-4 border-l-red-500' : ''
                 }`}
@@ -601,14 +655,14 @@ const SpecimenPage: React.FC = () => {
                 <h3 className="font-medium mb-2">{t('docSpecimen.testDetails')}</h3>
                 <p><strong>{t('docSpecimen.testsOrderedLabel')}</strong> {selectedSpecimen.testOrdered}</p>
                 <p><strong>{t('docSpecimen.orderedByLabel')}</strong> {selectedSpecimen.orderedBy}</p>
-                <p><strong>{t('docSpecimen.orderedAtLabel')}</strong> {selectedSpecimen.orderedAt.toLocaleString()}</p>
+                <p><strong>{t('docSpecimen.orderedAtLabel')}</strong> {formatTimestamp(selectedSpecimen.orderedAt)}</p>
               </div>
 
               {selectedSpecimen.collectedBy && (
                 <div className="bg-notice-subtle rounded-lg p-4">
                   <h3 className="font-medium mb-2">{t('docSpecimen.collectionDetails')}</h3>
                   <p><strong>{t('docSpecimen.collectedByLabel')}</strong> <StaffName id={selectedSpecimen.collectedBy} /></p>
-                  <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>
+                  <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt ? formatTimestamp(selectedSpecimen.collectedAt) : ''}</p>
                   {selectedSpecimen.notes && <p><strong>{t('docSpecimen.notesLabel')}</strong> {selectedSpecimen.notes}</p>}
                 </div>
               )}
@@ -618,6 +672,74 @@ const SpecimenPage: React.FC = () => {
                   {t('docSpecimen.collectionAlreadyRecorded')}
                 </p>
               )}
+
+              <form
+                className="rounded-lg border border-border p-4 space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitRejection(selectedSpecimen.id);
+                }}
+              >
+                <h3 className="font-medium">{t('docSpecimen.rejectHeading')}</h3>
+                <div>
+                  <label htmlFor="reject-category" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectCategoryLabel')}
+                  </label>
+                  <select
+                    id="reject-category"
+                    value={rejectCategory}
+                    onChange={(e) => setRejectCategory(e.target.value as SpecimenRejectionCategory | '')}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  >
+                    <option value="">{t('docSpecimen.rejectCategoryPlaceholder')}</option>
+                    {REJECTION_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{t(`docSpecimen.rejectCat_${c}`)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="reject-reason" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectReasonLabel')}
+                  </label>
+                  <input
+                    id="reject-reason"
+                    value={rejectReason}
+                    maxLength={128}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="reject-notes" className="block text-sm font-medium text-content-secondary mb-1">
+                    {t('docSpecimen.rejectNotesLabel')}
+                  </label>
+                  <textarea
+                    id="reject-notes"
+                    value={rejectNotes}
+                    rows={2}
+                    onChange={(e) => setRejectNotes(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg bg-surface text-content"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={rejectRecollect}
+                    onChange={(e) => setRejectRecollect(e.target.checked)}
+                  />
+                  {t('docSpecimen.rejectRecollectLabel')}
+                </label>
+                {rejectMessage && (
+                  <p className="text-sm text-content-secondary" role="status">{rejectMessage}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={rejecting}
+                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg disabled:opacity-60"
+                >
+                  {rejecting ? t('docSpecimen.rejectSubmitting') : t('docSpecimen.rejectSubmit')}
+                </button>
+              </form>
             </div>
           </div>
         </div>

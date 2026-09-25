@@ -12,11 +12,12 @@ import {
   FileSignature,
   Heart
 } from 'lucide-react';
-import { createDeathCertificate } from '../../../shared/src/api/endpoints';
 import {
+  createDeathCertificate,
   listDeathCertificates,
   draftDeathCertificate,
   updateDeathCertificateDraft,
+  fileDeathCertificate,
   getApiErrorMessage,
   useTranslation,
   clickable,
@@ -39,6 +40,8 @@ type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'pending'
 
 interface DeathCertificate {
   id: string;
+  /** The deceased's record; a reopened draft is re-bound to it. */
+  patientId: string;
   deceasedName: string;
   dateOfBirth: string;
   dateOfDeath: string;
@@ -50,6 +53,7 @@ interface DeathCertificate {
   otherConditions: string[];
   certifyingPhysician: string;
   certifyingPhysicianLicense: string;
+  certifierType: string;
   status: CertificateStatus;
   createdAt: Date;
   filedAt?: Date;
@@ -77,6 +81,7 @@ function toCertificate(row: Record<string, unknown>): DeathCertificate {
   const conditions = row.other_conditions;
   return {
     id: text('certificate_id') || text('id'),
+    patientId: text('patient_id'),
     deceasedName: text('deceased_name'),
     dateOfBirth: text('date_of_birth'),
     dateOfDeath: text('date_of_death'),
@@ -90,6 +95,7 @@ function toCertificate(row: Record<string, unknown>): DeathCertificate {
     otherConditions: Array.isArray(conditions) ? (conditions as string[]) : [],
     certifyingPhysician: text('certifier_name'),
     certifyingPhysicianLicense: text('certifier_license'),
+    certifierType: text('certifier_type'),
     status: (text('status') || 'draft') as CertificateStatus,
     // No created_at on the record; a filed certificate has `filed_at`. Using
     // `new Date()` for an unfiled one would date it to whenever the page
@@ -318,11 +324,68 @@ const DeathCertificatePage: React.FC = () => {
     }
   };
 
-  /** Reopen a draft in the form it was written in. */
+  /**
+   * Reopen a draft in the form it was written in.
+   *
+   * This used to switch to an EMPTY form under the draft's id, so "Save draft"
+   * overwrote the stored draft with blanks. The form is now loaded from the
+   * draft. The draft stores the name as one string; the last word is taken as
+   * the surname, which is what the form joined it from.
+   */
   const handleEditDraft = (cert: DeathCertificate) => {
+    const words = cert.deceasedName.trim().split(/\s+/).filter(Boolean);
+    const lastName = words.length > 1 ? words[words.length - 1] : words[0] ?? '';
+    const firstName = words.length > 1 ? words.slice(0, -1).join(' ') : '';
+    setPatientId(cert.patientId);
+    setDeceasedInfo((d) => ({ ...d, firstName, lastName, dateOfBirth: cert.dateOfBirth }));
+    setDeathInfo((d) => ({
+      ...d,
+      dateOfDeath: cert.dateOfDeath,
+      timeOfDeath: cert.timeOfDeath,
+      placeOfDeath: cert.placeOfDeath,
+    }));
+    setCauseInfo((c) => ({
+      ...c,
+      immediateCause: cert.causeOfDeath,
+      mannerOfDeath: cert.mannerOfDeath,
+      underlyingCauses: cert.otherConditions.length > 0
+        ? cert.otherConditions.map((cause) => ({ cause, duration: '' }))
+        : [{ cause: '', duration: '' }],
+    }));
+    setCertifierInfo((c) => ({
+      ...c,
+      certifierName: cert.certifyingPhysician,
+      licenseNumber: cert.certifyingPhysicianLicense,
+      certifierType: (cert.certifierType || c.certifierType) as typeof c.certifierType,
+    }));
     setEditingDraftId(cert.id);
     setActiveTab('new');
     setCurrentStep(1);
+  };
+
+  const resetForm = () => {
+    setEditingDraftId(null);
+    setPatientId('');
+    setDeceasedInfo({
+      firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
+      sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
+    });
+    setDeathInfo({
+      dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
+      countyOfDeath: '', cityOfDeath: '', stateOfDeath: '',
+      pronouncedBy: '', pronouncedDate: '', pronouncedTime: ''
+    });
+    setCauseInfo({
+      immediateCause: '', immediateDuration: '',
+      underlyingCauses: [{ cause: '', duration: '' }],
+      mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
+      tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
+      injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
+    });
+    setCertifierInfo({
+      certifierType: 'physician', certifierName: '', licenseNumber: '',
+      certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
+    });
   };
 
   const handleSignAndSubmit = async () => {
@@ -341,55 +404,24 @@ const DeathCertificatePage: React.FC = () => {
     }
 
     try {
-      const payload = {
-        id: `DC-${Date.now()}`,
-        patient_id: patientId,
-        deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`,
-        date_of_birth: deceasedInfo.dateOfBirth,
-        date_of_death: deathInfo.dateOfDeath,
-        time_of_death: deathInfo.timeOfDeath,
-        place_of_death: deathInfo.placeOfDeath,
-        manner_of_death: causeInfo.mannerOfDeath,
-        cause_of_death: causeInfo.immediateCause,
-        other_conditions: causeInfo.underlyingCauses.map(c => c.cause).filter(Boolean),
-        certifier_name: certifierInfo.certifierName,
-        certifier_license: certifierInfo.licenseNumber,
-        certifier_type: certifierInfo.certifierType,
-        signature: certifierInfo.signature,
-        status: 'filed'
-      };
-
-      await createDeathCertificate(payload);
+      if (editingDraftId) {
+        // The draft becomes the certificate: bring it up to date, then file
+        // it. Posting a new certificate instead left the finished draft on
+        // the register beside it, for ever.
+        await updateDeathCertificateDraft(editingDraftId, draftPayload());
+        await fileDeathCertificate(editingDraftId);
+      } else {
+        // The server mints the id and records the certificate as filed.
+        await createDeathCertificate({ ...draftPayload(), signature: certifierInfo.signature });
+      }
 
       showSuccess(t('docDeathCertificate.successSubmitted'));
       setActiveTab('certificates');
       setCurrentStep(1);
-      
-      // Reset form
-      setDeceasedInfo({
-        firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
-        sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
-      });
-      setDeathInfo({
-        dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
-        countyOfDeath: '', cityOfDeath: '', stateOfDeath: '',
-        pronouncedBy: '', pronouncedDate: '', pronouncedTime: ''
-      });
-      setCauseInfo({
-        immediateCause: '', immediateDuration: '',
-        underlyingCauses: [{ cause: '', duration: '' }],
-        mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
-        tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
-        injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
-      });
-      setCertifierInfo({
-        certifierType: 'physician', certifierName: '', licenseNumber: '',
-        certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
-      });
-
+      resetForm();
+      await loadCertificates();
     } catch (error) {
-      console.error('Failed to submit death certificate:', error);
-      showError(t('docDeathCertificate.errorSubmitFailed'));
+      showError(getApiErrorMessage(error, t('docDeathCertificate.errorSubmitFailed')));
     }
   };
 
