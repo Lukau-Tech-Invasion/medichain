@@ -38,6 +38,9 @@ import {
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
+/** The badge for a value that has no style of its own. */
+const NEUTRAL_BADGE = 'bg-surface-sunken text-content-secondary';
+
 /**
  * HistoryAndPhysicalPage
  * 
@@ -381,6 +384,14 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setExpandedSections(newExpanded);
   };
 
+  // A value this screen has no label for -- written by another client, or a
+  // status the API accepts that the form does not offer ("final") -- is shown
+  // as itself. It used to render as the raw key, with `undefined` for a class.
+  const labelled = (key: string, value: string) => {
+    const text = t(key);
+    return text === key ? value : text;
+  };
+
   const getStatusBadge = (status: HPStatus) => {
     const styles: Record<HPStatus, string> = {
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
@@ -389,8 +400,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       'addendum': 'bg-surface-sunken text-content-secondary'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
-        {t(`docHistoryPhysical.status_${status}`)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] ?? NEUTRAL_BADGE}`}>
+        {labelled(`docHistoryPhysical.status_${status}`, status)}
       </span>
     );
   };
@@ -404,8 +415,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       'consultation': 'bg-surface-sunken text-content-secondary'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type]}`}>
-        {t(`docHistoryPhysical.examType_${type}`)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type] ?? NEUTRAL_BADGE}`}>
+        {labelled(`docHistoryPhysical.examType_${type}`, type)}
       </span>
     );
   };

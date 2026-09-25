@@ -219,10 +219,10 @@ export default function SepsisPage() {
   const SOFA_FIELDS = [
     { id: 'pao2fio2', labelKey: 'docSepsis.sofaPao2Fio2', value: pao2fio2, set: setPao2fio2, step: '1' },
     { id: 'platelets', labelKey: 'docSepsis.sofaPlatelets', value: platelets, set: setPlatelets, step: '1' },
-    { id: 'bilirubin', labelKey: 'docSepsis.sofaBilirubin', value: bilirubin, set: setBilirubin, step: '0.1' },
+    { id: 'bilirubin', labelKey: 'docSepsis.sofaBilirubin', value: bilirubin, set: setBilirubin, step: '1' },
     { id: 'map', labelKey: 'docSepsis.sofaMap', value: map, set: setMap, step: '1' },
     { id: 'noradrenaline', labelKey: 'docSepsis.sofaNoradrenaline', value: noradrenaline, set: setNoradrenaline, step: '0.01' },
-    { id: 'creatinine', labelKey: 'docSepsis.sofaCreatinine', value: creatinine, set: setCreatinine, step: '0.1' },
+    { id: 'creatinine', labelKey: 'docSepsis.sofaCreatinine', value: creatinine, set: setCreatinine, step: '1' },
     { id: 'urine-output', labelKey: 'docSepsis.sofaUrineOutput', value: urineOutput, set: setUrineOutput, step: '10' },
   ];
 
@@ -269,9 +269,9 @@ export default function SepsisPage() {
           pao2_fio2: num(pao2fio2),
           respiratory_support: respiratorySupport,
           platelets: num(platelets),
-          bilirubin_mg_dl: num(bilirubin),
+          bilirubin_umol_l: num(bilirubin),
           mean_arterial_pressure: num(map),
-          creatinine_mg_dl: num(creatinine),
+          creatinine_umol_l: num(creatinine),
           urine_output_ml_24h: num(urineOutput),
           vasopressors: {
             noradrenaline_mcg_kg_min: num(noradrenaline)

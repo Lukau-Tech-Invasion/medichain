@@ -37,17 +37,21 @@ describe('MedicationsPage (Patient)', () => {
           headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             prescriptions: [
+              // The shape the API returns: the medicine nested under
+              // `medication`. The flat shape this used to mock is one the
+              // server never sent, which is how an always-empty list passed.
               {
                 prescription_id: 'med1',
-                medication_name: 'Aspirin',
-                dosage: '100mg',
-                frequency: 'Once daily',
-                prescriber_id: 'Dr. House',
-                prescribed_at: '2025-01-01',
-                status: 'active',
-                instructions: 'Take with food',
-                side_effects: ['Stomach upset'],
-                interactions: ['Ibuprofen'],
+                medication: {
+                  name: 'Aspirin',
+                  strength: '100 mg',
+                  form: 'tablet',
+                  directions: 'Take with food',
+                },
+                prescriber_name: 'Dr. House',
+                signed_at: 1735689600,
+                status: 'Transmitted',
+                refills_remaining: 0,
               }
             ],
           }),
@@ -84,6 +88,27 @@ describe('MedicationsPage (Patient)', () => {
       instructions: '',
       status: undefined,
     });
+  });
+
+  it('reads the nested e-prescription shape the API returns', () => {
+    expect(mapPrescription({
+      prescription_id: 'RX-1',
+      medication: { name: 'Amlodipine', strength: '5 mg', form: 'tablet', directions: 'Once daily' },
+      patient_instructions: 'Take in the morning',
+      prescriber_name: 'Dr Browser Test',
+      signed_at: 1790335111,
+      status: 'Transmitted',
+    })).toMatchObject({
+      id: 'RX-1',
+      name: 'Amlodipine',
+      dosage: '5 mg tablet',
+      instructions: 'Once daily — Take in the morning',
+      prescribedBy: 'Dr Browser Test',
+      startDate: '2026-09-25',
+      status: 'active',
+    });
+    expect(mapPrescription({ prescription_id: 'RX-2', medication: { name: 'X' }, status: 'Draft' })?.status)
+      .toBeUndefined();
   });
 
   it('renders medications page with current medications', async () => {

@@ -632,7 +632,10 @@ async fn download_vitals(
     body.push_str(&format!("  O2 saturation:  {}\n", num(v.oxygen_saturation)));
     body.push_str(&format!("  Pain scale:     {}\n", num(v.pain_scale)));
     body.push_str(&format!("  GCS score:      {}\n", num(v.gcs_score)));
-    body.push_str(&format!("  Blood glucose:  {}\n", num(v.blood_glucose)));
+    body.push_str(&format!(
+        "  Blood glucose:  {} mmol/L\n",
+        dec(v.blood_glucose)
+    ));
     body.push_str(&format!("  Weight:         {} kg\n", dec(v.weight_kg)));
     body.push_str(&format!("  Height:         {} cm\n", dec(v.height_cm)));
     text_document(vitals_id, body)
@@ -944,7 +947,10 @@ async fn download_triage(
     ));
     body.push_str(&format!("  Pain scale:       {}\n", num(a.pain_scale)));
     body.push_str(&format!("  GCS score:        {}\n", num(a.gcs_score)));
-    body.push_str(&format!("  Blood glucose:    {}\n", num(a.blood_glucose)));
+    body.push_str(&format!(
+        "  Blood glucose:    {} mmol/L\n",
+        dec(a.blood_glucose)
+    ));
     body.push_str(&format!("  Weight:           {} kg\n", dec(a.weight)));
 
     if a.disposition.is_some() || a.assigned_bed.is_some() {

@@ -703,7 +703,6 @@ impl AppState {
             .map_err(|e| format!("Failed to load patients: {}", e))?;
 
         let mut count = 0;
-        let mut unrecorded_blood_type = 0;
         let mut to_repo: Vec<(PatientProfile, NfcTagData)> = Vec::new();
 
         for row in rows {
@@ -730,14 +729,12 @@ impl AppState {
             let conditions_json: Option<serde_json::Value> = row.get("chronic_conditions");
             let languages_json: Option<serde_json::Value> = row.get("languages");
 
-            // A patient with no recorded blood group is not loaded. This used to
-            // default to O+ ("universal donor"), which put a blood group nobody
-            // measured in front of whoever read the record; the profile type has
-            // no way to say "unknown", so absent is the only honest option.
-            let Some(blood_type) = blood_type_str.and_then(|s| parse_blood_type(&s).ok()) else {
-                unrecorded_blood_type += 1;
-                continue;
-            };
+            // A missing or unreadable group is Unknown. This used to default to
+            // O+ ("universal donor"), which put a blood group nobody measured in
+            // front of whoever read the record.
+            let blood_type = blood_type_str
+                .and_then(|s| parse_blood_type(&s).ok())
+                .unwrap_or(BloodType::Unknown);
 
             // Parse JSON arrays to Vec<String>
             let allergies: Vec<String> = allergies_json
@@ -819,12 +816,6 @@ impl AppState {
             to_repo.push((patient, nfc_tag));
 
             count += 1;
-        }
-        if unrecorded_blood_type > 0 {
-            log::warn!(
-                "{unrecorded_blood_type} patients have no recorded blood group and were not \
-                 loaded into the in-memory store"
-            );
         }
 
         // In the memory-backend demo config (DATABASE_URL set but MEDICHAIN_STORAGE

@@ -908,7 +908,7 @@ Allergies:
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Laboratory Results:
 CBC: WBC ___, Hgb ___, Plt ___
-BMP: Na ___, K ___, Cl ___, CO2 ___, BUN ___, Cr ___, Glucose ___
+BMP: Na ___, K ___, Cl ___, CO2 ___, Urea ___, Cr ___, Glucose ___
 LFTs: AST ___, ALT ___, Alk Phos ___, Total bili ___
                   </pre>
                 </div>

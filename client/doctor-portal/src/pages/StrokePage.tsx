@@ -271,6 +271,7 @@ export default function StrokePage() {
               <input
                 id="stroke-blood-glucose"
                 type="number"
+                step="0.1"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={bloodGlucose}
                 onChange={(e) => setBloodGlucose(e.target.value)}

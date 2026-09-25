@@ -45,6 +45,31 @@ describe('BloodBankPage', () => {
     );
   });
 
+  it('loads the patient list once, not in a loop', async () => {
+    // Each response is a new array, as it is from the real client. The page
+    // used to re-run its load effect on every new array -- six requests a
+    // second, until the rate limiter refused this user everywhere.
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+      const body = url.includes('/api/patients')
+        ? { success: true, patients: [] }
+        : { success: true, type_screens: { items: [] }, transfusions: { items: [] } };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(body),
+      });
+    });
+    render(<BloodBankPage />);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const urls = mockFetch.mock.calls.map(([input]) =>
+      String(typeof input === 'object' && 'url' in input ? input.url : input));
+    expect(urls.filter((u) => u.includes('/api/patients'))).toHaveLength(1);
+    expect(urls.filter((u) => u.includes('blood-bank')).length).toBeLessThanOrEqual(2);
+  });
+
   it('renders the blood bank header', async () => {
     render(<BloodBankPage />);
 

@@ -151,7 +151,7 @@ $vitalSets += @(
         oxygen_saturation        = 99
         pain_scale               = 0
         consciousness_level      = "Alert"
-        blood_glucose            = 245
+        blood_glucose            = 13.6  # mmol/L
         recorded_at              = (Get-Date).AddHours(-3).ToString("o")
         notes                    = "Elevated blood glucose. Patient reports dizziness."
     },
@@ -165,7 +165,7 @@ $vitalSets += @(
         oxygen_saturation        = 99
         pain_scale               = 0
         consciousness_level      = "Alert"
-        blood_glucose            = 185
+        blood_glucose            = 10.3  # mmol/L
         recorded_at              = (Get-Date).AddHours(-1).ToString("o")
         notes                    = "Post insulin. Glucose improving."
     }

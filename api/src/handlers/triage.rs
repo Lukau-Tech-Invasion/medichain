@@ -139,6 +139,17 @@ pub async fn create_triage_assessment(
         }
     }
 
+    if let Some(glucose) = req.vital_signs.blood_glucose {
+        if crate::clinical_scoring::glucose_looks_like_mg_dl(glucose) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "A blood glucose of {glucose} mmol/L is not plausible; enter it in mmol/L, not mg/dL"
+                ),
+                code: "GLUCOSE_UNIT_SUSPECT".to_string(),
+            });
+        }
+    }
+
     // Generate assessment ID
     let assessment_id = format!(
         "TRIAGE-{}",
@@ -172,7 +183,7 @@ pub async fn create_triage_assessment(
             .or(req.vital_signs.pain_scale)
             .map(|v| v as i32),
         gcs_score: req.vital_signs.gcs_score.map(|v| v as i32),
-        blood_glucose: req.vital_signs.blood_glucose.map(|v| v as i32),
+        blood_glucose: req.vital_signs.blood_glucose,
         weight: req.vital_signs.weight_kg.map(|v| v as f64),
         is_critical: has_critical_vitals,
         requires_isolation: false,
@@ -303,7 +314,7 @@ pub async fn get_triage_assessment(
                     oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
                     pain_scale: entity.pain_scale.map(|v| v as u8),
                     gcs_score: entity.gcs_score.map(|v| v as u8),
-                    blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                    blood_glucose: entity.blood_glucose,
                     weight_kg: entity.weight.map(|v| v as f32),
                 },
                 pain_scale: entity.pain_scale.map(|v| v as u8),
@@ -390,7 +401,7 @@ pub async fn get_patient_triage_assessments(
                         // database kept them, and every reader saw blanks.
                         pain_scale: entity.pain_scale.map(|v| v as u8),
                         gcs_score: entity.gcs_score.map(|v| v as u8),
-                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        blood_glucose: entity.blood_glucose,
                         weight_kg: entity.weight.map(|v| v as f32),
                     },
                     pain_scale: entity.pain_scale.map(|v| v as u8),
@@ -480,7 +491,7 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
                         // a triage assessment.
                         pain_scale: entity.pain_scale.map(|v| v as u8),
                         gcs_score: entity.gcs_score.map(|v| v as u8),
-                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        blood_glucose: entity.blood_glucose,
                         weight_kg: entity.weight.map(|v| v as f32),
                     },
                     pain_scale: entity.pain_scale.map(|v| v as u8),

@@ -129,11 +129,13 @@ export interface WalletRegisterResponse {
 // Patient Types
 // ============================================================================
 
-export type BloodType = 
-  | 'A+' | 'A-' 
-  | 'B+' | 'B-' 
-  | 'AB+' | 'AB-' 
-  | 'O+' | 'O-';
+export type BloodType =
+  | 'A+' | 'A-'
+  | 'B+' | 'B-'
+  | 'AB+' | 'AB-'
+  | 'O+' | 'O-'
+  // Not typed. Recorded as such rather than guessed.
+  | 'Unknown';
 
 /**
  * Allergy severity levels (FHIR R5 AllergyIntolerance compatible)

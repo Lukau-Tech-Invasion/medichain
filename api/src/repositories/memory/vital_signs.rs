@@ -219,7 +219,7 @@ mod tests {
             gcs_eye: Some(4),
             gcs_verbal: Some(5),
             gcs_motor: Some(6),
-            blood_glucose: Some(100),
+            blood_glucose: Some(5.6),
             weight_kg: Some(70.0),
             height_cm: Some(175.0),
             bmi: Some(22.9),

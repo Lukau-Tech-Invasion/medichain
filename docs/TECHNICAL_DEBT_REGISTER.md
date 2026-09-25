@@ -21,6 +21,147 @@ Last updated: 2026-09-25.
 
 ---
 
+## 2026-09-25 — SI units, and a blood group that can be Unknown
+
+Both decided by the owner the same day, from the decisions list.
+
+### Units: SI throughout, as South African laboratories report them
+
+The screens mixed conventions, and the server compared bare numbers. Blood
+glucose was entered in mg/dL on Vitals, Triage and Stroke but mmol/L on the
+ambulance handover, and the vital-sign band that raises alerts was in mg/dL
+(critical below 50) -- so a nurse entering a normal 5.4 mmol/L from a meter
+recorded a critical low. SOFA took bilirubin and creatinine in mg/dL; the
+critical-value call list mixed mg/dL (glucose, calcium, creatinine) with mmol/L
+(potassium, sodium); the lab catalogue was US-conventional for nine analytes;
+wearable glucose alerts fired above 180 and below 70, so every mmol/L reading
+was "low" and a real low never was; toxicology levels were page literals in
+mg/dL (rule 8).
+
+Now: one unit per analyte, SI, declared by the server.
+
+  * **Every threshold is the previous one converted**, not a new clinical
+    choice: glucose band 3.9-7.8 mmol/L, critical below 2.8 or above 22.2;
+    critical-value list glucose 2.2/27.8, calcium 1.5/3.24, creatinine 442
+    umol/L (panic 884); wearable net 3.9/10.0 mmol/L.
+  * **SOFA** uses the SI bands published beside the mg/dL ones in the Sepsis-3
+    table (Singer et al., JAMA 2016;315(8):801-810, Table 1), and the request
+    fields are `bilirubin_umol_l` and `creatinine_umol_l`.
+  * **The lab catalogue** changes code with unit, because LOINC codes are
+    unit-specific (2345-7 is glucose by mass, 14749-6 by moles). All 30 codes
+    were checked against the NLM LOINC service. That check found an older
+    error: "Free T3" carried 3053-6, which is TOTAL T3, so a free T3 would
+    have been exported as the wrong analyte. BUN became Urea (mmol/L), as local
+    laboratories report it.
+  * **Blood glucose is stored as a decimal.** It was an INTEGER column in three
+    tables and `u16`/`i32` in Rust, which cannot hold 5.4. Migration
+    `20260925000006` converts stored values (mg/dL / 18.016, one decimal)
+    rather than reinterpreting them.
+  * **A critical glucose now raises a vitals alert.** It raised none in any
+    unit: the alert builder never looked at glucose.
+  * **A value typed in mg/dL from habit is refused** (`GLUCOSE_UNIT_SUSPECT`,
+    above 60 mmol/L), in the manner of the transposed-blood-pressure check.
+    That limit is an engineering plausibility check, not a clinical threshold;
+    the clinical owner may move it.
+  * **Toxicology levels** moved to the scoring catalogue in SI. They were
+    never clinically approved, and two are not toxicity levels at all (80
+    mg/dL ethanol is a driving limit; 150 mg/L paracetamol is the four-hour
+    nomogram line). Converted as they stand; **needs clinical review.**
+
+### Blood group: `Unknown` is a value
+
+Registration required one of the eight groups, which forced a guess for an
+unconscious or untyped patient, and the emergency card then showed the guess
+as fact. `BloodType::Unknown` is a Special Case (Fowler, *Patterns of
+Enterprise Application Architecture*): the same interface as a real group, so
+every reader handles it, rather than `Option` threaded through every screen.
+`patients.blood_type` has always allowed 'Unknown', the emergency views already
+answer "compatible donors: O-" for it (the uncrossmatched default), and the
+capsule already records its source as unknown. Registration offers "Unknown
+(not typed)" as an explicit choice; it is never assumed.
+
+---
+
+## 2026-09-25 — Browser pass on the Docker stack: what a user actually hits
+
+Every staff sidebar route for every role (117) and every patient-app route (25)
+was opened in Chromium against the Docker build, recording crashes, console
+errors, failed API calls, suspicious text and requests fired while a page sat
+idle. Cross-role workflows were then driven through the screens
+(`client/doctor-portal/e2e/workflows.spec.ts`, 8/8 after the fixes below), and
+the role journeys (275/275) and cross-role qualification (117/117) were run
+against the same stack, each after one harness correction listed below. Test data went into the demo
+database and was removed afterwards by restoring the snapshot taken first.
+
+### Found and fixed
+
+  * **Blood Bank re-requested forever.** Its load effect depended on a callback
+    that depended on the patient list the effect set, so every load triggered
+    the next: ~6 requests a second for as long as the page was open. One open
+    tab spent a lab technician's whole per-minute allowance, after which
+    Pathology, Messages and Settings failed to load. A unit test now fails the
+    old code (108 requests in half a second; the fix makes 1).
+  * **The patient's Medications page was always empty.** The API nests the
+    medicine under `medication`; the page read a flat `medication_name`, found
+    nothing and dropped every prescription. Its test mocked the flat shape, so
+    it passed. The test now uses the real shape.
+  * **A doctor's telehealth list never showed a session they booked.** Sessions
+    are stored against the patient and name the clinician in `provider_id`; the
+    "my sessions" query looked the clinician's wallet up as an OWNER, twice. The
+    JSON record store gained `get_by_data_field` for the second party, and a
+    failed read now answers 503 instead of an empty list.
+  * **Prescriptions carried invented data.** Every one had prescriber NPI
+    "1234567890", a controlled-substance one the DEA number "AA1234567", and the
+    pharmacy "123 Pharmacy St, Medical City, (555) 123-4567" whatever was named;
+    the screen pre-selected a fictional "Main Street Pharmacy" and sent a fixed
+    NCPDP id. Quantities were counted in "tablets" for a liquid. The prescriber
+    number now comes from the account's licence number, the pharmacy is recorded
+    only when named, and the unit follows the form.
+  * **Wallet compared with patient record id**, the recurring class, in four
+    more places: a patient could create an insurance card and never list,
+    change or remove it; the Expo app told every patient their own health card
+    "is registered to a different account"; and a family delegate could never
+    book an appointment for a relative. All now use
+    `caller_owns_patient_record`.
+  * **Two accessibility failures that only show with data.** The Ambulance
+    Handover pre-alert checkboxes sat in 20 px labels (WCAG 2.5.8 needs 24);
+    the pharmacist's critical interaction card put the generic muted grey on
+    the dark-mode critical background (3.95:1 against 4.5:1). Each tinted card
+    now takes the foreground token paired with its background.
+  * **Raw translation keys** on History & Physical and Consults for values the
+    form does not offer but the API accepts (status "final", specialty
+    "Cardiology"), with `undefined` as the badge class. A value with no label is
+    now shown as itself. The API still accepts any string for both; validating
+    them is the fuller fix.
+  * Test-side, four harness faults that read as product failures: the role
+    journeys took the flowsheet's LAST reading as the latest (it is
+    newest-first, as the page assumes), which held only on a fresh patient; the
+    qualification expected 403/404 for an unknown message recipient, which has
+    answered 400 `INVALID_RECIPIENT` since 2026-09-22; the WCAG check in
+    `roles.spec.ts` measured every theme flip mid-transition because it never
+    froze motion; and the patient-app suite ran its mobile and desktop projects
+    in parallel against one fixture patient, so each spec failed on whichever
+    project lost the race.
+  * The demo compose file defaulted `RUST_LOG` to empty, which is error-only:
+    after a day of testing the log held 106 lines, all startup. It now defaults
+    to the production file's `info,sqlx=warn`.
+
+### Found, not changed — each needs a decision
+
+  * ~~**Registration requires a blood group and offers no "Unknown".**~~
+    Decided and fixed the same day: see "SI units, and a blood group that can
+    be Unknown" above.
+  * **My Records makes 20 API calls per visit**, one per record type. At 120
+    requests a minute a patient who opens it six times in a minute is refused
+    everywhere. A combined patient-records endpoint is the fix.
+  * **A page reload signs a clinician out.** Deliberate and documented in
+    `authStore.restoreSession` (no token survives a reload); a persisted refresh
+    token or a cookie session is the decision it waits on.
+  * `GET /api/e-prescriptions/{id}` admits only the prescriber, though its
+    comment says "patient or prescriber". No screen calls it.
+
+---
+
 ## 2026-09-25 — The closing round: what nothing used, and what nothing could reach
 
 Asked for: every unfinished feature finished, everything unused removed, each
@@ -126,9 +267,8 @@ prescribed medicine); the patient app's "Create Demo Wallet".
     and the page no longer shows "stable" for one.
   * **An unrecorded blood group became O+.** The patient loader used by the
     in-memory store defaulted a missing or `Unknown` blood group to O+
-    ("universal donor"). Such a patient is no longer loaded, and the count is
-    logged; the profile type cannot say "unknown", so absent is the honest
-    option until it can.
+    ("universal donor"). It now loads such a patient as `BloodType::Unknown`
+    (first skipped, until the type could say "unknown" the same day).
 
 ### Workflows that had an endpoint and no screen, now reachable
 

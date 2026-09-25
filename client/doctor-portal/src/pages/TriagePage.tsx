@@ -638,7 +638,8 @@ function TriagePage() {
                   type="number"
                   value={vitalSigns.blood_glucose ?? ''}
                   onChange={(e) => updateVitalSign('blood_glucose', e.target.value)}
-                  placeholder="70-100"
+                  placeholder="3.9-5.6"
+                  step="0.1"
                   className="w-full px-3 py-2 border border-border-interactive rounded-lg"
                 />
               </div>

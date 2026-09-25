@@ -606,7 +606,8 @@ function VitalSignsPage() {
                   value={newVitals.blood_glucose}
                   onChange={(e) => setNewVitals({ ...newVitals, blood_glucose: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="70-140"
+                  placeholder="3.9-7.8"
+                  step="0.1"
                 />
               </div>
               <div>
@@ -771,6 +772,7 @@ function VitalSignsPage() {
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.rrColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.painColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.gcsColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.glucoseColumn')}</th>
                     <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.recordedByColumn')}</th>
                   </tr>
                 </thead>
@@ -800,6 +802,10 @@ function VitalSignsPage() {
                       </td>
                       <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.gcs_total ?? '—'}
+                      </td>
+                      {/* Recorded and returned all along, and shown nowhere. */}
+                      <td className={`px-4 py-3 text-center ${isCritical(reading.blood_glucose, 'blood_glucose') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
+                        {reading.blood_glucose ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-content-muted"><StaffName id={reading.recorded_by} /></td>
                     </tr>

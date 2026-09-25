@@ -228,7 +228,7 @@ mod tests {
             oxygen_saturation: Some(97),
             pain_scale: Some(7),
             gcs_score: Some(15),
-            blood_glucose: Some(110),
+            blood_glucose: Some(6.1),
             weight: Some(80.0),
             is_critical: esi_level <= 2,
             requires_isolation: false,

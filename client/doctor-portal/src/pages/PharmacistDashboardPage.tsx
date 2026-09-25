@@ -118,6 +118,17 @@ interface PharmacistDashboardData {
   };
 }
 
+/**
+ * Secondary text on an interaction card, paired with the card's background.
+ * The generic muted grey measured 3.95:1 on the dark-mode critical background
+ * (WCAG AA needs 4.5:1); each tinted background has its own foreground token.
+ */
+function interactionDetailText(severity: string | undefined): string {
+  if (severity === 'Major') return 'text-critical-subtle-fg';
+  if (severity === 'Moderate') return 'text-content-muted';
+  return 'text-caution-subtle-fg';
+}
+
 export default function PharmacistDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -710,11 +721,11 @@ export default function PharmacistDashboardPage() {
                       <p className="mt-1 font-medium text-content">
                         {interaction.drug1} + {interaction.drug2}
                       </p>
-                      <p className="text-sm text-content-muted">{interaction.description}</p>
+                      <p className={`text-sm ${interactionDetailText(interaction.severity)}`}>{interaction.description}</p>
                     </div>
                   </div>
                   {interaction.patient_name && (
-                    <p className="mt-2 text-xs text-content-muted">
+                    <p className={`mt-2 text-xs ${interactionDetailText(interaction.severity)}`}>
                       {t('docPharmDashboard.patientLabel', { name: interaction.patient_name })}
                     </p>
                   )}

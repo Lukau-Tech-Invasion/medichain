@@ -3,7 +3,7 @@ import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createTox, useTranslation, formatTimestamp } from '@medichain/shared';
+import { getPatients, createTox, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -91,6 +91,7 @@ const decontaminationMethods = [
 
 const ToxicologyPage: React.FC = () => {
   const { t } = useTranslation();
+  const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -323,13 +324,14 @@ const ToxicologyPage: React.FC = () => {
                   ))}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {[
-                  { key: 'ethanol', label: 'Ethanol (mg/dL)', toxic: 80 },
-                  { key: 'acetaminophen', label: 'APAP (mcg/mL)', toxic: 150 },
-                  { key: 'salicylate', label: 'Salicylate (mg/dL)', toxic: 30 },
-                  { key: 'lithium', label: 'Lithium (mEq/L)', toxic: 1.5 },
-                  { key: 'digoxin', label: 'Digoxin (ng/mL)', toxic: 2.0 }
-                ].map(item => {
+                {/* Units and flag levels come from the scoring catalogue (rule 8),
+                    in SI. They were literals here, in US units -- ethanol and
+                    salicylate in mg/dL -- beside a laboratory reporting mmol/L. */}
+                {(catalog?.toxicology?.levels ?? []).map(level => ({
+                  key: level.key,
+                  label: `${level.name} (${level.unit})`,
+                  toxic: level.flag_above,
+                })).map(item => {
                   const value = toxScreen[item.key as keyof ToxScreen] as number | null;
                   return (
                     <div key={item.key}>

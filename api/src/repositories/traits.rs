@@ -322,7 +322,8 @@ pub struct VitalSignsEntity {
     pub gcs_eye: Option<i32>,
     pub gcs_verbal: Option<i32>,
     pub gcs_motor: Option<i32>,
-    pub blood_glucose: Option<i32>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f64>,
     pub height_cm: Option<f64>,
     pub bmi: Option<f64>,
@@ -351,7 +352,8 @@ pub struct TriageAssessmentEntity {
     pub oxygen_saturation: Option<i32>,
     pub pain_scale: Option<i32>,
     pub gcs_score: Option<i32>,
-    pub blood_glucose: Option<i32>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight: Option<f64>,
     pub is_critical: bool,
     pub requires_isolation: bool,
@@ -4727,6 +4729,17 @@ pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
     async fn get_by_id(&self, id: &str) -> RepositoryResult<Option<JsonRecordEntity>>;
     /// Fetch all records owned by `owner_id`, newest first.
     async fn get_by_owner(&self, owner_id: &str) -> RepositoryResult<Vec<JsonRecordEntity>>;
+    /// Fetch the records whose top-level `data` field `field` holds `value` as
+    /// text, newest first (bounded like `get_by_owner`).
+    ///
+    /// For the second party to a record: a telehealth session is owned by the
+    /// patient and names its clinician in `provider_id`, and an owner lookup by
+    /// the clinician's wallet can never find it.
+    async fn get_by_data_field(
+        &self,
+        field: &str,
+        value: &str,
+    ) -> RepositoryResult<Vec<JsonRecordEntity>>;
     /// Fetch all records, newest first (bounded).
     async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>>;
     /// Delete a record by id. Idempotent: deleting a missing id is `Ok(())`.

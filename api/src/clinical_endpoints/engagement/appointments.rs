@@ -121,8 +121,17 @@ pub async fn book_appointment(
             let has_family_access = stored_groups.into_iter().any(|rec| {
                 if let Ok(g) = serde_json::from_value::<crate::clinical::FamilyGroup>(rec.data) {
                     g.members.iter().any(|m| {
+                        // Members are wallets; the appointment names a patient
+                        // RECORD. Compared directly, the second test could never
+                        // hold, so a family delegate could never book for anyone.
                         m.patient_id == current_user_id
-                            && g.members.iter().any(|m2| m2.patient_id == req.patient_id)
+                            && g.members.iter().any(|m2| {
+                                crate::support::caller_owns_patient_record(
+                                    &data,
+                                    &m2.patient_id,
+                                    &req.patient_id,
+                                )
+                            })
                             && m.can_book_appointments
                     })
                 } else {
