@@ -307,7 +307,7 @@ function EmsHandoffPage() {
           <legend className="font-semibold text-content mb-2">{t('docEms.alertsHeading')}</legend>
           <div className="flex flex-wrap gap-4">
             {ALERTS.map((key) => (
-              <label key={key} className="flex items-center gap-2 text-sm">
+              <label key={key} className="flex items-center gap-2 text-sm min-h-[24px] py-1 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={alerts[key]}

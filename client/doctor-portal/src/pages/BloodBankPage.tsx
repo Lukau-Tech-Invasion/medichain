@@ -213,14 +213,31 @@ const BloodBankPage: React.FC = () => {
     }
   }, [patients, t]);
 
+  // Patients load once per signed-in user, in their own effect. They used to
+  // load in the same effect as the orders, which depended on a callback that
+  // depended on `patients`: every load made a new array, a new callback and
+  // another run of the effect -- about six requests a second for as long as
+  // the page stayed open. That spent the user's whole rate-limit allowance
+  // within a minute, and every other screen then failed to load.
   useEffect(() => {
-    const loadPatients = async () => {
-      const loadedPatients = await getPatients();
-      setPatients(loadedPatients);
+    let active = true;
+    getPatients()
+      .then((loadedPatients) => {
+        if (active) setPatients(loadedPatients);
+      })
+      .catch((err) => {
+        console.error('Error loading patients:', err);
+        if (active) setError(t('docBloodBank.errorPatientsLoadFailed'));
+      });
+    return () => {
+      active = false;
     };
-    loadPatients();
+  }, [user, t]);
+
+  // Reloads once more when the patient list arrives, so names resolve.
+  useEffect(() => {
     fetchBloodBankOrders();
-  }, [user, fetchBloodBankOrders]);
+  }, [fetchBloodBankOrders]);
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();

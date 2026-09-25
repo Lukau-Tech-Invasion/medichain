@@ -63,21 +63,72 @@ interface MedicationReminder {
  * 
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
-/** A prescription row, in either of the two casings it is stored under. */
+/**
+ * A prescription as `GET /api/e-prescriptions/patient/{id}` returns it: the
+ * medicine is NESTED under `medication`. The page used to read only flat
+ * `medication_name`/`name`, found neither, and dropped every prescription, so
+ * a patient's medicines list was empty whatever had been prescribed. The flat
+ * fields stay as a fallback for older rows.
+ */
 interface RawPrescription {
   prescription_id?: string; medication_id?: string;
+  medication?: {
+    name?: string;
+    strength?: string;
+    form?: string;
+    directions?: string;
+  };
   medication_name?: string; name?: string;
   dosage?: string;
   frequency?: string;
   prescriber_name?: string; prescribed_by?: string;
   prescribed_date?: string; start_date?: string;
+  /** Unix seconds. */
+  signed_at?: number | null;
+  /** Unix seconds. */
+  created_at?: number;
   end_date?: string;
   refills_remaining?: number;
   instructions?: string;
+  patient_instructions?: string;
   side_effects?: string[];
   interactions?: string[];
-  status?: Medication['status'];
+  status?: string;
 }
+
+/**
+ * The server's prescription status as the patient reads it. A signed or
+ * dispensed prescription is one they are on; one that was never issued
+ * (`Draft`, `Error`) has no status to show rather than a guessed one.
+ */
+function patientFacingStatus(status: string | undefined): string | undefined {
+  switch (status) {
+    case 'Pending':
+    case 'Signed':
+    case 'Transmitted':
+    case 'Received':
+    case 'InProgress':
+    case 'Dispensed':
+    case 'PartialFill':
+      return 'active';
+    case 'Cancelled':
+      return 'cancelled';
+    case 'Expired':
+      return 'expired';
+    case 'Draft':
+    case 'Error':
+    case undefined:
+    case '':
+      return undefined;
+    default:
+      return status;
+  }
+}
+
+const isoDate = (seconds: number | null | undefined): string =>
+  typeof seconds === 'number' && Number.isFinite(seconds)
+    ? new Date(seconds * 1000).toISOString().slice(0, 10)
+    : '';
 
 /**
  * Maps a persisted prescription without inventing clinical directions when a
@@ -85,22 +136,32 @@ interface RawPrescription {
  */
 export function mapPrescription(m: RawPrescription): Medication | null {
   const id = m.prescription_id || m.medication_id;
-  const name = m.medication_name || m.name;
+  const name = m.medication?.name || m.medication_name || m.name;
   if (!id || !name) return null;
+
+  const strength = m.medication?.strength;
+  const dosage = strength
+    ? [strength, m.medication?.form].filter(Boolean).join(' ')
+    : m.dosage ?? '';
+  const instructions = m.medication?.directions
+    ? [m.medication.directions, m.patient_instructions].filter(Boolean).join(' — ')
+    : m.instructions ?? '';
 
   return {
     id,
     name,
-    dosage: m.dosage ?? '',
+    dosage,
+    // A prescription carries its frequency inside the directions; nothing is
+    // parsed out of them here.
     frequency: m.frequency ?? '',
     prescribedBy: m.prescriber_name || m.prescribed_by || '',
-    startDate: m.prescribed_date || m.start_date || '',
+    startDate: m.prescribed_date || m.start_date || isoDate(m.signed_at ?? m.created_at),
     endDate: m.end_date,
     refillsRemaining: m.refills_remaining ?? 0,
-    instructions: m.instructions ?? '',
+    instructions,
     sideEffects: m.side_effects ?? [],
     interactions: m.interactions ?? [],
-    status: m.status || undefined,
+    status: patientFacingStatus(m.status),
   };
 }
 

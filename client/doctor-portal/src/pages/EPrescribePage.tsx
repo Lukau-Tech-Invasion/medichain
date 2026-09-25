@@ -32,8 +32,9 @@ export default function EPrescribePage() {
     directions: '',
     refills_allowed: 0,
     is_controlled: false,
-    pharmacy_ncpdp: '1234567',
-    pharmacy_name: 'Main Street Pharmacy',
+    // Named only if the patient has a pharmacy. This used to pre-select a
+    // fictional "Main Street Pharmacy" and send a fixed NCPDP id with it.
+    pharmacy_name: '',
     diagnosis_codes: [] as string[],
     patient_instructions: '',
   });
@@ -73,7 +74,11 @@ export default function EPrescribePage() {
       // "Send Prescription" has to actually send it. Creating alone leaves the
       // prescription in Draft, which is why every prescription in the system sat
       // unsigned and untransmitted and no pharmacy would ever have received one.
-      const created = await createEPrescription(formData);
+      // A pharmacy nobody named is absent, not an empty string (rule 9).
+      const { pharmacy_name: pharmacyName, ...rest } = formData;
+      const created = await createEPrescription(
+        pharmacyName.trim() ? { ...rest, pharmacy_name: pharmacyName.trim() } : rest
+      );
       const prescriptionId = created?.prescription_id;
       if (prescriptionId) {
         await signEPrescription(prescriptionId, {
@@ -127,7 +132,7 @@ export default function EPrescribePage() {
             heading: t('docEPrescribe.patientPharmacy'),
             lines: [
               `${t('docEPrescribe.patient')}: ${lastPrescription.patient_id}`,
-              `${t('docEPrescribe.pharmacy')}: ${lastPrescription.pharmacy_name}`,
+              `${t('docEPrescribe.pharmacy')}: ${lastPrescription.pharmacy_name || t('docEPrescribe.pharmacyNone')}`,
             ],
           },
           ...(lastPrescription.patient_instructions
@@ -218,17 +223,15 @@ export default function EPrescribePage() {
             />
             <div>
               <label htmlFor="pharmacy_name" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.pharmacy')}</label>
-              <select 
+              <input
                 id="pharmacy_name"
-                name="pharmacy_name" 
-                value={formData.pharmacy_name} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="Main Street Pharmacy">Main Street Pharmacy</option>
-                <option value="Central Hospital Pharmacy">Central Hospital Pharmacy</option>
-                <option value="Community Drugstore">Community Drugstore</option>
-              </select>
+                name="pharmacy_name"
+                type="text"
+                value={formData.pharmacy_name}
+                onChange={handleChange}
+                placeholder={t('docEPrescribe.pharmacyPlaceholder')}
+                className="mt-1 w-full border border-border-interactive bg-surface text-content rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
             </div>
           </div>
         </div>

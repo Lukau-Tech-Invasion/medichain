@@ -375,8 +375,13 @@ const ConsultPage: React.FC = () => {
       'bg-surface-sunken text-content-secondary'
     );
 
+  // Keys are lower-case; a consult filed by another client may say
+  // "Cardiology". Either way a value with no label is shown as itself, never
+  // as the raw key.
   const formatSpecialty = (specialty: string) => {
-    return t(`docConsult.specialty_${specialty}`);
+    const key = `docConsult.specialty_${specialty.toLowerCase()}`;
+    const text = t(key);
+    return text === key ? specialty : text;
   };
 
 

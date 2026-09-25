@@ -359,7 +359,7 @@ export interface ElectronicPrescription {
   patient_id: string;
   prescriber_id: string;
   prescriber_name: string;
-  prescriber_npi: string;
+  prescriber_npi: string | null;
   prescriber_dea: string | null;
   medication: {
     rxcui: string | null;
@@ -374,7 +374,8 @@ export interface ElectronicPrescription {
     directions: string;
     daw_code: number;
   };
-  pharmacy: Record<string, unknown>;
+  /** Only when the prescriber named one. */
+  pharmacy: Record<string, unknown> | null;
   status: string;
   created_at: number;
   signed_at: number | null;
