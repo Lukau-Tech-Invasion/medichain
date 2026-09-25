@@ -491,6 +491,9 @@ function RegisterPatientPage() {
                 {bloodTypes.map(bt => (
                   <option key={bt} value={bt}>{bt}</option>
                 ))}
+                {/* Chosen explicitly, never assumed: an untyped patient used to
+                    force a guess, which the emergency card then showed as fact. */}
+                <option value="Unknown">{t('docRegisterPatient.bloodTypeUnknown')}</option>
               </select>
             </div>
 

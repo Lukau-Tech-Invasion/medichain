@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ToxicologyPage from './ToxicologyPage';
 import { useAuthStore } from '../store/authStore';
@@ -20,6 +20,19 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
+  // The catalogue the server publishes: drug levels in SI units.
+  useScoringCatalog: () => ({
+    catalog: {
+      toxicology: {
+        levels: [
+          { key: 'ethanol', name: 'Ethanol', unit: 'mmol/L', flag_above: 17.4 },
+          { key: 'acetaminophen', name: 'Paracetamol', unit: 'µmol/L', flag_above: 993 },
+        ],
+      },
+    },
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 /**
@@ -64,5 +77,15 @@ describe('ToxicologyPage', () => {
     expect(screen.getByText(/New Case/i)).toBeInTheDocument();
     expect(screen.getAllByText(/History/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Exposure Information/i)).toBeInTheDocument();
+  });
+
+  it('labels drug levels in the SI units the server publishes, and flags above the level', async () => {
+    render(<ToxicologyPage />);
+    const ethanol = await screen.findByText('Ethanol (mmol/L)');
+    expect(screen.getByText('Paracetamol (µmol/L)')).toBeInTheDocument();
+    expect(screen.queryByText(/mg\/dL/)).not.toBeInTheDocument();
+    const input = ethanol.parentElement?.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '20' } });
+    expect(input.className).toContain('bg-critical-subtle');
   });
 });

@@ -90,6 +90,35 @@ describe('RegisterPatientPage', () => {
     });
   });
 
+  it('registers a patient whose blood group is not known as Unknown, not a guess', async () => {
+    const fetchSpy = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    render(
+      <MemoryRouter>
+        <RegisterPatientPage />
+      </MemoryRouter>
+    );
+    const bloodType = screen.getByLabelText(/Blood Type \*/i) as HTMLSelectElement;
+    expect(Array.from(bloodType.options).map((o) => o.value)).toContain('Unknown');
+
+    fireEvent.change(screen.getByLabelText(/Full Name \*/i), { target: { value: 'Untyped Patient' } });
+    fireEvent.change(screen.getByLabelText(/Date of Birth \*/i), { target: { value: '1990-01-01' } });
+    fireEvent.change(screen.getByLabelText(/Wallet Address/i), {
+      target: { value: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
+    });
+    fireEvent.change(screen.getByLabelText(/National ID \*/i), { target: { value: 'NIN-124' } });
+    fireEvent.change(bloodType, { target: { value: 'Unknown' } });
+    fireEvent.change(screen.getByLabelText(/Contact Name \*/i), { target: { value: 'Jane Doe' } });
+    fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
+    fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
+    fireEvent.submit(screen.getByRole('button', { name: /Register Patient/i }).closest('form')!);
+
+    await waitFor(() => {
+      const register = fetchSpy.mock.calls.find(([url]) => String(url).includes('/register'));
+      expect(register, 'no registration request was sent').toBeTruthy();
+      expect(JSON.parse(String((register![1] as RequestInit).body)).blood_type).toBe('Unknown');
+    });
+  });
+
   it('shows error message on failure', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,

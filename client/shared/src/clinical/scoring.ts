@@ -97,6 +97,10 @@ export interface ScoringCatalog {
   vital_signs?: VitalBand[];
   /** Absent on a server older than the GCS assessment screen. */
   glasgow_coma_scale?: GcsScale;
+  /** The toxicology form's level flags, SI units; absent on an older server. */
+  toxicology?: {
+    levels: Array<{ key: string; name: string; unit: string; flag_above: number }>;
+  };
   /** The critical-value call list; absent on an older server. */
   critical_values?: { thresholds: CriticalValueThresholdEntry[] };
   /** The recovery form's Aldrete preview; absent on an older server. */
