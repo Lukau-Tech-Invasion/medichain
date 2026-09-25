@@ -1,4 +1,11 @@
-import { useTranslation, formatTimestamp } from '@medichain/shared';
+import { useState } from 'react';
+import {
+  confirmDialog,
+  formatTimestamp,
+  getApiErrorMessage,
+  notifyEmergencyContacts,
+  useTranslation,
+} from '@medichain/shared';
 import { EmergencyInfo } from '../store';
 import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -48,6 +55,33 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
   const patientBloodType = patient.bloodType || '';
   const chronicConditions = patient.chronicConditions || [];
   const emergencyContacts = patient.emergencyContacts || [];
+
+  const [notifying, setNotifying] = useState(false);
+  const [notifyResult, setNotifyResult] = useState('');
+
+  // `POST /api/medical-id/{id}/emergency-notify` sends the SMS and had no
+  // button. It honours the patient's opt-out and reports who was actually
+  // reached, which is what this shows -- never "family notified" on faith.
+  const notifyContacts = async () => {
+    const confirmed = await confirmDialog({
+      message: t('emergency.notifyContactsConfirm'),
+      confirmLabel: t('emergency.notifyContactsBtn'),
+    });
+    if (!confirmed) return;
+    setNotifying(true);
+    setNotifyResult('');
+    try {
+      const result = await notifyEmergencyContacts(patient.patientId, { emergency_type: 'medical' });
+      setNotifyResult(t('emergency.notifyContactsResult', {
+        sent: result.notifications_sent,
+        attempted: result.notifications_attempted,
+      }));
+    } catch (err) {
+      setNotifyResult(getApiErrorMessage(err, t('emergency.notifyContactsFailed')));
+    } finally {
+      setNotifying(false);
+    }
+  };
 
   const bloodType = formatBloodType(patientBloodType);
   const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-surface-sunken text-content-secondary';
@@ -201,6 +235,19 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
                   </a>
                 </div>
               ))}
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void notifyContacts()}
+                disabled={notifying}
+                className="px-4 py-2 rounded-lg border border-border-interactive text-content disabled:opacity-60 min-h-[24px]"
+              >
+                {notifying ? t('emergency.notifyingContacts') : t('emergency.notifyContactsBtn')}
+              </button>
+              {notifyResult && (
+                <p role="status" className="text-sm text-content-secondary">{notifyResult}</p>
+              )}
             </div>
           </div>
         )}

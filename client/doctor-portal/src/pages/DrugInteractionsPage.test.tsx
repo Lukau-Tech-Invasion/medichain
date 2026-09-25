@@ -2,6 +2,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import DrugInteractionsPage from './DrugInteractionsPage';
 import { useAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
+import { patientFixture, selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -16,6 +18,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -131,5 +134,33 @@ describe('DrugInteractionsPage', () => {
         screen.getAllByText(/Major interaction between Warfarin and Aspirin/i).length
       ).toBeGreaterThan(0);
     });
+  });
+
+  it('shows the checks filed to the chosen patient, not only this session', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([patientFixture({ patient_id: 'PAT-9', full_name: 'Lindiwe Khumalo' })] as never);
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+      if (url.includes('/api/interactions/history/PAT-9')) {
+        return json({
+          success: true,
+          count: 1,
+          checks: [{
+            result_id: 'CHK-FILED-1', patient_id: 'PAT-9', checked_at: 1790000000,
+            new_medication: 'Warfarin', medications_checked: ['Warfarin', 'Ibuprofen'],
+            interactions: [{ drug_a: 'Warfarin', drug_b: 'Ibuprofen', severity: 'Major', description: 'Bleeding' }],
+            overall_severity: 'Major', safe_to_prescribe: false, checked_by: '5Doctor',
+          }],
+        });
+      }
+      return base(input);
+    });
+    render(<DrugInteractionsPage />);
+
+    await selectPatient(/Patient/i, 'Lindiwe Khumalo', 'ddi-patient-id');
+    fireEvent.click(screen.getByText(/History/i));
+
+    expect(await screen.findByText(/CHK-FILED-1/)).toBeInTheDocument();
+    expect(screen.getByText('Ibuprofen')).toBeInTheDocument();
   });
 });

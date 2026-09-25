@@ -104,7 +104,18 @@ pub async fn get_patient_analytics(
         return resp;
     }
 
-    let total_population = data.repositories.patients.count().await.unwrap_or(0);
+    // An unreadable register is not an empty one (rule 12).
+    let total_population = match data.repositories.patients.count().await {
+        Ok(count) => count,
+        Err(e) => {
+            log::error!("patient analytics: population count unavailable: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Population analytics are unavailable because the patient register could not be read"
+                    .to_string(),
+                code: "ANALYTICS_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     // This was an always-empty map — a population analytics screen whose only
     // breakdown reported that the register contains nobody of any gender. It is

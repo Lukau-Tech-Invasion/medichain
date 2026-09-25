@@ -536,6 +536,50 @@ pub async fn list_patient_intake_output(
 ///     and this table exists so a refactor cannot quietly remove it.
 ///   * **Letting them read another patient is a disclosure.** A discharge
 ///     summary names a diagnosis; a pathology report names a cancer.
+/// Why a medicine was not dispensed: every allergy decision a pharmacist
+/// recorded about this patient, newest first.
+///
+/// These were readable only through `/api/pharmacy/allergy-decisions/patient/
+/// {id}`, gated on clinical staff -- whose own doc comment said the patient's
+/// copy was served here, which it was not. A patient whose medicine did not
+/// arrive could not find out why. One route now serves both: the treating
+/// team and the patient, through the same `authorize()`.
+#[get("/api/clinical/patient/{patient_id}/pharmacy-decisions")]
+pub async fn list_patient_pharmacy_decisions(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .pharmacy_decisions
+        .get_by_owner(&patient_id)
+        .await
+    {
+        Ok(rows) => {
+            let decisions: Vec<serde_json::Value> = rows.into_iter().map(|r| r.data).collect();
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "patient_id": patient_id,
+                "decisions": decisions,
+                "count": decisions.len(),
+            }))
+        }
+        // Not an empty list: "no medicine was refused" is a claim.
+        Err(e) => {
+            log::error!("pharmacy decisions could not be read: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Dispensing decisions could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod patient_document_access_tests {
     use crate::{AppState, Role, User};
@@ -555,6 +599,7 @@ mod patient_document_access_tests {
         "procedures",
         "ama-discharges",
         "intake-output",
+        "pharmacy-decisions",
     ];
 
     fn state_with(role: Role, wallet: &str, linked: Option<&str>) -> web::Data<AppState> {
@@ -603,7 +648,8 @@ mod patient_document_access_tests {
                 .service(super::list_patient_blood)
                 .service(super::list_patient_procedures)
                 .service(super::list_patient_ama_discharges)
-                .service(super::list_patient_intake_output),
+                .service(super::list_patient_intake_output)
+                .service(super::list_patient_pharmacy_decisions),
         )
         .await;
         let req = test::TestRequest::get()

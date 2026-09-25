@@ -316,6 +316,7 @@ async fn check_interactions_response(
         patient_id: patient.to_string(),
         checked_at: chrono::Utc::now().timestamp(),
         new_medication: req.medications.first().cloned().unwrap_or_default(),
+        medications_checked: req.medications.clone(),
         interactions: interactions.clone(),
         overall_severity,
         safe_to_prescribe,

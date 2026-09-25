@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   getPatientEPrescriptions,
+  getPatientPharmacyDecisions,
   getPatientReminders,
   getPatientAdherence,
   logMedicationAdherence,
   useTranslation,
   formatTimestamp,
 } from '@medichain/shared';
+import type { PharmacyDecision } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Pill,
@@ -111,6 +113,10 @@ export function MedicationsPage() {
       s.charAt(0).toUpperCase() + s.slice(1));
   const [medications, setMedications] = useState<Medication[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
+  // A pharmacist's decision about this patient's medicine -- why something
+  // they were prescribed did not arrive. Recorded on the pharmacy side and,
+  // until this, readable only by clinical staff.
+  const [pharmacyNotes, setPharmacyNotes] = useState<PharmacyDecision[]>([]);
   const [loading, setLoading] = useState(true);
   // Said out loud when a dose could not be recorded. Silence plus a tick is the
   // worst of both: the patient believes the record exists and it does not.
@@ -140,6 +146,9 @@ export function MedicationsPage() {
       ]);
 
       setApiConnected(true);
+      getPatientPharmacyDecisions(patientId)
+        .then((body) => setPharmacyNotes(body.decisions ?? []))
+        .catch(() => setPharmacyNotes([]));
 
       const meds = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions ||
         (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[])
@@ -242,7 +251,7 @@ export function MedicationsPage() {
             apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.demo')}
+            {apiConnected ? t('common.live') : t('common.offline')}
           </span>
           <button
             onClick={loadMedications}
@@ -252,6 +261,20 @@ export function MedicationsPage() {
           </button>
         </div>
       </div>
+
+      {pharmacyNotes.length > 0 && (
+        <section className="bg-caution-subtle border border-caution rounded-xl p-4" data-testid="pharmacy-notes">
+          <h2 className="font-semibold text-caution-subtle-fg mb-2">{t('medications.pharmacyNotesHeading')}</h2>
+          <ul className="space-y-1">
+            {pharmacyNotes.map((note) => (
+              <li key={note.decision_id} className="text-sm text-caution-subtle-fg">
+                {t(`medications.pharmacyNote_${note.decision}`, { allergen: note.allergen, reason: note.reason })}
+                <span className="ml-1 opacity-80">({formatTimestamp(note.decided_at)})</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Today's Reminders Summary */}
       <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">

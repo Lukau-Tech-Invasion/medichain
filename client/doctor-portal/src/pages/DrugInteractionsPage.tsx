@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
   getApiClient,
@@ -7,6 +7,7 @@ import {
   LoadingSpinner,
   formatTimestamp,
   checkDrugInteractions,
+  getDrugInteractionHistory,
 } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -28,6 +29,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import type { StoredDrugInteractionCheck } from '@medichain/shared';
 
 // ===== PART 1: Types, State, Data, Helpers =====
 
@@ -99,6 +101,30 @@ interface InteractionCheck {
   checkedBy: string;
 }
 
+/** A filed check, in the shape the history tab renders. */
+function fromStoredCheck(stored: StoredDrugInteractionCheck): InteractionCheck {
+  const count = (severity: string) =>
+    stored.interactions.filter((i) => i.severity === severity).length;
+  const drugs = stored.medications_checked?.length
+    ? stored.medications_checked
+    : [stored.new_medication].filter(Boolean);
+  return {
+    checkId: stored.result_id,
+    drugs,
+    timestamp: new Date(stored.checked_at * 1000).toISOString(),
+    interactions: [],
+    totalInteractions: stored.interactions.filter((i) => i.severity !== 'None').length,
+    bySeverity: {
+      contraindicated: count('Contraindicated'),
+      major: count('Major'),
+      moderate: count('Moderate'),
+      minor: count('Minor'),
+      unknown: 0,
+    },
+    checkedBy: stored.checked_by,
+  };
+}
+
 const DrugInteractionsPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -115,6 +141,9 @@ const DrugInteractionsPage: React.FC = () => {
   const [severityFilter, setSeverityFilter] = useState<InteractionSeverity | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<InteractionType | 'all'>('all');
   const [expandedInteractions, setExpandedInteractions] = useState<Set<string>>(new Set());
+  // Whether the selected patient's filed checks could be read. A failed read is
+  // not "no history".
+  const [historyUnknown, setHistoryUnknown] = useState(false);
   const [patientContext, setPatientContext] = useState<PatientContext>({
     patientId: '',
     age: 0,
@@ -145,6 +174,22 @@ const DrugInteractionsPage: React.FC = () => {
   const [drugDatabase, setDrugDatabase] = useState<Drug[]>([]);
 
   // Load drug database from API
+  // The history tab used to hold only this session's checks, so it was empty
+  // after every reload although the server had filed each one to the chart.
+  const loadHistory = useCallback(async (patientId: string) => {
+    try {
+      const body = await getDrugInteractionHistory(patientId);
+      setChecks((body.checks ?? []).map(fromStoredCheck));
+      setHistoryUnknown(false);
+    } catch {
+      setHistoryUnknown(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (patientContext.patientId) void loadHistory(patientContext.patientId);
+  }, [patientContext.patientId, loadHistory]);
+
   useEffect(() => {
     const fetchDrugs = async () => {
       if (!user?.walletAddress) return;
@@ -299,7 +344,14 @@ const DrugInteractionsPage: React.FC = () => {
         checkedBy: user?.userId || user?.walletAddress || 'Unknown',
       };
       
-      setChecks([check, ...checks]);
+      // A check for a patient is filed on their chart; the history is what the
+      // server holds, so it is re-read rather than appended to. A check with
+      // no patient is a lookup, filed nowhere, and is kept for this session.
+      if (patientContext.patientId) {
+        await loadHistory(patientContext.patientId);
+      } else {
+        setChecks((current) => [check, ...current]);
+      }
       setShowResults(true);
     } catch (err) {
       console.error('Failed to check interactions:', err);
@@ -841,6 +893,9 @@ const DrugInteractionsPage: React.FC = () => {
       {/* History Tab */}
       {activeTab === 'history' && (
         <div className="space-y-4">
+          {historyUnknown && (
+            <p role="status" className="text-sm text-content-muted">{t('docDrugInteractions.historyUnknown')}</p>
+          )}
           {checks.length > 0 ? (
             checks.map((check) => (
               <div key={check.checkId} className="bg-surface rounded-lg shadow p-6">

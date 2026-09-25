@@ -5,6 +5,7 @@ import {
   formatTimestamp,
   getAppointmentAnalytics,
   getDashboardMetrics,
+  getPatientPopulation,
   getOperationalMetrics,
   getQualityMetrics,
   listCriticalValues,
@@ -180,6 +181,24 @@ const AnalyticsPage: React.FC = () => {
         return { startDate: iso(now), endDate: iso(now) };
     }
   };
+
+  // The register by recorded gender (`GET /api/platform/analytics/patients`,
+  // which had no screen). Independent of the period buttons: it counts the
+  // register as it stands.
+  const [population, setPopulation] = useState<{ total: number; byGender: Array<[string, number]> } | null>(null);
+  const [populationUnknown, setPopulationUnknown] = useState(false);
+  useEffect(() => {
+    if (!isAdministrator) return;
+    getPatientPopulation()
+      .then((body) => {
+        setPopulation({
+          total: body.total_population,
+          byGender: Object.entries(body.gender_distribution ?? {}).sort((a, b) => b[1] - a[1]),
+        });
+        setPopulationUnknown(false);
+      })
+      .catch(() => setPopulationUnknown(true));
+  }, [isAdministrator]);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -508,6 +527,40 @@ const AnalyticsPage: React.FC = () => {
           );
         })}
       </div>
+
+      <section className="bg-surface rounded-lg shadow p-6 mb-6" data-testid="population-panel">
+        <h2 className="text-xl font-bold text-content mb-2 flex items-center gap-2">
+          <Users className="w-6 h-6 text-content-secondary" />
+          {t('docAnalytics.populationHeading')}
+        </h2>
+        {populationUnknown ? (
+          <p className="text-sm text-content-muted">{t('docAnalytics.populationUnknown')}</p>
+        ) : !population ? (
+          <p className="text-sm text-content-muted">{t('docAnalytics.loading')}</p>
+        ) : population.total === 0 ? (
+          <p className="text-sm text-content-muted">{t('docAnalytics.populationNone')}</p>
+        ) : (
+          <>
+            <p className="text-sm text-content-muted mb-3">{t('docAnalytics.populationTotal', { count: population.total })}</p>
+            <ul className="space-y-2">
+              {population.byGender.map(([gender, count]) => (
+                <li key={gender} className="flex items-center gap-3">
+                  <span className="w-28 text-sm text-content capitalize">{gender}</span>
+                  <span className="flex-1 h-2 rounded bg-surface-sunken" aria-hidden="true">
+                    <span
+                      className="block h-2 rounded bg-brand"
+                      style={{ width: `${Math.round((count / population.total) * 100)}%` }}
+                    />
+                  </span>
+                  <span className="w-24 text-right text-sm text-content-secondary">
+                    {count} ({Math.round((count / population.total) * 100)}%)
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="bg-surface rounded-lg shadow p-6">

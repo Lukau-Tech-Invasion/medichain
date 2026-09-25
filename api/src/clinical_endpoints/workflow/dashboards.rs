@@ -1649,6 +1649,7 @@ mod pharmacy_interaction_panel_tests {
             patient_id: "PAT-INT-1".to_string(),
             checked_at: now.timestamp(),
             new_medication: "warfarin".to_string(),
+            medications_checked: vec!["warfarin".to_string(), "aspirin".to_string()],
             interactions: vec![crate::clinical::DrugInteraction {
                 drug_a: "warfarin".to_string(),
                 drug_b: "aspirin".to_string(),

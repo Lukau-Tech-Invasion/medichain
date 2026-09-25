@@ -58,6 +58,7 @@ const en_US: TranslationRecord = {
     signUp: 'Sign Up',
     or: 'or',
     live: 'Live',
+    offline: 'Offline',
     demo: 'Demo',
   },
 
@@ -207,6 +208,11 @@ const en_US: TranslationRecord = {
 
   // Emergency
   emergency: {
+    notifyContactsBtn: 'Text emergency contacts',
+    notifyingContacts: 'Sending…',
+    notifyContactsConfirm: 'Send an emergency SMS to this patient\'s emergency contacts now?',
+    notifyContactsResult: 'Delivered to {{sent}} of {{attempted}} contacts.',
+    notifyContactsFailed: 'Nobody could be notified.',
     accessHeading: 'Who has opened this card',
     accessSubtitle: 'Every emergency read of your blood type, allergies and directives is recorded here.',
     accessLoading: 'Loading...',
@@ -271,6 +277,9 @@ const en_US: TranslationRecord = {
 
   // Medications
   medications: {
+    pharmacyNotesHeading: 'From your pharmacy',
+    pharmacyNote_refused_to_dispense: '{{allergen}}: not dispensed because of your allergy — {{reason}}',
+    pharmacyNote_prescriber_queried: '{{allergen}}: your pharmacist asked your doctor to review this — {{reason}}',
     title: 'Medications',
     current: 'Current Medications',
     past: 'Past Medications',
@@ -2711,6 +2720,9 @@ const en_US: TranslationRecord = {
   },
 
   docPharmDashboard: {
+    decisionOnFile: 'On file: {{decision}} — {{reason}} ({{when}})',
+    decision_refused_to_dispense: 'refused to dispense',
+    decision_prescriber_queried: 'prescriber queried',
     title: 'Pharmacy Dashboard',
     subtitle: 'Prescription Verification & Drug Safety',
     unknown: 'Unknown',
@@ -4101,6 +4113,10 @@ const en_US: TranslationRecord = {
     importantDocText: 'AMA documentation is a legal record. Ensure all information is accurate and complete. Patient must demonstrate capacity to make informed decisions.',
   },
   docAnalytics: {
+    populationHeading: 'Patient register by recorded gender',
+    populationTotal: '{{count}} patients on the register',
+    populationUnknown: 'The patient register could not be read.',
+    populationNone: 'No patients are registered yet.',
     loading: 'Loading analytics...',
     errorTitle: 'Error loading analytics',
     title: 'Analytics Dashboard',
@@ -5527,6 +5543,7 @@ const en_US: TranslationRecord = {
     medicationsCheckedTitle: 'Medications Checked:',
     bySeverityTitle: 'By Severity:',
     noHistoryTitle: 'No check history',
+    historyUnknown: 'This patient\'s filed checks could not be loaded; only checks run in this session are shown.',
     noHistoryHint: 'Your interaction checks will appear here',
     databaseTitle: 'Interaction Database ({{count}} interactions)',
     databaseSubtitle: 'Browse all known drug interactions in the database. This is a reference for clinical decision-making.',

@@ -3644,6 +3644,11 @@ pub struct DrugInteractionResult {
     pub checked_at: i64,
     /// New medication checked
     pub new_medication: String,
+    /// Every medication the check covered. Only the first used to be kept, so
+    /// a filed check could not say what had been checked against what.
+    /// Defaulted so checks filed before this was recorded still read.
+    #[serde(default)]
+    pub medications_checked: Vec<String>,
     /// Interactions found
     pub interactions: Vec<DrugInteraction>,
     /// Overall severity

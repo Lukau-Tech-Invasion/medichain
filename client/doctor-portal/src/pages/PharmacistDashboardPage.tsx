@@ -27,6 +27,7 @@ import {
   requestPrescriptionVerification,
   decidePrescriptionVerification,
   revokePrescriptionVerification,
+  getPatientPharmacyDecisions,
   getDispenseEvents,
   reverseDispense,
   getApiErrorCode,
@@ -44,6 +45,7 @@ interface SecondaryVerification {
   requested_by?: string | null;
   verified_by?: string | null;
 }
+import type { PharmacyDecision } from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -136,6 +138,24 @@ export default function PharmacistDashboardPage() {
     loadDashboard();
   }, []);
 
+  // What was already decided about each alert. The alerts are derived from the
+  // patients' allergy lists and so reappear on every load; without this a
+  // pharmacist could not tell an alert already dealt with from a new one.
+  const [decisionsOnFile, setDecisionsOnFile] = useState<Record<string, PharmacyDecision>>({});
+  const loadDecisionsFor = async (alerts: AllergyAlert[]) => {
+    const patientIds = [...new Set(alerts.map((a) => a.patient_id))];
+    const results = await Promise.allSettled(patientIds.map((id) => getPatientPharmacyDecisions(id)));
+    const latest: Record<string, PharmacyDecision> = {};
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      for (const decision of result.value.decisions ?? []) {
+        const key = `${decision.patient_id}|${decision.allergen.toLowerCase()}`;
+        if (!latest[key] || latest[key].decided_at < decision.decided_at) latest[key] = decision;
+      }
+    }
+    setDecisionsOnFile(latest);
+  };
+
   /** Send the pharmacist's decision, with the reason they gave. */
   const submitDecision = async () => {
     if (!decisionFor) return;
@@ -152,6 +172,7 @@ export default function PharmacistDashboardPage() {
         decision: decisionFor.decision,
         reason: decisionReason.trim(),
       });
+      void loadDecisionsFor(data?.allergy_alerts ?? []);
       setDecisionFor(null);
       setDecisionReason('');
       await loadDashboard();
@@ -212,7 +233,9 @@ export default function PharmacistDashboardPage() {
     try {
       setLoading(true);
       const response = await getPharmacistDashboard();
-      setData(response as unknown as PharmacistDashboardData);
+      const dashboard = response as unknown as PharmacistDashboardData;
+      setData(dashboard);
+      void loadDecisionsFor(dashboard.allergy_alerts ?? []);
     } catch (error) {
       console.error('Failed to load pharmacist dashboard:', error);
     } finally {
@@ -732,6 +755,18 @@ export default function PharmacistDashboardPage() {
                           ? t('docPharmDashboard.allergyReaction', { reaction: alert.reaction, severity: alert.severity })
                           : t('docPharmDashboard.allergyOnRecord', { severity: alert.severity })}
                       </p>
+                      {(() => {
+                        const onFile = decisionsOnFile[`${alert.patient_id}|${alert.allergen.toLowerCase()}`];
+                        return onFile ? (
+                          <p className="text-xs text-content-secondary mt-1" data-testid="decision-on-file">
+                            {t('docPharmDashboard.decisionOnFile', {
+                              decision: t(`docPharmDashboard.decision_${onFile.decision}`),
+                              reason: onFile.reason,
+                              when: formatTimestamp(onFile.decided_at),
+                            })}
+                          </p>
+                        ) : null;
+                      })()}
                     </div>
                     <div className="flex gap-2">
                       <button

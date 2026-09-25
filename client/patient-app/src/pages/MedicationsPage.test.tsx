@@ -190,4 +190,28 @@ describe('MedicationsPage (Patient)', () => {
       expect(screen.getByText(/No active medications/i)).toBeInTheDocument();
     });
   });
+
+  it('tells the patient why the pharmacy did not dispense something', async () => {
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string) =>
+      url.includes('/api/clinical/patient/HEALTH123/pharmacy-decisions')
+        ? Promise.resolve({
+            ok: true,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: () => Promise.resolve({
+              success: true, count: 1,
+              decisions: [{
+                decision_id: 'DEC-1', patient_id: 'HEALTH123', allergen: 'Penicillin',
+                decision: 'refused_to_dispense', reason: 'Amoxicillin is a penicillin',
+                prescription_id: null, decided_by: '5Pharm', decided_at: '2026-09-24T10:00:00Z',
+              }],
+            }),
+          })
+        : base(url));
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    const notes = await screen.findByTestId('pharmacy-notes');
+    expect(notes.textContent).toMatch(/Penicillin: not dispensed because of your allergy/);
+    expect(notes.textContent).toMatch(/Amoxicillin is a penicillin/);
+  });
 });

@@ -4720,3 +4720,95 @@ export async function getNurseTasks(): Promise<{ success: boolean; tasks: Nursin
   return getApiClient().get('/api/nurse/tasks');
 }
 
+// ============================================================================
+// Emergency contact notification
+// ============================================================================
+
+/** One contact's delivery outcome. `suppressed`: SMS is not configured. */
+export interface EmergencyContactNotification {
+  name: string;
+  phone: string;
+  relationship: string;
+  status: 'sent' | 'suppressed' | 'failed';
+}
+
+/**
+ * Text the patient's emergency contacts. Honours the patient's own opt-out
+ * (refused as NOTIFICATIONS_DISABLED) and answers 503 when nobody was reached,
+ * so a clinician is never told the family knows when it does not.
+ */
+export async function notifyEmergencyContacts(
+  patientId: string,
+  body: { emergency_type?: string; location?: string; message?: string } = {}
+): Promise<{
+  success: boolean;
+  notifications_sent: number;
+  notifications_attempted: number;
+  notifications: EmergencyContactNotification[];
+  message: string;
+}> {
+  return getApiClient().post(`/api/medical-id/${encodeURIComponent(patientId)}/emergency-notify`, body);
+}
+
+// ============================================================================
+// Drug-interaction check history
+// ============================================================================
+
+/** One interaction found by a filed check, as the server stored it. */
+export interface StoredDrugInteraction {
+  drug_a: string;
+  drug_b: string;
+  severity: 'None' | 'Minor' | 'Moderate' | 'Major' | 'Contraindicated';
+  description: string;
+}
+
+/** A drug-interaction check filed to a patient's chart. */
+export interface StoredDrugInteractionCheck {
+  result_id: string;
+  patient_id: string;
+  /** Unix seconds. */
+  checked_at: number;
+  new_medication: string;
+  /** Absent on checks filed before the full list was kept. */
+  medications_checked?: string[];
+  interactions: StoredDrugInteraction[];
+  overall_severity: string;
+  safe_to_prescribe: boolean;
+  checked_by: string;
+}
+
+/** The checks filed for one patient, newest first (clinicians). */
+export async function getDrugInteractionHistory(
+  patientId: string
+): Promise<{ success: boolean; checks: StoredDrugInteractionCheck[]; count: number }> {
+  return getApiClient().get(`/api/interactions/history/${encodeURIComponent(patientId)}`);
+}
+
+/** The patient register by recorded gender (administrators). */
+export async function getPatientPopulation(): Promise<{
+  total_population: number;
+  /** Keyed by the recorded value; unrecorded genders have their own bucket. */
+  gender_distribution: Record<string, number>;
+}> {
+  return getApiClient().get('/api/platform/analytics/patients');
+}
+
+/** A pharmacist's recorded decision about an allergy alert. */
+export interface PharmacyDecision {
+  decision_id: string;
+  patient_id: string;
+  allergen: string;
+  decision: 'refused_to_dispense' | 'prescriber_queried';
+  reason: string;
+  prescription_id: string | null;
+  decided_by: string;
+  decided_at: string;
+}
+
+/** Every allergy decision recorded about a patient (their team, or themselves). */
+export async function getPatientPharmacyDecisions(
+  patientId: string
+): Promise<{ success: boolean; decisions: PharmacyDecision[]; count: number }> {
+  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/pharmacy-decisions`);
+}
+

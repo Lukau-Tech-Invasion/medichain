@@ -31,6 +31,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_patient_pathology)
         .service(list_patient_consults)
         .service(list_patient_care_plans)
+        .service(list_patient_pharmacy_decisions)
         .service(list_patient_blood)
         .service(list_patient_procedures)
         .service(list_patient_ama_discharges)
@@ -501,7 +502,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Reject, Contact MD and DEA report with no endpoint behind any of
         // them, so a refusal to dispense reached nobody.
         .service(clinical_endpoints::record_pharmacy_decision)
-        .service(clinical_endpoints::list_pharmacy_decisions_for_patient)
         .service(clinical_endpoints::controlled_substance_report)
         .service(clinical_endpoints::get_interaction_history)
         // Phase 22: Family Account Linking endpoints

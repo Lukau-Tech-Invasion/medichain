@@ -172,53 +172,6 @@ pub async fn record_pharmacy_decision(
     }
 }
 
-/// Every dispensing decision recorded for one patient.
-///
-/// Clinical staff read it to see why an order was not filled. The patient's own
-/// copy is served by `patient_documents.rs` over the shared `authorize()`, per
-/// rule 10 — a record about somebody that only their pharmacist can read is
-/// the defect class this project keeps closing.
-#[get("/api/pharmacy/allergy-decisions/patient/{patient_id}")]
-pub async fn list_pharmacy_decisions_for_patient(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    path: web::Path<String>,
-) -> impl Responder {
-    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u,
-        Err(resp) => return resp,
-    };
-    let patient_id = path.into_inner();
-
-    match data
-        .repositories
-        .pharmacy_decisions
-        .get_by_owner(&patient_id)
-        .await
-    {
-        Ok(rows) => {
-            let decisions: Vec<serde_json::Value> = rows.into_iter().map(|r| r.data).collect();
-            log::debug!(
-                "pharmacy decisions read for {} by {}",
-                patient_id,
-                caller.wallet_address
-            );
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "decisions": decisions,
-            }))
-        }
-        Err(e) => {
-            log::error!("pharmacy decisions could not be read: {e}");
-            pharmacy_error(
-                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Dispensing decisions could not be read",
-                "DATABASE_ERROR",
-            )
-        }
-    }
-}
-
 /// The controlled-substance dispensing register for a period.
 ///
 /// The dashboard's *DEA report* link had no endpoint, so the register could be
