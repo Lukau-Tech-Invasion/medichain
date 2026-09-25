@@ -247,3 +247,57 @@ test('a lab result is entered, approved, and reaches the patient and their trend
   await patientSees(browser, 'lab-results', '5.4');
   await patientSees(browser, 'lab-trends', /\S/);
 });
+
+test('an untyped patient registers with blood group Unknown, not a guess', async ({ page }) => {
+  test.setTimeout(240000);
+  const name = `Untyped Workflow ${stamp()}`;
+  await quickLogin(page, 'Doctor');
+  await settle(page, '/register');
+  await page.locator('#register-full-name').fill(name);
+  await page.locator('#register-date-of-birth').fill('1988-02-02');
+  await page.getByRole('button', { name: /^generate$/i }).click();
+  await page.getByRole('checkbox', { name: /the patient has this phrase/i }).check();
+  await page.locator('#register-national-id').fill(`88020${String(Date.now()).slice(-8)}`);
+  await page.locator('#register-blood-type').selectOption('Unknown');
+  await page.locator('#register-emergency-contact-name').fill('Kin Workflow');
+  await page.locator('#register-emergency-contact-phone').fill('+27821230000');
+  await page.locator('#register-emergency-contact-relationship').fill('Sister');
+  await page.getByRole('button', { name: /register patient/i }).click();
+  await expect(page.getByText(/registered|success|created/i).first()).toBeVisible({ timeout: 30000 });
+
+  await settle(page, '/patients');
+  await page.getByPlaceholder(/search/i).first().fill('Untyped');
+  const main = page.locator('main');
+  await expect(main).toContainText(name, { timeout: 20000 });
+  await expect(main).toContainText('Unknown');
+});
+
+test('glucose is entered in mmol/L: 110 is refused as mg/dL, 5.4 is recorded', async ({ page }) => {
+  test.setTimeout(240000);
+  await quickLogin(page, 'Nurse');
+  await settle(page, '/vitals');
+  await pickPatient(page, '#vitals-patient-select', PATIENT_A());
+  if (!(await page.locator('#vitals-blood-glucose').isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: /record|new|add/i }).first().click();
+  }
+  await expect(page.getByText('Blood Glucose (mmol/L)')).toBeVisible();
+  await page.locator('#vitals-heart-rate').fill('88');
+  await page.locator('#vitals-blood-glucose').fill('110');
+  await page.getByRole('button', { name: /save|record vital|submit/i }).last().click();
+  await expect(page.getByText(/not mg\/dL|not plausible/i).first()).toBeVisible({ timeout: 20000 });
+
+  await page.locator('#vitals-blood-glucose').fill('5.4');
+  await page.getByRole('button', { name: /save|record vital|submit/i }).last().click();
+  await expect(page.getByText(/recorded|saved|success/i).first()).toBeVisible({ timeout: 20000 });
+});
+
+test('sepsis and toxicology forms label their values in SI units', async ({ page }) => {
+  test.setTimeout(240000);
+  await quickLogin(page, 'Doctor');
+  await settle(page, '/sepsis');
+  await expect(page.locator('main')).toContainText('Bilirubin (µmol/L)', { timeout: 20000 });
+  await expect(page.locator('main')).toContainText('Creatinine (µmol/L)');
+  await settle(page, '/toxicology');
+  await expect(page.locator('main')).toContainText('Ethanol (mmol/L)', { timeout: 20000 });
+  await expect(page.locator('main')).not.toContainText('mg/dL');
+});

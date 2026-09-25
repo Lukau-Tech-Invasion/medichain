@@ -64,7 +64,7 @@ export async function nurseJourney(
     oxygen_saturation: 94,
     pain_scale: 6,
     gcs_score: 15,
-    blood_glucose: 110,
+    blood_glucose: 6.1, // mmol/L
     weight_kg: 68.5,
   };
   const triage = await http('POST', '/clinical/triage', {
@@ -104,7 +104,7 @@ export async function nurseJourney(
       'vital_signs.oxygen_saturation': 94,
       'vital_signs.pain_scale': 6,
       'vital_signs.gcs_score': 15,
-      'vital_signs.blood_glucose': 110,
+      'vital_signs.blood_glucose': 6.1,
       'vital_signs.weight_kg': 68.5,
       pain_scale: 6,
     });
@@ -135,7 +135,7 @@ export async function nurseJourney(
     oxygen_saturation: 94,
     pain_scale: 6,
     gcs_total: 15,
-    blood_glucose: 110,
+    blood_glucose: 6.1, // mmol/L
   };
   const vitals = await http('POST', '/clinical/vitals', { token: nurse.token, body: vitalsBody });
   const recorded = j.status('a set of observations is accepted', vitals.status, [200, 201], vitals.json);
