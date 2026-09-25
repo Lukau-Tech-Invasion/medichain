@@ -1035,26 +1035,49 @@ pub async fn list_my_telehealth_sessions(
         .clone()
         .unwrap_or_else(|| caller.wallet_address.clone());
 
-    let mut records = data
+    // A read that fails says so. `unwrap_or_default()` here turned a database
+    // outage into "no sessions", which a clinician would take as a free day.
+    let unavailable = |e: crate::repositories::traits::RepositoryError| {
+        log::error!("telehealth sessions could not be read: {e}");
+        HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Telehealth sessions could not be read".to_string(),
+            code: "DATABASE_ERROR".to_string(),
+        })
+    };
+    let mut records = match data
         .repositories
         .telehealth_session_records
         .get_by_owner(&owner)
         .await
-        .unwrap_or_default();
+    {
+        Ok(records) => records,
+        Err(e) => return unavailable(e),
+    };
 
-    // A clinician is rarely the owner of the record — the patient is — so also
-    // take the sessions naming them as the provider. Deduplicated by id: a
-    // clinician who is also the owner must not see the session twice.
+    // A session is owned by the patient and names its clinician in
+    // `provider_id`. This used to look the clinician's wallet up as an OWNER a
+    // second time, which can never match, so a doctor's list never showed a
+    // session they had booked. Deduplicated by id: a clinician who is also the
+    // owner must not see the session twice.
     if caller.role.is_healthcare_provider() {
-        let as_provider = data
+        let as_provider = match data
             .repositories
             .telehealth_session_records
-            .get_by_owner(&caller.wallet_address)
+            .get_by_data_field("provider_id", &caller.wallet_address)
             .await
-            .unwrap_or_default();
+        {
+            Ok(records) => records,
+            Err(e) => return unavailable(e),
+        };
         let known: std::collections::HashSet<String> =
             records.iter().map(|r| r.id.clone()).collect();
         records.extend(as_provider.into_iter().filter(|r| !known.contains(&r.id)));
+        // Merged from two newest-first lists; the cursor needs one order.
+        records.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
     }
 
     let (page, next_cursor) =
@@ -1328,5 +1351,67 @@ mod recording_authority_tests {
     fn a_moderator_cannot_control_another_providers_session() {
         assert!(is_assigned_recording_provider("doctor-a", "doctor-a"));
         assert!(!is_assigned_recording_provider("doctor-b", "doctor-a"));
+    }
+}
+
+/// The clinician who books a session sees it in their own list. It is stored
+/// against the patient and names the clinician only as `provider_id`.
+#[cfg(test)]
+mod provider_session_list_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    #[actix_rt::test]
+    async fn the_booking_clinician_sees_the_session_without_searching_for_the_patient() {
+        let state = AppState::new();
+        register(&state, "5DocTele", Role::Doctor);
+        register(&state, "5OtherDoc", Role::Doctor);
+        seed_patient(&state, "PAT-TELE-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_telehealth_session)
+                .service(super::list_my_telehealth_sessions),
+        )
+        .await;
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/telehealth/sessions")
+                .insert_header(("X-User-Id", "5DocTele"))
+                .set_json(serde_json::json!({
+                    "patient_id": "PAT-TELE-1",
+                    "session_type": "VideoVisit",
+                    "scheduled_start": chrono::Utc::now().timestamp() + 86_400,
+                }))
+                .to_request(),
+        )
+        .await;
+        let session_id = created["session"]["session_id"]
+            .as_str()
+            .or_else(|| created["session_id"].as_str())
+            .unwrap_or_else(|| panic!("no session id in {created}"))
+            .to_string();
+
+        let list = |who: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/telehealth/sessions")
+                .insert_header(("X-User-Id", who))
+                .to_request()
+        };
+        let mine: serde_json::Value = test::call_and_read_body_json(&app, list("5DocTele")).await;
+        let ids: Vec<&str> = mine["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .filter_map(|s| s["session_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec![session_id.as_str()], "{mine}");
+
+        let theirs: serde_json::Value =
+            test::call_and_read_body_json(&app, list("5OtherDoc")).await;
+        assert_eq!(theirs["count"], 0, "another clinician's list: {theirs}");
     }
 }

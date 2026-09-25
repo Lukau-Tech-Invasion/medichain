@@ -76,6 +76,24 @@ macro_rules! pg_json_repo {
                 Ok(result)
             }
 
+            async fn get_by_data_field(
+                &self,
+                field: &str,
+                value: &str,
+            ) -> RepositoryResult<Vec<JsonRecordEntity>> {
+                // Both the key and the value are bound; nothing is spliced in.
+                let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
+                    "SELECT * FROM ",
+                    $table,
+                    " WHERE data ->> $1 = $2 ORDER BY created_at DESC LIMIT 1000"
+                ))
+                .bind(field)
+                .bind(value)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(result)
+            }
+
             async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>> {
                 let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
                     "SELECT * FROM ",

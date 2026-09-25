@@ -251,7 +251,9 @@ pub async fn verify_my_nfc_card(
 
     // The card_hash is a valid registered card, but does it belong to the
     // patient holding the phone? Reject silently-wrong or cloned cards.
-    if card.patient_id != current_user_id {
+    // The card names the patient RECORD; the caller is a wallet. Compared
+    // directly, every patient was told their own card belonged to someone else.
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &card.patient_id) {
         return HttpResponse::Ok().json(VerifyMyCardResponse {
             success: false,
             status: None,

@@ -32,11 +32,26 @@ pub struct CreateEPrescriptionRequest {
     pub refills_allowed: u8,
     pub is_controlled: bool,
     pub dea_schedule: Option<String>,
-    pub pharmacy_ncpdp: String,
-    pub pharmacy_name: String,
+    /// Optional: the prescriber names a pharmacy only if the patient has one.
+    /// The screen used to send a fixed NCPDP id and a pre-selected fictional
+    /// pharmacy for every prescription.
+    #[serde(default)]
+    pub pharmacy_ncpdp: Option<String>,
+    #[serde(default)]
+    pub pharmacy_name: Option<String>,
     pub diagnosis_codes: Vec<String>,
     pub patient_instructions: String,
     pub pharmacy_notes: Option<String>,
+}
+
+/// The unit a quantity of `form` is counted in. Every prescription used to be
+/// counted in "tablets", a liquid included.
+fn quantity_unit_for(form: &str) -> String {
+    match form.trim().to_ascii_lowercase().as_str() {
+        "liquid" | "solution" | "suspension" | "syrup" => "mL".to_string(),
+        "cream" | "ointment" | "gel" => "g".to_string(),
+        other => other.to_string(),
+    }
 }
 
 /// Create a new e-prescription (Phase 29 E-Signature)
@@ -100,12 +115,11 @@ pub async fn create_esignature_prescription(
         patient_id: req.patient_id.clone(),
         prescriber_id: current_user_id.clone(),
         prescriber_name: current_user.name.clone(),
-        prescriber_npi: "1234567890".to_string(), // Demo NPI
-        prescriber_dea: if req.is_controlled {
-            Some("AA1234567".to_string())
-        } else {
-            None
-        },
+        prescriber_npi: current_user
+            .license_number
+            .clone()
+            .filter(|n| !n.trim().is_empty()),
+        prescriber_dea: None,
         medication: crate::clinical::PrescribedMedication {
             rxcui: None,
             ndc: None,
@@ -114,25 +128,33 @@ pub async fn create_esignature_prescription(
             strength: req.strength.clone(),
             form: req.form.clone(),
             quantity: req.quantity,
-            quantity_unit: "tablets".to_string(),
+            quantity_unit: quantity_unit_for(&req.form),
             days_supply: req.days_supply,
             directions: req.directions.clone(),
             daw_code: 0,
         },
-        pharmacy: crate::clinical::EPharmacyInfo {
-            ncpdp_id: req.pharmacy_ncpdp.clone(),
-            npi: "9876543210".to_string(),
-            name: req.pharmacy_name.clone(),
-            address: "123 Pharmacy St".to_string(),
-            city: "Medical City".to_string(),
-            state: "SA".to_string(),
-            zip: "12345".to_string(),
-            phone: "(555) 123-4567".to_string(),
-            fax: None,
-            is_mail_order: false,
-            is_24_hour: false,
-            accepts_epcs: true,
-        },
+        pharmacy: req
+            .pharmacy_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| crate::clinical::EPharmacyInfo {
+                ncpdp_id: req
+                    .pharmacy_ncpdp
+                    .clone()
+                    .filter(|id| !id.trim().is_empty()),
+                npi: None,
+                name: name.to_string(),
+                address: None,
+                city: None,
+                state: None,
+                zip: None,
+                phone: None,
+                fax: None,
+                is_mail_order: None,
+                is_24_hour: None,
+                accepts_epcs: None,
+            }),
         status: crate::clinical::PrescriptionStatus::Draft,
         created_at: now,
         signed_at: None,
@@ -506,7 +528,7 @@ pub async fn transmit_e_prescription(
         "prescription_id": prescription_id,
         "status": "transmitted",
         "transmitted_at": now,
-        "pharmacy": prescription.pharmacy.name,
+        "pharmacy": prescription.pharmacy.as_ref().map(|p| p.name.clone()),
         "message": "E-prescription transmitted to pharmacy"
     }))
 }
@@ -1723,7 +1745,7 @@ mod lifecycle_tests {
             patient_id: "PAT-RX".to_string(),
             prescriber_id: "doctor_rx".to_string(),
             prescriber_name: "Dr Prescriber".to_string(),
-            prescriber_npi: "1234567890".to_string(),
+            prescriber_npi: None,
             prescriber_dea: None,
             medication: crate::clinical::PrescribedMedication {
                 rxcui: None,
@@ -1738,20 +1760,7 @@ mod lifecycle_tests {
                 directions: "one capsule three times a day".to_string(),
                 daw_code: 0,
             },
-            pharmacy: crate::clinical::EPharmacyInfo {
-                ncpdp_id: "1234567".to_string(),
-                npi: "9876543210".to_string(),
-                name: "Test Pharmacy".to_string(),
-                address: "1 Test Street".to_string(),
-                city: "Testville".to_string(),
-                state: "GP".to_string(),
-                zip: "0001".to_string(),
-                phone: "(555) 123-4567".to_string(),
-                fax: None,
-                is_mail_order: false,
-                is_24_hour: false,
-                accepts_epcs: true,
-            },
+            pharmacy: None,
             status,
             created_at: chrono::Utc::now().timestamp(),
             signed_at: None,

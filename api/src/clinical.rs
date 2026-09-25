@@ -4088,14 +4088,20 @@ pub struct EPrescription {
     pub prescriber_id: String,
     /// Prescriber name
     pub prescriber_name: String,
-    /// Prescriber NPI
-    pub prescriber_npi: String,
-    /// Prescriber DEA (if controlled)
+    /// The prescriber's professional registration number, as recorded on their
+    /// account (`users.license_number`). Absent when none is recorded. Named for
+    /// the US NPI it was modelled on; every prescription used to carry the
+    /// placeholder "1234567890".
+    #[serde(default)]
+    pub prescriber_npi: Option<String>,
+    /// Prescriber DEA registration. Nothing supplies one, so it is absent: a
+    /// controlled-substance prescription used to carry the invented "AA1234567".
     pub prescriber_dea: Option<String>,
     /// Medication
     pub medication: PrescribedMedication,
-    /// Pharmacy
-    pub pharmacy: EPharmacyInfo,
+    /// The pharmacy the prescriber named, if they named one.
+    #[serde(default)]
+    pub pharmacy: Option<EPharmacyInfo>,
     /// Status
     pub status: PrescriptionStatus,
     /// Created at
@@ -4161,21 +4167,37 @@ pub struct PrescribedMedication {
     pub daw_code: u8,
 }
 
-/// Pharmacy information for e-prescriptions
+/// The pharmacy a prescription names.
+///
+/// Only what the prescriber supplied. Every prescription used to be stamped
+/// with "123 Pharmacy St, Medical City", "(555) 123-4567" and a fixed NPI and
+/// NCPDP id whatever pharmacy was named, and those details reached the printed
+/// prescription. Older rows still carry them, hence `default` on each field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EPharmacyInfo {
-    pub ncpdp_id: String,
-    pub npi: String,
+    #[serde(default)]
+    pub ncpdp_id: Option<String>,
+    #[serde(default)]
+    pub npi: Option<String>,
     pub name: String,
-    pub address: String,
-    pub city: String,
-    pub state: String,
-    pub zip: String,
-    pub phone: String,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub zip: Option<String>,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
     pub fax: Option<String>,
-    pub is_mail_order: bool,
-    pub is_24_hour: bool,
-    pub accepts_epcs: bool,
+    #[serde(default)]
+    pub is_mail_order: Option<bool>,
+    #[serde(default)]
+    pub is_24_hour: Option<bool>,
+    #[serde(default)]
+    pub accepts_epcs: Option<bool>,
 }
 
 /// E-signature for prescription

@@ -70,7 +70,10 @@ async fn require_card_access(
     let is_provider = get_user(data, caller)
         .map(|u| u.role.is_healthcare_provider())
         .unwrap_or(false);
-    if !is_provider && existing.owner_id != caller {
+    // The owner is the patient RECORD (`PAT-...`), and `caller` is a wallet;
+    // comparing them directly refused every patient their own card.
+    if !is_provider && !crate::support::caller_owns_patient_record(data, caller, &existing.owner_id)
+    {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
@@ -101,7 +104,11 @@ pub async fn list_insurance_cards(
         let is_provider = get_user(&data, &uid)
             .map(|u| u.role.is_healthcare_provider())
             .unwrap_or(false);
-        if !is_provider && uid != patient_id {
+        // Wallet against record id, through the shared helper: a bare
+        // `uid != patient_id` refused every patient their own cards, while the
+        // create path above accepted them -- so a patient could file a card
+        // and never see, change or remove it.
+        if !is_provider && !crate::support::caller_owns_patient_record(&data, &uid, &patient_id) {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 error: "Access denied".to_string(),
                 code: "ACCESS_DENIED".to_string(),
@@ -465,5 +472,112 @@ pub async fn delete_insurance_card(
             error: e.to_string(),
             code: "REPOSITORY_ERROR".to_string(),
         }),
+    }
+}
+
+/// A patient can keep the insurance cards they file: list, change and remove
+/// them. Every owner check compared the stored `PAT-` record id with the
+/// caller's wallet, so the create path accepted a card the patient could then
+/// never see again.
+#[cfg(test)]
+mod patient_card_access_tests {
+    use crate::test_fixtures::{register, staff};
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    #[actix_rt::test]
+    async fn a_patient_lists_changes_and_removes_their_own_card_and_no_one_elses() {
+        let state = AppState::new();
+        let mut me = staff("5PatientCard", Role::Patient);
+        me.linked_patient_id = Some("PAT-CARD-1".to_string());
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(me.wallet_address.clone(), me);
+        let mut other = staff("5OtherPatient", Role::Patient);
+        other.linked_patient_id = Some("PAT-CARD-2".to_string());
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert(other.wallet_address.clone(), other);
+        register(&state, "5ClerkDoc", Role::Doctor);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_insurance_card)
+                .service(super::list_insurance_cards)
+                .service(super::update_insurance_card)
+                .service(super::delete_insurance_card),
+        )
+        .await;
+        let as_ = |who: &str, req: test::TestRequest| {
+            req.insert_header(("X-User-Id", who.to_string()))
+                .to_request()
+        };
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            as_("5PatientCard", test::TestRequest::post().uri("/api/insurance/cards").set_json(
+                serde_json::json!({ "patient_id": "PAT-CARD-1", "insurer": "Discovery Health" }),
+            )),
+        )
+        .await;
+        let card_id = created["card"]["id"].as_str().expect("card id").to_string();
+
+        let mine: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::get().uri("/api/insurance/cards/PAT-CARD-1"),
+            ),
+        )
+        .await;
+        assert_eq!(mine["count"], 1, "{mine}");
+
+        let updated = test::call_service(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::put()
+                    .uri(&format!("/api/insurance/cards/{card_id}"))
+                    .set_json(
+                        serde_json::json!({ "patient_id": "PAT-CARD-1", "insurer": "Bonitas" }),
+                    ),
+            ),
+        )
+        .await;
+        assert_eq!(updated.status(), StatusCode::OK);
+
+        // Another patient can neither list nor remove it.
+        let theirs = test::call_service(
+            &app,
+            as_(
+                "5OtherPatient",
+                test::TestRequest::get().uri("/api/insurance/cards/PAT-CARD-1"),
+            ),
+        )
+        .await;
+        assert_eq!(theirs.status(), StatusCode::FORBIDDEN);
+        let stolen = test::call_service(
+            &app,
+            as_(
+                "5OtherPatient",
+                test::TestRequest::delete().uri(&format!("/api/insurance/cards/{card_id}")),
+            ),
+        )
+        .await;
+        assert_eq!(stolen.status(), StatusCode::FORBIDDEN);
+
+        let removed = test::call_service(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::delete().uri(&format!("/api/insurance/cards/{card_id}")),
+            ),
+        )
+        .await;
+        assert!(removed.status().is_success(), "{}", removed.status());
     }
 }

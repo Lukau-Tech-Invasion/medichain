@@ -94,6 +94,25 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
         Ok(items)
     }
 
+    async fn get_by_data_field(
+        &self,
+        field: &str,
+        value: &str,
+    ) -> RepositoryResult<Vec<JsonRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<_> = data
+            .values()
+            .filter(|r| r.data.get(field).and_then(|v| v.as_str()) == Some(value))
+            .cloned()
+            .collect();
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
+        items.truncate(1000);
+        Ok(items)
+    }
+
     async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>> {
         let data = self
             .data
