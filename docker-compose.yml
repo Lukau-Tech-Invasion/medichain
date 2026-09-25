@@ -146,7 +146,10 @@ services:
       MEDICHAIN_APP_URL: ${MEDICHAIN_APP_URL:-}
       MEDICHAIN_BOOTSTRAP_KEY: ${MEDICHAIN_BOOTSTRAP_KEY:-}
       LOG_FORMAT: ${LOG_FORMAT:-}
-      RUST_LOG: ${RUST_LOG:-}
+      # The production file's default. Empty meant error-only: after a full day
+      # of browser testing the log held 106 lines, all startup, and a refused
+      # request or a skipped patient left no trace anyone could read.
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
 
       # Blockchain anchoring. With no SUBSTRATE_WS_URL the API logs
       # "blockchain features disabled" and every anchored write is a typed

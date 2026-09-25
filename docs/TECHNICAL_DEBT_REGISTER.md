@@ -21,6 +21,90 @@ Last updated: 2026-09-25.
 
 ---
 
+## 2026-09-25 — Browser pass on the Docker stack: what a user actually hits
+
+Every staff sidebar route for every role (117) and every patient-app route (25)
+was opened in Chromium against the Docker build, recording crashes, console
+errors, failed API calls, suspicious text and requests fired while a page sat
+idle. Cross-role workflows were then driven through the screens
+(`client/doctor-portal/e2e/workflows.spec.ts`, 8/8 after the fixes below), and
+the role journeys (275/275) and cross-role qualification (117/117) were run
+against the same stack, each after one harness correction listed below. Test data went into the demo
+database and was removed afterwards by restoring the snapshot taken first.
+
+### Found and fixed
+
+  * **Blood Bank re-requested forever.** Its load effect depended on a callback
+    that depended on the patient list the effect set, so every load triggered
+    the next: ~6 requests a second for as long as the page was open. One open
+    tab spent a lab technician's whole per-minute allowance, after which
+    Pathology, Messages and Settings failed to load. A unit test now fails the
+    old code (108 requests in half a second; the fix makes 1).
+  * **The patient's Medications page was always empty.** The API nests the
+    medicine under `medication`; the page read a flat `medication_name`, found
+    nothing and dropped every prescription. Its test mocked the flat shape, so
+    it passed. The test now uses the real shape.
+  * **A doctor's telehealth list never showed a session they booked.** Sessions
+    are stored against the patient and name the clinician in `provider_id`; the
+    "my sessions" query looked the clinician's wallet up as an OWNER, twice. The
+    JSON record store gained `get_by_data_field` for the second party, and a
+    failed read now answers 503 instead of an empty list.
+  * **Prescriptions carried invented data.** Every one had prescriber NPI
+    "1234567890", a controlled-substance one the DEA number "AA1234567", and the
+    pharmacy "123 Pharmacy St, Medical City, (555) 123-4567" whatever was named;
+    the screen pre-selected a fictional "Main Street Pharmacy" and sent a fixed
+    NCPDP id. Quantities were counted in "tablets" for a liquid. The prescriber
+    number now comes from the account's licence number, the pharmacy is recorded
+    only when named, and the unit follows the form.
+  * **Wallet compared with patient record id**, the recurring class, in four
+    more places: a patient could create an insurance card and never list,
+    change or remove it; the Expo app told every patient their own health card
+    "is registered to a different account"; and a family delegate could never
+    book an appointment for a relative. All now use
+    `caller_owns_patient_record`.
+  * **Two accessibility failures that only show with data.** The Ambulance
+    Handover pre-alert checkboxes sat in 20 px labels (WCAG 2.5.8 needs 24);
+    the pharmacist's critical interaction card put the generic muted grey on
+    the dark-mode critical background (3.95:1 against 4.5:1). Each tinted card
+    now takes the foreground token paired with its background.
+  * **Raw translation keys** on History & Physical and Consults for values the
+    form does not offer but the API accepts (status "final", specialty
+    "Cardiology"), with `undefined` as the badge class. A value with no label is
+    now shown as itself. The API still accepts any string for both; validating
+    them is the fuller fix.
+  * Test-side, four harness faults that read as product failures: the role
+    journeys took the flowsheet's LAST reading as the latest (it is
+    newest-first, as the page assumes), which held only on a fresh patient; the
+    qualification expected 403/404 for an unknown message recipient, which has
+    answered 400 `INVALID_RECIPIENT` since 2026-09-22; the WCAG check in
+    `roles.spec.ts` measured every theme flip mid-transition because it never
+    froze motion; and the patient-app suite ran its mobile and desktop projects
+    in parallel against one fixture patient, so each spec failed on whichever
+    project lost the race.
+  * The demo compose file defaulted `RUST_LOG` to empty, which is error-only:
+    after a day of testing the log held 106 lines, all startup. It now defaults
+    to the production file's `info,sqlx=warn`.
+
+### Found, not changed — each needs a decision
+
+  * **Registration requires a blood group and offers no "Unknown".** A patient
+    who arrives unconscious, or simply has never been typed, cannot be
+    registered without a clinician guessing one. `EmergencyInfo.blood_type` is
+    a non-optional `BloodType`, read by the emergency views, FHIR and the
+    dashboards, so the honest fix is `Option<BloodType>` through all of them
+    (the emergency capsule already models `BloodTypeSource::Unknown`). Not a
+    change to make the week of a presentation without the owner.
+  * **My Records makes 20 API calls per visit**, one per record type. At 120
+    requests a minute a patient who opens it six times in a minute is refused
+    everywhere. A combined patient-records endpoint is the fix.
+  * **A page reload signs a clinician out.** Deliberate and documented in
+    `authStore.restoreSession` (no token survives a reload); a persisted refresh
+    token or a cookie session is the decision it waits on.
+  * `GET /api/e-prescriptions/{id}` admits only the prescriber, though its
+    comment says "patient or prescriber". No screen calls it.
+
+---
+
 ## 2026-09-25 — The closing round: what nothing used, and what nothing could reach
 
 Asked for: every unfinished feature finished, everything unused removed, each
