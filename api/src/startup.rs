@@ -372,7 +372,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     GET  /api/consent/patient/{{id}} - Patient's consents");
     println!();
     println!("  Barcode/Sample Tracking Endpoints:");
-    println!("     POST /api/barcode/generate    - Generate barcode");
     println!("     POST /api/barcode/scan        - Scan barcode");
     println!("     GET  /api/barcode/track/{{bc}} - Track barcode history");
     println!();

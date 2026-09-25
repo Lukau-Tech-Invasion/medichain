@@ -54,7 +54,6 @@ PUBLIC_ROUTES = {
     '/api/ipfs/health': 'IPFS liveness, no data',
     '/api/demo': 'demo-mode banner, no data',
     '/api/fhir/r4/metadata': 'FHIR CapabilityStatement — spec requires it be public',
-    '/api/platform/languages': 'static list of supported languages, no data',
     '/api/drugs': 'public drug reference data, not patient-specific',
     '/api/interactions': 'public drug-interaction reference, not patient-specific',
     '/api/wearables/supported': 'static list of supported device types',

@@ -55,7 +55,176 @@ fn compute_lab_statistics(values: &[f64]) -> serde_json::Value {
     })
 }
 
-/// Get lab trends for patient
+/// One parameter's results over time, as the labs reported them.
+struct Series {
+    name: String,
+    unit: String,
+    /// The lab's own range string for the most recent result ("70-100").
+    reference_range: Option<String>,
+    points: Vec<crate::clinical::LabDataPoint>,
+}
+
+/// The lab's range string as numbers, when it is the plain "low-high" form.
+/// Anything else ("<5", "Negative", "see comment") is left unparsed rather than
+/// guessed at.
+fn parse_range(range: &str) -> (Option<f64>, Option<f64>) {
+    let Some((low, high)) = range.split_once('-') else {
+        return (None, None);
+    };
+    (low.trim().parse().ok(), high.trim().parse().ok())
+}
+
+fn value_status(flag: Option<&str>) -> crate::clinical::LabValueStatus {
+    use crate::clinical::LabValueStatus as S;
+    match flag {
+        Some("H") | Some("high") | Some("High") => S::High,
+        Some("L") | Some("low") | Some("Low") => S::Low,
+        // The enum distinguishes which side of the range a critical value
+        // sits on, so a bare "critical" flag cannot be mapped without guessing.
+        Some("HH") | Some("critical_high") => S::CriticalHigh,
+        Some("LL") | Some("critical_low") => S::CriticalLow,
+        Some(_) => S::Unknown,
+        // No flag from the lab means they did not mark it abnormal, which is
+        // the lab's own statement of normal.
+        None => S::Normal,
+    }
+}
+
+/// Every numeric result the patient has, grouped by parameter name and sorted
+/// oldest first. `approved_only` limits a patient to results a clinician has
+/// released, which is what their own lab results page shows.
+async fn patient_series(
+    data: &web::Data<crate::AppState>,
+    patient_id: &str,
+    approved_only: bool,
+) -> Result<Vec<Series>, crate::repositories::traits::RepositoryError> {
+    let records = data
+        .repositories
+        .lab_result_submissions
+        .get_by_owner(patient_id)
+        .await?;
+    let mut by_name: std::collections::BTreeMap<String, Series> = std::collections::BTreeMap::new();
+    for record in records {
+        let Ok(submission) =
+            serde_json::from_value::<crate::types::LabResultSubmission>(record.data)
+        else {
+            continue;
+        };
+        if approved_only && submission.status != crate::types::LabResultStatus::Approved {
+            continue;
+        }
+        for result in &submission.results {
+            // A value that will not parse as a number cannot join a trend.
+            // Skipped rather than coerced to 0.0, which would drag every mean
+            // toward a reading nobody took.
+            let Ok(value) = result.value.trim().parse::<f64>() else {
+                continue;
+            };
+            let key = result.parameter.trim().to_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            let series = by_name.entry(key).or_insert_with(|| Series {
+                name: result.parameter.trim().to_string(),
+                unit: result.unit.clone(),
+                reference_range: None,
+                points: Vec::new(),
+            });
+            series.points.push(crate::clinical::LabDataPoint {
+                result_id: submission.id.clone(),
+                value,
+                collected_at: submission.submitted_at.timestamp(),
+                status: value_status(result.flag.as_deref()),
+                flag: result.flag.clone(),
+                performing_lab: submission.submitted_by.clone(),
+            });
+            let range = result.reference_range.trim();
+            if !range.is_empty() {
+                series.reference_range = Some(range.to_string());
+            }
+        }
+    }
+    let mut out: Vec<Series> = by_name.into_values().collect();
+    for series in &mut out {
+        series.points.sort_by_key(|point| point.collected_at);
+    }
+    Ok(out)
+}
+
+/// A series as the trends page renders it.
+///
+/// Direction compares the latest result with the first: more than 10% either
+/// way is up or down, otherwise stable. That is a description, not a test, so
+/// nothing is called statistically significant -- the analysis endpoint this
+/// replaced labelled a coefficient of variation over 10% "statistically
+/// significant", which it is not. A single result has no direction and no
+/// percentage change: absent, not zero (rule 12).
+fn trend_of(patient_id: &str, series: Series, now: i64) -> crate::clinical::LabTrendResult {
+    use crate::clinical::TrendDirection as D;
+    let first = series.points.first().map(|p| p.value);
+    let last = series.points.last().map(|p| p.value);
+    let (direction, percent_change) = match (first, last, series.points.len()) {
+        (Some(first), Some(last), n) if n >= 2 => {
+            let change =
+                (first != 0.0).then(|| ((last - first) / first * 100.0 * 10.0).round() / 10.0);
+            let direction = match change {
+                Some(c) if c > 10.0 => D::Increasing,
+                Some(c) if c < -10.0 => D::Decreasing,
+                Some(_) => D::Stable,
+                None => D::InsufficientData,
+            };
+            (direction, change)
+        }
+        _ => (D::InsufficientData, None),
+    };
+    let summary = match series.points.len() {
+        0 | 1 => "Not enough recorded results for this parameter to describe a trend.".to_string(),
+        n => format!("{n} results on record."),
+    };
+    let (low, high) = series
+        .reference_range
+        .as_deref()
+        .map(parse_range)
+        .unwrap_or((None, None));
+    crate::clinical::LabTrendResult {
+        result_id: format!("{patient_id}:{}", series.name.to_lowercase()),
+        patient_id: patient_id.to_string(),
+        // The parameter as the lab named it; results carry no LOINC code.
+        loinc_code: series.name.clone(),
+        test_name: series.name,
+        unit: series.unit.clone(),
+        reference_range: (low.is_some() || high.is_some()).then_some(
+            crate::clinical::ReferenceRange {
+                low,
+                high,
+                critical_low: None,
+                critical_high: None,
+                unit: series.unit,
+                age_specific: false,
+                gender_specific: false,
+            },
+        ),
+        data_points: series.points,
+        trend_analysis: crate::clinical::TrendAnalysis {
+            direction,
+            percent_change,
+            rate_of_change: None,
+            rate_unit: None,
+            statistically_significant: false,
+            clinical_significance: summary,
+            prediction: None,
+        },
+        generated_at: now,
+    }
+}
+
+/// A patient's lab results as trends, one per parameter.
+///
+/// This read `lab_trend_results`, the store of analyses that only
+/// `POST /api/lab-trends/analyze` wrote -- and no screen ever called it, so the
+/// patient's trends page was empty for everybody. It is now computed from the
+/// patient's own results each time. A patient sees only released (approved)
+/// results; their clinicians see all of them.
 #[get("/api/lab-trends/patient/{patient_id}")]
 pub async fn get_lab_trends(
     data: web::Data<crate::AppState>,
@@ -75,464 +244,49 @@ pub async fn get_lab_trends(
         Err(resp) => return resp,
     };
 
+    let is_provider = current_user.role.is_healthcare_provider();
     let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
-    if !is_own && !current_user.role.is_healthcare_provider() {
+    if !is_own && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
 
-    let test_code = query.get("test_code").cloned();
-
-    let matching_records: Vec<_> = data
-        .repositories
-        .lab_trend_results
-        .get_by_owner(&patient_id)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|r| {
-            serde_json::from_value::<crate::clinical::LabTrendResult>(r.data.clone())
-                .map(|t| test_code.as_ref().is_none_or(|code| &t.loinc_code == code))
-                .unwrap_or(false)
-        })
-        .collect();
-
-    // Statistics reflect the full filtered history, not just the returned page.
-    let all_trends: Vec<crate::clinical::LabTrendResult> = matching_records
-        .iter()
-        .filter_map(|r| serde_json::from_value(r.data.clone()).ok())
-        .collect();
-
-    let limit = query.get("limit").and_then(|l| l.parse::<usize>().ok());
-    let (page_records, next_cursor) = crate::pagination::paginate_cursor(
-        &matching_records,
-        query.get("cursor").map(String::as_str),
-        limit,
-    );
-    let trends: Vec<crate::clinical::LabTrendResult> = page_records
-        .into_iter()
-        .filter_map(|r| serde_json::from_value(r.data).ok())
-        .collect();
-
-    // Compute aggregate statistics across all data points in the full filtered set
-    let all_values: Vec<f64> = all_trends
-        .iter()
-        .flat_map(|t| t.data_points.iter().map(|dp| dp.value))
-        .collect();
-    let statistics = compute_lab_statistics(&all_values);
-
-    // Per-test statistics grouped by LOINC code (full filtered history)
-    let mut per_test: std::collections::HashMap<String, Vec<f64>> =
-        std::collections::HashMap::new();
-    for trend in &all_trends {
-        let vals = per_test.entry(trend.loinc_code.clone()).or_default();
-        for dp in &trend.data_points {
-            vals.push(dp.value);
+    let series = match patient_series(&data, &patient_id, !is_provider).await {
+        Ok(series) => series,
+        // Not an empty chart: "no results" is a claim about the patient.
+        Err(e) => {
+            log::error!("lab trends: results could not be read: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Lab results could not be read".to_string(),
+                code: "LAB_RESULTS_UNAVAILABLE".to_string(),
+            });
         }
-    }
-    let per_test_statistics: std::collections::HashMap<String, serde_json::Value> = per_test
+    };
+    let wanted = query.get("test_code").map(|c| c.trim().to_lowercase());
+    let now = chrono::Utc::now().timestamp();
+    let trends: Vec<crate::clinical::LabTrendResult> = series
+        .into_iter()
+        .filter(|s| wanted.as_ref().is_none_or(|w| &s.name.to_lowercase() == w))
+        .map(|s| trend_of(&patient_id, s, now))
+        .collect();
+
+    let per_test_statistics: std::collections::HashMap<String, serde_json::Value> = trends
         .iter()
-        .map(|(code, vals)| (code.clone(), compute_lab_statistics(vals)))
+        .map(|t| {
+            let values: Vec<f64> = t.data_points.iter().map(|p| p.value).collect();
+            (t.test_name.clone(), compute_lab_statistics(&values))
+        })
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "patient_id": patient_id,
-        "trends": trends,
         "count": trends.len(),
-        "statistics": statistics,
+        "trends": trends,
         "per_test_statistics": per_test_statistics,
-        "next_cursor": next_cursor
     }))
-}
-
-/// Request trend analysis
-#[derive(Debug, Deserialize)]
-pub struct RequestLabTrendRequest {
-    pub patient_id: String,
-    pub test_codes: Vec<String>,
-    pub start_date: Option<String>,
-    pub end_date: Option<String>,
-}
-
-/// Request lab trend analysis
-#[post("/api/lab-trends/analyze")]
-pub async fn analyze_lab_trends(
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    req: web::Json<RequestLabTrendRequest>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let current_user = match require_known_user(&data, &current_user_id) {
-        Ok(u) => u,
-        Err(resp) => return resp,
-    };
-
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Only healthcare providers can request trend analysis".to_string(),
-            code: "FORBIDDEN".to_string(),
-        });
-    }
-
-    let now = chrono::Utc::now().timestamp();
-    let mut results: Vec<crate::clinical::LabTrendResult> = Vec::new();
-
-    for test_code in &req.test_codes {
-        // Generate data points first so we can compute real statistics
-        let result_id = format!("LT-{}", uuid::Uuid::new_v4());
-        let data_points = patient_data_points(
-            &data,
-            &req.patient_id,
-            test_code,
-            req.start_date.as_deref(),
-            req.end_date.as_deref(),
-        )
-        .await;
-
-        // Two readings are the minimum that can describe a direction. Fewer is
-        // reported as such rather than trended: a "stable" verdict drawn from
-        // one point, or from none, is the invented-data failure in a different
-        // shape.
-        if data_points.len() < 2 {
-            results.push(crate::clinical::LabTrendResult {
-                result_id,
-                patient_id: req.patient_id.clone(),
-                loinc_code: test_code.clone(),
-                test_name: get_test_name(test_code),
-                unit: get_test_unit(test_code),
-                reference_range: None,
-                data_points,
-                trend_analysis: crate::clinical::TrendAnalysis {
-                    direction: crate::clinical::TrendDirection::Stable,
-                    // Absent, not zero. "0% change" is a measurement; this is
-                    // the absence of one, and rule 12 is explicit that the two
-                    // must not be confused.
-                    percent_change: None,
-                    rate_of_change: None,
-                    rate_unit: None,
-                    statistically_significant: false,
-                    clinical_significance:
-                        "Not enough recorded results for this parameter to describe a trend."
-                            .to_string(),
-                    prediction: None,
-                },
-                generated_at: now,
-            });
-            continue;
-        }
-
-        // Compute real statistics from the data points
-        let point_values: Vec<f64> = data_points.iter().map(|dp| dp.value).collect();
-        let stats = compute_lab_statistics(&point_values);
-
-        // Derive trend direction and metrics from statistics
-        let trend_str = stats["trend"].as_str().unwrap_or("stable");
-        let trend_direction = match trend_str {
-            "increasing" => crate::clinical::TrendDirection::Increasing,
-            "decreasing" => crate::clinical::TrendDirection::Decreasing,
-            _ => crate::clinical::TrendDirection::Stable,
-        };
-        let mean_val = stats["mean"].as_f64().unwrap_or(0.0);
-        let min_val = stats["min"].as_f64().unwrap_or(0.0);
-        let percent_change = if min_val != 0.0 {
-            ((mean_val - min_val) / min_val * 100.0 * 100.0).round() / 100.0
-        } else {
-            0.0
-        };
-        let statistically_significant = stats["std_dev"].as_f64().unwrap_or(0.0) > mean_val * 0.1;
-        let clinical_significance = match trend_str {
-            "increasing" => format!(
-                "Upward trend detected. Mean: {} (std dev: {}). Monitor closely.",
-                stats["mean"], stats["std_dev"]
-            ),
-            "decreasing" => format!(
-                "Downward trend detected. Mean: {} (std dev: {}). Review with clinician.",
-                stats["mean"], stats["std_dev"]
-            ),
-            _ => format!(
-                "Values stable. Mean: {} (std dev: {}). No significant change from baseline.",
-                stats["mean"], stats["std_dev"]
-            ),
-        };
-
-        let trend_result = crate::clinical::LabTrendResult {
-            result_id: result_id.clone(),
-            patient_id: req.patient_id.clone(),
-            loinc_code: test_code.clone(),
-            test_name: get_test_name(test_code),
-            unit: get_test_unit(test_code),
-            reference_range: Some(crate::clinical::ReferenceRange {
-                low: Some(get_reference_low(test_code)),
-                high: Some(get_reference_high(test_code)),
-                critical_low: None,
-                critical_high: None,
-                unit: get_test_unit(test_code),
-                age_specific: false,
-                gender_specific: false,
-            }),
-            data_points,
-            trend_analysis: crate::clinical::TrendAnalysis {
-                direction: trend_direction,
-                percent_change: Some(percent_change),
-                rate_of_change: Some(stats["std_dev"].as_f64().unwrap_or(0.0)),
-                rate_unit: Some("per_month".to_string()),
-                statistically_significant,
-                clinical_significance,
-                prediction: None,
-            },
-            generated_at: now,
-        };
-
-        {
-            // Persist via repository (was: in-memory data.lab_trends HashMap)
-            let now_dt = chrono::Utc::now();
-            let entity = crate::repositories::traits::JsonRecordEntity {
-                id: result_id.clone(),
-                owner_id: req.patient_id.clone(),
-                data: serde_json::to_value(&trend_result).unwrap_or_default(),
-                created_at: now_dt,
-                updated_at: now_dt,
-            };
-            // This repository is the record's persistence. Discarding the result
-            // returned success for something that was never stored.
-            if let Err(error) = data.repositories.lab_trend_results.create(entity).await {
-                log::error!("lab_trend_results persistence failed: {error}");
-                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                    error: "The trend result could not be saved; please retry.".to_string(),
-                    code: "LAB_TREND_RESULT_PERSISTENCE_FAILED".to_string(),
-                });
-            }
-        }
-        results.push(trend_result);
-    }
-
-    // Compute aggregate statistics across all results
-    let all_values: Vec<f64> = results
-        .iter()
-        .flat_map(|r| r.data_points.iter().map(|dp| dp.value))
-        .collect();
-    let aggregate_statistics = compute_lab_statistics(&all_values);
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": req.patient_id,
-        "trends": results,
-        "count": results.len(),
-        "aggregate_statistics": aggregate_statistics
-    }))
-}
-
-/// Get specific trend result
-#[get("/api/lab-trends/{result_id}")]
-pub async fn get_lab_trend_result(
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    path: web::Path<String>,
-) -> impl Responder {
-    let result_id = path.into_inner();
-
-    let _current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let trend: crate::clinical::LabTrendResult = match data
-        .repositories
-        .lab_trend_results
-        .get_by_id(&result_id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|rec| serde_json::from_value(rec.data).ok())
-    {
-        Some(t) => t,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "Trend result not found".to_string(),
-                code: "NOT_FOUND".to_string(),
-            })
-        }
-    };
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "trend": trend
-    }))
-}
-
-// Helper functions for lab trending
-fn get_test_name(loinc_code: &str) -> String {
-    match loinc_code {
-        "2345-7" => "Glucose".to_string(),
-        "2160-0" => "Creatinine".to_string(),
-        "17861-6" => "Calcium".to_string(),
-        "2951-2" => "Sodium".to_string(),
-        "2823-3" => "Potassium".to_string(),
-        "718-7" => "Hemoglobin".to_string(),
-        "4548-4" => "Hemoglobin A1c".to_string(),
-        "2093-3" => "Cholesterol".to_string(),
-        _ => format!("Test {}", loinc_code),
-    }
-}
-
-fn get_test_unit(loinc_code: &str) -> String {
-    match loinc_code {
-        "2345-7" => "mg/dL".to_string(),
-        "2160-0" => "mg/dL".to_string(),
-        "17861-6" => "mg/dL".to_string(),
-        "2951-2" => "mEq/L".to_string(),
-        "2823-3" => "mEq/L".to_string(),
-        "718-7" => "g/dL".to_string(),
-        "4548-4" => "%".to_string(),
-        "2093-3" => "mg/dL".to_string(),
-        _ => "units".to_string(),
-    }
-}
-
-fn get_reference_low(loinc_code: &str) -> f64 {
-    match loinc_code {
-        "2345-7" => 70.0,
-        "2160-0" => 0.7,
-        "17861-6" => 8.5,
-        "2951-2" => 136.0,
-        "2823-3" => 3.5,
-        "718-7" => 12.0,
-        "4548-4" => 4.0,
-        "2093-3" => 125.0,
-        _ => 0.0,
-    }
-}
-
-fn get_reference_high(loinc_code: &str) -> f64 {
-    match loinc_code {
-        "2345-7" => 100.0,
-        "2160-0" => 1.3,
-        "17861-6" => 10.5,
-        "2951-2" => 145.0,
-        "2823-3" => 5.0,
-        "718-7" => 17.5,
-        "4548-4" => 5.6,
-        "2093-3" => 200.0,
-        _ => 100.0,
-    }
-}
-
-/// The patient's own recorded lab values for one parameter, oldest last.
-///
-/// # Why this replaced a generator
-///
-/// `generate_sample_data_points` invented five points from a hardcoded base
-/// value per LOINC code, marked every one `Normal`, attributed them to
-/// "MediChain Central Lab", and handed them to the statistics. The endpoint
-/// then returned a trend direction, a percent change, a significance verdict
-/// and *clinical significance prose* about numbers the patient never produced.
-///
-/// A clinician reading "stable, not statistically significant" would have been
-/// reading it about invented data, for a patient whose real results were never
-/// opened. Nothing in the response said so.
-///
-/// Matching is by parameter name against `LabTestResult.parameter`, because
-/// that is what the lab technician actually enters; LOINC codes are not
-/// recorded on submissions today. A caller passing a LOINC code gets no
-/// matches, which is reported as "no data" rather than filled in.
-async fn patient_data_points(
-    data: &web::Data<crate::AppState>,
-    patient_id: &str,
-    parameter: &str,
-    start_date: Option<&str>,
-    end_date: Option<&str>,
-) -> Vec<crate::clinical::LabDataPoint> {
-    let records = data
-        .repositories
-        .lab_result_submissions
-        .get_by_owner(patient_id)
-        .await
-        .unwrap_or_default();
-
-    let wanted = parameter.trim().to_lowercase();
-    let mut points: Vec<crate::clinical::LabDataPoint> = Vec::new();
-
-    for record in records {
-        let Ok(submission) =
-            serde_json::from_value::<crate::types::LabResultSubmission>(record.data)
-        else {
-            continue;
-        };
-        // The date range the caller asked for is honoured rather than ignored.
-        // It used to be accepted and discarded, so "the last three months"
-        // silently returned everything.
-        if let Some(start) = start_date {
-            if submission
-                .submitted_at
-                .format("%Y-%m-%d")
-                .to_string()
-                .as_str()
-                < start
-            {
-                continue;
-            }
-        }
-        if let Some(end) = end_date {
-            if submission
-                .submitted_at
-                .format("%Y-%m-%d")
-                .to_string()
-                .as_str()
-                > end
-            {
-                continue;
-            }
-        }
-        for result in &submission.results {
-            if result.parameter.trim().to_lowercase() != wanted {
-                continue;
-            }
-            // A value that will not parse as a number cannot join a trend.
-            // Skipped rather than coerced to 0.0, which would drag every mean
-            // and slope toward a reading nobody took.
-            let Ok(value) = result.value.trim().parse::<f64>() else {
-                continue;
-            };
-            points.push(crate::clinical::LabDataPoint {
-                result_id: submission.id.clone(),
-                value,
-                collected_at: submission.submitted_at.timestamp(),
-                // The lab's own flag, not an assumption. Every generated point
-                // used to claim `Normal`.
-                status: match result.flag.as_deref() {
-                    Some("H") | Some("high") | Some("High") => {
-                        crate::clinical::LabValueStatus::High
-                    }
-                    Some("L") | Some("low") | Some("Low") => crate::clinical::LabValueStatus::Low,
-                    // The enum distinguishes which side of the range a
-                    // critical value sits on, so a bare "critical" flag cannot
-                    // be mapped to one without guessing which.
-                    Some("HH") | Some("critical_high") => {
-                        crate::clinical::LabValueStatus::CriticalHigh
-                    }
-                    Some("LL") | Some("critical_low") => {
-                        crate::clinical::LabValueStatus::CriticalLow
-                    }
-                    Some(_) => crate::clinical::LabValueStatus::Unknown,
-                    // No flag from the lab means they did not mark it
-                    // abnormal, which is the lab's own statement of normal.
-                    None => crate::clinical::LabValueStatus::Normal,
-                },
-                flag: result.flag.clone(),
-                performing_lab: submission.submitted_by.clone(),
-            });
-        }
-    }
-
-    points.sort_by_key(|point| point.collected_at);
-    points
 }
 
 /// What a lab trend is computed from.
@@ -602,5 +356,117 @@ mod lab_trend_source_tests {
         assert!("Negative".trim().parse::<f64>().is_err());
         assert!("<5".trim().parse::<f64>().is_err());
         assert_eq!("92.4".trim().parse::<f64>().unwrap(), 92.4);
+    }
+}
+
+/// Trends come from the patient's own results; the patient sees the released
+/// ones, their clinicians all of them.
+#[cfg(test)]
+mod lab_trend_read_tests {
+    use crate::test_fixtures::{register, staff};
+    use crate::types::{LabResultStatus, LabResultSubmission, LabTestResult};
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    fn glucose(
+        id: &str,
+        value: &str,
+        status: LabResultStatus,
+        days_ago: i64,
+    ) -> LabResultSubmission {
+        LabResultSubmission {
+            id: id.to_string(),
+            patient_id: "PAT-LT".to_string(),
+            patient_name: "Test".to_string(),
+            test_name: "Chemistry".to_string(),
+            test_category: "Chemistry".to_string(),
+            results: vec![LabTestResult {
+                parameter: "Glucose".to_string(),
+                value: value.to_string(),
+                unit: "mg/dL".to_string(),
+                reference_range: "70-100".to_string(),
+                flag: None,
+            }],
+            notes: None,
+            submitted_by: "5Lab".to_string(),
+            submitted_at: chrono::Utc::now() - chrono::Duration::days(days_ago),
+            status,
+            reviewed_by: None,
+            reviewed_at: None,
+            rejection_reason: None,
+            content_hash: None,
+            metadata_hash: None,
+        }
+    }
+
+    async fn trends_for(caller: &str) -> serde_json::Value {
+        let state = AppState::new();
+        register(&state, "5Doctor", Role::Doctor);
+        let mut patient = staff("5Patient", Role::Patient);
+        patient.linked_patient_id = Some("PAT-LT".to_string());
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("5Patient".to_string(), patient);
+        for submission in [
+            glucose("LR-1", "100", LabResultStatus::Approved, 10),
+            glucose("LR-2", "130", LabResultStatus::Approved, 5),
+            glucose("LR-3", "200", LabResultStatus::Pending, 1),
+        ] {
+            let now = chrono::Utc::now();
+            state
+                .repositories
+                .lab_result_submissions
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: submission.id.clone(),
+                    owner_id: "PAT-LT".to_string(),
+                    data: serde_json::to_value(&submission).expect("serialise"),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("seed");
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::get_lab_trends),
+        )
+        .await;
+        test::call_and_read_body_json(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/lab-trends/patient/PAT-LT")
+                .insert_header(("X-User-Id", caller))
+                .to_request(),
+        )
+        .await
+    }
+
+    #[actix_rt::test]
+    async fn the_patient_sees_their_released_results_as_a_trend() {
+        let body = trends_for("5Patient").await;
+        let trend = &body["trends"][0];
+        assert_eq!(trend["test_name"], "Glucose", "{body}");
+        assert_eq!(
+            trend["data_points"].as_array().map(Vec::len),
+            Some(2),
+            "{body}"
+        );
+        assert_eq!(trend["trend_analysis"]["direction"], "Increasing");
+        assert_eq!(trend["trend_analysis"]["percent_change"], 30.0);
+        assert_eq!(trend["trend_analysis"]["statistically_significant"], false);
+        assert_eq!(trend["reference_range"]["high"], 100.0);
+    }
+
+    #[actix_rt::test]
+    async fn a_clinician_sees_unreleased_results_too() {
+        let body = trends_for("5Doctor").await;
+        assert_eq!(
+            body["trends"][0]["data_points"].as_array().map(Vec::len),
+            Some(3),
+            "{body}"
+        );
     }
 }

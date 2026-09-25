@@ -12,7 +12,7 @@
 // Allow medical acronyms to be in uppercase (medical standard naming)
 #![allow(clippy::upper_case_acronyms)]
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -184,81 +184,6 @@ pub struct TriageAssessment {
     pub performed_by: String,
     /// Timestamp of assessment (Unix timestamp)
     pub performed_at: i64,
-}
-
-// ============================================================================
-// SAMPLE HISTORY
-// ============================================================================
-// EMS/Emergency standard for rapid patient assessment
-
-/// SAMPLE History - Standard emergency assessment format
-/// S - Signs/Symptoms
-/// A - Allergies
-/// M - Medications
-/// P - Past medical history
-/// L - Last oral intake
-/// E - Events leading to illness/injury
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SAMPLEHistory {
-    /// Patient ID
-    pub patient_id: String,
-    /// Signs and symptoms - what is the patient experiencing?
-    pub signs_symptoms: Vec<String>,
-    /// Allergies - medications, foods, environmental
-    pub allergies: Vec<AllergyInfo>,
-    /// Current medications with dosages
-    pub medications: Vec<MedicationInfo>,
-    /// Past medical history - conditions, surgeries, hospitalizations
-    pub past_medical_history: Vec<String>,
-    /// Last oral intake - time and what was consumed
-    pub last_intake: Option<LastIntake>,
-    /// Events leading to current situation
-    pub events_leading: String,
-    /// Who collected this history
-    pub collected_by: String,
-    /// When it was collected (Unix timestamp)
-    pub collected_at: i64,
-}
-
-/// Detailed allergy information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AllergyInfo {
-    /// Allergen name
-    pub allergen: String,
-    /// Type: medication, food, environmental, other
-    pub allergy_type: String,
-    /// Reaction description
-    pub reaction: String,
-    /// Severity: mild, moderate, severe, anaphylaxis
-    pub severity: String,
-}
-
-/// Medication information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MedicationInfo {
-    /// Medication name (generic or brand)
-    pub name: String,
-    /// Dosage (e.g., "500mg")
-    pub dosage: String,
-    /// Frequency (e.g., "twice daily", "as needed")
-    pub frequency: String,
-    /// Route (e.g., "oral", "injection", "topical")
-    pub route: String,
-    /// Prescribing reason
-    pub indication: Option<String>,
-    /// Last dose taken
-    pub last_dose: Option<DateTime<Utc>>,
-}
-
-/// Last oral intake information (important for surgery/procedures)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LastIntake {
-    /// Type: solid food, liquid, clear liquid, NPO
-    pub intake_type: String,
-    /// What was consumed
-    pub description: String,
-    /// When it was consumed
-    pub time: DateTime<Utc>,
 }
 
 // ============================================================================
@@ -828,51 +753,6 @@ impl VitalSignsReading {
     }
 }
 
-/// Vital signs flowsheet containing multiple readings over time
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VitalSignsFlowsheet {
-    /// Patient ID
-    pub patient_id: String,
-    /// All readings in chronological order
-    pub readings: Vec<VitalSignsReading>,
-}
-
-impl VitalSignsFlowsheet {
-    /// Add a reading
-    pub fn add_reading(&mut self, reading: VitalSignsReading) {
-        self.readings.push(reading);
-        // Keep readings sorted by timestamp
-        self.readings.sort_by_key(|a| a.timestamp);
-    }
-
-    /// Get latest reading
-    pub fn latest_reading(&self) -> Option<&VitalSignsReading> {
-        self.readings.last()
-    }
-
-    /// Check if any reading has critical values
-    pub fn has_any_critical_values(&self) -> bool {
-        self.readings
-            .iter()
-            .any(|r| !r.has_critical_values().is_empty())
-    }
-
-    /// Get all critical alerts across all readings
-    pub fn all_critical_alerts(&self) -> Vec<(i64, Vec<String>)> {
-        self.readings
-            .iter()
-            .filter_map(|r| {
-                let alerts = r.has_critical_values();
-                if alerts.is_empty() {
-                    None
-                } else {
-                    Some((r.timestamp, alerts))
-                }
-            })
-            .collect()
-    }
-}
-
 // ============================================================================
 // LAB PANEL TEMPLATES
 // ============================================================================
@@ -1434,154 +1314,6 @@ pub enum BloodProductType {
 // SEPSIS PROTOCOL
 // ----------------------------------------------------------------------------
 
-// ----------------------------------------------------------------------------
-// EMS/PARAMEDIC HANDOFF
-// ----------------------------------------------------------------------------
-
-/// EMS Handoff Report
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSHandoff {
-    /// Report ID
-    pub report_id: String,
-    /// Patient ID (assigned at hospital)
-    pub patient_id: Option<String>,
-    /// EMS unit number
-    pub unit_number: String,
-    /// Crew members
-    pub crew: Vec<String>,
-    /// Dispatch time
-    pub dispatch_time: i64,
-    /// On scene time
-    pub on_scene_time: i64,
-    /// Depart scene time
-    pub depart_scene_time: i64,
-    /// Arrival time at hospital
-    pub arrival_time: i64,
-    /// Transport time (minutes)
-    pub transport_minutes: u32,
-    /// Scene location
-    pub scene_location: String,
-    /// Dispatch reason
-    pub dispatch_reason: String,
-    /// Patient demographics (as known)
-    pub demographics: EMSPatientInfo,
-    /// Chief complaint
-    pub chief_complaint: String,
-    /// Mechanism of injury (if trauma)
-    pub mechanism: Option<String>,
-    /// SAMPLE history collected
-    pub sample_history: Option<EMSSampleHistory>,
-    /// Vital signs (serial)
-    pub vital_signs: Vec<EMSVitalSigns>,
-    /// Glasgow Coma Scale
-    pub gcs: Option<u8>,
-    /// Interventions performed
-    pub interventions: Vec<EMSIntervention>,
-    /// Medications given
-    pub medications: Vec<EMSMedication>,
-    /// IV access established
-    pub iv_access: Vec<String>,
-    /// ECG rhythm
-    pub ecg_rhythm: Option<String>,
-    /// 12-lead ECG transmitted?
-    pub twelve_lead_transmitted: bool,
-    /// Stroke alert called?
-    pub stroke_alert: bool,
-    /// STEMI alert called?
-    pub stemi_alert: bool,
-    /// Trauma alert called?
-    pub trauma_alert: bool,
-    /// Trauma alert level
-    pub trauma_level: Option<u8>,
-    /// Receiving physician
-    pub receiving_physician: Option<String>,
-    /// Handoff time
-    pub handoff_time: i64,
-    /// Additional notes
-    pub notes: Option<String>,
-}
-
-/// EMS patient info (limited)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSPatientInfo {
-    /// Name (if known)
-    pub name: Option<String>,
-    /// Age (estimated if unknown)
-    pub age: Option<u8>,
-    /// Age is estimated?
-    pub age_estimated: bool,
-    /// Sex
-    pub sex: Option<String>,
-    /// Weight estimate (kg)
-    pub weight_kg: Option<f32>,
-}
-
-/// EMS SAMPLE history
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSSampleHistory {
-    /// Signs & symptoms
-    pub signs_symptoms: String,
-    /// Allergies
-    pub allergies: String,
-    /// Medications
-    pub medications: String,
-    /// Past medical history
-    pub past_history: String,
-    /// Last oral intake
-    pub last_intake: String,
-    /// Events leading
-    pub events: String,
-}
-
-/// EMS vital signs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSVitalSigns {
-    /// Time of reading
-    pub time: i64,
-    /// Blood pressure
-    pub bp: Option<String>,
-    /// Heart rate
-    pub hr: Option<u16>,
-    /// Respiratory rate
-    pub rr: Option<u16>,
-    /// SpO2
-    pub spo2: Option<u8>,
-    /// Temperature
-    pub temp_f: Option<f32>,
-    /// Blood glucose
-    pub glucose: Option<u16>,
-    /// Pain scale
-    pub pain: Option<u8>,
-    /// GCS
-    pub gcs: Option<u8>,
-}
-
-/// EMS intervention
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSIntervention {
-    /// Intervention name
-    pub intervention: String,
-    /// Time performed
-    pub time: i64,
-    /// Success/notes
-    pub notes: Option<String>,
-}
-
-/// EMS medication
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EMSMedication {
-    /// Medication name
-    pub name: String,
-    /// Dose
-    pub dose: String,
-    /// Route
-    pub route: String,
-    /// Time given
-    pub time: i64,
-    /// Response
-    pub response: Option<String>,
-}
-
 // ============================================================================
 // PHASE 3: NURSING DOCUMENTATION
 // ============================================================================
@@ -1989,101 +1721,6 @@ pub enum ClosureType {
 // ----------------------------------------------------------------------------
 // OBSTETRIC EMERGENCY
 // ----------------------------------------------------------------------------
-
-// ============================================================================
-// PHASE 7: LABORATORY DOCUMENTATION
-// ============================================================================
-
-// ----------------------------------------------------------------------------
-// SPECIMEN COLLECTION
-// ----------------------------------------------------------------------------
-
-/// Chain of custody form
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChainOfCustody {
-    /// Form ID
-    pub form_id: String,
-    /// Specimen ID
-    pub specimen_id: String,
-    /// Patient ID
-    pub patient_id: String,
-    /// Reason for custody tracking
-    pub reason: ChainOfCustodyReason,
-    /// Chain entries (each handoff)
-    pub chain: Vec<CustodyEntry>,
-    /// Seal intact throughout?
-    pub seal_intact: bool,
-    /// Storage conditions maintained?
-    pub storage_conditions_met: bool,
-    /// Final disposition
-    pub final_disposition: String,
-}
-
-/// Chain of custody reasons
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ChainOfCustodyReason {
-    DrugScreen,
-    Forensic,
-    Legal,
-    Workplace,
-    Other,
-}
-
-/// Individual custody transfer entry
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustodyEntry {
-    /// Entry number
-    pub entry_number: u8,
-    /// Released by
-    pub released_by: String,
-    /// Received by
-    pub received_by: String,
-    /// Transfer time
-    pub transfer_time: i64,
-    /// Purpose of transfer
-    pub purpose: String,
-    /// Specimen condition
-    pub condition: String,
-}
-
-// ----------------------------------------------------------------------------
-// LABORATORY QC
-// ----------------------------------------------------------------------------
-
-/// Critical value notification
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CriticalValueNotification {
-    /// Notification ID
-    pub notification_id: String,
-    /// Patient ID
-    pub patient_id: String,
-    /// Test name
-    pub test_name: String,
-    /// Critical value
-    pub critical_value: String,
-    /// Unit
-    pub unit: String,
-    /// Critical range reference
-    pub critical_range: String,
-    /// Verified by (second tech)
-    pub verified_by: Option<String>,
-    /// Verification time
-    pub verification_time: Option<i64>,
-    /// Provider notified
-    pub provider_notified: String,
-    /// Notification time
-    pub notification_time: i64,
-    /// Notification method (phone, page, etc.)
-    pub notification_method: String,
-    /// Read-back verified?
-    pub read_back_verified: bool,
-    /// Provider acknowledgment
-    pub provider_acknowledgment: Option<String>,
-    /// Lab technician
-    pub lab_technician: String,
-    /// Comments
-    pub comments: Option<String>,
-}
 
 // ============================================================================
 // PHASE 8: DISCHARGE & ORDERS DOCUMENTATION
@@ -3427,61 +3064,6 @@ pub struct CauseOfDeath {
     pub other_significant: Vec<String>,
 }
 
-/// Autopsy request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutopsyRequest {
-    /// Request ID. Assigned by the server on create; a client value is ignored.
-    #[serde(default)]
-    pub request_id: String,
-    /// Patient ID
-    pub patient_id: String,
-    /// Requesting physician
-    pub requesting_physician: String,
-    /// Reason for autopsy
-    pub reason: AutopsyReason,
-    /// Clinical history summary
-    pub clinical_summary: String,
-    /// Questions to be answered
-    pub questions: Vec<String>,
-    /// Family consent obtained
-    pub family_consent: bool,
-    /// Consent signed by
-    pub consent_signed_by: Option<String>,
-    /// Relationship to decedent
-    pub consenter_relationship: Option<String>,
-    /// Request date
-    pub request_date: String,
-    /// Status
-    pub status: AutopsyStatus,
-    /// Pathologist assigned
-    pub pathologist_assigned: Option<String>,
-    /// Scheduled date
-    pub scheduled_date: Option<String>,
-}
-
-/// Autopsy reason
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AutopsyReason {
-    UnknownCause,
-    QualityAssurance,
-    FamilyRequest,
-    LegalRequirement,
-    Research,
-    Education,
-}
-
-/// Autopsy status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AutopsyStatus {
-    Requested,
-    ConsentPending,
-    Approved,
-    Scheduled,
-    InProgress,
-    Completed,
-    Declined,
-}
-
 // ============================================================================
 // PHASE 19: PATIENT SATISFACTION
 // ============================================================================
@@ -4264,22 +3846,6 @@ pub struct VideoQualityMetrics {
     pub audio_quality_score: f32,
     pub video_quality_score: f32,
     pub disconnections: u8,
-}
-
-/// Telehealth device check
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceCheck {
-    pub check_id: String,
-    pub patient_id: String,
-    pub checked_at: i64,
-    pub camera_working: bool,
-    pub microphone_working: bool,
-    pub speaker_working: bool,
-    pub browser_supported: bool,
-    pub bandwidth_adequate: bool,
-    pub bandwidth_mbps: f32,
-    pub issues_detected: Vec<String>,
-    pub recommendations: Vec<String>,
 }
 
 // ============================================================================

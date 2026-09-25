@@ -2,7 +2,6 @@
 //!
 //! Split out of `main.rs` (Phase 10.2). Re-exported at the crate root.
 
-use crate::clinical::*;
 use crate::ipfs::IpfsClient;
 use crate::nfc_simulator::CardRegistry;
 use crate::repositories::*;
@@ -27,11 +26,7 @@ pub struct AppState {
     /// Provides access to PatientRepository, MedicalRecordRepository, etc.
     /// Uses memory backend by default, PostgreSQL when MEDICHAIN_STORAGE=postgres
     pub repositories: RepositoryContainer,
-    pub nfc_tags: RwLock<HashMap<String, NfcTagData>>,
-    pub access_logs: RwLock<Vec<AccessLogEntry>>,
     pub users: RwLock<HashMap<String, User>>,
-    /// Lab result submissions pending approval (submission_id -> submission)
-    pub lab_submissions: RwLock<HashMap<String, LabResultSubmission>>,
     /// IPFS client for encrypted document storage
     pub ipfs_client: IpfsClient,
     /// Substrate blockchain client (None if SUBSTRATE_WS_URL not set)
@@ -67,29 +62,6 @@ pub struct AppState {
     pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
     pub card_registry: CardRegistry,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 1)
-    // ============================================================================
-    /// Vital signs flowsheets (patient_id -> VitalSignsFlowsheet)
-    pub vital_signs: RwLock<HashMap<String, VitalSignsFlowsheet>>,
-    /// Chain of custody records (form_id -> ChainOfCustody)
-    pub chain_of_custody: RwLock<HashMap<String, ChainOfCustody>>,
-    /// Critical value notifications (notification_id -> CriticalValueNotification)
-    pub critical_values: RwLock<HashMap<String, CriticalValueNotification>>,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 9-19) - Complete Hospital System
-    // ============================================================================
-    /// Radiology orders (order_id -> RadiologyOrder)
-    pub radiology_orders: RwLock<HashMap<String, RadiologyOrder>>,
-    /// Patient satisfaction surveys (survey_id -> PatientSatisfactionSurvey)
-    pub satisfaction_surveys: RwLock<HashMap<String, PatientSatisfactionSurvey>>,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 20-33) - Extended Features
-    // ============================================================================
-    /// E-prescriptions with signing (prescription_id -> EPrescription)
-    pub e_prescriptions_v2: RwLock<HashMap<String, crate::clinical::EPrescription>>,
-    /// Patient allergies (patient_id -> Vec<AllergyInfo>)
-    pub allergies: RwLock<HashMap<String, Vec<crate::clinical::AllergyInfo>>>,
     /// Server start time for uptime calculation
     pub start_time: std::time::Instant,
     // ============================================================================
@@ -131,10 +103,7 @@ impl AppState {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
-            nfc_tags: RwLock::new(HashMap::new()),
-            access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
-            lab_submissions: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
             substrate_client: None, // Use new_with_pool_async for blockchain support
             ws_manager: crate::websocket::WsSessionManager::new(),
@@ -149,18 +118,6 @@ impl AppState {
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
-            // Clinical documentation storage (Phase 1)
-            vital_signs: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 2-8)
-            chain_of_custody: RwLock::new(HashMap::new()),
-            critical_values: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 9-19)
-            radiology_orders: RwLock::new(HashMap::new()),
-            satisfaction_surveys: RwLock::new(HashMap::new()),
-            // Patient portal storage
-            e_prescriptions_v2: RwLock::new(HashMap::new()),
-            // Offline sync storage
-            allergies: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
             national_id_service: crate::national_id::NationalIdService::new(),
             telehealth_service: crate::telehealth::TelehealthService::new(),
@@ -269,10 +226,7 @@ impl AppState {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
-            nfc_tags: RwLock::new(HashMap::new()),
-            access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
-            lab_submissions: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
             substrate_client,
             ws_manager: crate::websocket::WsSessionManager::new(),
@@ -287,18 +241,6 @@ impl AppState {
             mobile_records,
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
-            // Clinical documentation storage (Phase 1)
-            vital_signs: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 2-8)
-            chain_of_custody: RwLock::new(HashMap::new()),
-            critical_values: RwLock::new(HashMap::new()),
-            // Surgical and imaging storage
-            radiology_orders: RwLock::new(HashMap::new()),
-            satisfaction_surveys: RwLock::new(HashMap::new()),
-            // Patient portal storage
-            e_prescriptions_v2: RwLock::new(HashMap::new()),
-            // Offline sync storage
-            allergies: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
             national_id_service: crate::national_id::NationalIdService::new(),
             telehealth_service: crate::telehealth::TelehealthService::new(),
@@ -724,10 +666,6 @@ impl AppState {
 
     /// Load demo patients from PostgreSQL into the patient repository
     /// Called at startup when DATABASE_URL is configured
-    // The `nfc_tags` guard is explicitly `drop()`-ed before the repository-sync
-    // loop's await points; clippy's await_holding_lock doesn't recognize manual
-    // drops here.
-    #[allow(clippy::await_holding_lock)]
     pub async fn load_patients_from_db(&self) -> Result<usize, String> {
         let pool = match &self.db_pool {
             Some(p) => p,
@@ -764,8 +702,8 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to load patients: {}", e))?;
 
-        let mut nfc_tags = self.nfc_tags.write().map_err(|e| e.to_string())?;
         let mut count = 0;
+        let mut unrecorded_blood_type = 0;
         let mut to_repo: Vec<(PatientProfile, NfcTagData)> = Vec::new();
 
         for row in rows {
@@ -792,10 +730,14 @@ impl AppState {
             let conditions_json: Option<serde_json::Value> = row.get("chronic_conditions");
             let languages_json: Option<serde_json::Value> = row.get("languages");
 
-            // Parse blood type
-            let blood_type = blood_type_str
-                .and_then(|s| parse_blood_type(&s).ok())
-                .unwrap_or(BloodType::OPositive); // Default to O+ (universal donor)
+            // A patient with no recorded blood group is not loaded. This used to
+            // default to O+ ("universal donor"), which put a blood group nobody
+            // measured in front of whoever read the record; the profile type has
+            // no way to say "unknown", so absent is the only honest option.
+            let Some(blood_type) = blood_type_str.and_then(|s| parse_blood_type(&s).ok()) else {
+                unrecorded_blood_type += 1;
+                continue;
+            };
 
             // Parse JSON arrays to Vec<String>
             let allergies: Vec<String> = allergies_json
@@ -869,17 +811,21 @@ impl AppState {
             let nfc_tag_id = format!("NFC-{}", patient_id.replace("PAT-", ""));
             let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
             let nfc_tag = NfcTagData {
-                tag_id: nfc_tag_id.clone(),
+                tag_id: nfc_tag_id,
                 patient_id: patient_id.clone(),
                 hash,
                 created_at: Utc::now(),
             };
-            nfc_tags.insert(nfc_tag_id, nfc_tag.clone());
             to_repo.push((patient, nfc_tag));
 
             count += 1;
         }
-        drop(nfc_tags);
+        if unrecorded_blood_type > 0 {
+            log::warn!(
+                "{unrecorded_blood_type} patients have no recorded blood group and were not \
+                 loaded into the in-memory store"
+            );
+        }
 
         // In the memory-backend demo config (DATABASE_URL set but MEDICHAIN_STORAGE
         // unset), also populate the repositories so loaded demo patients are visible

@@ -509,28 +509,57 @@ pub async fn list_patient_sepsis(
     }
 }
 
-/// Create EMS handoff
+/// Record an ambulance crew's handover to the emergency department.
 #[post("/api/emergency/ems-handoff")]
 pub async fn create_ems_handoff(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<EMSHandoff>,
+    req: web::Json<CreateEmsHandoffRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
-
-    let handoff = req.into_inner();
-    let id = handoff.report_id.clone();
+    let request = req.into_inner();
+    if let Some(problem) = request.problem() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: problem,
+            code: "INVALID_HANDOFF".to_string(),
+        });
+    }
+    let patient_id = request
+        .patient_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string);
+    if let Some(patient) = &patient_id {
+        // A lookup that failed is not a patient who does not exist.
+        match data.repositories.patients.get_by_id(patient).await {
+            Ok(_) => {}
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    error: format!("Patient '{patient}' not found"),
+                    code: "PATIENT_NOT_FOUND".to_string(),
+                });
+            }
+            Err(e) => {
+                log::error!("EMS handoff: patient lookup failed: {e}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "The patient record could not be checked".to_string(),
+                    code: "DATABASE_ERROR".to_string(),
+                });
+            }
+        }
+    }
 
     if let Err(response) = crate::support::require_durable_audit(
         &data,
         access_log_entity(
-            current_user_id,
-            "ems",
+            caller.wallet_address.clone(),
+            &caller.role.to_string(),
             "create_ems_handoff",
-            handoff.patient_id.clone(),
+            patient_id.clone(),
         ),
     )
     .await
@@ -538,10 +567,56 @@ pub async fn create_ems_handoff(
         return response;
     }
 
-    let entity = ems_handoff_entity(&handoff, json_value(&handoff));
+    // Server-generated: the id used to come from the body, so a second
+    // handover naming the same id replaced the first.
+    let id = format!("EMS-{}", uuid::Uuid::new_v4().simple());
+    let entity = ems_handoff_entity(&id, &request, &caller.wallet_address, Utc::now());
     match data.repositories.ems_handoffs.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("EMS handoff could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The handover could not be recorded".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Handovers received in the last `hours` (default 24, at most 72): the
+/// department's arrivals board. A read that fails says so; it is not an empty
+/// board.
+#[get("/api/emergency/ems-handoffs")]
+pub async fn list_recent_ems_handoffs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+    let hours = query
+        .get("hours")
+        .and_then(|h| h.parse::<i32>().ok())
+        .unwrap_or(24)
+        .clamp(1, 72);
+    match data.repositories.ems_handoffs.get_recent(hours).await {
+        Ok(rows) => {
+            let handoffs: Vec<serde_json::Value> = rows.into_iter().map(|r| r.data).collect();
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "hours": hours,
+                "count": handoffs.len(),
+                "handoffs": handoffs,
+            }))
+        }
+        Err(e) => {
+            log::error!("EMS handoffs could not be read: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Recent handovers could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -707,5 +782,112 @@ mod attribution_tests {
             .await
             .expect("stored assessment");
         assert_eq!(stored.assessed_by, "5Nurse");
+    }
+}
+
+/// A crew's handover is recorded with what was entered; the id, the receiver
+/// and the time are the server's.
+#[cfg(test)]
+mod ems_handoff_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    /// The app under test, and a POST of `body` as the registered nurse.
+    macro_rules! app {
+        ($state:expr) => {
+            test::init_service(
+                App::new()
+                    .app_data(web::Data::new($state))
+                    .service(super::create_ems_handoff)
+                    .service(super::list_recent_ems_handoffs),
+            )
+            .await
+        };
+    }
+    macro_rules! post {
+        ($body:expr) => {
+            test::TestRequest::post()
+                .uri("/api/emergency/ems-handoff")
+                .insert_header(("X-User-Id", "5Nurse"))
+                .set_json($body)
+                .to_request()
+        };
+    }
+
+    #[actix_rt::test]
+    async fn a_handover_is_recorded_and_listed_as_received_by_the_caller() {
+        let state = AppState::new();
+        register(&state, "5Nurse", Role::Nurse);
+        seed_patient(&state, "PAT-EMS-1").await;
+        let app = app!(state);
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            post!(serde_json::json!({
+                "patient_id": "PAT-EMS-1",
+                "ems_agency": "Metro EMS",
+                "chief_complaint": "Chest pain",
+                "gcs_on_scene": 15,
+                "vital_signs": [{ "systolic_bp": 150, "diastolic_bp": 90, "heart_rate": 110 }],
+                "sample": { "allergies": "Penicillin" },
+                "stemi_alert": true,
+                // Not the caller's to choose.
+                "report_id": "EMS-CLIENT",
+                "id": "EMS-CLIENT"
+            })),
+        )
+        .await;
+        let id = created["id"].as_str().expect("id");
+        assert_ne!(id, "EMS-CLIENT");
+
+        let list: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/emergency/ems-handoffs")
+                .insert_header(("X-User-Id", "5Nurse"))
+                .to_request(),
+        )
+        .await;
+        let row = &list["handoffs"][0];
+        assert_eq!(row["id"], id, "{list}");
+        assert_eq!(row["received_by"], "5Nurse");
+        assert_eq!(row["chief_complaint"], "Chest pain");
+        assert_eq!(row["stemi_alert"], true);
+        assert_eq!(row["sample"]["allergies"], "Penicillin");
+    }
+
+    #[actix_rt::test]
+    async fn an_incomplete_or_impossible_handover_is_refused() {
+        let state = AppState::new();
+        register(&state, "5Nurse", Role::Nurse);
+        let app = app!(state);
+        for body in [
+            serde_json::json!({ "ems_agency": "Metro EMS", "chief_complaint": " " }),
+            serde_json::json!({ "ems_agency": "Metro EMS", "chief_complaint": "Fall", "gcs_on_scene": 2 }),
+            serde_json::json!({ "ems_agency": "Metro EMS", "chief_complaint": "Fall", "vital_signs": [{}] }),
+            serde_json::json!({ "ems_agency": "Metro EMS", "chief_complaint": "Fall",
+                                "vital_signs": [{ "systolic_bp": 70, "diastolic_bp": 110 }] }),
+            serde_json::json!({ "ems_agency": "Metro EMS", "chief_complaint": "Fall",
+                                "dispatch_time": "2026-09-25T10:00:00Z", "on_scene_time": "2026-09-25T09:00:00Z" }),
+        ] {
+            let resp = test::call_service(&app, post!(body.clone())).await;
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{body}");
+        }
+    }
+
+    #[actix_rt::test]
+    async fn a_handover_for_an_unknown_patient_is_refused() {
+        let state = AppState::new();
+        register(&state, "5Nurse", Role::Nurse);
+        let app = app!(state);
+        let resp = test::call_service(
+            &app,
+            post!(serde_json::json!({
+                "patient_id": "PAT-NOBODY", "ems_agency": "Metro EMS", "chief_complaint": "Fall"
+            })),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -128,7 +128,6 @@ pub struct RepositoryContainer {
     pub sepsis_assessments_repo: Arc<dyn SepsisAssessmentRepository>,
 
     // Phase 2: Clinical Documentation repositories
-    pub sample_history: Arc<dyn SampleHistoryRepository>,
     pub gcs_assessments: Arc<dyn GcsAssessmentRepository>,
     pub progress_notes: Arc<dyn ProgressNoteRepository>,
     pub history_physicals: Arc<dyn HistoryPhysicalRepository>,
@@ -222,7 +221,6 @@ pub struct RepositoryContainer {
     pub family_groups: Arc<dyn JsonRecordRepository>,
     pub insurance_claims: Arc<dyn JsonRecordRepository>,
     pub insurance_cards: Arc<dyn JsonRecordRepository>,
-    pub autopsy_requests: Arc<dyn JsonRecordRepository>,
     pub autopsy_reports: Arc<dyn JsonRecordRepository>,
     pub sync_queue_items: Arc<dyn JsonRecordRepository>,
 
@@ -236,7 +234,6 @@ pub struct RepositoryContainer {
     // Round 6: shape-mismatch domains (JSON-record backed)
     pub e_prescriptions_v2: Arc<dyn JsonRecordRepository>,
     pub drug_interaction_checks: Arc<dyn JsonRecordRepository>,
-    pub lab_trend_results: Arc<dyn JsonRecordRepository>,
     pub lab_result_submissions: Arc<dyn JsonRecordRepository>,
 
     // Round 7: SOAP clinical notes (JSON-record backed)
@@ -450,7 +447,6 @@ impl RepositoryContainer {
             sepsis_assessments_repo: Arc::new(memory::MemorySepsisAssessmentRepository::new()),
 
             // Phase 2: Clinical Documentation repositories (memory)
-            sample_history: Arc::new(memory::MemorySampleHistoryRepository::new()),
             gcs_assessments: Arc::new(memory::MemoryGcsAssessmentRepository::new()),
             progress_notes: Arc::new(memory::MemoryProgressNoteRepository::new()),
             history_physicals: Arc::new(memory::MemoryHistoryPhysicalRepository::new()),
@@ -539,7 +535,6 @@ impl RepositoryContainer {
             family_groups: Arc::new(memory::MemoryJsonRecordRepository::new()),
             insurance_claims: Arc::new(memory::MemoryJsonRecordRepository::new()),
             insurance_cards: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            autopsy_requests: Arc::new(memory::MemoryJsonRecordRepository::new()),
             autopsy_reports: Arc::new(memory::MemoryJsonRecordRepository::new()),
             sync_queue_items: Arc::new(memory::MemoryJsonRecordRepository::new()),
 
@@ -553,7 +548,6 @@ impl RepositoryContainer {
             // Round 6: shape-mismatch domains (memory)
             e_prescriptions_v2: Arc::new(memory::MemoryJsonRecordRepository::new()),
             drug_interaction_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
-            lab_trend_results: Arc::new(memory::MemoryJsonRecordRepository::new()),
             lab_result_submissions: Arc::new(memory::MemoryJsonRecordRepository::new()),
 
             // Round 7: SOAP clinical notes (memory)
@@ -955,7 +949,6 @@ impl RepositoryContainer {
             )),
 
             // Phase 2: Clinical Documentation repositories (PostgreSQL)
-            sample_history: Arc::new(postgres::PgSampleHistoryRepository::new(pool.clone())),
             gcs_assessments: Arc::new(postgres::PgGcsAssessmentRepository::new(pool.clone())),
             progress_notes: Arc::new(postgres::PgProgressNoteRepository::new(pool.clone())),
             history_physicals: Arc::new(postgres::PgHistoryPhysicalRepository::new(pool.clone())),
@@ -1075,7 +1068,6 @@ impl RepositoryContainer {
             family_groups: Arc::new(postgres::PgFamilyGroupRepository::new(pool.clone())),
             insurance_claims: Arc::new(postgres::PgInsuranceClaimRepository::new(pool.clone())),
             insurance_cards: Arc::new(postgres::PgInsuranceCardRepository::new(pool.clone())),
-            autopsy_requests: Arc::new(postgres::PgAutopsyRequestRepository::new(pool.clone())),
             autopsy_reports: Arc::new(postgres::PgAutopsyReportRepository::new(pool.clone())),
             sync_queue_items: Arc::new(postgres::PgSyncQueueItemRepository::new(pool.clone())),
 
@@ -1101,7 +1093,6 @@ impl RepositoryContainer {
             drug_interaction_checks: Arc::new(postgres::PgDrugInteractionCheckRepository::new(
                 pool.clone(),
             )),
-            lab_trend_results: Arc::new(postgres::PgLabTrendResultRepository::new(pool.clone())),
             lab_result_submissions: Arc::new(postgres::PgLabResultSubmissionRepository::new(
                 pool.clone(),
             )),

@@ -580,6 +580,46 @@ pub async fn list_patient_pharmacy_decisions(
     }
 }
 
+/// The ambulance handovers recorded about this patient.
+///
+/// A handover is a record about the patient -- what happened at the scene,
+/// what the crew gave them -- and was readable only by id, behind a clinical
+/// gate (rule 10).
+#[get("/api/clinical/patient/{patient_id}/ems-handoffs")]
+pub async fn list_patient_ems_handoffs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .ems_handoffs
+        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
+        .await
+    {
+        Ok(page) => {
+            let handoffs: Vec<serde_json::Value> = page.items.into_iter().map(|r| r.data).collect();
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "patient_id": patient_id,
+                "handoffs": handoffs,
+                "count": handoffs.len(),
+            }))
+        }
+        Err(e) => {
+            log::error!("EMS handoffs could not be read: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Ambulance handovers could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod patient_document_access_tests {
     use crate::{AppState, Role, User};
@@ -600,6 +640,7 @@ mod patient_document_access_tests {
         "ama-discharges",
         "intake-output",
         "pharmacy-decisions",
+        "ems-handoffs",
     ];
 
     fn state_with(role: Role, wallet: &str, linked: Option<&str>) -> web::Data<AppState> {
@@ -649,7 +690,8 @@ mod patient_document_access_tests {
                 .service(super::list_patient_procedures)
                 .service(super::list_patient_ama_discharges)
                 .service(super::list_patient_intake_output)
-                .service(super::list_patient_pharmacy_decisions),
+                .service(super::list_patient_pharmacy_decisions)
+                .service(super::list_patient_ems_handoffs),
         )
         .await;
         let req = test::TestRequest::get()

@@ -324,18 +324,6 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     }))
 }
 
-/// List all autopsy requests
-#[get("/api/platform/list/autopsy")]
-pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if let Err(resp) = require_registry_reader(&data, &http_req).await {
-        return resp;
-    }
-    match data.repositories.autopsy_requests.list_all().await {
-        Ok(list) => HttpResponse::Ok().json(registry_rows(list)),
-        Err(e) => registry_read_error(&http_req, e),
-    }
-}
-
 /// Every death certificate on the register.
 ///
 /// `ADMIN_NAV` has offered `/death-certificate` since the navigation was

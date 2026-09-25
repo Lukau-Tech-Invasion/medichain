@@ -1004,104 +1004,6 @@ pub struct EndTelehealthRequest {
     pub follow_up_date: Option<String>,
 }
 
-/// Device check request
-#[derive(Debug, Deserialize)]
-pub struct DeviceCheckRequest {
-    pub camera_working: bool,
-    pub microphone_working: bool,
-    pub speaker_working: bool,
-    pub browser: String,
-    pub bandwidth_mbps: Option<f32>,
-}
-
-/// Submit device check results
-#[post("/api/telehealth/device-check")]
-pub async fn submit_device_check(
-    // Was `_data`: the handler ignored application state entirely, which is
-    // exactly why it could only check that a header was present. It now
-    // resolves the caller against the user store.
-    data: web::Data<crate::AppState>,
-    http_req: HttpRequest,
-    req: web::Json<DeviceCheckRequest>,
-) -> impl Responder {
-    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
-        Err(resp) => return resp,
-    };
-
-    let supported_browsers = ["chrome", "firefox", "safari", "edge"];
-    let browser_supported = supported_browsers
-        .iter()
-        .any(|b| req.browser.to_lowercase().contains(b));
-
-    let bandwidth = req.bandwidth_mbps.unwrap_or(0.0);
-    let bandwidth_adequate = bandwidth >= 2.0;
-
-    let mut issues: Vec<String> = Vec::new();
-    let mut recommendations: Vec<String> = Vec::new();
-
-    if !req.camera_working {
-        issues.push("Camera not detected or not working".to_string());
-        recommendations
-            .push("Check camera permissions and ensure it's not in use by another app".to_string());
-    }
-    if !req.microphone_working {
-        issues.push("Microphone not detected or not working".to_string());
-        recommendations.push("Check microphone permissions and settings".to_string());
-    }
-    if !req.speaker_working {
-        issues.push("Audio output not working".to_string());
-        recommendations.push("Check speaker/headphone connection and volume settings".to_string());
-    }
-    if !browser_supported {
-        issues.push("Browser may not be fully supported".to_string());
-        recommendations
-            .push("Use Chrome, Firefox, Safari, or Edge for best experience".to_string());
-    }
-    if !bandwidth_adequate {
-        issues.push(format!(
-            "Bandwidth ({:.1} Mbps) may be insufficient",
-            bandwidth
-        ));
-        recommendations.push(
-            "Minimum 2 Mbps recommended. Close other applications using internet".to_string(),
-        );
-    }
-
-    let ready =
-        req.camera_working && req.microphone_working && browser_supported && bandwidth_adequate;
-
-    let device_check = crate::clinical::DeviceCheck {
-        check_id: format!("DC-{}", uuid::Uuid::new_v4()),
-        patient_id: current_user_id,
-        checked_at: chrono::Utc::now().timestamp(),
-        camera_working: req.camera_working,
-        microphone_working: req.microphone_working,
-        speaker_working: req.speaker_working,
-        browser_supported,
-        bandwidth_adequate,
-        bandwidth_mbps: bandwidth,
-        issues_detected: issues.clone(),
-        recommendations: recommendations.clone(),
-    };
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "ready_for_telehealth": ready,
-        "check_id": device_check.check_id,
-        "issues": issues,
-        "recommendations": recommendations,
-        "details": {
-            "camera": req.camera_working,
-            "microphone": req.microphone_working,
-            "speaker": req.speaker_working,
-            "browser_supported": browser_supported,
-            "bandwidth_adequate": bandwidth_adequate,
-            "bandwidth_mbps": bandwidth
-        }
-    }))
-}
-
 /// Get patient's telehealth sessions
 /// The signed-in caller's telehealth sessions.
 ///
@@ -1221,12 +1123,28 @@ pub async fn get_patient_telehealth_sessions(
 
 /// In-app web join URL for a session (Phase 4 — fully in-app, **no** native-app
 /// deep links). Points at the PWA telehealth route so a scan/tap stays inside
-/// MediChain. Configurable via `MEDICHAIN_APP_URL`.
-fn in_app_join_url(session_id: &str) -> String {
-    let base = std::env::var("MEDICHAIN_APP_URL")
-        .unwrap_or_else(|_| "https://app.medichain.health".to_string());
-    let base = base.trim_end_matches('/');
-    format!("{}/telehealth?session={}&join=1", base, session_id)
+/// MediChain.
+///
+/// `None` when `MEDICHAIN_APP_URL` is unset or empty. This used to fall back to
+/// `https://app.medichain.health`, a domain nobody operates, so every QR and
+/// redirect a deployment produced without the variable sent the patient to a
+/// site that is not theirs -- and Compose passes the variable through as empty
+/// when it is not configured, which produced a relative link no phone can open.
+fn in_app_join_url(session_id: &str) -> Option<String> {
+    let base = std::env::var("MEDICHAIN_APP_URL").ok()?;
+    let base = base.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return None;
+    }
+    Some(format!("{}/telehealth?session={}&join=1", base, session_id))
+}
+
+fn join_links_unconfigured() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Telehealth join links need MEDICHAIN_APP_URL, the patient app's address"
+            .to_string(),
+        code: "JOIN_URL_UNCONFIGURED".to_string(),
+    })
 }
 
 /// Single-tap join redirect (Phase 4). Issues a 302 to the in-app web room so
@@ -1235,7 +1153,9 @@ fn in_app_join_url(session_id: &str) -> String {
 #[get("/api/telehealth/join/{session_id}")]
 pub async fn telehealth_join_redirect(path: web::Path<String>) -> impl Responder {
     let session_id = path.into_inner();
-    let target = in_app_join_url(&session_id);
+    let Some(target) = in_app_join_url(&session_id) else {
+        return join_links_unconfigured();
+    };
     HttpResponse::Found()
         .insert_header(("Location", target))
         .finish()
@@ -1257,7 +1177,9 @@ pub async fn telehealth_join_qr(
     if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
         return resp;
     }
-    let join_url = in_app_join_url(&session_id);
+    let Some(join_url) = in_app_join_url(&session_id) else {
+        return join_links_unconfigured();
+    };
     match crate::support::generate_qr_code_base64(&join_url) {
         Some(png_base64) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,

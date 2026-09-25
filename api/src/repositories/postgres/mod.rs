@@ -30,7 +30,6 @@ mod iv_assessment;
 mod medication_record;
 mod nursing_care_plan;
 mod progress_note;
-mod sample_history;
 mod wound_assessment;
 
 // Phase 3: Lab, Surgical, Radiology, Blood Bank, Pharmacy repositories
@@ -86,7 +85,6 @@ pub use iv_assessment::PgIVAssessmentRepository;
 pub use medication_record::PgMedicationRecordRepository;
 pub use nursing_care_plan::PgNursingCarePlanRepository;
 pub use progress_note::PgProgressNoteRepository;
-pub use sample_history::PgSampleHistoryRepository;
 pub use wound_assessment::PgWoundAssessmentRepository;
 
 // Phase 3 exports: Lab & Diagnostics
@@ -162,7 +160,6 @@ pub use phase6_audit::{
 mod phase7;
 pub use phase7::{
     PgAutopsyReportRepository,
-    PgAutopsyRequestRepository,
     // Horizon HZ-023: stores replacing fabricated literals
     PgBarcodeScanRepository,
     // Final durability sweep (migration 20260811000002)
@@ -183,7 +180,6 @@ pub use phase7::{
     PgInsuranceClaimRepository,
     PgLabCalibrationRepository,
     PgLabResultSubmissionRepository,
-    PgLabTrendResultRepository,
     PgLanguagePreferenceRepository,
     PgMessageRepository,
     PgNoteTemplateRepository,

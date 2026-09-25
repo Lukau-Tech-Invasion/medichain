@@ -402,42 +402,6 @@ $gcsData = @{
 
 Test-Endpoint -Name "Create GCS" -Category "Documentation" -Method "POST" -Endpoint "/api/clinical/gcs" -Body $gcsData -ExpectedStatus 201 -Description "Glasgow Coma Scale"
 
-$sampleHistory = @{
-    patient_id           = $patientId
-    signs_symptoms       = @("Chest pain", "Shortness of breath", "Diaphoresis")
-    allergies            = @(
-        @{
-            allergen     = "Penicillin"
-            allergy_type = "medication"
-            reaction     = "Hives"
-            severity     = "Moderate"
-        }
-    )
-    medications          = @(
-        @{
-            name      = "Lisinopril"
-            dosage    = "10mg"
-            frequency = "daily"
-            route     = "oral"
-        }
-        @{
-            name      = "Aspirin"
-            dosage    = "81mg"
-            frequency = "daily"
-            route     = "oral"
-        }
-    )
-    past_medical_history = @("Hypertension", "Type 2 Diabetes", "Previous MI 2020")
-    last_intake          = @{
-        intake_type = "solid food"
-        description = "Breakfast"
-        time        = (Get-Date).AddHours(-6).ToUniversalTime().ToString("o")
-    }
-    events_leading       = "Was sitting at desk when sudden onset of crushing chest pain"
-}
-
-Test-Endpoint -Name "Create SAMPLE History" -Category "Documentation" -Method "POST" -Endpoint "/api/clinical/sample" -Body $sampleHistory -ExpectedStatus 201 -Description "SAMPLE history"
-
 Test-Endpoint -Name "Create Progress Note" -Category "Documentation" -Method "POST" -Endpoint "/api/clinical/progress-note" -Body @{
     note_id          = "PN-$(Get-Random -Maximum 99999)"
     patient_id       = $patientId
@@ -936,16 +900,6 @@ Test-Endpoint -Name "Generate NFC Card" -Category "NFC" -Method "POST" -Endpoint
 Test-Endpoint -Name "Get NFC Card" -Category "NFC" -Method "GET" -Endpoint "/api/nfc/card/$patientId" -Description "Get patient NFC card"
 Test-Endpoint -Name "List NFC Cards" -Category "NFC" -Method "GET" -Endpoint "/api/nfc/cards" -UserId $USERS.Admin -Description "List all NFC cards"
 
-$barcodeResult = Test-Endpoint -Name "Generate Barcode" -Category "Barcode" -Method "POST" -Endpoint "/api/barcode/generate" -Body @{
-    entity_type  = "patient"
-    entity_id    = $patientId
-    barcode_type = "QR"
-    data         = @{ patient_id = $patientId; type = "identification" }
-} -ExpectedStatus 201 -Description "Generate barcode"
-
-if ($barcodeResult.Success -and $barcodeResult.Content.barcode_id) {
-    Test-Endpoint -Name "Barcode History" -Category "Barcode" -Method "GET" -Endpoint "/api/barcode/$($barcodeResult.Content.barcode_id)/history" -Description "Barcode history"
-}
 
 # ============================================
 # 16. WEARABLES & IOT

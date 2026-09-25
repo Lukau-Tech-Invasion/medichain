@@ -709,25 +709,6 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
 // PHASE 2 ENTITY MODELS (Clinical Documentation & Nursing Care)
 // =============================================================================
 
-/// Sample history entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct SampleHistoryEntity {
-    pub id: String,
-    pub patient_id: String,
-    pub signs_symptoms: serde_json::Value,
-    pub past_medical_history: serde_json::Value,
-    pub events_leading: String,
-    pub last_intake: Option<serde_json::Value>,
-    pub medications: serde_json::Value,
-    pub allergies_snapshot: serde_json::Value,
-    pub collected_by: String,
-    pub collected_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub facility_id: Option<String>,
-    pub is_active: bool,
-}
-
 /// Glasgow Coma Scale assessment entity (database model)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct GcsAssessmentEntity {
@@ -1038,24 +1019,6 @@ pub struct FallRiskAssessmentEntity {
 // =============================================================================
 // PHASE 2 REPOSITORY TRAITS
 // =============================================================================
-
-/// Sample history repository trait
-#[async_trait]
-pub trait SampleHistoryRepository: Send + Sync + fmt::Debug {
-    async fn create(&self, history: SampleHistoryEntity) -> RepositoryResult<SampleHistoryEntity>;
-    async fn get_by_id(&self, id: &str) -> RepositoryResult<SampleHistoryEntity>;
-    async fn get_by_patient(
-        &self,
-        patient_id: &str,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<SampleHistoryEntity>>;
-    async fn get_latest_by_patient(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<SampleHistoryEntity>>;
-    async fn update(&self, history: SampleHistoryEntity) -> RepositoryResult<SampleHistoryEntity>;
-    async fn delete(&self, id: &str) -> RepositoryResult<()>;
-}
 
 /// Glasgow Coma Scale assessment repository trait
 #[async_trait]

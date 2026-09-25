@@ -134,7 +134,6 @@ pg_json_repo!(PgSymptomSessionRepository, "symptom_sessions");
 pg_json_repo!(PgFamilyGroupRepository, "family_groups");
 pg_json_repo!(PgInsuranceClaimRepository, "insurance_claims");
 pg_json_repo!(PgInsuranceCardRepository, "insurance_cards");
-pg_json_repo!(PgAutopsyRequestRepository, "autopsy_requests");
 pg_json_repo!(PgAutopsyReportRepository, "autopsy_reports");
 pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
 
@@ -156,7 +155,6 @@ pg_json_repo!(
 // entities). Persisted losslessly as JSON under distinct table names.
 pg_json_repo!(PgEPrescriptionV2Repository, "e_prescription_v2_records");
 pg_json_repo!(PgDrugInteractionCheckRepository, "drug_interaction_checks");
-pg_json_repo!(PgLabTrendResultRepository, "lab_trend_results");
 pg_json_repo!(PgLabResultSubmissionRepository, "lab_result_submissions");
 
 // Round 7: SOAP clinical notes (no prior repository existed).

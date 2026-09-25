@@ -147,7 +147,6 @@ test_endpoint "GET" "/api/nurse/tasks" "$NURSE" "200"
 # ============================================================================
 echo -e "\n${YELLOW}═══ BARCODE ENDPOINTS ═══${NC}"
 # ============================================================================
-test_endpoint "POST" "/api/barcode/generate" "$LABTECH" "201" '{"entity_type":"specimen","entity_id":"SPEC-001"}'
 
 # ============================================================================
 echo -e "\n${YELLOW}═══ IPFS ENDPOINTS ═══${NC}"

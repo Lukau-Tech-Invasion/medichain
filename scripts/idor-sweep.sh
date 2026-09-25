@@ -43,7 +43,7 @@ ROUTES=(
   "/api/clinical/patient/{p}/triage"
   "/api/clinical/patient/{p}/vitals"
   "/api/clinical/patient/{p}/vitals/latest"
-  "/api/clinical/sample/{p}"
+  "/api/clinical/patient/{p}/ems-handoffs"
   "/api/clinical/vitals/flowsheet/{p}"
   "/api/consent/patient/{p}"
   "/api/emergency/code-blue/patient/{p}"

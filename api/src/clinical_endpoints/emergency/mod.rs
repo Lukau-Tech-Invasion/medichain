@@ -340,10 +340,6 @@ fn require_emergency_list_access(
     }
 }
 
-fn timestamp_to_datetime(value: i64) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp(value, 0).unwrap_or_else(Utc::now)
-}
-
 fn access_log_entity(
     accessor_id: String,
     accessor_role: &str,
@@ -458,35 +454,207 @@ fn stroke_entity(
     }
 }
 
-fn ems_handoff_entity(handoff: &EMSHandoff, data: Value) -> EmsHandoffEntity {
-    let now = Utc::now();
+/// One set of observations the crew recorded. Every reading is optional; a set
+/// with none of them is refused, not stored as a row of blanks.
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct EmsVitalsRequest {
+    #[serde(default)]
+    pub taken_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub systolic_bp: Option<u16>,
+    #[serde(default)]
+    pub diastolic_bp: Option<u16>,
+    #[serde(default)]
+    pub heart_rate: Option<u16>,
+    #[serde(default)]
+    pub respiratory_rate: Option<u16>,
+    #[serde(default)]
+    pub spo2: Option<u8>,
+    #[serde(default)]
+    pub temperature_c: Option<f32>,
+    #[serde(default)]
+    pub glucose_mmol: Option<f32>,
+}
+
+impl EmsVitalsRequest {
+    fn measured_anything(&self) -> bool {
+        self.systolic_bp.is_some()
+            || self.diastolic_bp.is_some()
+            || self.heart_rate.is_some()
+            || self.respiratory_rate.is_some()
+            || self.spo2.is_some()
+            || self.temperature_c.is_some()
+            || self.glucose_mmol.is_some()
+    }
+}
+
+/// A drug the crew gave before arrival.
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct EmsMedicationRequest {
+    pub name: String,
+    #[serde(default)]
+    pub dose: Option<String>,
+    #[serde(default)]
+    pub route: Option<String>,
+    #[serde(default)]
+    pub given_at: Option<DateTime<Utc>>,
+}
+
+/// SAMPLE history as the crew took it. Free text: it is what the patient or a
+/// bystander said, not a coded record.
+#[derive(Debug, Clone, Default, Deserialize, serde::Serialize)]
+pub struct EmsSampleRequest {
+    #[serde(default)]
+    pub signs_symptoms: Option<String>,
+    #[serde(default)]
+    pub allergies: Option<String>,
+    #[serde(default)]
+    pub medications: Option<String>,
+    #[serde(default)]
+    pub past_history: Option<String>,
+    #[serde(default)]
+    pub last_intake: Option<String>,
+    #[serde(default)]
+    pub events: Option<String>,
+}
+
+/// An ambulance crew's handover to the emergency department, as the receiving
+/// clinician records it.
+///
+/// This replaced the `EMSHandoff` domain type on the wire (rule 11): 30
+/// required fields, so a screen that collected a dozen could not save at all --
+/// and none did, because there was no screen. It also took the record's id
+/// from the body, so a second handover could overwrite the first. The id, the
+/// receiving clinician and the handover time are the server's.
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct CreateEmsHandoffRequest {
+    /// The patient, when identified -- by their card, or by name at the door.
+    #[serde(default)]
+    pub patient_id: Option<String>,
+    pub ems_agency: String,
+    #[serde(default)]
+    pub unit_number: Option<String>,
+    #[serde(default)]
+    pub crew: Vec<String>,
+    #[serde(default)]
+    pub incident_type: Option<String>,
+    #[serde(default)]
+    pub scene_address: Option<String>,
+    #[serde(default)]
+    pub dispatch_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub on_scene_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub departed_scene_time: Option<DateTime<Utc>>,
+    pub chief_complaint: String,
+    #[serde(default)]
+    pub mechanism_of_injury: Option<String>,
+    #[serde(default)]
+    pub gcs_on_scene: Option<u8>,
+    #[serde(default)]
+    pub vital_signs: Vec<EmsVitalsRequest>,
+    #[serde(default)]
+    pub interventions: Vec<String>,
+    #[serde(default)]
+    pub medications_given: Vec<EmsMedicationRequest>,
+    #[serde(default)]
+    pub sample: Option<EmsSampleRequest>,
+    #[serde(default)]
+    pub trauma_alert: bool,
+    #[serde(default)]
+    pub stroke_alert: bool,
+    #[serde(default)]
+    pub stemi_alert: bool,
+    #[serde(default)]
+    pub sepsis_alert: bool,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+impl CreateEmsHandoffRequest {
+    /// Why this handover cannot be stored, if it cannot.
+    fn problem(&self) -> Option<String> {
+        if self.ems_agency.trim().is_empty() {
+            return Some("ems_agency is required: who brought the patient in".to_string());
+        }
+        if self.chief_complaint.trim().is_empty() {
+            return Some("chief_complaint is required".to_string());
+        }
+        if let Some(gcs) = self.gcs_on_scene {
+            if !(3..=15).contains(&gcs) {
+                return Some("gcs_on_scene must be between 3 and 15".to_string());
+            }
+        }
+        if self.vital_signs.iter().any(|v| !v.measured_anything()) {
+            return Some("a set of vital signs must record at least one reading".to_string());
+        }
+        if self.vital_signs.iter().any(|v| {
+            matches!((v.systolic_bp, v.diastolic_bp), (Some(s), Some(d)) if crate::clinical_scoring::blood_pressure_is_transposed(s, d))
+        }) {
+            return Some("a blood pressure's systolic must be above its diastolic".to_string());
+        }
+        // The times the crew recorded must run in order.
+        let times = [
+            self.dispatch_time,
+            self.on_scene_time,
+            self.departed_scene_time,
+        ];
+        let known: Vec<DateTime<Utc>> = times.iter().flatten().copied().collect();
+        if known.windows(2).any(|w| w[0] > w[1]) {
+            return Some("dispatch, on-scene and departure times must be in order".to_string());
+        }
+        None
+    }
+}
+
+/// The stored row for a handover received now by `receiver`.
+fn ems_handoff_entity(
+    id: &str,
+    request: &CreateEmsHandoffRequest,
+    receiver: &str,
+    now: DateTime<Utc>,
+) -> EmsHandoffEntity {
+    let text = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let mut data = serde_json::to_value(request).unwrap_or_default();
+    if let Some(object) = data.as_object_mut() {
+        object.insert("id".into(), serde_json::json!(id));
+        object.insert("received_by".into(), serde_json::json!(receiver));
+        object.insert("received_at".into(), serde_json::json!(now.to_rfc3339()));
+    }
     EmsHandoffEntity {
-        id: handoff.report_id.clone(),
-        patient_id: handoff.patient_id.clone(),
-        receiving_provider_id: handoff.receiving_physician.clone().unwrap_or_default(),
-        handoff_datetime: timestamp_to_datetime(handoff.handoff_time),
-        ems_agency: "EMS".to_string(),
-        ems_unit_number: Some(handoff.unit_number.clone()),
-        crew_members: json_value(&handoff.crew),
+        id: id.to_string(),
+        patient_id: text(&request.patient_id),
+        receiving_provider_id: receiver.to_string(),
+        handoff_datetime: now,
+        ems_agency: request.ems_agency.trim().to_string(),
+        ems_unit_number: text(&request.unit_number),
+        crew_members: serde_json::json!(request.crew),
         run_number: None,
-        dispatch_time: Some(timestamp_to_datetime(handoff.dispatch_time)),
-        on_scene_time: Some(timestamp_to_datetime(handoff.on_scene_time)),
-        transport_start_time: Some(timestamp_to_datetime(handoff.depart_scene_time)),
-        arrival_time: timestamp_to_datetime(handoff.arrival_time),
-        scene_address: Some(handoff.scene_location.clone()),
-        incident_type: Some(handoff.dispatch_reason.clone()),
-        chief_complaint: handoff.chief_complaint.clone(),
-        mechanism_of_injury: handoff.mechanism.clone(),
+        dispatch_time: request.dispatch_time,
+        on_scene_time: request.on_scene_time,
+        transport_start_time: request.departed_scene_time,
+        // The handover happens on arrival; the record is made then.
+        arrival_time: now,
+        scene_address: text(&request.scene_address),
+        incident_type: text(&request.incident_type),
+        chief_complaint: request.chief_complaint.trim().to_string(),
+        mechanism_of_injury: text(&request.mechanism_of_injury),
         patient_found: None,
         mental_status_on_scene: None,
-        gcs_on_scene: handoff.gcs.map(i32::from),
-        vital_signs_on_scene: handoff.vital_signs.first().map(json_value),
-        vital_signs_transport: Some(json_value(&handoff.vital_signs)),
-        vital_signs_arrival: handoff.vital_signs.last().map(json_value),
-        interventions_performed: Some(json_value(&handoff.interventions)),
-        medications_given: Some(json_value(&handoff.medications)),
-        iv_access_obtained: !handoff.iv_access.is_empty(),
-        iv_details: Some(json_value(&handoff.iv_access)),
+        gcs_on_scene: request.gcs_on_scene.map(i32::from),
+        vital_signs_on_scene: request.vital_signs.first().map(|v| serde_json::json!(v)),
+        vital_signs_transport: Some(serde_json::json!(request.vital_signs)),
+        vital_signs_arrival: request.vital_signs.last().map(|v| serde_json::json!(v)),
+        interventions_performed: Some(serde_json::json!(request.interventions)),
+        medications_given: Some(serde_json::json!(request.medications_given)),
+        iv_access_obtained: false,
+        iv_details: None,
         airway_management: None,
         cpr_performed: false,
         aed_used: false,
@@ -500,15 +668,15 @@ fn ems_handoff_entity(handoff: &EMSHandoff, data: Value) -> EmsHandoffEntity {
         family_contact_info: None,
         police_at_scene: false,
         police_report_number: None,
-        trauma_alert: handoff.trauma_alert,
-        stroke_alert: handoff.stroke_alert,
-        stemi_alert: handoff.stemi_alert,
-        sepsis_alert: false,
-        report_received_by: handoff.receiving_physician.clone(),
-        report_received_time: Some(timestamp_to_datetime(handoff.handoff_time)),
+        trauma_alert: request.trauma_alert,
+        stroke_alert: request.stroke_alert,
+        stemi_alert: request.stemi_alert,
+        sepsis_alert: request.sepsis_alert,
+        report_received_by: Some(receiver.to_string()),
+        report_received_time: Some(now),
         verbal_report_complete: true,
         ems_documentation_received: false,
-        notes: handoff.notes.clone(),
+        notes: text(&request.notes),
         created_at: now,
         updated_at: now,
         data,

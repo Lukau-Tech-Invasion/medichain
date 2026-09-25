@@ -466,32 +466,6 @@ Write-Host ""
 Write-Host "--- Barcode Generation ---" -ForegroundColor Yellow
 
 if ($script:createdPatientId) {
-    # Generate patient barcode
-    $barcodeData = @{
-        type = "patient"
-        id = $script:createdPatientId
-        format = "qr"
-    }
-    
-    $generateBarcode = Invoke-ApiCall -Method "POST" -Endpoint "/api/barcode/generate" -Body $barcodeData
-    Write-TestResult -Name "Generate Patient QR Code" -Success $generateBarcode.Success -Details $generateBarcode.Error
-    
-    if ($generateBarcode.Success) {
-        Write-Host "  Barcode Generated: $($generateBarcode.Data.barcode_id)"
-    }
-    
-    # Generate prescription barcode
-    if ($script:createdPrescriptionId) {
-        $rxBarcodeData = @{
-            type = "prescription"
-            id = $script:createdPrescriptionId
-            format = "code128"
-        }
-        
-        $generateRxBarcode = Invoke-ApiCall -Method "POST" -Endpoint "/api/barcode/generate" -Body $rxBarcodeData
-        Write-TestResult -Name "Generate Prescription Barcode" -Success $generateRxBarcode.Success -Details $generateRxBarcode.Error
-    }
-    
     # Scan barcode (simulate)
     $scanData = @{
         barcode_data = "PAT-$($script:createdPatientId)"

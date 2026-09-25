@@ -26,7 +26,6 @@ mod iv_assessment;
 mod medication_record;
 mod nursing_care_plan;
 mod progress_note;
-mod sample_history;
 mod wound_assessment;
 
 // Emergency protocol repositories
@@ -53,7 +52,6 @@ pub use iv_assessment::MemoryIVAssessmentRepository;
 pub use medication_record::MemoryMedicationRecordRepository;
 pub use nursing_care_plan::MemoryNursingCarePlanRepository;
 pub use progress_note::MemoryProgressNoteRepository;
-pub use sample_history::MemorySampleHistoryRepository;
 pub use wound_assessment::MemoryWoundAssessmentRepository;
 
 // Emergency protocol exports
