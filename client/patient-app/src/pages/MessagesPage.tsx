@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMessages, getProviders, markMessageRead, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
-import type { BookableProvider, MessageConversation, SecureMessage } from '@medichain/shared';
+import {
+  AttachmentPicker,
+  attachFilesToMessage,
+  getMessages,
+  getProviders,
+  markMessageRead,
+  MessageAttachmentList,
+  sendMessage as sendSecureMessage,
+  useTranslation,
+} from '@medichain/shared';
+import type { BookableProvider, MessageAttachment, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
@@ -26,6 +35,7 @@ interface Message {
   timestamp: string;
   read: boolean;
   isPatient: boolean;
+  attachments: MessageAttachment[];
 }
 
 interface Conversation {
@@ -69,6 +79,7 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
       timestamp: messageTimestamp(message.sent_at),
       read: Boolean(message.read),
       isPatient: message.sender_id === patientWallet,
+      attachments: message.attachments ?? [],
     })),
   };
 }
@@ -96,6 +107,10 @@ export function MessagesPage() {
   const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [showProviders, setShowProviders] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Files chosen for the next message. They are attached right after it is
+  // sent, so both people in the conversation are known when they are stored.
+  const [files, setFiles] = useState<File[]>([]);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Redirect if not authenticated
@@ -136,24 +151,33 @@ export function MessagesPage() {
   }, [selectedConversation?.messages]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation || !patient) return;
+    if (!newMessage.trim() || !selectedConversation || !patient || sending) return;
 
     setSendError(null);
+    setSending(true);
     const content = newMessage.trim();
     try {
-      await sendSecureMessage({
+      const sent = await sendSecureMessage({
         recipient_id: selectedConversation.providerId,
         subject: 'Patient message',
         content,
         related_patient_id: patient.healthId,
       });
       setNewMessage('');
+      const failed = files.length > 0 ? await attachFilesToMessage(sent.message.message_id, files) : [];
+      setFiles([]);
+      if (failed.length > 0) {
+        const list = failed.map((file) => (file.reason ? `${file.name} (${file.reason})` : file.name)).join(', ');
+        setSendError(t('messages.attachmentsPartlyFailed', { files: list }));
+      }
       const loaded = await loadConversations();
       setSelectedConversation(
         loaded.find((conversation) => conversation.providerId === selectedConversation.providerId) ?? null
       );
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -271,6 +295,7 @@ export function MessagesPage() {
                 }`}>
                   <p className="text-sm">{message.content}</p>
                 </div>
+                <MessageAttachmentList attachments={message.attachments} />
                 <div className={`flex items-center gap-1 mt-1 text-xs text-content-muted ${
                   message.isPatient ? 'justify-end' : 'justify-start'
                 }`}>
@@ -289,9 +314,15 @@ export function MessagesPage() {
         {/* Input */}
         <div className="bg-surface border-t border-border p-4">
           {sendError && <p role="alert" className="mb-2 text-sm text-critical-subtle-fg">{sendError}</p>}
-          <p className="mb-2 text-xs text-content-muted">
-            {t('messages.attachmentsUnavailable')}
-          </p>
+          <div className="mb-2">
+            <AttachmentPicker files={files} onChange={setFiles} disabled={sending} />
+          </div>
+          {sending && files.length > 0 && (
+            <p role="status" className="mb-2 flex items-center gap-2 text-xs text-content-muted">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              {t('messages.attachingFiles')}
+            </p>
+          )}
           <div className="flex items-center gap-3">
             <input
               type="text"
@@ -303,7 +334,7 @@ export function MessagesPage() {
             />
             <button
               onClick={() => void sendMessage()}
-              disabled={!newMessage.trim()}
+              disabled={!newMessage.trim() || sending}
               aria-label={t('messages.send')}
               className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
             >

@@ -112,8 +112,9 @@ describe('MessagesPage (Patient)', () => {
       // In mobile view it might show a back button, in desktop it shows the chat area
       expect(screen.getByPlaceholderText(/Type a message/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Hello, how are you?/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/Attachments are not available/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /attach file/i })).not.toBeInTheDocument();
+      // Attachments are a working control now, with its rules stated.
+      expect(screen.getByLabelText(/Attach files/i)).toBeInTheDocument();
+      expect(screen.getByText(/PDF, JPEG or PNG, up to 10 MB/i)).toBeInTheDocument();
     });
   });
 

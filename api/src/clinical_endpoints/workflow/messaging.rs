@@ -537,6 +537,9 @@ pub async fn get_messages(
         .map(|r| enrich_message_display_names(&data, r.data))
         .collect();
     messages.sort_by_key(|m| std::cmp::Reverse(m.get("sent_at").and_then(|v| v.as_i64())));
+    if let Err(response) = attach_attachment_descriptions(&data, &mut messages).await {
+        return response;
+    }
 
     // Group into conversations by the counterpart, newest message first.
     let mut order: Vec<String> = Vec::new();
@@ -685,6 +688,37 @@ async fn sync_sender_read_receipt(
     if let Err(error) = data.repositories.messages.create(sent).await {
         log::warn!("message sender read-receipt update failed: {error}");
     }
+}
+
+/// Add each message's attachments (WP7.2) as an `attachments` array.
+///
+/// One read for the whole list. A storage failure is returned as the response
+/// rather than a list that silently drops files the sender attached.
+async fn attach_attachment_descriptions(
+    data: &web::Data<AppState>,
+    messages: &mut [serde_json::Value],
+) -> Result<(), HttpResponse> {
+    let ids: Vec<String> = messages
+        .iter()
+        .filter_map(|m| {
+            m.get("message_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    let mut grouped = super::message_attachments::attachments_by_message(data, &ids).await?;
+    for message in messages.iter_mut() {
+        let id = message
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let files = grouped.remove(&id).unwrap_or_default();
+        if let Some(object) = message.as_object_mut() {
+            object.insert("attachments".to_string(), serde_json::json!(files));
+        }
+    }
+    Ok(())
 }
 
 /// Add only server-authoritative display names to legacy message records.

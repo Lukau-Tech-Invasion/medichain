@@ -37,6 +37,7 @@ mod models;
 mod repositories;
 mod services;
 
+mod attachment_scan;
 mod audit_outbox;
 mod auth_challenges;
 mod auth_sessions;

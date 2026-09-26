@@ -16,3 +16,11 @@ export * from './Toast';
 export { StepUpDialog } from './StepUpDialog';
 export { DialogHost, confirmDialog, promptDialog } from './Dialog';
 export type { ConfirmDialogOptions, PromptDialogOptions } from './Dialog';
+export {
+  AttachmentPicker,
+  MessageAttachmentList,
+  attachFilesToMessage,
+  attachmentProblem,
+  formatAttachmentSize,
+} from './MessageAttachments';
+export type { FailedAttachment } from './MessageAttachments';

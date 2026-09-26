@@ -29,9 +29,8 @@ import { OfflineQueue } from '../utils/offlineQueue';
  * (Horizon HZ-007) — same `crypto.subtle.digest` pattern already used in
  * `wallet/service.ts`'s `blake2Hash`.
  */
-async function sha256Hex(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
+async function sha256Hex(text: string | ArrayBuffer): Promise<string> {
+  const data = typeof text === 'string' ? new TextEncoder().encode(text) : new Uint8Array(text);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -662,6 +661,10 @@ export class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
 
     try {
+      // A binary upload is sent as its bytes, not JSON-encoded, and its
+      // signature hashes those same bytes (the server hashes the raw body).
+      const binary = body instanceof ArrayBuffer ? body : null;
+      const payload: BodyInit | undefined = binary ?? (body ? JSON.stringify(body) : undefined);
       // Build headers fresh each attempt so a refreshed Bearer token is picked up.
       const buildHeaders = async (): Promise<Record<string, string>> => {
         const headers: Record<string, string> = {
@@ -690,8 +693,7 @@ export class ApiClient {
             // (Horizon HZ-007) — must match exactly what the server's
             // `SignatureAuthMiddleware` observes and what is actually sent
             // below (`body ? JSON.stringify(body) : undefined`).
-            const bodyText = body ? JSON.stringify(body) : '';
-            const bodyHash = await sha256Hex(bodyText);
+            const bodyHash = await sha256Hex(binary ?? (body ? JSON.stringify(body) : ''));
             const message = `${timestamp}:${legacyIdentity}:${method}:${path}:${bodyHash}`;
             try {
               const signature = await this.signatureProvider(message);
@@ -711,7 +713,7 @@ export class ApiClient {
       let response = await fetch(url, {
         method,
         headers: await buildHeaders(),
-        body: body ? JSON.stringify(body) : undefined,
+        body: payload,
         signal: controller.signal,
       });
 
@@ -727,7 +729,7 @@ export class ApiClient {
           response = await fetch(url, {
             method,
             headers: await buildHeaders(),
-            body: body ? JSON.stringify(body) : undefined,
+            body: payload,
             signal: controller.signal,
           });
         }
@@ -863,6 +865,16 @@ export class ApiClient {
   ): Promise<{ blob: Blob; contentType: string }> {
     const blobOptions: RequestOptions = { ...options, headers: { Accept: '*/*', ...options?.headers } };
     return this.request('POST', path, body, blobOptions, true);
+  }
+
+  /**
+   * Upload a file's bytes as the request body, declared as `contentType`.
+   * Same session, refresh and idempotency handling as every other mutation;
+   * never retried, since a partially received upload is not safe to resend
+   * blindly and the caller can offer the choice to the user.
+   */
+  async postBinary<T>(path: string, bytes: ArrayBuffer, contentType: string): Promise<T> {
+    return this.request<T>('POST', path, bytes, { noRetry: true, headers: { 'Content-Type': contentType } });
   }
 
   async put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
