@@ -542,33 +542,14 @@ export const useAuthStore = create<AuthState>()(
       },
       
       /**
-       * Restore session from localStorage on app startup
-       * Validates the session against the API and re-registers if needed
-       * @returns true if session was restored successfully, false otherwise
-       */
-      /**
-       * Re-establish a session after a page reload.
+       * Re-establish a session after a page reload (WP12).
        *
-       * **Fails closed.** Nothing that can authenticate survives a reload: the
-       * access and refresh tokens are deliberately not persisted, and the key
-       * that could sign a fresh challenge lives only in memory. So there is no
-       * material here to rebuild a verified session from, and the honest outcome
-       * is to send the user back to sign-in.
-       *
-       * What it used to do was worse than failing. It called the removed
-       * `GET /api/auth/wallet/{address}` route, and on the strength of that
-       * response set `isAuthenticated: true` -- then called `acquireJwtTokens`
-       * with no signer, which could never succeed. The result was a session the
-       * UI treated as valid, holding no bearer token, whose every request fell
-       * back to the caller-controlled `X-User-Id` header. A reload silently
-       * downgraded a signed-in clinician to the weakest identity the API accepts.
-       *
-       * Restoring without re-authenticating needs durable session material the
-       * browser can present -- a persisted refresh token, or a cookie-borne
-       * session. Both are security design decisions with their own trade-offs
-       * (storage exposure versus CSRF surface) and neither is implemented, so
-       * this returns false rather than inventing one. Recorded for the owner in
-       * the remediation ledger.
+       * The access token lives only in memory and is gone after a reload. The
+       * refresh token is an HttpOnly, Secure, SameSite=Strict cookie the
+       * browser presents to the refresh endpoint; if the server accepts it (it
+       * rotates it, and ends the whole login if an old one is replayed), the
+       * session continues. Otherwise this fails closed: back to sign-in, never
+       * a session without a verified token.
        */
       restoreSession: async (): Promise<boolean> => {
         const storedAuth = getProviderAuth();
@@ -587,10 +568,28 @@ export const useAuthStore = create<AuthState>()(
           return true;
         }
 
-        debugLog(
-          'authStore',
-          'No session material survives a reload; returning to sign-in'
-        );
+        if (await getApiClient().restoreSession()) {
+          // A reload leaves the legacy session token; re-enter the work context
+          // the professional screens run under, as sign-in does.
+          try {
+            const context = await enterWorkContext();
+            getApiClient().setTokens(context.access_token);
+          } catch (contextError) {
+            debugLog('authStore', 'Work context unavailable after restore:', contextError);
+          }
+          const user: User = get().user ?? {
+            walletAddress: storedAuth.address,
+            userId: storedAuth.address,
+            username: storedAuth.name,
+            role: storedAuth.role as Role,
+            createdAt: new Date().toISOString(),
+          };
+          set({ user, isAuthenticated: true, isLoading: false, error: null });
+          void hydrateIdentity(set, get);
+          return true;
+        }
+
+        debugLog('authStore', 'No session to restore; returning to sign-in');
         abandonSignIn();
         set({
           user: null,

@@ -69,6 +69,7 @@ mod patient_access;
 mod patient_name_index;
 mod pdf;
 mod privacy_logging;
+mod refresh_cookie;
 mod research_export;
 mod retention;
 mod security;
@@ -698,6 +699,12 @@ async fn main() -> std::io::Result<()> {
                     // cross-origin write fails its preflight in production.
                     actix_web::http::header::HeaderName::from_static("idempotency-key"),
                 ])
+                // The HttpOnly refresh cookie (WP12) crosses origins only with
+                // credentials allowed. Safe here: origins are listed exactly,
+                // and the cookie is SameSite=Strict besides. Demo mode (any
+                // origin) deliberately does not allow credentials; its clients
+                // reach the API through the same-origin proxy.
+                .supports_credentials()
                 .max_age(3600);
 
             for origin in allowed_origins.split(',') {

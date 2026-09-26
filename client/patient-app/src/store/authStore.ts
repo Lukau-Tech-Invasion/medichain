@@ -83,7 +83,7 @@ interface AuthState {
   logout: () => void;
   setPatient: (patient: Patient) => void;
   clearError: () => void;
-  restoreSession: () => void;
+  restoreSession: () => Promise<boolean>;
   updateProfile: (updates: Partial<Patient>) => void;
 }
 
@@ -248,18 +248,27 @@ export const usePatientAuthStore = create<AuthState>()(
       },
       
       /**
-       * Restore session from localStorage on app startup
+       * Re-establish a session after a page reload (WP12).
+       *
+       * The access token lives only in memory. The refresh token is an
+       * HttpOnly, Secure, SameSite=Strict cookie the browser presents to the
+       * refresh endpoint. Only a session the server accepts is restored; this
+       * used to mark the patient signed in from localStorage alone, with no
+       * token behind it, so requests fell back to the weakest identity the API
+       * accepts.
+       *
+       * @returns whether a verified session was restored.
        */
-      restoreSession: () => {
+      restoreSession: async (): Promise<boolean> => {
         const storedAuth = getPatientAuth();
-        // Zustand may already have rehydrated its persisted state, but the API
-        // singleton still needs the portal-specific wallet after a reload.
-        if (storedAuth) getApiClient().setUserId(storedAuth.address);
-        if (storedAuth && !get().isAuthenticated) {
-          // We only have limited data from storage, 
-          // but enough to authenticate for API calls
+        if (!storedAuth) return false;
+        // The API singleton needs the patient's wallet after a reload.
+        getApiClient().setUserId(storedAuth.address);
+        if (get().isAuthenticated && getApiClient().getAccessToken()) return true;
+        set({ isLoading: true });
+        if (await getApiClient().restoreSession()) {
           set({
-            patient: {
+            patient: get().patient ?? {
               walletAddress: storedAuth.address,
               healthId: storedAuth.healthId,
               fullName: storedAuth.name,
@@ -267,12 +276,18 @@ export const usePatientAuthStore = create<AuthState>()(
               createdAt: new Date().toISOString(),
             },
             isAuthenticated: true,
+            isLoading: false,
           });
           initPush();
-          debugLog('patientAuthStore', 'Restored session from storage');
+          debugLog('patientAuthStore', 'Session restored from the refresh cookie');
+          return true;
         }
+        clearStoredAuth();
+        getApiClient().clearTokens();
+        set({ patient: null, isAuthenticated: false, isLoading: false });
+        return false;
       },
-      
+
       /**
        * Update patient profile
        */

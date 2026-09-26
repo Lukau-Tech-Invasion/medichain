@@ -63,6 +63,60 @@ pub async fn create(
     Ok(login_session_id)
 }
 
+/// Seconds after a rotation during which presenting the old generation again
+/// is treated as a race (two tabs refreshing at once), not as theft: the late
+/// caller is refused, but the login survives. After this, it is reuse.
+pub const REUSE_GRACE_SECONDS: i64 = 10;
+
+/// Whether this exact generation was retired by a rotation more than
+/// [`REUSE_GRACE_SECONDS`] ago, i.e. a copy of it is being replayed.
+async fn generation_was_rotated(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    wallet_address: &str,
+    token: &str,
+    jti: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let replayed: Option<bool> = sqlx::query_scalar(
+        "SELECT revocation_reason = 'rotated'
+                AND revoked_at < NOW() - make_interval(secs => $4)
+         FROM auth_sessions
+         WHERE wallet_address = $1 AND refresh_token_hash = $2 AND refresh_jti = $3",
+    )
+    .bind(wallet_address)
+    .bind(token_hash(token))
+    .bind(jti)
+    .bind(REUSE_GRACE_SECONDS as f64)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    Ok(replayed == Some(true))
+}
+
+/// Revoke a login session and its live generations inside a transaction that
+/// already holds the session row.
+async fn revoke_login_in(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    login_session_id: Uuid,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE auth_login_sessions SET revoked_at = NOW(), revocation_reason = $2
+         WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(login_session_id)
+    .bind(reason)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE auth_sessions SET revoked_at = NOW(), revocation_reason = $2
+         WHERE login_session_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(login_session_id)
+    .bind(reason)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 /// Revoke one login session and, with it, every refresh generation beneath it.
 /// Returns false when no active session matched, so logout is not replayable.
 pub async fn revoke_session(
@@ -239,6 +293,22 @@ pub async fn rotate(
     .execute(&mut *transaction)
     .await?;
     if retired.rows_affected() != 1 {
+        // A generation that was already rotated away being presented again is
+        // refresh-token reuse: someone holds a copy. End the whole login, so
+        // neither the copy nor the legitimate holder's successor works (WP12).
+        if generation_was_rotated(
+            &mut transaction,
+            wallet_address,
+            previous_token,
+            previous_jti,
+        )
+        .await?
+        {
+            revoke_login_in(&mut transaction, login_session_id, "refresh_token_reuse").await?;
+            transaction.commit().await?;
+            log::warn!("Refresh-token reuse on login session {login_session_id}: session revoked");
+            return Ok(None);
+        }
         transaction.rollback().await?;
         return Ok(None);
     }

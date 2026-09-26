@@ -23,7 +23,11 @@ pub struct JwtIssueRequest {
 pub struct JwtIssueResponse {
     pub success: bool,
     pub access_token: String,
-    pub refresh_token: String,
+    /// Only for a non-browser client that asked for it
+    /// (`X-Refresh-Transport: body`). Browsers receive the refresh token as an
+    /// HttpOnly cookie and never see it (WP12).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     pub token_type: String,
     pub expires_in: i64,
     /// Whether MFA is already satisfied. When false and `mfa_required` is true,
@@ -44,6 +48,7 @@ fn valid_login_proof(challenge_id: &str, nonce: &str, signature: &str) -> bool {
 #[post("/api/auth/jwt")]
 pub async fn issue_jwt(
     data: web::Data<AppState>,
+    http_req: HttpRequest,
     body: web::Json<JwtIssueRequest>,
 ) -> impl Responder {
     if !is_valid_wallet_address(&body.wallet_address) {
@@ -119,7 +124,14 @@ pub async fn issue_jwt(
         }
     };
 
-    issue_token_pair(&data, &body.wallet_address, &user.role.to_string(), None).await
+    issue_token_pair(
+        &data,
+        &http_req,
+        &body.wallet_address,
+        &user.role.to_string(),
+        None,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -135,9 +147,26 @@ mod jwt_issue_tests {
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// Body of a refresh. Browsers send none: their refresh token arrives as the
+/// HttpOnly cookie. A non-browser client sends it here.
+#[derive(Debug, Default, Deserialize)]
 pub struct JwtRefreshRequest {
-    pub refresh_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+}
+
+/// 401 for an unusable refresh, clearing the cookie so a browser stops
+/// presenting a token that will never work again.
+fn refresh_refused(message: &str, code: &str) -> HttpResponse {
+    HttpResponse::Unauthorized()
+        .insert_header((
+            actix_web::http::header::SET_COOKIE,
+            crate::refresh_cookie::clear_value(),
+        ))
+        .json(ErrorResponse {
+            error: message.to_string(),
+            code: code.to_string(),
+        })
 }
 
 /// Exchange a valid refresh token for a fresh access token.
@@ -146,31 +175,31 @@ pub struct JwtRefreshRequest {
 #[post("/api/auth/jwt/refresh")]
 pub async fn refresh_jwt(
     data: web::Data<AppState>,
-    body: web::Json<JwtRefreshRequest>,
+    http_req: HttpRequest,
+    body: Option<web::Json<JwtRefreshRequest>>,
 ) -> impl Responder {
-    let claims = match jwt::decode_token(&body.refresh_token) {
-        Ok(c) if c.typ == jwt::TYP_REFRESH => c,
-        _ => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Invalid or expired refresh token".to_string(),
-                code: "INVALID_REFRESH_TOKEN".to_string(),
-            });
-        }
+    let presented = body
+        .and_then(|json| json.into_inner().refresh_token)
+        .or_else(|| crate::refresh_cookie::read(&http_req));
+    let Some(presented) = presented else {
+        return refresh_refused("No session to restore; sign in again", "NO_REFRESH_TOKEN");
     };
-    let user = match get_user(&data, &claims.sub) {
-        Some(user) => user,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Account is inactive or no longer registered".to_string(),
-                code: "ACCOUNT_INACTIVE".to_string(),
-            });
-        }
+    let claims = match jwt::decode_token(&presented) {
+        Ok(c) if c.typ == jwt::TYP_REFRESH => c,
+        _ => return refresh_refused("Invalid or expired refresh token", "INVALID_REFRESH_TOKEN"),
+    };
+    let Some(user) = get_user(&data, &claims.sub) else {
+        return refresh_refused(
+            "Account is inactive or no longer registered",
+            "ACCOUNT_INACTIVE",
+        );
     };
     issue_token_pair(
         &data,
+        &http_req,
         &claims.sub,
         &user.role.to_string(),
-        Some((&body.refresh_token, &claims.jti)),
+        Some((&presented, &claims.jti)),
     )
     .await
 }
@@ -180,6 +209,7 @@ pub async fn refresh_jwt(
 /// `mfa=false` and must step up via `/api/auth/mfa/challenge`.
 async fn issue_token_pair(
     data: &web::Data<AppState>,
+    http_req: &HttpRequest,
     wallet: &str,
     role: &str,
     previous_refresh: Option<(&str, &str)>,
@@ -236,6 +266,12 @@ async fn issue_token_pair(
         Ok(id) => id,
         Err(error) => {
             log::error!("Refresh-session persistence failed: {error}");
+            if previous_refresh.is_some() {
+                return refresh_refused(
+                    "Invalid or expired refresh token",
+                    "INVALID_REFRESH_TOKEN",
+                );
+            }
             let mut status = if previous_refresh.is_some() {
                 HttpResponse::Unauthorized()
             } else {
@@ -269,15 +305,21 @@ async fn issue_token_pair(
         Err(e) => return jwt_error(e),
     };
 
-    HttpResponse::Ok().json(JwtIssueResponse {
-        success: true,
-        access_token: access,
-        refresh_token: refresh,
-        token_type: "Bearer".to_string(),
-        expires_in: jwt::ACCESS_TOKEN_TTL_SECS,
-        mfa: mfa_satisfied,
-        mfa_required: mfa_enabled,
-    })
+    let in_body = crate::refresh_cookie::body_transport_requested(http_req);
+    HttpResponse::Ok()
+        .insert_header((
+            actix_web::http::header::SET_COOKIE,
+            crate::refresh_cookie::set_value(&refresh),
+        ))
+        .json(JwtIssueResponse {
+            success: true,
+            access_token: access,
+            refresh_token: in_body.then_some(refresh),
+            token_type: "Bearer".to_string(),
+            expires_in: jwt::ACCESS_TOKEN_TTL_SECS,
+            mfa: mfa_satisfied,
+            mfa_required: mfa_enabled,
+        })
 }
 
 fn jwt_error(e: jsonwebtoken::errors::Error) -> HttpResponse {
@@ -337,10 +379,15 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
     match crate::auth_sessions::revoke_session(pool, session_id, "logout").await {
         // `false` means the session was already ended. Logging out twice is not
         // an error worth surfacing to a user who wanted to be signed out.
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Session ended",
-        })),
+        Ok(_) => HttpResponse::Ok()
+            .insert_header((
+                actix_web::http::header::SET_COOKIE,
+                crate::refresh_cookie::clear_value(),
+            ))
+            .json(serde_json::json!({
+                "success": true,
+                "message": "Session ended",
+            })),
         Err(error) => {
             log::error!("Session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
@@ -371,10 +418,15 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
         });
     };
     match crate::auth_sessions::revoke_all_for_wallet(pool, &claims.sub, "logout_all").await {
-        Ok(ended) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "sessions_ended": ended,
-        })),
+        Ok(ended) => HttpResponse::Ok()
+            .insert_header((
+                actix_web::http::header::SET_COOKIE,
+                crate::refresh_cookie::clear_value(),
+            ))
+            .json(serde_json::json!({
+                "success": true,
+                "sessions_ended": ended,
+            })),
         Err(error) => {
             log::error!("Bulk session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
@@ -911,5 +963,102 @@ pub(crate) fn require_privileged_assurance(
                 code: "MFA_REQUIRED".to_string(),
             }),
         ),
+    }
+}
+
+#[cfg(all(test, feature = "postgres"))]
+mod refresh_cookie_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    const WALLET: &str = "5RefreshCookieTestWallet";
+
+    /// State on PostgreSQL with a registered doctor and one login session,
+    /// returning the session's refresh token.
+    async fn state_with_session() -> (web::Data<AppState>, String) {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let mut state = AppState::new();
+        state.db_pool = Some(pool.clone());
+        crate::test_fixtures::register(&state, WALLET, crate::Role::Doctor);
+        let token = jwt::issue_refresh_token(WALLET, "Doctor").unwrap();
+        let claims = jwt::decode_token(&token).unwrap();
+        crate::auth_sessions::create(
+            &pool,
+            WALLET,
+            &token,
+            &claims.jti,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        (web::Data::new(state), token)
+    }
+
+    async fn refresh_with_cookie(
+        data: &web::Data<AppState>,
+        token: &str,
+    ) -> actix_web::dev::ServiceResponse {
+        let app = test::init_service(App::new().app_data(data.clone()).service(refresh_jwt)).await;
+        let request = test::TestRequest::post()
+            .uri("/api/auth/jwt/refresh")
+            .insert_header((
+                actix_web::http::header::COOKIE,
+                format!("{}={token}", crate::refresh_cookie::REFRESH_COOKIE),
+            ))
+            .to_request();
+        test::call_service(&app, request).await
+    }
+
+    fn set_cookie(response: &actix_web::dev::ServiceResponse) -> String {
+        response
+            .headers()
+            .get(actix_web::http::header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// A reload restores the session from the cookie alone, rotating it; the
+    /// browser never sees the refresh token in the body.
+    #[actix_web::test]
+    async fn the_cookie_restores_and_rotates_the_session() {
+        let (data, token) = state_with_session().await;
+        let response = refresh_with_cookie(&data, &token).await;
+        assert_eq!(response.status(), 200);
+        let cookie = set_cookie(&response);
+        assert!(
+            cookie.contains("HttpOnly") && !cookie.contains(&token),
+            "rotated: {cookie}"
+        );
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert!(body["access_token"].is_string());
+        assert!(
+            body.get("refresh_token").is_none(),
+            "never readable by script"
+        );
+    }
+
+    /// The rotated-away token is refused and the cookie cleared; with no
+    /// cookie at all there is nothing to restore.
+    #[actix_web::test]
+    async fn an_old_or_missing_cookie_is_refused_and_cleared() {
+        let (data, token) = state_with_session().await;
+        assert_eq!(refresh_with_cookie(&data, &token).await.status(), 200);
+        let replay = refresh_with_cookie(&data, &token).await;
+        assert_eq!(replay.status(), 401);
+        assert!(set_cookie(&replay).contains("Max-Age=0"));
+
+        let app = test::init_service(App::new().app_data(data.clone()).service(refresh_jwt)).await;
+        let bare = test::TestRequest::post()
+            .uri("/api/auth/jwt/refresh")
+            .to_request();
+        let response = test::call_service(&app, bare).await;
+        assert_eq!(response.status(), 401);
+        let body = test::read_body(response).await;
+        assert!(
+            String::from_utf8_lossy(&body).contains("NO_REFRESH_TOKEN"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
     }
 }

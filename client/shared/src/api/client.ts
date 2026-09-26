@@ -219,7 +219,6 @@ export class ApiClient {
   // JWT auth (Phase 9.4): when set, requests send `Authorization: Bearer <access>`
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
-  private refreshToken?: string;
   /**
    * True once a JWT session existed and then ended (logout, or a refresh that
    * failed). Latched rather than derived, because "no token right now" cannot
@@ -287,11 +286,11 @@ export class ApiClient {
    * Header-only identity remains a demo-only compatibility path when no token
    * has been established.
    */
-  setTokens(accessToken: string | undefined, refreshToken?: string): void {
+  setTokens(accessToken: string | undefined, _refreshToken?: string): void {
+    // The refresh token is an HttpOnly cookie the browser holds and script
+    // cannot read (WP12); the second parameter is accepted and ignored so
+    // older callers keep compiling.
     this.accessToken = accessToken;
-    if (refreshToken !== undefined) {
-      this.refreshToken = refreshToken;
-    }
     if (accessToken) {
       this.sessionEnded = false;
     }
@@ -319,6 +318,8 @@ export class ApiClient {
         const resp = await fetch(`${this.baseUrl}${path}`, {
           method: 'POST',
           headers: this.getMutationHeaders(),
+          // So the server can clear the HttpOnly refresh cookie.
+          credentials: 'include',
         });
         revoked = resp.ok;
       } catch {
@@ -340,11 +341,18 @@ export class ApiClient {
    * unenforceable for any client still holding a signer.
    */
   clearTokens(): void {
-    if (this.accessToken || this.refreshToken) {
+    if (this.accessToken) {
       this.sessionEnded = true;
     }
     this.accessToken = undefined;
-    this.refreshToken = undefined;
+  }
+
+  /**
+   * Re-establish a session after a page reload from the HttpOnly refresh
+   * cookie (WP12). Returns true when the server issued a fresh access token.
+   */
+  async restoreSession(): Promise<boolean> {
+    return this.refreshAccessToken();
   }
 
   /**
@@ -408,27 +416,25 @@ export class ApiClient {
    * share a single in-flight refresh. Returns true on success.
    */
   private async refreshAccessToken(): Promise<boolean> {
-    if (!this.refreshToken) {
-      return false;
-    }
     if (this.refreshPromise) {
       return this.refreshPromise;
     }
     this.refreshPromise = (async () => {
       try {
+        // The refresh token travels as the HttpOnly cookie (WP12).
         const resp = await fetch(`${this.baseUrl}/api/auth/jwt/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: this.refreshToken }),
+          credentials: 'include',
         });
         if (!resp.ok) {
           this.clearTokens();
           return false;
         }
         const data = await resp.json();
-        if (data?.access_token && data?.refresh_token) {
+        if (data?.access_token) {
           this.accessToken = data.access_token as string;
-          this.refreshToken = data.refresh_token as string;
+          this.sessionEnded = false;
           return true;
         }
         return false;
@@ -719,18 +725,20 @@ export class ApiClient {
       const url = `${this.baseUrl}${path}`;
       debugLog('ApiClient', `${method} ${path}`);
 
+      // Auth routes set and read the HttpOnly refresh cookie (WP12).
+      const credentials: RequestCredentials = path.startsWith('/api/auth/') ? 'include' : 'same-origin';
       let response = await fetch(url, {
         method,
         headers: await buildHeaders(),
         body: payload,
         signal: controller.signal,
+        credentials,
       });
 
       // JWT auto-refresh on 401 (Phase 9.4): refresh once and retry the request.
       if (
         response.status === 401 &&
         this.accessToken &&
-        this.refreshToken &&
         path !== '/api/auth/jwt/refresh'
       ) {
         const refreshed = await this.refreshAccessToken();
@@ -740,6 +748,7 @@ export class ApiClient {
             headers: await buildHeaders(),
             body: payload,
             signal: controller.signal,
+            credentials,
           });
         }
       }

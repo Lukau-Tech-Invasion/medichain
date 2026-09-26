@@ -5402,3 +5402,79 @@ async fn test_pg_history_physical_update_if_unchanged_refuses_a_stale_copy() {
     repo.delete(&id).await.ok();
     pool.close().await;
 }
+
+/// WP12: a refresh token presented again after its rotation (beyond the
+/// race window) is reuse. The whole login is ended, so neither the replayed
+/// copy nor the legitimate successor can continue it.
+#[tokio::test]
+async fn test_pg_refresh_token_reuse_revokes_the_login() {
+    let pool = get_test_pool().await;
+    let wallet = format!(
+        "refresh-reuse-{}",
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let first_jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &wallet,
+        "stolen-generation",
+        &first_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+    let second_jti = uuid::Uuid::new_v4().to_string();
+    crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "stolen-generation",
+        &first_jti,
+        "legitimate-successor",
+        &second_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("rotation")
+    .expect("first rotation wins");
+    // Age the rotation past the race window, as a replay later on would be.
+    sqlx::query(
+        "UPDATE auth_sessions SET revoked_at = NOW() - INTERVAL '1 minute'
+         WHERE login_session_id = $1 AND revocation_reason = 'rotated'",
+    )
+    .bind(sid)
+    .execute(&pool)
+    .await
+    .expect("age rotation");
+
+    let replay = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "stolen-generation",
+        &first_jti,
+        "attacker-successor",
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("replay call");
+    assert!(replay.is_none(), "a replayed generation never rotates");
+    assert!(
+        !crate::auth_sessions::is_session_active(&pool, sid)
+            .await
+            .expect("session state"),
+        "reuse ends the whole login"
+    );
+    let successor = crate::auth_sessions::rotate(
+        &pool,
+        &wallet,
+        "legitimate-successor",
+        &second_jti,
+        "next",
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("successor call");
+    assert!(successor.is_none(), "the successor dies with the login");
+    pool.close().await;
+}
