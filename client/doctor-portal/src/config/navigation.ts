@@ -218,6 +218,8 @@ export const ADMIN_NAV: NavSection[] = [
       // Filing payers' explanation-of-benefits documents (WP7.3). The upload
       // endpoint is administrator-only.
       { id: 'claims-eob', to: '/claims-eob', label: 'Claims & EOBs', icon: FileText },
+      // De-identified research export under two-administrator approval (WP7.4).
+      { id: 'research-exports', to: '/research-exports', label: 'Research Exports', icon: FileCheck },
     ],
   },
   {

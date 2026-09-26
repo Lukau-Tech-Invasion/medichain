@@ -3687,6 +3687,91 @@ export async function getPatientConsents(
  *
  * The reason is optional on purpose: a patient does not owe one.
  */
+/** The consent type and wording version for research participation (WP7.4). */
+export const RESEARCH_CONSENT_TYPE = 'CONSENT-RESEARCH';
+export const RESEARCH_CONSENT_VERSION = 'research-consent-v1';
+
+/** A patient's current research consent, as the app shows it. */
+export interface ResearchConsent {
+  consentId: string;
+  /** Unix seconds. */
+  signedAt: number;
+  version: string | null;
+}
+
+/** The patient's active research consent, or `null` when they have none. */
+export async function getResearchConsent(patientId: string): Promise<ResearchConsent | null> {
+  const body = await getPatientConsents(patientId);
+  const active = (body.consents as Array<Record<string, unknown>>)
+    .filter((c) => c.consent_type === RESEARCH_CONSENT_TYPE && c.status === 'granted' && c.revoked !== true)
+    .sort((a, b) => Number(b.signed_at) - Number(a.signed_at))[0];
+  return active
+    ? { consentId: String(active.consent_id), signedAt: Number(active.signed_at), version: (active.version as string | null) ?? null }
+    : null;
+}
+
+/** Give research consent (POPIA s11(1)(a) and s27(1)(a): the patient's own consent). */
+export async function giveResearchConsent(patientId: string): Promise<{ success: boolean; consent_id: string }> {
+  return getApiClient().post('/api/consent/sign', {
+    type_id: RESEARCH_CONSENT_TYPE,
+    patient_id: patientId,
+    consent_given: true,
+    popia_section_11_basis: 'consent',
+    special_information_basis: 'consent',
+    privacy_notice_version: RESEARCH_CONSENT_VERSION,
+  });
+}
+
+// ============================================================================
+// Research exports (WP7.4) — administrators
+// ============================================================================
+
+/** One de-identified record as an export releases it. */
+export interface ResearchRecord {
+  pseudonym: string;
+  age_band: string;
+  sex: 'female' | 'male' | 'unknown';
+  conditions: string[];
+}
+
+/** An export run and its governance state. */
+export interface ResearchExportRun {
+  id: string;
+  purpose: string;
+  proposed_by: string;
+  status: 'proposed' | 'approved' | 'executed';
+  required_approvals: number;
+  approved_by: string[];
+  consent_version: string;
+  created_at: string;
+  executed_at?: string;
+  included_count?: number;
+  withheld_count?: number;
+}
+
+export async function listResearchExports(): Promise<{ success: boolean; exports: ResearchExportRun[]; configured: boolean }> {
+  return getApiClient().get('/api/research/exports');
+}
+
+export async function proposeResearchExport(purpose: string): Promise<{ success: boolean; export: ResearchExportRun }> {
+  return getApiClient().post('/api/research/exports', { purpose: purpose.trim() });
+}
+
+export async function approveResearchExport(id: string): Promise<{ success: boolean; export: ResearchExportRun }> {
+  return getApiClient().post(`/api/research/exports/${encodeURIComponent(id)}/approve`, {});
+}
+
+export async function executeResearchExport(
+  id: string
+): Promise<{ success: boolean; export: ResearchExportRun; records: ResearchRecord[] }> {
+  // keepEnvelope: the client otherwise unwraps any `records` array and the
+  // run summary beside it would be lost. noRetry: an export runs once.
+  return getApiClient().post(`/api/research/exports/${encodeURIComponent(id)}/execute`, {}, {
+    noRetry: true,
+    keepEnvelope: true,
+  });
+}
+
 export async function revokeConsent(
   consentId: string,
   reason?: string

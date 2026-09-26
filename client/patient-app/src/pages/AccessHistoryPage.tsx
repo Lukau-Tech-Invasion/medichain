@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Eye, PencilLine, ShieldCheck, ShieldQuestion } from 'lucide-react';
+import { AlertTriangle, Eye, FlaskConical, PencilLine, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { getAccessLogs, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -105,12 +105,34 @@ export function AccessHistoryPage() {
 }
 
 /**
+ * A de-identified research export that included this patient. Says what
+ * happened in plain words rather than presenting it as someone reading the
+ * record.
+ *
+ * @param props.session - The grouped research-export session.
+ */
+function ResearchInclusionCard({ session }: { session: AccessSession }) {
+  const { t } = useTranslation();
+  return (
+    <li className="bg-surface rounded-xl border border-border p-4" data-testid="access-session">
+      <p className="flex items-center gap-1 font-semibold text-content">
+        <FlaskConical className="w-4 h-4" aria-hidden="true" />
+        {t('accessHistory.researchIncluded', { date: formatTimestamp(session.startedAt) })}
+      </p>
+      <p className="text-sm text-content-muted mt-1">{t('accessHistory.researchExplainer')}</p>
+      <AnchorBadge session={session} />
+    </li>
+  );
+}
+
+/**
  * One access session: who, where, when, why, what, and anchor state.
  *
  * @param props.session - The grouped session to render.
  */
 function SessionCard({ session }: { session: AccessSession }) {
   const { t } = useTranslation();
+  if (session.kind === 'research') return <ResearchInclusionCard session={session} />;
   const sameMoment = session.startedAt === session.endedAt;
   const when = sameMoment
     ? formatTimestamp(session.startedAt)

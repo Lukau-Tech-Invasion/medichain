@@ -80,5 +80,7 @@ describe('kindOf', () => {
     expect(kindOf('nfc_tap')).toBe('viewed');
     expect(kindOf('download_record')).toBe('viewed');
     expect(kindOf('update_consent')).toBe('changed');
+    // Inclusion in a research export is neither a read nor a change.
+    expect(kindOf('research_export_included')).toBe('research');
   });
 });

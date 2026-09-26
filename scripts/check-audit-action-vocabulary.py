@@ -116,6 +116,15 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "eob_uploaded",
         "eob_downloaded",
     ],
+    # `governance_audit` takes the action as a parameter; its call sites in
+    # the same file pass these literals (the per-patient rows reuse it via
+    # struct update syntax with "research_export_included").
+    "api/src/handlers/research_exports.rs::action.to_string()": [
+        "research_export_proposed",
+        "research_export_approved",
+        "research_export_executed",
+        "research_export_included",
+    ],
     # Test-only: the refill `pg_tests` helper `audit(action)` is called with
     # these three literals, which must be ones the constraint accepts.
     "api/src/repositories/refill_requests.rs::action.into()": [

@@ -48,6 +48,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Demo-only, booleans about the synthetic PAT-DEMO-001 fixture, so the
         // seed can re-run without audited chart reads. 403 outside dev+demo.
         .service(demo_seed_status)
+        // Research / secondary-use export (WP7.4): propose, two other
+        // administrators approve, run once; de-identified output only.
+        .service(propose_research_export)
+        .service(list_research_exports)
+        .service(approve_research_export)
+        .service(execute_research_export)
         // Demo-only: hands the sign-in shortcut the seeded fixture
         // credentials so it can drive the real credential flow. 403s
         // outside dev+demo mode, so production has no shortcut to reach.

@@ -486,7 +486,10 @@ pub async fn sign_consent(
         document_url: None,
         document_ipfs_hash: None,
         regulatory_requirement: None,
-        version: None,
+        // Research consent records the wording version it was given under, so
+        // an export can include only consents to the current terms.
+        version: (consent_type == crate::research_export::RESEARCH_CONSENT_TYPE)
+            .then(|| crate::research_export::RESEARCH_CONSENT_VERSION.to_string()),
         created_at: Some(now),
         updated_at: Some(now),
         popia_section_11_basis: section_11_basis.as_str().to_string(),
@@ -734,6 +737,10 @@ pub async fn get_patient_consents(
                 "consent_giver_capacity": c.consent_giver_capacity,
                 "guardian_authority_evidence_id": c.guardian_authority_evidence_id,
                 "emergency_basis": c.emergency_basis,
+                // The wording version (research consent) and whether it was
+                // withdrawn, so the patient app shows the real state.
+                "version": c.version,
+                "revoked": c.revoked.unwrap_or(false),
                 // Present only when something is wrong, so a clean record's
                 // response shape is unchanged.
                 "integrity_problems": integrity.err(),

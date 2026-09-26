@@ -234,3 +234,4 @@ pg_json_repo!(
 pg_json_repo!(PgFamilyHistoryRecordRepository, "family_history_records");
 pg_json_repo!(PgUserSettingRecordRepository, "user_setting_records");
 pg_json_repo!(PgUsedEmergencyTokenRepository, "used_emergency_tokens");
+pg_json_repo!(PgResearchExportRunRepository, "research_export_runs");
