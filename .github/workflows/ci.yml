@@ -1,5 +1,5 @@
 # MediChain CI Workflow
-# Runs on every push and pull request to main branch
+# Runs on pushes and pull requests to the main and development branches
 
 name: MediChain CI
 
@@ -7,7 +7,7 @@ on:
     push:
         branches: [main, development/**]
     pull_request:
-        branches: [main]
+        branches: [main, development/**]
     workflow_dispatch:
 
 env:
@@ -80,6 +80,13 @@ jobs:
             # constraint, so an omission common to both is still caught.
             - name: Every audit action the handlers write is permitted by the schema
               run: python scripts/check-audit-action-vocabulary.py
+
+            # Patients are promised they can see who read their record. One
+            # middleware keeps that promise for every patient-scoped GET in its
+            # registry; a new route missing from the registry would be read
+            # without a trace, so its absence fails the build.
+            - name: Every patient-data read route is disclosure-audited
+              run: python scripts/check-phi-read-audit.py
 
             # MediChain authenticates by proving control of a key. A "quick
             # login" list short-circuits that by naming an identity and asking

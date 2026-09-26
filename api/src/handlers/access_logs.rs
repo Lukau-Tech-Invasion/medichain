@@ -65,7 +65,7 @@ pub async fn get_all_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
+    let paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_logs": paginated_logs,
@@ -156,7 +156,7 @@ pub async fn get_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
+    let paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
     // Who looked, in words.
     //
     // This is the POPIA transparency control: the screen a patient opens to see
@@ -173,9 +173,14 @@ pub async fn get_access_logs(
         .iter()
         .map(|entry| {
             let mut value = serde_json::to_value(entry).unwrap_or_default();
-            let name = get_user(&data, &entry.accessor_id).map(|user| user.name);
+            let accessor = get_user(&data, &entry.accessor_id);
+            let name = accessor.as_ref().map(|user| user.name.clone());
+            // Department is what a patient recognises ("Casualty", "Radiology")
+            // when no facility name is on record for the clinician.
+            let department = accessor.and_then(|user| user.department);
             if let Some(object) = value.as_object_mut() {
                 object.insert("accessor_name".into(), serde_json::json!(name));
+                object.insert("accessor_department".into(), serde_json::json!(department));
             }
             value
         })

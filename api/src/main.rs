@@ -629,6 +629,10 @@ async fn main() -> std::io::Result<()> {
                     // SEC-005: Wallet signature authentication headers
                     actix_web::http::header::HeaderName::from_static("x-signature"),
                     actix_web::http::header::HeaderName::from_static("x-timestamp"),
+                    // Clinician's declared reason for opening a chart (PHI audit).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::middleware::phi_access_audit::ACCESS_REASON_HEADER,
+                    ),
                 ])
                 .max_age(3600);
 
@@ -674,6 +678,9 @@ async fn main() -> std::io::Result<()> {
         };
 
         App::new()
+            // Innermost on purpose: it must see the matched route and the
+            // handler's final status, and its 503 must still get CORS headers.
+            .wrap(crate::middleware::phi_access_audit::PhiAccessAuditMiddleware)
             .wrap(cors)
             // Security/HSTS headers on every response (Phase 6.2).
             .wrap(SecurityHeadersMiddleware)

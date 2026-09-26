@@ -1,9 +1,10 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { AccessReasonGate } from './components/AccessReasonGate';
 import { I18nProvider, DialogHost } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
@@ -26,6 +27,19 @@ import DashboardPage from './pages/DashboardPage';
 // Patient Management
 const PatientSearchPage = lazy(() => import('./pages/PatientSearchPage'));
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'));
+
+/**
+ * A patient's chart, opened only after the clinician declares why.
+ * The reason is shown to the patient on their access history.
+ */
+function PatientChartRoute() {
+  const { patientId } = useParams<{ patientId: string }>();
+  return (
+    <AccessReasonGate patientId={patientId}>
+      <PatientDetailPage />
+    </AccessReasonGate>
+  );
+}
 const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
 const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
@@ -239,7 +253,7 @@ function App() {
 
         {/* Patient Management */}
         <Route path="patients" element={<LazyRoute element={<PatientSearchPage />} />} />
-        <Route path="patients/:patientId" element={<LazyRoute element={<PatientDetailPage />} />} />
+        <Route path="patients/:patientId" element={<LazyRoute element={<PatientChartRoute />} />} />
         <Route path="register" element={<LazyRoute element={<RegisterPatientPage />} />} />
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
         <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />

@@ -723,6 +723,7 @@ pub async fn review_lab_results_impl(
             record_type: "lab_result".to_string(),
             uploaded_at: Utc::now().timestamp(),
             content_checksum,
+            blockchain_tx_hash: None,
         };
 
         let entity: crate::repositories::traits::MedicalRecordEntity =

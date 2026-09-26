@@ -177,6 +177,28 @@ export function getApiErrorCode(error: unknown): string | undefined {
   return typeof nested === 'string' ? nested : undefined;
 }
 
+/**
+ * Decode one URL path segment without throwing on malformed escapes.
+ *
+ * @param segment - A raw path segment.
+ * @returns The decoded segment, or the raw text when it is not valid encoding.
+ */
+function safeDecodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** The patient chart a clinician has open, and their declared reason for opening it. */
+export interface PatientAccessContext {
+  /** Patient record id as it appears in API paths (e.g. `PAT-001`). */
+  patientId: string;
+  /** Reason code: Treatment, Referral, Emergency, Administrative, or free text. */
+  reason: string;
+}
+
 export class ApiClient {
   private baseUrl: string;
   private userId?: string;
@@ -201,6 +223,12 @@ export class ApiClient {
    */
   private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
+  /**
+   * The chart a clinician currently has open and why they opened it. Sent as
+   * `X-Access-Reason` on reads of that patient so the patient's access history
+   * can say *why*, not just *who* and *when*.
+   */
+  private patientAccessContext?: PatientAccessContext;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -489,6 +517,33 @@ export class ApiClient {
   }
 
   /**
+   * Declare (or clear) the patient chart the clinician has open and the reason.
+   *
+   * @param context - The open chart and declared reason, or undefined when the
+   *   chart is closed. Always clear it on leaving a chart, so a later read of a
+   *   different patient cannot inherit this patient's reason.
+   */
+  setPatientAccessContext(context: PatientAccessContext | undefined): void {
+    this.patientAccessContext = context;
+  }
+
+  /**
+   * Headers declaring why a patient's data is being read, when applicable.
+   *
+   * @param method - HTTP method of the request.
+   * @param path - Request path (may include a query string).
+   * @returns `{ 'X-Access-Reason': reason }` for a GET whose path names the
+   *   patient in the open chart; otherwise an empty object.
+   */
+  private accessReasonHeaders(method: string, path: string): Record<string, string> {
+    const context = this.patientAccessContext;
+    if (!context || method.toUpperCase() !== 'GET') return {};
+    // Match whole path segments only, so PAT-1 never matches PAT-10.
+    const segments = path.split('?')[0].split('/').map(safeDecodeSegment);
+    return segments.includes(context.patientId) ? { 'X-Access-Reason': context.reason } : {};
+  }
+
+  /**
    * Main request method with retry logic and timeout handling
    */
   private async request<T>(
@@ -510,9 +565,10 @@ export class ApiClient {
     const idempotencyKey = isMutationMethod(method)
       ? (callerKey ?? createOperationKey())
       : undefined;
+    const reasonHeaders = this.accessReasonHeaders(method, path);
     const requestHeaders = idempotencyKey
-      ? { ...options?.headers, 'Idempotency-Key': idempotencyKey }
-      : options?.headers;
+      ? { ...reasonHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey }
+      : { ...reasonHeaders, ...options?.headers };
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {

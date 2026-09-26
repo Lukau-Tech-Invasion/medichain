@@ -780,6 +780,35 @@ pub struct AccessLogEntry {
     pub emergency: bool,
 }
 
+/// Read-side view of one access-log row, returned by the access-log endpoints.
+///
+/// `AccessLogEntry` is the write-side shape a dozen handlers build, and it has
+/// no room for *why* or *what*. Converting the stored row through it threw
+/// those away, so the patient's transparency screen could say *who* and *when*
+/// but never *why* they looked or *what* they saw -- the two halves of the
+/// promise that actually matter. This view carries every field the row stores
+/// that a patient is entitled to see. The IP address and user agent are left
+/// out on purpose: they identify the clinician's device, not the disclosure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessLogView {
+    pub access_id: String,
+    pub patient_id: String,
+    pub accessor_id: String,
+    pub accessor_role: String,
+    /// The stored action (`view`, `download`, `nfc_tap`, ...).
+    pub access_type: String,
+    /// The clinician's declared reason, or `None` when none was recorded.
+    pub access_reason: Option<String>,
+    /// Plain-language category of what was disclosed (e.g. "Vital signs").
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub location: Option<String>,
+    pub timestamp: DateTime<Utc>,
+    pub emergency: bool,
+    /// Finalized chain transaction for this entry; `None` means not (yet) anchored.
+    pub blockchain_tx_hash: Option<String>,
+}
+
 #[cfg(test)]
 mod role_authority_tests {
     use super::*;

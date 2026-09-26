@@ -18,6 +18,9 @@ const MyRecordsPage = lazy(() =>
 const ConsentManagementPage = lazy(() =>
   import('./pages/ConsentManagementPage').then((m) => ({ default: m.ConsentManagementPage }))
 );
+const AccessHistoryPage = lazy(() =>
+  import('./pages/AccessHistoryPage').then((m) => ({ default: m.AccessHistoryPage }))
+);
 const EmergencyCardPage = lazy(() =>
   import('./pages/EmergencyCardPage').then((m) => ({ default: m.EmergencyCardPage }))
 );
@@ -119,6 +122,7 @@ function App() {
         <Route path="profile" element={<MyProfilePage />} />
         <Route path="records" element={<MyRecordsPage />} />
         <Route path="consent" element={<ConsentManagementPage />} />
+        <Route path="access-history" element={<AccessHistoryPage />} />
         <Route path="emergency-card" element={<EmergencyCardPage />} />
         <Route path="medications" element={<MedicationsPage />} />
         <Route path="appointments" element={<AppointmentsPage />} />

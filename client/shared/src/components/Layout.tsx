@@ -30,6 +30,7 @@ import {
   Video,
   FlaskConical,
   BookOpen,
+  Eye,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useSSE } from '../hooks/useSSE';
@@ -192,6 +193,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       label: 'Account',
       items: [
         { path: '/consent', label: 'Access Control', icon: Shield },
+        { path: '/access-history', label: 'Who Viewed My Records', icon: Eye },
         { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
         { path: '/insurance', label: 'Insurance', icon: ClipboardList },
         { path: '/notifications', label: 'Notifications', icon: Bell },
