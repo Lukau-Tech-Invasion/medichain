@@ -376,6 +376,9 @@ pub async fn create_radiology_report(
 
     let report = req.into_inner();
     let owner_id = report.patient_id.clone();
+    // Kept before `report` is moved into the repository: the demo re-seed
+    // branch below needs it to recognise its own fixture on a duplicate.
+    let report_id = report.report_id.clone();
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -408,9 +411,11 @@ pub async fn create_radiology_report(
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
         Err(crate::repositories::RepositoryError::Duplicate(_))
-            if crate::support::is_demo_mode() && report.report_id.starts_with("RAD-DEMO-") =>
+            if crate::support::is_demo_mode() && report_id.starts_with("RAD-DEMO-") =>
         {
-            HttpResponse::Ok().json(serde_json::json!({ "id": report.report_id, "success": true, "already_seeded": true }))
+            HttpResponse::Ok().json(
+                serde_json::json!({ "id": report_id, "success": true, "already_seeded": true }),
+            )
         }
         Err(e) => {
             log::error!("radiology report could not be stored: {e}");
