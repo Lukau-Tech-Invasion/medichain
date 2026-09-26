@@ -504,9 +504,25 @@ export interface AccessLogEntry {
   accessor_name?: string | null;
   accessor_role: string;
   access_type: string;
-  location?: string;
+  /**
+   * The clinician's declared reason for opening the record ("Treatment",
+   * "Referral", ...). "Not stated" when none was given; null only on rows
+   * written before reasons were recorded.
+   */
+  access_reason?: string | null;
+  /** Plain-language description of what was disclosed, e.g. "Vital signs". */
+  resource_type?: string;
+  resource_id?: string | null;
+  /** Department of the accessor, when known. Shown when no facility is on record. */
+  accessor_department?: string | null;
+  location?: string | null;
   timestamp: string;
   emergency: boolean;
+  /**
+   * Finalized blockchain transaction anchoring this entry. Null means the entry
+   * is not (yet) anchored -- never render such an entry as verified.
+   */
+  blockchain_tx_hash?: string | null;
 }
 
 export interface AccessLogsResponse {

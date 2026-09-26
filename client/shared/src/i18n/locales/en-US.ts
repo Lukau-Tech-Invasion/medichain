@@ -179,6 +179,8 @@ const en_US: TranslationRecord = {
     status: 'Status',
     verified: 'Blockchain Verified',
     pendingVerification: 'Pending Verification',
+    anchored: 'Anchored on the blockchain',
+    notAnchored: 'Not anchored on the blockchain',
     documentHash: 'Document Hash (IPFS)',
     testResults: 'Test Results',
     doctorApproved: 'Doctor Approved',
@@ -204,6 +206,43 @@ const en_US: TranslationRecord = {
     typeDischarge: 'Discharge Summary',
     typeVaccination: 'Vaccination',
     typeOther: 'Other',
+  },
+
+  // Why a clinician is opening a patient's chart (shown to the patient)
+  accessReason: {
+    title: 'Why are you opening this record?',
+    explainer:
+      'The patient can see who opened their record and why. Your answer is recorded with every part of the chart you view.',
+    treatment: 'Treatment',
+    referral: 'Referral',
+    emergency: 'Emergency',
+    administrative: 'Administrative',
+    otherLabel: 'Another reason',
+    otherPlaceholder: 'Another reason (short)',
+    continue: 'Continue',
+  },
+
+  // Who viewed my records (patient transparency)
+  accessHistory: {
+    title: 'Who viewed my records',
+    subtitle:
+      'Every time someone other than you opens your health information, it is recorded here: who, where, when, why and what they saw.',
+    loading: 'Loading your access history...',
+    failed:
+      'Your access history could not be loaded, so this is not a record of nobody viewing your information. Please try again.',
+    retry: 'Try again',
+    empty: 'Nobody other than you has viewed your health information.',
+    loadOlder: 'Show older entries',
+    emergencyAccess: 'Emergency access',
+    reason: 'Reason',
+    viewed: 'Viewed',
+    changed: 'Changed',
+    anchored: 'Anchored on the blockchain',
+    partiallyAnchored: 'Partly anchored on the blockchain',
+    anchorPending: 'Blockchain anchor pending',
+    anchorExplainer:
+      'Anchoring records a fingerprint of this entry on the blockchain so later changes to it can be detected. Your health information itself is never put on the blockchain.',
+    dashboardLink: 'Who viewed my records',
   },
 
   // Emergency

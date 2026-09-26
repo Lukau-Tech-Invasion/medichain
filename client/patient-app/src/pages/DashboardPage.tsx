@@ -108,7 +108,14 @@ export function DashboardPage() {
             // The clinician's name, falling back to the wallet only when the
             // server could not resolve it. A patient reading "5GnPcTux4PX1F8..."
             // learns nothing about who opened their record.
-            description: `${log.accessor_name || log.accessor_id} ${log.access_type === 'view' ? t('dashboard.accessedYourRecords') : log.access_type}`,
+            // Say what was seen when the server recorded it ("viewed Lab results").
+            description: `${log.accessor_name || log.accessor_id} ${
+              log.access_type === 'view'
+                ? log.resource_type
+                  ? `${t('accessHistory.viewed').toLowerCase()} ${log.resource_type}`
+                  : t('dashboard.accessedYourRecords')
+                : log.access_type
+            }`,
             timestamp: log.timestamp,
             accessor: log.accessor_name || log.accessor_id,
           }));
@@ -351,7 +358,9 @@ export function DashboardPage() {
             <Clock className="w-5 h-5 text-content-muted" />
             {t('dashboard.recentActivity')}
           </h3>
-          <Link to="/consent" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
+          {/* Recent activity is who accessed the record, so "view all" is the
+              full access history, not the consent screen it used to open. */}
+          <Link to="/access-history" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
             {t('dashboard.viewAll')}
           </Link>
         </div>

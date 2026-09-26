@@ -144,6 +144,7 @@ pub async fn upload_medical_record(
         record_type: req.record_type.clone(),
         uploaded_at: Utc::now().timestamp(),
         content_checksum,
+        blockchain_tx_hash: None,
     };
 
     let mut record_entity: crate::repositories::traits::MedicalRecordEntity =
@@ -212,6 +213,9 @@ pub async fn upload_medical_record(
             });
         }
     };
+    if let Some(tx_hash) = record_chain.transaction_hash.as_deref() {
+        stamp_record_anchor(&data, &record_id, tx_hash).await;
+    }
     let access_chain = match crate::audit_outbox::anchor_access_or_queue(
         &data,
         "medical_record_access",
@@ -244,6 +248,33 @@ pub async fn upload_medical_record(
         access_blockchain_tx_hash: access_chain.transaction_hash,
         message: "Medical record uploaded and encrypted successfully".to_string(),
     })
+}
+
+/// Record a finalized chain transaction on the stored medical record.
+///
+/// Without this, the transaction hash lived only in the upload response and
+/// the record list could never show an anchored record as anchored. A failure
+/// here does not undo the upload: the record and its anchor both exist, only
+/// the cross-reference is missing, and it is logged for repair.
+///
+/// # Parameters
+/// * `data` - application state.
+/// * `record_id` - the stored record's id.
+/// * `tx_hash` - the finalized extrinsic hash.
+async fn stamp_record_anchor(data: &web::Data<AppState>, record_id: &str, tx_hash: &str) {
+    let mut record = match data.repositories.medical_records.get_by_id(record_id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!(
+                "Anchor {tx_hash} not stamped on record {record_id}: lookup failed: {error}"
+            );
+            return;
+        }
+    };
+    record.blockchain_tx_hash = Some(tx_hash.to_string());
+    if let Err(error) = data.repositories.medical_records.update(record).await {
+        log::error!("Anchor {tx_hash} not stamped on record {record_id}: update failed: {error}");
+    }
 }
 
 /// Download and decrypt medical document from IPFS

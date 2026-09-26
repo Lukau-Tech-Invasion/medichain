@@ -245,6 +245,26 @@ pub async fn add_vital_signs(
     })
 }
 
+/// Response when vital signs cannot be read.
+///
+/// These endpoints used to answer `200` with an empty list on a storage error,
+/// which tells a nurse "no vitals recorded" -- a clinically false statement --
+/// and, with disclosure auditing, would log a read that disclosed nothing.
+///
+/// # Parameters
+/// * `patient_id` - the patient whose vitals were requested (logged, not returned).
+/// * `error` - the repository error text (logged only, never sent to the client).
+///
+/// # Returns
+/// A 503 with a user-safe message.
+fn vitals_unavailable(patient_id: &str, error: &str) -> HttpResponse {
+    log::error!("Vital signs read failed for patient {patient_id}: {error}");
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Vital signs are temporarily unavailable. Please try again.".to_string(),
+        code: "VITALS_UNAVAILABLE".to_string(),
+    })
+}
+
 /// Get vital signs flowsheet for a patient
 #[get("/api/clinical/patient/{patient_id}/vitals")]
 pub async fn get_patient_vitals(
@@ -299,12 +319,7 @@ pub async fn get_patient_vitals(
                 "critical_alerts": []
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "readings": [],
-            "total": 0,
-            "critical_alerts": []
-        })),
+        Err(error) => vitals_unavailable(&patient_id, &error.to_string()),
     }
 }
 
@@ -362,12 +377,7 @@ pub async fn get_vitals_flowsheet(
                 "critical_alerts": []
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "readings": [],
-            "total": 0,
-            "critical_alerts": []
-        })),
+        Err(error) => vitals_unavailable(&patient_id, &error.to_string()),
     }
 }
 

@@ -570,6 +570,12 @@ async fn record_queued_chain_success(
     payload: &serde_json::Value,
     transaction_hash: &str,
 ) -> Result<(), String> {
+    if event_type == "chain_access_anchor" {
+        return record_access_anchor_success(transaction, payload, transaction_hash).await;
+    }
+    if event_type == "medical_record_chain_anchor" {
+        return record_medical_record_anchor_success(transaction, payload, transaction_hash).await;
+    }
     if event_type != "emergency_capsule_chain_anchor" {
         return Ok(());
     }
@@ -588,6 +594,73 @@ async fn record_queued_chain_success(
     )
     .bind(patient_id)
     .bind(version)
+    .bind(transaction_hash)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Stamp the finalized transaction hash onto the access-log row it anchors.
+///
+/// This is what lets a patient see "anchored" next to a read. Only rows queued
+/// by the disclosure audit carry `access_log_id`; older anchor events (whose
+/// aggregate is a grant or consent id, not an access-log row) are left alone.
+/// An existing hash is never overwritten.
+///
+/// # Parameters
+/// * `transaction` - the delivery transaction, so the stamp commits with the delivery.
+/// * `payload` - the outbox payload.
+/// * `transaction_hash` - the finalized extrinsic hash.
+///
+/// # Returns
+/// `Ok(())`, or the database error text.
+async fn record_access_anchor_success(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    payload: &serde_json::Value,
+    transaction_hash: &str,
+) -> Result<(), String> {
+    let Some(access_log_id) = payload
+        .get("access_log_id")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(());
+    };
+    sqlx::query(
+        "UPDATE access_logs SET blockchain_tx_hash = $2
+         WHERE id = $1 AND blockchain_tx_hash IS NULL",
+    )
+    .bind(access_log_id)
+    .bind(transaction_hash)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Stamp the finalized transaction hash onto the medical record it anchors.
+///
+/// # Parameters
+/// * `transaction` - the delivery transaction.
+/// * `payload` - the outbox payload (carries the record's IPFS content hash).
+/// * `transaction_hash` - the finalized extrinsic hash.
+///
+/// # Returns
+/// `Ok(())`, or the database error text.
+async fn record_medical_record_anchor_success(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    payload: &serde_json::Value,
+    transaction_hash: &str,
+) -> Result<(), String> {
+    let ipfs_hash = payload
+        .get("ipfs_hash")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "record outbox payload is missing ipfs_hash".to_string())?;
+    sqlx::query(
+        "UPDATE medical_records SET blockchain_tx_hash = $2
+         WHERE ipfs_content_hash = $1 AND blockchain_tx_hash IS NULL",
+    )
+    .bind(ipfs_hash)
     .bind(transaction_hash)
     .execute(&mut **transaction)
     .await

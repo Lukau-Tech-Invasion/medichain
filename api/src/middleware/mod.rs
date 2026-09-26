@@ -14,6 +14,7 @@ pub mod error_handling;
 pub mod idempotency;
 pub mod jwt_identity;
 pub mod metrics;
+pub mod phi_access_audit;
 pub mod rate_limit;
 pub mod security_headers;
 pub mod session_state;

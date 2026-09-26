@@ -259,8 +259,23 @@ export async function replaceEmergencyContacts(
 // Access Logs
 // ============================================================================
 
-export async function getAccessLogs(patientId: string): Promise<AccessLogsResponse> {
-  return getApiClient().get(`/api/access-logs/${patientId}`);
+/**
+ * Fetch who has accessed a patient's record.
+ *
+ * @param patientId - The patient record id (e.g. `PAT-001`).
+ * @param options - Optional 1-indexed `page` and page size `limit`.
+ * @returns One page of access-log entries, newest first.
+ */
+export async function getAccessLogs(
+  patientId: string,
+  options?: { page?: number; limit?: number },
+): Promise<AccessLogsResponse> {
+  const params = new URLSearchParams();
+  if (options?.page) params.set('page', String(options.page));
+  if (options?.limit) params.set('limit', String(options.limit));
+  const query = params.toString();
+  const id = encodeURIComponent(patientId);
+  return getApiClient().get(`/api/access-logs/${id}${query ? `?${query}` : ''}`);
 }
 
 // ============================================================================

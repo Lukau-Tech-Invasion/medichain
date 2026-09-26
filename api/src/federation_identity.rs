@@ -19,6 +19,9 @@ pub enum ContextType {
     Professional,
 }
 
+/// Placeholder facility the legacy user bridge assigns when none is known.
+const LEGACY_FACILITY_ID: &str = "legacy-facility";
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LoginContext {
     pub id: String,
@@ -92,7 +95,7 @@ impl IdentityContextStore {
                     .or_insert_with(|| ProfessionalAssignment {
                         id: format!("legacy-assignment-{}", Uuid::new_v4()),
                         organization_id: "legacy-organization".to_string(),
-                        facility_id: "legacy-facility".to_string(),
+                        facility_id: LEGACY_FACILITY_ID.to_string(),
                         role: role.to_string(),
                         active: true,
                     });
@@ -159,6 +162,28 @@ impl IdentityContextStore {
             created_at: Utc::now(),
             expires_at: Utc::now() + Duration::minutes(CONTEXT_TTL_MINUTES),
         })
+    }
+
+    /// Facility of the caller's active professional assignment, if any.
+    ///
+    /// Used to tell a patient *where* the person who read their record works.
+    ///
+    /// # Parameters
+    /// * `wallet_address` - the clinician's authenticated wallet.
+    ///
+    /// # Returns
+    /// The facility id, or `None` when the caller has no active assignment
+    /// (never a guessed or default facility).
+    pub fn facility_for_wallet(&self, wallet_address: &str) -> Option<String> {
+        self.professional_assignments
+            .read()
+            .ok()?
+            .get(wallet_address)
+            .filter(|assignment| assignment.active)
+            // The legacy bridge fills every assignment with this placeholder;
+            // telling a patient "legacy-facility" read their record is noise.
+            .filter(|assignment| assignment.facility_id != LEGACY_FACILITY_ID)
+            .map(|assignment| assignment.facility_id.clone())
     }
 
     pub fn active_context(&self, context_id: &str, wallet_address: &str) -> Option<LoginContext> {

@@ -513,6 +513,11 @@ pub struct MedicalRecordReference {
     pub uploaded_at: i64,
     /// SHA-256 hash of original content (for integrity verification)
     pub content_checksum: String,
+    /// Finalized chain transaction anchoring this record, once one exists.
+    /// `None` means not (yet) anchored; clients must never show such a record
+    /// as blockchain-verified.
+    #[serde(default)]
+    pub blockchain_tx_hash: Option<String>,
 }
 
 #[cfg(test)]
@@ -609,6 +614,7 @@ mod tests {
             record_type: "imaging".to_string(),
             uploaded_at: 1704067200,
             content_checksum: "abc123def456".to_string(),
+            blockchain_tx_hash: None,
         };
 
         let json = serde_json::to_string(&reference).unwrap();

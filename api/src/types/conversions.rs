@@ -21,6 +21,32 @@ impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
     }
 }
 
+/// Build the patient-facing view of a stored access-log row.
+///
+/// # Parameters
+/// * `entity` - the row as stored by the repository.
+///
+/// # Returns
+/// An [`AccessLogView`] carrying who, when, why, what and anchor state.
+impl From<crate::repositories::traits::AccessLogEntity> for AccessLogView {
+    fn from(entity: crate::repositories::traits::AccessLogEntity) -> Self {
+        Self {
+            access_id: entity.id,
+            patient_id: entity.patient_id.unwrap_or_default(),
+            accessor_id: entity.accessor_id,
+            accessor_role: entity.accessor_role,
+            access_type: entity.action,
+            access_reason: entity.access_reason,
+            resource_type: entity.resource_type,
+            resource_id: entity.resource_id,
+            location: entity.facility_id,
+            timestamp: entity.accessed_at,
+            emergency: entity.is_emergency_access,
+            blockchain_tx_hash: entity.blockchain_tx_hash,
+        }
+    }
+}
+
 impl From<crate::repositories::traits::AccessLogEntity> for AccessLogEntry {
     fn from(entity: crate::repositories::traits::AccessLogEntity) -> Self {
         Self {
@@ -107,6 +133,7 @@ impl From<crate::repositories::traits::MedicalRecordEntity>
             record_type: entity.record_type,
             uploaded_at: entity.record_date.timestamp(),
             content_checksum: entity.content_checksum.unwrap_or_default(),
+            blockchain_tx_hash: entity.blockchain_tx_hash,
         }
     }
 }

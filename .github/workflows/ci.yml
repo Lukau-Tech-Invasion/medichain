@@ -81,6 +81,13 @@ jobs:
             - name: Every audit action the handlers write is permitted by the schema
               run: python scripts/check-audit-action-vocabulary.py
 
+            # Patients are promised they can see who read their record. One
+            # middleware keeps that promise for every patient-scoped GET in its
+            # registry; a new route missing from the registry would be read
+            # without a trace, so its absence fails the build.
+            - name: Every patient-data read route is disclosure-audited
+              run: python scripts/check-phi-read-audit.py
+
             # MediChain authenticates by proving control of a key. A "quick
             # login" list short-circuits that by naming an identity and asking
             # the app to become it — a bypass whether or not it currently

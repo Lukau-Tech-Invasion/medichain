@@ -31,7 +31,12 @@ interface MedicalRecord {
   date: string;
   contentHash: string;
   metadataHash: string;
-  verified: boolean;
+  /**
+   * Finalized blockchain transaction anchoring this record, or null. Only a
+   * real transaction may produce the "anchored" badge -- this used to be a
+   * hard-coded `verified: true` on nearly every record type.
+   */
+  chainTxHash: string | null;
   // Lab result specific fields (optional)
   labResults?: Array<{
     parameter: string;
@@ -80,7 +85,8 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
  * My Records Page
  *
  * View and download medical records stored on IPFS.
- * Records are encrypted and blockchain-verified.
+ * Records are encrypted; a record shows as blockchain-anchored only when the
+ * server reports a finalized anchor transaction for it.
  *
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -223,7 +229,7 @@ export function MyRecordsPage() {
           date: new Date(sub.reviewed_at || sub.submitted_at).toISOString().split('T')[0],
           contentHash: sub.content_hash || `lab-${sub.id}`,
           metadataHash: sub.metadata_hash || `meta-${sub.id}`,
-          verified: true,
+          chainTxHash: null,
           labResults: sub.results,
           reviewedBy: sub.reviewed_by,
       }));
@@ -234,6 +240,7 @@ export function MyRecordsPage() {
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
+          blockchain_tx_hash?: string | null;
         }>).map(rec => ({
           id: rec.content_hash,
           type: medicalRecordType(rec.record_type),
@@ -243,7 +250,7 @@ export function MyRecordsPage() {
           date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString().split('T')[0] : '',
           contentHash: rec.content_hash,
           metadataHash: rec.metadata_hash,
-          verified: true,
+          chainTxHash: rec.blockchain_tx_hash ?? null,
       }));
       allRecords.push(...medRecords);
 
@@ -256,7 +263,7 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at),
         contentHash: `soap-${note.note_id}`,
         metadataHash: note.note_id,
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...soapRecords);
 
@@ -270,7 +277,7 @@ export function MyRecordsPage() {
         date: timestampDate(rx.created_at),
         contentHash: `rx-${rx.prescription_id}`,
         metadataHash: rx.prescription_id,
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...prescriptionRecords);
 
@@ -283,7 +290,7 @@ export function MyRecordsPage() {
         date: timestampDate(assessment.performed_at),
         contentHash: `triage-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...triageRecords);
 
@@ -300,7 +307,7 @@ export function MyRecordsPage() {
         date: timestampDate(summary.discharge_date as string | number | undefined),
         contentHash: `discharge-${summary.id}`,
         metadataHash: String(summary.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...dischargeRecords);
 
@@ -320,7 +327,7 @@ export function MyRecordsPage() {
         date: timestampDate(item.created_at as string | number | undefined),
         contentHash: `discharge-instructions-${item.id}`,
         metadataHash: String(item.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...dischargeInstructionRecords);
 
@@ -340,7 +347,7 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_datetime as string | number | undefined),
         contentHash: `imaging-report-${report.id}`,
         metadataHash: String(report.status || report.id),
-        verified: String(report.status || '').toLowerCase() === 'final',
+        chainTxHash: null,
       }));
       allRecords.push(...imagingRecords);
 
@@ -363,8 +370,7 @@ export function MyRecordsPage() {
           ),
           contentHash: `imaging-order-${order.id}`,
           metadataHash: String(order.status || order.id),
-          // Nothing has been reported, so there is nothing to have verified.
-          verified: false,
+          chainTxHash: null,
         }));
       allRecords.push(...imagingOrderRecords);
 
@@ -382,7 +388,7 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_date as string | number | undefined),
         contentHash: `pathology-${report.id}`,
         metadataHash: String(report.status || report.id),
-        verified: String(report.status || '').toLowerCase() === 'final',
+        chainTxHash: null,
       }));
       allRecords.push(...pathologyRecords);
 
@@ -406,7 +412,7 @@ export function MyRecordsPage() {
         metadataHash: String(consult.status || consult.id),
         // A consult that has been answered is a document; one still awaiting a
         // specialist is a request, and saying otherwise overstates it.
-        verified: Boolean(consult.completed_at),
+        chainTxHash: null,
       }));
       allRecords.push(...consultRecords);
 
@@ -421,7 +427,7 @@ export function MyRecordsPage() {
         date: timestampDate(plan.created_at as string | number | undefined),
         contentHash: `care-plan-${plan.id}`,
         metadataHash: String(plan.care_level || plan.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...carePlanRecords);
 
@@ -443,7 +449,7 @@ export function MyRecordsPage() {
           date: timestampDate(screen.created_at as string | number | undefined),
           contentHash: `blood-screen-${screen.id}`,
           metadataHash: String(screen.id),
-          verified: true,
+          chainTxHash: null,
         })),
         ...((bloodBody.transfusions) || []).map(tx => ({
           id: String(tx.id),
@@ -456,7 +462,7 @@ export function MyRecordsPage() {
           date: timestampDate(tx.created_at as string | number | undefined),
           contentHash: `transfusion-${tx.id}`,
           metadataHash: String(tx.id),
-          verified: true,
+          chainTxHash: null,
         })),
       ];
       allRecords.push(...bloodRecords);
@@ -486,7 +492,7 @@ export function MyRecordsPage() {
           ),
           contentHash: `procedure-${key}-${item.id}`,
           metadataHash: String(item.id),
-          verified: true,
+          chainTxHash: null,
         }))
       );
       allRecords.push(...procedureRecords);
@@ -506,7 +512,7 @@ export function MyRecordsPage() {
         metadataHash: String(record.id),
         // The record's evidentiary value is its signatures; until they are
         // captured it is a pending document, and saying otherwise overstates it.
-        verified: Boolean(record.patient_signed && record.provider_signed),
+        chainTxHash: null,
       }));
       allRecords.push(...amaRecords);
 
@@ -521,7 +527,7 @@ export function MyRecordsPage() {
         date: timestampDate(assessment.assessed_at),
         contentHash: `gcs-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...gcsRecords);
 
@@ -535,7 +541,7 @@ export function MyRecordsPage() {
         date: timestampDate(handoff.received_at as string | undefined),
         contentHash: `ems-${handoff.id}`,
         metadataHash: String(handoff.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...emsRecords);
 
@@ -549,7 +555,7 @@ export function MyRecordsPage() {
         date: timestampDate(hp.performed_at as string | number | undefined),
         contentHash: `hp-${hp.id}`,
         metadataHash: String(hp.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...hpRecords);
 
@@ -563,7 +569,7 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at as string | number | undefined),
         contentHash: `progress-${note.id}`,
         metadataHash: String(note.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...progressRecords);
 
@@ -577,7 +583,7 @@ export function MyRecordsPage() {
         date: timestampDate(wound.assessed_at as string | number | undefined),
         contentHash: `wound-${wound.id}`,
         metadataHash: String(wound.id),
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...woundRecords);
 
@@ -598,7 +604,7 @@ export function MyRecordsPage() {
         date: timestampDate(v.recorded_at as string | number | undefined),
         contentHash: `vitals-${v.reading_id}`,
         metadataHash: v.reading_id,
-        verified: true,
+        chainTxHash: null,
       }));
       allRecords.push(...vitalsRecords);
     } catch (error) {
@@ -871,8 +877,11 @@ export function MyRecordsPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-medium text-content truncate">{record.title}</h3>
-                  {record.verified && (
-                    <Shield className="w-4 h-4 text-ok-subtle-fg flex-shrink-0" />
+                  {record.chainTxHash && (
+                    <Shield
+                      className="w-4 h-4 text-ok-subtle-fg flex-shrink-0"
+                      aria-label={t('records.anchored')}
+                    />
                   )}
                 </div>
                 <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
@@ -950,9 +959,9 @@ export function MyRecordsPage() {
                   <div>
                     <p className="text-sm text-content-muted">{t('records.status')}</p>
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-caution'}`} />
+                      <span className={`w-2 h-2 rounded-full ${selectedRecord.chainTxHash ? 'bg-success-500' : 'bg-caution'}`} />
                       <p className="font-medium text-content">
-                        {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
+                        {selectedRecord.chainTxHash ? t('records.anchored') : t('records.notAnchored')}
                       </p>
                     </div>
                   </div>
