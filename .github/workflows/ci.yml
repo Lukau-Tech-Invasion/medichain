@@ -1,5 +1,5 @@
 # MediChain CI Workflow
-# Runs on every push and pull request to main branch
+# Runs on pushes and pull requests to the main and development branches
 
 name: MediChain CI
 
@@ -7,7 +7,7 @@ on:
     push:
         branches: [main, development/**]
     pull_request:
-        branches: [main]
+        branches: [main, development/**]
     workflow_dispatch:
 
 env:
