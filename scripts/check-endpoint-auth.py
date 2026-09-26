@@ -53,6 +53,7 @@ PUBLIC_ROUTES = {
     '/api/health/telehealth': 'telehealth subsystem health, no data',
     '/api/ipfs/health': 'IPFS liveness, no data',
     '/api/demo': 'demo-mode banner, no data',
+    '/api/demo/seed-status': 'demo-only fixture booleans, gated by MEDICHAIN_DEV_MODE and demo mode',
     '/api/fhir/r4/metadata': 'FHIR CapabilityStatement — spec requires it be public',
     '/api/drugs': 'public drug reference data, not patient-specific',
     '/api/interactions': 'public drug-interaction reference, not patient-specific',

@@ -10,12 +10,18 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+import uuid
 from datetime import date
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 API_BASE = os.environ.get("API_BASE", "http://localhost:8090").rstrip("/")
 ACTOR = os.environ.get("DEMO_SEED_USER")
+# The API rate-limits each client (240 requests a minute by default) and the
+# seed can still burst past it. A 429 is waited out, never worked around.
+RATE_LIMIT_MAX_ATTEMPTS = 6
+RATE_LIMIT_FALLBACK_WAIT_SECS = 15
 PATIENT_NAMES = (
     "Anele Mkhize", "Banele Dlamini", "Cebisa Ndlovu", "Dineo Molefe",
     "Ebrahim Jacobs", "Fikile Zungu", "Gugulethu Maseko", "Hlumelo Venter",
@@ -93,7 +99,22 @@ def patient_payload(index: int, name: str) -> dict[str, object]:
 
 
 def request_json(path: str, payload: dict[str, object] | None, method: str = "POST", actor: str | None = None, reason: str | None = None) -> tuple[int, dict[str, object]]:
-    """POST a demo fixture request and return its status and JSON response."""
+    """Send one fixture request, waiting out rate limits; return status and JSON.
+
+    Parameters: API path, JSON body (None for a GET), method, acting user and
+    optional stated access reason. Returns the final HTTP status and JSON body.
+    """
+    for _ in range(RATE_LIMIT_MAX_ATTEMPTS - 1):
+        status, body = send_json_once(path, payload, method, actor, reason)
+        if status != 429:
+            return status, body
+        details = body.get("details") if isinstance(body.get("details"), dict) else {}
+        time.sleep(int(details.get("retry_after_secs", RATE_LIMIT_FALLBACK_WAIT_SECS)) + 1)
+    return send_json_once(path, payload, method, actor, reason)
+
+
+def send_json_once(path: str, payload: dict[str, object] | None, method: str, actor: str | None, reason: str | None) -> tuple[int, dict[str, object]]:
+    """Send a single fixture request and return its status and JSON response."""
     request = Request(
         f"{API_BASE}{path}",
         data=json.dumps(payload).encode("utf-8") if payload is not None else None,
@@ -101,6 +122,11 @@ def request_json(path: str, payload: dict[str, object] | None, method: str = "PO
             "Content-Type": "application/json",
             "X-User-Id": actor or ACTOR or "",
             **({"X-Access-Reason": reason} if reason else {}),
+            # The API refuses authenticated mutations without an operation key,
+            # and refuses a reused one as a replay, so each write gets a fresh
+            # key. Idempotency of the seed itself comes from the stable fixture
+            # identifiers and the "already present" checks, not from this key.
+            **({"Idempotency-Key": str(uuid.uuid4())} if method != "GET" else {}),
         },
         method=method,
     )
@@ -151,7 +177,7 @@ def seed_primary_progress_note() -> None:
         raise RuntimeError(f"Primary progress note failed with HTTP {status}: {response.get('error', response)}")
 
 
-def seed_primary_guardian() -> None:
+def seed_primary_guardian(seeded: dict[str, bool]) -> None:
     """Verify one synthetic guardian relationship only when it is absent."""
     guardian = demo_wallet(7)
     status, response = request_json("/api/auth/demo-login", {
@@ -159,14 +185,11 @@ def seed_primary_guardian() -> None:
     })
     if status not in (200, 201):
         raise RuntimeError(f"Demo guardian user failed with HTTP {status}: {response.get('error', response)}")
-    status, response = request_json("/api/guardians/ward/PAT-DEMO-001", None, method="GET", actor=demo_wallet(1))
-    if status != 200:
-        raise RuntimeError(f"Guardian lookup failed with HTTP {status}: {response.get('error', response)}")
-    if any(item.get("guardian_wallet") == guardian for item in response.get("relationships", [])):
+    if seeded["guardian"]:
         return
     status, response = request_json("/api/guardians/verify", {
         "guardian_wallet": guardian, "ward_patient_id": "PAT-DEMO-001",
-        "relationship_type": "ParentOrGuardian", "permissions": ["view_records"],
+        "relationship_type": "parent_or_guardian", "permissions": ["view_records"],
         "expires_at": None, "authority_evidence_type": None,
         "authority_evidence_reference": None, "authority_issuing_authority": None,
         "authority_verified_by_role": None, "next_reverification_due": None,
@@ -177,23 +200,42 @@ def seed_primary_guardian() -> None:
         raise RuntimeError(f"Guardian relationship failed with HTTP {status}: {response.get('error', response)}")
 
 
-def seed_primary_emergency_capsule() -> None:
+def seed_primary_emergency_capsule(seeded: dict[str, bool]) -> None:
     """Publish the primary fixture's capsule once without changing later runs."""
-    path = "/api/patients/PAT-DEMO-001/emergency-capsule"
-    status, response = request_json(path, None, method="GET", actor=demo_wallet(2))
-    if status != 200:
-        raise RuntimeError(f"Emergency capsule lookup failed with HTTP {status}: {response.get('error', response)}")
-    if response.get("current") is not None:
+    if seeded["emergency_capsule"]:
         return
-    status, response = request_json(path, {}, actor=demo_wallet(2))
+    status, response = request_json("/api/patients/PAT-DEMO-001/emergency-capsule", {}, actor=demo_wallet(2))
     if status != 200:
         raise RuntimeError(f"Emergency capsule publication failed with HTTP {status}: {response.get('error', response)}")
 
 
-def seed_primary_imaging_report() -> None:
-    """Create one stable synthetic imaging report through the clinical API."""
+def create_primary_radiology_order(clinician: str) -> str:
+    """Create the radiology order the primary imaging report answers; return its id.
+
+    The server assigns order ids, so the report cannot name a fixed one: a
+    report pointing at an order that does not exist is refused by the
+    `radiology_reports.order_id` foreign key.
+    """
+    status, response = request_json("/api/surgical/radiology/order", {
+        "patient_id": "PAT-DEMO-001", "study_type": "XRay", "body_part": "Chest",
+        "laterality": None, "indication": "Synthetic demonstration imaging order.",
+        "priority": "Routine", "ordering_provider": clinician, "order_time": 1768474800,
+        "contrast": False, "allergies_reviewed": True, "creatinine_checked": None,
+        "pregnancy_checked": None, "special_instructions": None, "status": "Completed",
+    }, actor=clinician)
+    if status != 201:
+        raise RuntimeError(f"Primary imaging order failed with HTTP {status}: {response.get('error', response)}")
+    return str(response["id"])
+
+
+def seed_primary_imaging_report(seeded: dict[str, bool]) -> None:
+    """Create one stable synthetic imaging report, and its order, only when absent."""
+    if seeded["imaging_report"]:
+        return
+    clinician = demo_wallet(2)
+    order_id = create_primary_radiology_order(clinician)
     status, response = request_json("/api/surgical/radiology/report", {
-        "report_id": "RAD-DEMO-001", "patient_id": "PAT-DEMO-001", "order_id": "ORD-DEMO-001",
+        "report_id": "RAD-DEMO-001", "patient_id": "PAT-DEMO-001", "order_id": order_id,
         "accession_number": "ACC-DEMO-001", "study_type": "XRay", "body_part": "Chest",
         "study_datetime": 1768478400, "technique": "Single frontal chest radiograph", "contrast": None,
         "comparison": None, "clinical_history": "Synthetic demonstration imaging record.",
@@ -202,7 +244,7 @@ def seed_primary_imaging_report() -> None:
         "critical_finding": False, "critical_communicated": None, "radiologist": "Demo radiologist",
         "status": "Final", "preliminary_time": None, "final_time": 1768478400,
         "dicom_study_uid": None, "image_ipfs_hash": None,
-    }, actor=demo_wallet(2))
+    }, actor=clinician)
     if status not in (200, 201):
         raise RuntimeError(f"Primary imaging report failed with HTTP {status}: {response.get('error', response)}")
 
@@ -219,14 +261,11 @@ def seed_primary_lab_result() -> None:
         raise RuntimeError(f"Primary laboratory result failed with HTTP {status}: {response.get('error', response)}")
 
 
-def seed_paramedic_emergency_access() -> None:
+def seed_paramedic_emergency_access(seeded: dict[str, bool]) -> None:
     """Perform one idempotent, grant-bound paramedic emergency disclosure."""
-    admin, paramedic = demo_wallet(1), demo_wallet(6)
-    status, history = request_json("/api/access-logs/PAT-DEMO-001", None, method="GET", actor=admin)
-    if status != 200:
-        raise RuntimeError(f"Emergency history lookup failed with HTTP {status}: {history.get('error', history)}")
-    if any(entry.get("accessor_id") == paramedic and entry.get("emergency") for entry in history.get("access_logs", [])):
+    if seeded["paramedic_emergency_access"]:
         return
+    admin, paramedic = demo_wallet(1), demo_wallet(6)
     status, devices = request_json("/api/devices", None, method="GET", actor=admin)
     if status != 200:
         raise RuntimeError(f"Device list failed with HTTP {status}: {devices.get('error', devices)}")
@@ -248,8 +287,14 @@ def seed_paramedic_emergency_access() -> None:
         raise RuntimeError(f"Paramedic emergency access failed with HTTP {status}: {response.get('error', response)}")
 
 
-def seed_primary_access_history() -> None:
-    """Read primary records through audited endpoints to create demo history."""
+def seed_primary_access_history(seeded: dict[str, bool]) -> None:
+    """Read primary records through audited endpoints to create demo history.
+
+    Each read is a real, audited disclosure that the patient will see, so it
+    runs only when the stated-reason session is not already on record.
+    """
+    if seeded["treatment_session"]:
+        return
     doctor = demo_wallet(2)
     reads = (
         ("/api/patients/PAT-DEMO-001", "Treatment: profile"),
@@ -274,6 +319,19 @@ def seed_primary_vitals() -> None:
     })
     if status not in (200, 201):
         raise RuntimeError(f"Primary vital signs failed with HTTP {status}: {response.get('error', response)}")
+
+
+def fetch_seed_status() -> dict[str, bool]:
+    """Ask the demo-only probe which primary-fixture steps already exist.
+
+    Checking through the chart routes would itself be an audited read on the
+    demo patient's history, so a re-run would never leave the database as it
+    found it. The probe answers with booleans only.
+    """
+    status, response = request_json("/api/demo/seed-status", None, method="GET")
+    if status != 200:
+        raise RuntimeError(f"Demo seed status failed with HTTP {status}: {response.get('error', response)}")
+    return {key: bool(value) for key, value in response.items()}
 
 
 def main() -> int:
@@ -305,11 +363,12 @@ def main() -> int:
         seed_primary_vitals()
         seed_primary_progress_note()
         seed_primary_lab_result()
-        seed_primary_imaging_report()
-        seed_primary_guardian()
-        seed_primary_emergency_capsule()
-        seed_paramedic_emergency_access()
-        seed_primary_access_history()
+        seeded = fetch_seed_status()
+        seed_primary_imaging_report(seeded)
+        seed_primary_guardian(seeded)
+        seed_primary_emergency_capsule(seeded)
+        seed_paramedic_emergency_access(seeded)
+        seed_primary_access_history(seeded)
     except RuntimeError as error:
         print(error, file=sys.stderr)
         return 1

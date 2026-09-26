@@ -45,6 +45,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(demo_info)
         .service(demo_login)
         .service(seed_demo_facilities)
+        // Demo-only, booleans about the synthetic PAT-DEMO-001 fixture, so the
+        // seed can re-run without audited chart reads. 403 outside dev+demo.
+        .service(demo_seed_status)
         // Demo-only: hands the sign-in shortcut the seeded fixture
         // credentials so it can drive the real credential flow. 403s
         // outside dev+demo mode, so production has no shortcut to reach.

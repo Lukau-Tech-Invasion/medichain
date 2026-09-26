@@ -254,8 +254,6 @@ pub async fn demo_login(
 pub async fn demo_info() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "project": "MediChain",
-        "hackathon": "Rust Africa Hackathon 2026",
-        "track": "Fintech & Inclusive Finance (Web3)",
         "description": "Blockchain-based national health ID system with NFC emergency access",
         "auth_mode": "Wallet-based blockchain authentication (no seed data)",
         "dev_mode": std::env::var("MEDICHAIN_DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(true),
@@ -458,5 +456,174 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
                 code: "DEMO_CREDENTIALS_UNAVAILABLE".to_string(),
             })
         }
+    }
+}
+
+/// The primary demonstration patient. The seed-status probe answers only about
+/// this synthetic fixture, so it cannot be pointed at a real patient's record.
+const DEMO_PRIMARY_PATIENT_ID: &str = "PAT-DEMO-001";
+/// The primary fixture's imaging report, created by `scripts/seed-demo-data.py`.
+const DEMO_PRIMARY_IMAGING_REPORT_ID: &str = "RAD-DEMO-001";
+/// Prefix of the stated reasons on the seeded clinician session.
+const DEMO_TREATMENT_REASON_PATTERN: &str = "Treatment:%";
+
+/// Which of the primary fixture's seeded facts already exist.
+///
+/// Booleans only: no clinical content, names or identifiers leave this
+/// endpoint.
+#[derive(Debug, Serialize, PartialEq, Eq, sqlx::FromRow)]
+pub struct DemoSeedStatus {
+    pub imaging_report: bool,
+    pub guardian: bool,
+    pub emergency_capsule: bool,
+    pub paramedic_emergency_access: bool,
+    pub treatment_session: bool,
+}
+
+/// Whether the demo fixture tools may run: developer mode AND demo mode.
+///
+/// Parameters: the raw `MEDICHAIN_DEV_MODE` value (if set) and whether the
+/// API is in demo mode. Returns true only when both are explicitly on.
+fn demo_fixture_tools_enabled(dev_mode: Option<&str>, is_demo: bool) -> bool {
+    matches!(dev_mode, Some("true") | Some("1")) && is_demo
+}
+
+/// Report which of the primary demo fixture's steps are already seeded.
+///
+/// Why it exists: the seed script must be re-runnable with no change to the
+/// database. Answering "is this fixture present?" through the ordinary chart
+/// routes is itself an audited disclosure, so every re-run appended rows to
+/// the demo patient's "Who viewed my records" history. This probe reads the
+/// fixture's existence directly, reveals nothing but booleans, only ever about
+/// `PAT-DEMO-001`, and is gated exactly like the other demo tools (developer
+/// mode AND demo mode), so it does not exist in production.
+///
+/// Returns 200 with a `DemoSeedStatus`, 403 outside dev+demo mode, or 503 when
+/// durable storage is unavailable.
+#[get("/api/demo/seed-status")]
+pub async fn demo_seed_status(data: web::Data<AppState>) -> impl Responder {
+    let dev_mode = std::env::var("MEDICHAIN_DEV_MODE").ok();
+    if !demo_fixture_tools_enabled(dev_mode.as_deref(), crate::support::is_demo_mode()) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Demo seed status is only available in development demo mode.".to_string(),
+            code: "DEV_MODE_REQUIRED".to_string(),
+        });
+    }
+    seed_status_response(data.db_pool.as_ref()).await
+}
+
+/// Build the seed-status response from storage.
+///
+/// Parameters: the PostgreSQL pool, if the API has one. Returns 200 with the
+/// status, or 503 with a user-safe message when storage is absent or failing
+/// (the error itself is logged, never returned).
+async fn seed_status_response(pool: Option<&sqlx::PgPool>) -> HttpResponse {
+    let unavailable = || {
+        HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Demo seed status is temporarily unavailable.".to_string(),
+            code: "DEMO_STORAGE_REQUIRED".to_string(),
+        })
+    };
+    let Some(pool) = pool else {
+        return unavailable();
+    };
+    match load_demo_seed_status(pool).await {
+        Ok(status) => HttpResponse::Ok().json(status),
+        Err(error) => {
+            log::error!("demo seed status lookup failed: {error}");
+            unavailable()
+        }
+    }
+}
+
+/// Query the existence of each primary-fixture fact in one statement.
+///
+/// Parameters: the pool. Returns the status, or the database error. Every
+/// value is bound. The paramedic check resolves the grant holder's profession
+/// through `persons` -> `professional_identities`: demo sign-ins live only in
+/// the API's memory, not in `users`, and grants leave
+/// `professional_identity_id` empty.
+async fn load_demo_seed_status(pool: &sqlx::PgPool) -> Result<DemoSeedStatus, sqlx::Error> {
+    sqlx::query_as::<_, DemoSeedStatus>(
+        "SELECT
+           EXISTS (SELECT 1 FROM radiology_reports WHERE id = $2) AS imaging_report,
+           EXISTS (SELECT 1 FROM guardian_relationships
+                   WHERE ward_patient_id = $1 AND active AND revoked_at IS NULL) AS guardian,
+           EXISTS (SELECT 1 FROM emergency_capsules
+                   WHERE patient_id = $1 AND revoked_at IS NULL) AS emergency_capsule,
+           EXISTS (SELECT 1 FROM emergency_access_grants g
+                   JOIN persons person ON person.wallet_address = g.requesting_person_id
+                   JOIN professional_identities p
+                        ON p.person_id = person.id AND p.status = 'active'
+                   WHERE g.patient_id = $1 AND p.profession = 'Paramedic') AS paramedic_emergency_access,
+           EXISTS (SELECT 1 FROM access_logs
+                   WHERE patient_id = $1 AND access_reason LIKE $3) AS treatment_session",
+    )
+    .bind(DEMO_PRIMARY_PATIENT_ID)
+    .bind(DEMO_PRIMARY_IMAGING_REPORT_ID)
+    .bind(DEMO_TREATMENT_REASON_PATTERN)
+    .fetch_one(pool)
+    .await
+}
+
+#[cfg(test)]
+mod seed_status_tests {
+    use super::*;
+
+    #[test]
+    fn fixture_tools_need_both_developer_and_demo_mode() {
+        assert!(demo_fixture_tools_enabled(Some("1"), true));
+        assert!(demo_fixture_tools_enabled(Some("true"), true));
+        assert!(!demo_fixture_tools_enabled(Some("1"), false));
+        assert!(!demo_fixture_tools_enabled(None, true));
+        assert!(!demo_fixture_tools_enabled(Some("yes"), true));
+        assert!(!demo_fixture_tools_enabled(Some(""), true));
+    }
+
+    #[actix_web::test]
+    async fn seed_status_refuses_production_configuration() {
+        // No MEDICHAIN_DEV_MODE in the test environment: the endpoint must 403.
+        let app = actix_web::test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(crate::AppState::new()))
+                .service(demo_seed_status),
+        )
+        .await;
+        let request = actix_web::test::TestRequest::get()
+            .uri("/api/demo/seed-status")
+            .to_request();
+        let response = actix_web::test::call_service(&app, request).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn seed_status_is_unavailable_without_durable_storage() {
+        let response = seed_status_response(None).await;
+        assert_eq!(
+            response.status(),
+            actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    /// Runs the real statement against a freshly migrated schema, so a renamed
+    /// column or table fails here rather than at demo time. A fresh schema has
+    /// no fixtures, so every step must read as not yet seeded.
+    #[tokio::test]
+    async fn seed_status_reads_nothing_seeded_on_an_empty_database() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let status = load_demo_seed_status(&pool)
+            .await
+            .expect("seed status query");
+        assert_eq!(
+            status,
+            DemoSeedStatus {
+                imaging_report: false,
+                guardian: false,
+                emergency_capsule: false,
+                paramedic_emergency_access: false,
+                treatment_session: false,
+            }
+        );
+        pool.close().await;
     }
 }

@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("seed-demo-data.py")
@@ -37,6 +38,26 @@ class DemoSeedTests(unittest.TestCase):
         source = Path(MODULE_PATH).read_text()
         self.assertIn("Referral review", source)
         self.assertIn("Treatment: vitals", source)
+
+
+class RateLimitTests(unittest.TestCase):
+    """A 429 is waited out and retried a bounded number of times, never bypassed."""
+
+    def test_a_rate_limited_request_is_retried_after_the_advertised_wait(self) -> None:
+        responses = [(429, {"details": {"retry_after_secs": 3}}), (201, {"id": "ok"})]
+        with mock.patch.object(seed_demo_data, "send_json_once", side_effect=responses) as send, \
+                mock.patch.object(seed_demo_data.time, "sleep") as sleep:
+            self.assertEqual(seed_demo_data.request_json("/api/x", {}), (201, {"id": "ok"}))
+        self.assertEqual(send.call_count, 2)
+        sleep.assert_called_once_with(4)
+
+    def test_retries_stop_at_the_attempt_limit(self) -> None:
+        limited = (429, {"details": {"retry_after_secs": 1}})
+        with mock.patch.object(seed_demo_data, "send_json_once", return_value=limited) as send, \
+                mock.patch.object(seed_demo_data.time, "sleep"):
+            status, _ = seed_demo_data.request_json("/api/x", {})
+        self.assertEqual(status, 429)
+        self.assertEqual(send.call_count, seed_demo_data.RATE_LIMIT_MAX_ATTEMPTS)
 
 
 if __name__ == "__main__":
