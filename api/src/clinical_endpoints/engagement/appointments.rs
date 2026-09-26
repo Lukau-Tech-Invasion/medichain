@@ -274,6 +274,11 @@ pub async fn book_appointment(
     let telehealth_session_id = appointment.telehealth_session_id.clone();
     let appointment_patient_id = appointment.patient_id.clone();
     let appointment_provider_name = appointment.provider_name.clone();
+    let appointment_provider_id = appointment.provider_id.clone();
+    let appointment_at = appointment
+        .scheduled_time
+        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .unwrap_or_else(chrono::Utc::now);
     let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
     // Atomically checks for an overlapping booking and inserts in the same
     // transaction (11.1 TOCTOU) so two concurrent requests can't double-book
@@ -292,6 +297,16 @@ pub async fn book_appointment(
             }),
         };
     }
+
+    // The booked clinician may now open this patient's chart (WP9).
+    crate::care_access::record_encounter(
+        &data,
+        &appointment_patient_id,
+        &appointment_provider_id,
+        &appointment_id,
+        appointment_at,
+    )
+    .await;
 
     // FCM push: appointment booking confirmation. Fire-and-forget, and
     // addressed to the patient's account rather than their record id -- see
@@ -535,6 +550,11 @@ pub async fn check_in_appointment(
     appointment.status = crate::clinical::AppointmentStatus::CheckedIn;
     appointment.check_in_time = Some(chrono::Utc::now().timestamp());
     appointment.updated_at = chrono::Utc::now().timestamp();
+    let encounter = (
+        appointment.patient_id.clone(),
+        appointment.provider_id.clone(),
+        appointment.appointment_id.clone(),
+    );
 
     if let Err(e) = data
         .repositories
@@ -547,6 +567,16 @@ pub async fn check_in_appointment(
             code: "INTERNAL_ERROR".to_string(),
         });
     }
+
+    // Arrival refreshes the encounter relationship from today (WP9).
+    crate::care_access::record_encounter(
+        &data,
+        &encounter.0,
+        &encounter.1,
+        &encounter.2,
+        chrono::Utc::now(),
+    )
+    .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

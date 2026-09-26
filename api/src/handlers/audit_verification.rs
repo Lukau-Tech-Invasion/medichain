@@ -103,7 +103,8 @@ async fn recent_rows(
     sqlx::query_as::<_, AccessLogEntity>(
         "SELECT id, accessor_id, accessor_role, patient_id, resource_type, resource_id, action,
                 access_reason, COALESCE(is_emergency_access, false) AS is_emergency_access,
-                ip_address, user_agent, blockchain_tx_hash, accessed_at, facility_id
+                ip_address, user_agent, blockchain_tx_hash, accessed_at, facility_id,
+                authority_type, authority_id
          FROM access_logs WHERE patient_id = $1 ORDER BY accessed_at DESC LIMIT $2",
     )
     .bind(patient_id)

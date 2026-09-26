@@ -250,6 +250,12 @@ const en_US: TranslationRecord = {
     anchorExplainer:
       'Anchoring records a fingerprint of this entry on the blockchain so later changes to it can be detected. Your health information itself is never put on the blockchain.',
     dashboardLink: 'Who viewed my records',
+    breakGlassAccess: 'Emergency access (break-glass): this clinician had no care relationship with you and gave the reason above.',
+    viaEncounter: 'Access through an appointment or consultation with you',
+    viaReferral: 'Access through a referral',
+    viaPatientGrant: 'Access you granted',
+    viaGuardian: 'Access as your guardian',
+    viaAdmin: 'Access by an administrator',
   },
 
   // Emergency
@@ -741,6 +747,16 @@ const en_US: TranslationRecord = {
     statusCancelled: 'Cancelled',
     errorNoRoom: 'Video room not available yet',
     errorJoinFailed: 'Failed to join the video call',
+  },
+
+  // Break-glass chart access (WP9)
+  breakGlass: {
+    title: 'You have no care relationship with this patient',
+    explainer: 'Only clinicians caring for this patient can open the chart. In an emergency you can break the glass: give a reason, and you will have access for one hour. The patient is told immediately, and everything you open is marked as emergency access in their history.',
+    reasonLabel: 'Why do you need this chart now?',
+    reasonHint: 'At least {{min}} characters. The patient will read this.',
+    submit: 'Break the glass and open the chart',
+    failed: 'Emergency access could not be recorded. Please try again.',
   },
 
   // Record verification against the blockchain (WP8)

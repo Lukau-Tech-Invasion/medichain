@@ -2980,6 +2980,17 @@ export async function telehealthRecording(
   });
 }
 
+/** The code a chart read is refused with when there is no care relationship (WP9). */
+export const CARE_RELATIONSHIP_REQUIRED = 'CARE_RELATIONSHIP_REQUIRED';
+
+/** Break the glass on a patient's chart (WP9): reason required, time-limited, patient told. */
+export async function breakGlass(
+  patientId: string,
+  reason: string
+): Promise<{ success: boolean; grant_id: string; expires_at: string }> {
+  return getApiClient().post(`/api/patients/${encodeURIComponent(patientId)}/break-glass`, { reason });
+}
+
 /** A proof step: the sibling hash and which side it sits on. */
 export interface MerkleProofStep {
   sibling: string;

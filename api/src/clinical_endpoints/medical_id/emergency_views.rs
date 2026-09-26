@@ -183,6 +183,8 @@ pub async fn get_emergency_medical_id(
             .device_lifecycle
             .get(&emergency_claims.device_id)
             .and_then(|device| device.facility_id),
+        authority_type: None,
+        authority_id: None,
     };
     let access_id = log_entry.id.clone();
     if let Err(error) = data
@@ -481,6 +483,8 @@ pub async fn get_lockscreen_medical_id(
         blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     let access_id = log_entry.id.clone();
     if let Err(error) = data

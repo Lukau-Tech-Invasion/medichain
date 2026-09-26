@@ -17,6 +17,8 @@ impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
             blockchain_tx_hash: None,
             accessed_at: entry.timestamp,
             facility_id: entry.location,
+            authority_type: None,
+            authority_id: None,
         }
     }
 }
@@ -43,6 +45,8 @@ impl From<crate::repositories::traits::AccessLogEntity> for AccessLogView {
             timestamp: entity.accessed_at,
             emergency: entity.is_emergency_access,
             blockchain_tx_hash: entity.blockchain_tx_hash,
+            authority_type: entity.authority_type,
+            authority_id: entity.authority_id,
         }
     }
 }

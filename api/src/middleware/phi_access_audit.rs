@@ -44,6 +44,7 @@ use futures::future::{ok, LocalBoxFuture, Ready};
 
 use crate::repositories::traits::AccessLogEntity;
 use crate::state::AppState;
+use actix_web::HttpMessage;
 
 /// Stored `access_logs.action` for a disclosure recorded by this middleware.
 /// Already permitted by the `access_logs.action` CHECK constraint.
@@ -429,6 +430,10 @@ fn build_access_log(
     disclosure: &Disclosure,
 ) -> AccessLogEntity {
     let accessor = crate::support::get_user(data, &disclosure.accessor_id);
+    let authority = req
+        .extensions()
+        .get::<crate::care_access::ChartAuthority>()
+        .cloned();
     let reason_header = req
         .headers()
         .get(ACCESS_REASON_HEADER)
@@ -446,7 +451,7 @@ fn build_access_log(
         resource_id: Some(disclosure.pattern.clone()),
         action: DISCLOSURE_ACTION.to_string(),
         access_reason: Some(normalise_access_reason(reason_header)),
-        is_emergency_access: false,
+        is_emergency_access: authority.as_ref().is_some_and(|a| a.is_emergency()),
         ip_address: req.peer_addr().map(|addr| addr.ip().to_string()),
         user_agent: req
             .headers()
@@ -458,6 +463,11 @@ fn build_access_log(
         facility_id: data
             .identity_contexts
             .facility_for_wallet(&disclosure.accessor_id),
+        authority_type: authority
+            .as_ref()
+            .and_then(|a| a.authority_type())
+            .map(str::to_string),
+        authority_id: authority.as_ref().and_then(|a| a.authority_id()),
     }
 }
 
@@ -623,6 +633,89 @@ async fn record_disclosure(
     }
 }
 
+/// The value of the `{param}` segment of `path` under route `pattern`, or
+/// `None` when the path does not fit the pattern. The router has not run yet
+/// when the chart gate does, so the segment is read by position.
+fn path_param(pattern: &str, path: &str, param: &str) -> Option<String> {
+    let placeholder = format!("{{{param}}}");
+    let pattern_parts: Vec<&str> = pattern.trim_end_matches('/').split('/').collect();
+    let path_parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    if pattern_parts.len() != path_parts.len() {
+        return None;
+    }
+    let index = pattern_parts.iter().position(|part| *part == placeholder)?;
+    let value = path_parts.get(index)?;
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+/// The outcome of the chart gate for one request.
+enum ChartGate {
+    /// Not a gated chart read (not a patient-scoped GET, no caller, or the
+    /// patient's own record): the handler decides as before.
+    NotGated,
+    /// Authorised; the authority goes onto the disclosure row.
+    Allowed(crate::care_access::ChartAuthority),
+    /// Refused before the handler ran.
+    Refused(HttpResponse),
+}
+
+/// 403 for a clinician with no authority over this chart. Says how to proceed
+/// in an emergency rather than leaving them stuck.
+fn chart_refused(may_break_glass: bool) -> HttpResponse {
+    HttpResponse::Forbidden().json(serde_json::json!({
+        "success": false,
+        "error": "You have no care relationship with this patient. In an emergency, break the glass: give a reason and the patient will be told.",
+        "code": "CARE_RELATIONSHIP_REQUIRED",
+        "break_glass_available": may_break_glass,
+    }))
+}
+
+/// 503 when the authority stores cannot be read: fail closed.
+fn chart_check_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(serde_json::json!({
+        "success": false,
+        "error": "Access to this chart cannot be checked right now. Please try again shortly.",
+        "code": "ACCESS_CHECK_UNAVAILABLE",
+    }))
+}
+
+/// The patient id of a gated chart read (a middleware-audited, patient-scoped
+/// `GET`), or `None` for any other request.
+fn gated_patient_id(req: &ServiceRequest) -> Option<String> {
+    if req.method() != Method::GET {
+        return None;
+    }
+    let pattern = req.match_pattern()?;
+    let rule = phi_route_for(&pattern).filter(|rule| rule.mode == AuditMode::Middleware)?;
+    path_param(&pattern, req.path(), rule.patient_param)
+}
+
+/// Decide whether this request may read this chart (WP9). Emergency-card
+/// and other handler-audited routes carry their own authority and are never
+/// gated here; an unidentified caller is left to the handler (401).
+async fn chart_gate(req: &ServiceRequest, data: &web::Data<AppState>) -> ChartGate {
+    let Some(patient_id) = gated_patient_id(req) else {
+        return ChartGate::NotGated;
+    };
+    let caller = crate::support::get_current_user_id(req.request())
+        .and_then(|wallet| crate::support::get_user(data, &wallet));
+    let Some(caller) = caller else {
+        return ChartGate::NotGated;
+    };
+    match crate::care_access::resolve_chart_access(data, &caller, &patient_id).await {
+        Ok(crate::care_access::ChartAuthority::SelfAccess) => ChartGate::NotGated,
+        Ok(authority) if authority.is_permitted() => ChartGate::Allowed(authority),
+        Ok(_) => ChartGate::Refused(chart_refused(caller.role.can_view_medical_records())),
+        Err(error) => {
+            log::error!(
+                "chart access for {patient_id} could not be decided: {}",
+                error.0
+            );
+            ChartGate::Refused(chart_check_unavailable())
+        }
+    }
+}
+
 /// Actix middleware factory. Register it as the innermost `wrap` so it sees the
 /// matched route and the handler's final status.
 pub struct PhiAccessAuditMiddleware;
@@ -664,6 +757,17 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         Box::pin(async move {
+            if let Some(data) = req.app_data::<web::Data<AppState>>().cloned() {
+                match chart_gate(&req, &data).await {
+                    ChartGate::NotGated => {}
+                    ChartGate::Allowed(authority) => {
+                        req.extensions_mut().insert(authority);
+                    }
+                    ChartGate::Refused(response) => {
+                        return Ok(req.into_response(response).map_into_right_body());
+                    }
+                }
+            }
             let response = service.call(req).await?;
             let Some(data) = response
                 .request()
@@ -763,8 +867,9 @@ mod tests {
             }
         }
 
-        /// App state with a doctor, the patient, and an unrelated patient.
-        fn state() -> web::Data<AppState> {
+        /// App state with a doctor in a care relationship with the patient
+        /// (WP9), the patient, and an unrelated patient.
+        async fn state() -> web::Data<AppState> {
             let state = AppState::new();
             {
                 let mut users = state.users.write().expect("users lock");
@@ -785,6 +890,14 @@ mod tests {
                     ),
                 );
             }
+            crate::care_access::record_encounter(
+                &state,
+                PATIENT_ID,
+                DOCTOR_WALLET,
+                "APT-PHI-AUDIT",
+                Utc::now(),
+            )
+            .await;
             web::Data::new(state)
         }
 
@@ -825,7 +938,7 @@ mod tests {
 
         #[actix_web::test]
         async fn a_doctor_reading_vitals_leaves_one_row_with_who_why_and_what() {
-            let data = state();
+            let data = state().await;
             assert_eq!(
                 read_vitals(&data, DOCTOR_WALLET, Some("treatment")).await,
                 200
@@ -839,11 +952,12 @@ mod tests {
             assert_eq!(row.resource_type, "Vital signs");
             assert_eq!(row.access_reason.as_deref(), Some("Treatment"));
             assert!(row.blockchain_tx_hash.is_none(), "never a fabricated hash");
+            assert_eq!(row.authority_type.as_deref(), Some("care_relationship"));
         }
 
         #[actix_web::test]
         async fn a_read_without_a_declared_reason_says_so() {
-            let data = state();
+            let data = state().await;
             assert_eq!(read_vitals(&data, DOCTOR_WALLET, None).await, 200);
             assert_eq!(
                 rows(&data).await[0].access_reason.as_deref(),
@@ -853,14 +967,14 @@ mod tests {
 
         #[actix_web::test]
         async fn a_patient_reading_their_own_vitals_is_not_logged_as_a_disclosure() {
-            let data = state();
+            let data = state().await;
             assert_eq!(read_vitals(&data, PATIENT_WALLET, None).await, 200);
             assert!(rows(&data).await.is_empty());
         }
 
         #[actix_web::test]
         async fn a_denied_read_is_never_recorded_as_viewed() {
-            let data = state();
+            let data = state().await;
             assert_eq!(read_vitals(&data, OTHER_PATIENT_WALLET, None).await, 403);
             assert!(
                 rows(&data).await.is_empty(),
@@ -870,7 +984,7 @@ mod tests {
 
         #[actix_web::test]
         async fn handler_audited_routes_are_not_duplicated() {
-            let data = state();
+            let data = state().await;
             let app = test::init_service(
                 App::new()
                     .wrap(PhiAccessAuditMiddleware)

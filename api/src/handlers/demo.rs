@@ -478,6 +478,9 @@ pub struct DemoSeedStatus {
     pub emergency_capsule: bool,
     pub paramedic_emergency_access: bool,
     pub treatment_session: bool,
+    /// An active care relationship on the primary patient (WP9), without
+    /// which the demo clinician's chart reads are refused.
+    pub care_relationship: bool,
 }
 
 /// Whether the demo fixture tools may run: developer mode AND demo mode.
@@ -557,7 +560,10 @@ async fn load_demo_seed_status(pool: &sqlx::PgPool) -> Result<DemoSeedStatus, sq
                         ON p.person_id = person.id AND p.status = 'active'
                    WHERE g.patient_id = $1 AND p.profession = 'Paramedic') AS paramedic_emergency_access,
            EXISTS (SELECT 1 FROM access_logs
-                   WHERE patient_id = $1 AND access_reason LIKE $3) AS treatment_session",
+                   WHERE patient_id = $1 AND access_reason LIKE $3) AS treatment_session,
+           EXISTS (SELECT 1 FROM care_relationships
+                   WHERE patient_id = $1 AND starts_at <= NOW()
+                     AND (ends_at IS NULL OR ends_at > NOW())) AS care_relationship",
     )
     .bind(DEMO_PRIMARY_PATIENT_ID)
     .bind(DEMO_PRIMARY_IMAGING_REPORT_ID)
@@ -622,6 +628,7 @@ mod seed_status_tests {
                 emergency_capsule: false,
                 paramedic_emergency_access: false,
                 treatment_session: false,
+                care_relationship: false,
             }
         );
         pool.close().await;

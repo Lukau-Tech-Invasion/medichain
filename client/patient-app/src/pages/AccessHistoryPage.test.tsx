@@ -191,3 +191,24 @@ describe('AccessHistoryPage', () => {
     expect(screen.queryByText(/Verified against/i)).not.toBeInTheDocument();
   });
 });
+
+describe('AccessHistoryPage authority (WP9)', () => {
+  beforeEach(() => {
+    vi.mocked(usePatientAuthStore).mockImplementation(((selector: (state: unknown) => unknown) =>
+      selector({ patient: { healthId: PATIENT_ID } })) as never);
+  });
+
+  it('highlights break-glass access and says how other access was authorised', async () => {
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: PATIENT_ID,
+      total_accesses: 2,
+      access_logs: [
+        row('bg', 90, { accessor_name: 'Dr Stranger', emergency: true, authority_type: 'break_glass', access_reason: 'Collapsed in casualty' }),
+        row('ref', 2, { authority_type: 'care_relationship', authority_source: 'referral' }),
+      ],
+    });
+    renderPage();
+    expect(await screen.findByTestId('break-glass-entry')).toHaveTextContent(/no care relationship with you/i);
+    expect(screen.getByText('Access through a referral')).toBeInTheDocument();
+  });
+});

@@ -16,6 +16,8 @@ import {
   StepUpDialog,
   useTranslation,
   ApiClientError,
+  BreakGlassPanel,
+  CARE_RELATIONSHIP_REQUIRED,
   getPatient,
   type PatientProfile,
   formatDateOnly,
@@ -126,6 +128,9 @@ function PatientDetailPage() {
   const [patient, setPatient] = useState<PatientDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // WP9: the chart was refused for lack of a care relationship; offer break-glass.
+  const [needsBreakGlass, setNeedsBreakGlass] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'access'>('overview');
   const [editingClinicalDetails, setEditingClinicalDetails] = useState(false);
   const [savingClinicalDetails, setSavingClinicalDetails] = useState(false);
@@ -468,6 +473,7 @@ function PatientDetailPage() {
     const fetchPatient = async () => {
       setLoading(true);
       setError(null);
+      setNeedsBreakGlass(false);
       
       try {
         let data: PatientProfile & Record<string, any>;
@@ -476,6 +482,8 @@ function PatientDetailPage() {
         } catch (refused) {
           if (refused instanceof ApiClientError && refused.status === 404) {
             setPatient(null);
+          } else if (refused instanceof ApiClientError && refused.code === CARE_RELATIONSHIP_REQUIRED) {
+            setNeedsBreakGlass(true);
           } else {
             const status = refused instanceof ApiClientError ? refused.status : 0;
             setError(getApiErrorMessage(refused, t('docPatientDetail.errorStatus', { status })));
@@ -508,7 +516,7 @@ function PatientDetailPage() {
     };
 
     fetchPatient();
-  }, [patientId, user, t]);
+  }, [patientId, user, t, reloadKey]);
 
   if (loading) {
     // role="status" + a text label: a bare spinner announces nothing to a
@@ -523,6 +531,19 @@ function PatientDetailPage() {
       >
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
         <span className="sr-only">Loading patient information…</span>
+      </div>
+    );
+  }
+
+  if (needsBreakGlass && patientId) {
+    return (
+      <div className="p-8">
+        <BreakGlassPanel patientId={patientId} onOpened={() => setReloadKey((key) => key + 1)} />
+        <p className="mt-4 text-center">
+          <Link to="/patients" className="text-brand hover:underline">
+            {t('docPatientDetail.backToSearch')}
+          </Link>
+        </p>
       </div>
     );
   }

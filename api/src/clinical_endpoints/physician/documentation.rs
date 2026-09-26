@@ -1265,10 +1265,21 @@ pub async fn create_consult(
     };
 
     match data.repositories.consultation_notes.create(entity).await {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({
-            "success": true,
-            "consult_id": consult_id
-        })),
+        Ok(_) => {
+            // The consulting clinician may open the chart they were referred
+            // (WP9). A free-text name holds no relationship.
+            crate::care_access::record_referral(
+                &data,
+                &body.patient_id,
+                &body.consulting_provider,
+                &consult_id,
+            )
+            .await;
+            HttpResponse::Created().json(serde_json::json!({
+                "success": true,
+                "consult_id": consult_id
+            }))
+        }
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
             error: msg,
             code: "DUPLICATE".to_string(),

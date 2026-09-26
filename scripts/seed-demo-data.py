@@ -287,6 +287,26 @@ def seed_paramedic_emergency_access(seeded: dict[str, bool]) -> None:
         raise RuntimeError(f"Paramedic emergency access failed with HTTP {status}: {response.get('error', response)}")
 
 
+def seed_primary_care_relationship(seeded: dict[str, bool]) -> None:
+    """Book the demo doctor a follow-up with the primary patient.
+
+    Since WP9 a clinician needs a care relationship to open a chart, and a
+    relationship comes from real clinical workflow, never from a seed shortcut:
+    booking the appointment is what records it. Skipped when one is active.
+    """
+    if seeded.get("care_relationship"):
+        return
+    tomorrow = int(time.time()) + 24 * 3600
+    status, response = request_json("/api/appointments", {
+        "patient_id": "PAT-DEMO-001", "appointment_type": "FollowUp",
+        "preferred_date": time.strftime("%Y-%m-%d", time.gmtime(tomorrow)),
+        "preferred_time": "09:00", "scheduled_at": str(tomorrow), "duration_minutes": 30,
+        "reason": "Synthetic demonstration follow-up",
+    }, actor=demo_wallet(2))
+    if status not in (200, 201):
+        raise RuntimeError(f"Demo care relationship failed with HTTP {status}: {response.get('error', response)}")
+
+
 def seed_primary_access_history(seeded: dict[str, bool]) -> None:
     """Read primary records through audited endpoints to create demo history.
 
@@ -368,6 +388,7 @@ def main() -> int:
         seed_primary_guardian(seeded)
         seed_primary_emergency_capsule(seeded)
         seed_paramedic_emergency_access(seeded)
+        seed_primary_care_relationship(seeded)
         seed_primary_access_history(seeded)
     except RuntimeError as error:
         print(error, file=sys.stderr)

@@ -45,6 +45,7 @@ mod auth_challenges;
 mod auth_sessions;
 mod blockchain;
 mod blood_inventory;
+mod care_access;
 mod clinical;
 mod clinical_endpoints;
 mod clinical_scoring;
