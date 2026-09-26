@@ -526,7 +526,7 @@ pub async fn download_offline_data(
     let records = data
         .repositories
         .medical_records
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await;
     let records = match records {
         Ok(result) => result.items,

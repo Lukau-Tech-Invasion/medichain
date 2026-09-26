@@ -57,6 +57,7 @@ mod emergency_capsule;
 mod emergency_grants;
 mod governance;
 mod ipfs;
+mod job_lock;
 mod middleware;
 mod mobile_records;
 mod national_id;
@@ -438,12 +439,18 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
-                match crate::audit_outbox::deliver_pending_chain_events(&pool, &client).await {
-                    Ok(count) if count > 0 => {
+                let delivered = crate::job_lock::run_exclusive(
+                    Some(&pool),
+                    crate::job_lock::JobKey::OutboxDelivery,
+                    || crate::audit_outbox::deliver_pending_chain_events(&pool, &client),
+                )
+                .await;
+                match delivered {
+                    Some(Ok(count)) if count > 0 => {
                         log::info!("Delivered {} pending blockchain operation(s)", count)
                     }
-                    Ok(_) => {}
-                    Err(error) => log::error!("Blockchain outbox delivery failed: {}", error),
+                    Some(Ok(_)) | None => {}
+                    Some(Err(error)) => log::error!("Blockchain outbox delivery failed: {}", error),
                 }
             }
         });
@@ -456,8 +463,16 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                crate::clinical_endpoints::check_and_send_medication_reminders(&reminder_state)
-                    .await;
+                crate::job_lock::run_exclusive(
+                    reminder_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::MedicationReminders,
+                    || {
+                        crate::clinical_endpoints::check_and_send_medication_reminders(
+                            &reminder_state,
+                        )
+                    },
+                )
+                .await;
             }
         });
         println!("  [INFO] Medication reminder task started (checks every 60s)");
@@ -470,8 +485,16 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
             loop {
                 interval.tick().await;
-                crate::clinical_endpoints::check_and_send_appointment_reminders(&reminder_state)
-                    .await;
+                crate::job_lock::run_exclusive(
+                    reminder_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::AppointmentReminders,
+                    || {
+                        crate::clinical_endpoints::check_and_send_appointment_reminders(
+                            &reminder_state,
+                        )
+                    },
+                )
+                .await;
             }
         });
         println!("  [INFO] Appointment reminder task started (checks every 5m)");
@@ -491,7 +514,15 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             ));
             loop {
                 interval.tick().await;
-                let assessment = crate::retention::run_retention_assessment(&retention_state).await;
+                let Some(assessment) = crate::job_lock::run_exclusive(
+                    retention_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::RetentionAssessment,
+                    || crate::retention::run_retention_assessment(&retention_state),
+                )
+                .await
+                else {
+                    continue;
+                };
                 if assessment.total_due > 0 || assessment.total_held > 0 {
                     log::info!(
                         "retention assessment {}: {} due, {} held, 0 deleted (report-only)",
@@ -599,12 +630,18 @@ async fn main() -> std::io::Result<()> {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
                 loop {
                     interval.tick().await;
-                    match crate::deferred_emergency_audit::replay_pending(&replay_state).await {
-                        Ok(count) if count > 0 => {
+                    let replayed = crate::job_lock::run_exclusive(
+                        replay_state.db_pool.as_ref(),
+                        crate::job_lock::JobKey::DeferredEmergencyAudit,
+                        || crate::deferred_emergency_audit::replay_pending(&replay_state),
+                    )
+                    .await;
+                    match replayed {
+                        Some(Ok(count)) if count > 0 => {
                             log::info!("Reconciled {count} deferred emergency audit event(s)")
                         }
-                        Ok(_) => {}
-                        Err(error) => {
+                        Some(Ok(_)) | None => {}
+                        Some(Err(error)) => {
                             log::error!("Deferred emergency audit backlog unreconciled: {error}")
                         }
                     }

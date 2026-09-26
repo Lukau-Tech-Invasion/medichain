@@ -16,6 +16,13 @@ vi.mock('../components/Toast', () => ({
   }),
 }));
 
+/** Every section the records summary returns (WP11). */
+const SUMMARY_KEYS = [
+  'history-physicals', 'progress-notes', 'wounds', 'vitals', 'discharges', 'imaging', 'pathology',
+  'consults', 'care-plans', 'blood', 'procedures', 'ama-discharges', 'intake-output',
+  'pharmacy-decisions', 'ems-handoffs',
+];
+
 describe('MyRecordsPage (Patient)', () => {
   const mockPatientId = 'HEALTH123';
 
@@ -48,6 +55,33 @@ describe('MyRecordsPage (Patient)', () => {
                 results: [{ parameter: 'WBC', value: '5.0', unit: '10^9/L', reference_range: '4.0-11.0' }],
               }
             ],
+          }),
+        });
+      }
+      if (url.includes('/records-summary')) {
+        // One read for most sections (WP11); vitals arrive inside it.
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({
+            patient_id: mockPatientId,
+            page: 0,
+            per_page: 50,
+            unavailable: [],
+            sections: {
+              ...Object.fromEntries(SUMMARY_KEYS.map((key) => [key, {}])),
+              vitals: {
+                readings: [{
+                  reading_id: 'VIT-1',
+                  heart_rate: 84,
+                  systolic_bp: 122,
+                  diastolic_bp: 78,
+                  temperature_celsius: 37.2,
+                  recorded_by: 'Dr. Smith',
+                  recorded_at: '2025-01-02T10:00:00Z',
+                }],
+              },
+            },
           }),
         });
       }
@@ -151,5 +185,31 @@ describe('MyRecordsPage (Patient)', () => {
 
     expect(screen.getByText(/Record Details/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Hematology/i).length).toBeGreaterThan(0);
+  });
+
+  it('says the record is partial when a summary section could not be read', async () => {
+    const complete = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/records-summary')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({
+            patient_id: mockPatientId,
+            page: 0,
+            per_page: 50,
+            unavailable: ['imaging'],
+            sections: Object.fromEntries(SUMMARY_KEYS.filter((key) => key !== 'imaging').map((key) => [key, {}])),
+          }),
+        });
+      }
+      return complete!(url, init);
+    });
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MyRecordsPage />
+      </MemoryRouter>
+    );
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
 });
