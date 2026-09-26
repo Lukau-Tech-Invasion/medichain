@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "test:gate": "vitest run src/pages/EmergencyCardPage.test.tsx src/pages/LoginPage.test.tsx src/pages/MedicalIdPage.test.tsx src/pages/MedicationRemindersPage.test.tsx src/pages/SatisfactionSurveyPage.test.tsx src/pages/SettingsPage.test.tsx src/pages/TelehealthPage.test.tsx src/pages/AccessHistoryPage.test.tsx src/pages/accessHistoryGrouping.test.ts src/components/RefillRequestPanel.test.tsx src/pages/MedicationsPage.test.tsx src/components/MessageAttachments.test.tsx src/pages/MessagesPage.test.tsx src/pages/InsurancePage.test.tsx src/components/ResearchConsentControl.test.tsx",
+    "test:gate": "vitest run src/pages/EmergencyCardPage.test.tsx src/pages/LoginPage.test.tsx src/pages/MedicalIdPage.test.tsx src/pages/MedicationRemindersPage.test.tsx src/pages/SatisfactionSurveyPage.test.tsx src/pages/SettingsPage.test.tsx src/pages/TelehealthPage.test.tsx src/pages/AccessHistoryPage.test.tsx src/pages/accessHistoryGrouping.test.ts src/components/RefillRequestPanel.test.tsx src/pages/MedicationsPage.test.tsx src/components/MessageAttachments.test.tsx src/components/TelehealthRecording.test.tsx src/pages/MessagesPage.test.tsx src/pages/InsurancePage.test.tsx src/components/ResearchConsentControl.test.tsx",
     "test:coverage": "vitest run --coverage",
     "clean": "rm -rf node_modules dist .vite",
     "typecheck": "tsc --noEmit",

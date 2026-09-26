@@ -134,6 +134,16 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "blood_unit_issued",
         "blood_unit_discarded",
     ],
+    # `recording_audit` takes the action as a parameter; its call sites in
+    # the same file pass these literals ("recording-stopped" when a patient's
+    # withdrawal stops a running recording).
+    "api/src/clinical_endpoints/clinical_support/telehealth_recordings.rs::action.to_string()": [
+        "recording_consent_given",
+        "recording_consent_withdrawn",
+        "recording-stopped",
+        "telehealth_recording_stored",
+        "telehealth_recording_viewed",
+    ],
     # Test-only: the refill `pg_tests` helper `audit(action)` is called with
     # these three literals, which must be ones the constraint accepts.
     "api/src/repositories/refill_requests.rs::action.into()": [

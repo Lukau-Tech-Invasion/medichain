@@ -67,6 +67,7 @@ PUBLIC_ROUTES = {
     '/api/emergency/grants': 'break-glass grant issuance; validates work context internally',
     '/api/simulate-nfc-tap': 'demo-only, gated by require_demo_mode (HZ-019)',
     '/api/notifications/sms/inbound': 'inbound SMS webhook, authenticated by provider signature',
+    '/api/telehealth/sessions/{session_id}/recordings': 'POST is the recorder upload hook, authenticated by MEDICHAIN_RECORDING_INGEST_TOKEN (fails closed when unset); GET checks the caller is in the consultation',
     '/api/appointments/slots/{provider_id}/{date}': 'public availability lookup, no patient data',
     '/api/telehealth/join/{session_id}': 'redirect to the telehealth app; session validated there',
     '/api/organizations/{organization_id}/keys/active': 'returns a public key by design',

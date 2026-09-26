@@ -743,6 +743,36 @@ const en_US: TranslationRecord = {
     errorJoinFailed: 'Failed to join the video call',
   },
 
+  // Consented consultation recording (WP7.6)
+  telehealthRecording: {
+    checking: 'Checking recording...',
+    statusFailed: 'The recording status could not be loaded, so recording is not available right now.',
+    notSetUp: 'Recording is not set up for this clinic.',
+    recordingNow: 'Recording',
+    notRecording: 'Not recording',
+    consent: 'I consent to recording',
+    withdraw: 'Withdraw my consent',
+    youConsented: 'You have consented to recording.',
+    youHaveNot: 'You have not consented to recording.',
+    patientConsented: 'The patient has consented.',
+    patientWaiting: 'Waiting for the patient to consent in their app.',
+    providerConsented: 'Your clinician has consented.',
+    providerWaiting: 'Your clinician has not consented.',
+    patientWithdrawNote: 'You can withdraw at any time. Withdrawing stops the recording, and the recording of this call will not be kept.',
+    start: 'Start recording',
+    stop: 'Stop recording',
+    needsBoth: 'Recording can start once you and the patient have both consented.',
+    actionFailed: 'That did not work. Please try again.',
+    recordingsButton: 'Recordings',
+    recordingsLabel: 'Recordings of this consultation',
+    loadingRecordings: 'Loading recordings...',
+    recordingsFailed: 'The recordings could not be loaded, so this is not a confirmation that there are none.',
+    noRecordings: 'This consultation was not recorded.',
+    recordingItem: 'Recording from {{date}} ({{size}})',
+    downloadFailed: 'The recording could not be downloaded.',
+    viewingAudited: 'Opening a recording is recorded in the patient\'s access history.',
+  },
+
   // Wearables
   wearables: {
     registerModel: 'Which {{manufacturer}} device?',

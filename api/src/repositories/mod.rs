@@ -42,6 +42,7 @@ pub mod eob_documents;
 pub mod message_attachments;
 pub mod patient_search;
 pub mod refill_requests;
+pub mod telehealth_recordings;
 pub mod traits;
 
 #[cfg(feature = "postgres")]
@@ -115,6 +116,8 @@ pub struct RepositoryContainer {
     pub blood_units: Arc<dyn blood_units::BloodUnitRepository>,
     /// Explanation-of-benefits documents on insurance claims (WP7.3).
     pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
+    /// Consultation recordings (WP7.6).
+    pub telehealth_recordings: Arc<dyn telehealth_recordings::TelehealthRecordingRepository>,
     /// Attachments on secure messages (WP7.2).
     pub message_attachments: Arc<dyn message_attachments::MessageAttachmentRepository>,
     /// Prescription refill requests (WP7.1).
@@ -473,6 +476,19 @@ async fn create_eob_postgres(
     Ok(stored)
 }
 
+/// Store a telehealth recording row and its audit row as one transaction.
+async fn create_recording_postgres(
+    pool: &sqlx::PgPool,
+    row: &telehealth_recordings::TelehealthRecordingEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<telehealth_recordings::TelehealthRecordingEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = telehealth_recordings::pg::insert_recording(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
 /// Store a received blood unit and its audit row as one transaction.
 async fn receive_unit_postgres(
     pool: &sqlx::PgPool,
@@ -580,6 +596,9 @@ impl RepositoryContainer {
                 message_attachments::MemoryMessageAttachmentRepository::new(),
             ),
             eob_documents: Arc::new(eob_documents::MemoryEobDocumentRepository::new()),
+            telehealth_recordings: Arc::new(
+                telehealth_recordings::MemoryTelehealthRecordingRepository::new(),
+            ),
             blood_units: Arc::new(blood_units::MemoryBloodUnitRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
@@ -819,6 +838,20 @@ impl RepositoryContainer {
             self.access_logs.create(audit).await?;
         }
         Ok(changed)
+    }
+
+    /// Record a telehealth recording together with its audit row.
+    pub async fn create_telehealth_recording(
+        &self,
+        row: telehealth_recordings::TelehealthRecordingEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<telehealth_recordings::TelehealthRecordingEntity> {
+        if let Some(pool) = &self.pool {
+            return create_recording_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.telehealth_recordings.create(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
     }
 
     /// Record an EOB document together with its audit row.
@@ -1223,6 +1256,9 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             eob_documents: Arc::new(eob_documents::PgEobDocumentRepository::new(pool.clone())),
+            telehealth_recordings: Arc::new(
+                telehealth_recordings::PgTelehealthRecordingRepository::new(pool.clone()),
+            ),
             blood_units: Arc::new(blood_units::PgBloodUnitRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),

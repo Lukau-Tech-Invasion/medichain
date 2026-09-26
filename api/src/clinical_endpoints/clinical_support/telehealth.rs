@@ -221,6 +221,9 @@ pub(crate) async fn provision_session(
         provider_joined_at: None,
         recording_enabled,
         recording_consent: false,
+        provider_recording_consent_at: None,
+        patient_recording_consent_at: None,
+        recording_started_at: None,
         chat_enabled: true,
         screen_share_enabled: true,
         quality_metrics: None,
@@ -297,6 +300,19 @@ pub async fn create_telehealth_session(
         });
     }
 
+    // Recording starts in the call, once both the clinician and the patient
+    // have consented (WP7.6). A session that is "recording" from the moment it
+    // is booked would have neither consent, so the request is refused rather
+    // than quietly ignored.
+    if req.recording_enabled == Some(true) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error:
+                "Recording can only start during the call, after both you and the patient consent."
+                    .to_string(),
+            code: "RECORDING_NEEDS_CONSENT".to_string(),
+        });
+    }
+
     // Same provisioning path the appointment booking uses, so a session
     // created here and one created by booking a telehealth appointment are the
     // same object with the same guarantees.
@@ -308,7 +324,7 @@ pub async fn create_telehealth_session(
             appointment_id: req.appointment_id.clone(),
             scheduled_start: req.scheduled_start,
             session_type,
-            recording_enabled: req.recording_enabled.unwrap_or(false),
+            recording_enabled: false,
             duration_minutes,
         },
     )
@@ -783,6 +799,31 @@ fn is_assigned_recording_provider(actor: &str, provider_id: &str) -> bool {
     actor == provider_id
 }
 
+/// Whether recording may start (WP7.6): the clinic has a recorder, and the
+/// clinician and the patient have each consented for themselves. Otherwise a
+/// 409 the screens turn into plain words. A clinician ticking "the patient
+/// agreed" is not the patient's consent, so it no longer counts on its own.
+fn recording_may_start(
+    data: &crate::AppState,
+    session: &crate::clinical::TelehealthSession,
+) -> Result<(), HttpResponse> {
+    if !super::telehealth_recordings::recording_configured(data) {
+        return Err(HttpResponse::Conflict().json(ErrorResponse {
+            error: "Recording is not set up for this clinic.".to_string(),
+            code: "RECORDING_NOT_CONFIGURED".to_string(),
+        }));
+    }
+    if !super::telehealth_recordings::both_consented(session) {
+        return Err(HttpResponse::Conflict().json(ErrorResponse {
+            error:
+                "Recording starts only after both you and the patient have consented in the app."
+                    .to_string(),
+            code: "CONSENT_REQUIRED".to_string(),
+        }));
+    }
+    Ok(())
+}
+
 /// Start/stop recording for a session (Phase 6). Moderator-only; starting
 /// requires explicit consent. Updates the session, audits, and broadcasts.
 #[post("/api/telehealth/sessions/{session_id}/recording")]
@@ -862,12 +903,20 @@ pub async fn telehealth_recording(
             code: "CONSENT_REQUIRED".to_string(),
         });
     }
+    if starting {
+        if let Err(response) = recording_may_start(&data, &session) {
+            return response;
+        }
+    }
+    let now = chrono::Utc::now();
     session.recording_enabled = starting;
     if starting {
+        // Both consents are on the session (checked above); the start time is
+        // what the stored recording's consents must precede.
         session.recording_consent = true;
+        session.recording_started_at = Some(now.timestamp());
     }
 
-    let now = chrono::Utc::now();
     if let Err(response) = persist_session(&data, &session).await {
         return response;
     }

@@ -3841,8 +3841,19 @@ pub struct TelehealthSession {
     pub provider_joined_at: Option<i64>,
     /// Recording enabled
     pub recording_enabled: bool,
-    /// Recording consent given
+    /// Recording consent given: true only while BOTH parties have consented.
     pub recording_consent: bool,
+    /// When the assigned clinician consented to recording (WP7.6), as a Unix
+    /// timestamp; `None` if they have not, or withdrew.
+    #[serde(default)]
+    pub provider_recording_consent_at: Option<i64>,
+    /// When the patient consented to recording, in their own app; `None` if
+    /// they have not, or withdrew.
+    #[serde(default)]
+    pub patient_recording_consent_at: Option<i64>,
+    /// When recording last started. Only ever set while both had consented.
+    #[serde(default)]
+    pub recording_started_at: Option<i64>,
     /// Chat enabled
     pub chat_enabled: bool,
     /// Screen share enabled

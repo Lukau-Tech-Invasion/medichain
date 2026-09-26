@@ -2980,6 +2980,54 @@ export async function telehealthRecording(
   });
 }
 
+/** Which side of a consultation the caller is on. */
+export type RecordingParty = 'provider' | 'patient';
+
+/** A consultation's recording state, as its clinician or patient sees it (WP7.6). */
+export interface RecordingStatus {
+  session_id: string;
+  /** False: "Recording is not set up for this clinic". */
+  configured: boolean;
+  provider_consented: boolean;
+  patient_consented: boolean;
+  recording: boolean;
+  your_party: RecordingParty;
+}
+
+/** A stored consultation recording (metadata; opening it is audited). */
+export interface TelehealthRecording {
+  id: string;
+  session_id: string;
+  content_type: string;
+  size_bytes: number;
+  recording_started_at: string;
+  created_at: string;
+}
+
+/** The recording state of a consultation. */
+export async function getRecordingStatus(sessionId: string): Promise<RecordingStatus> {
+  return getApiClient().get(`/api/telehealth/sessions/${encodeURIComponent(sessionId)}/recording-status`);
+}
+
+/** Give or withdraw the caller's own consent to recording. */
+export async function setRecordingConsent(sessionId: string, consent: boolean): Promise<RecordingStatus> {
+  return getApiClient().post(`/api/telehealth/sessions/${encodeURIComponent(sessionId)}/recording-consent`, {
+    consent,
+  });
+}
+
+/** The recordings of a consultation (its clinician or patient). */
+export async function listTelehealthRecordings(sessionId: string): Promise<{ recordings: TelehealthRecording[] }> {
+  return getApiClient().get(`/api/telehealth/sessions/${encodeURIComponent(sessionId)}/recordings`, {
+    keepEnvelope: true,
+  });
+}
+
+/** Download a recording (audited as a disclosure on the patient's record). */
+export async function downloadTelehealthRecording(recordingId: string): Promise<{ blob: Blob; contentType: string }> {
+  return getApiClient().getBlob(`/api/telehealth/recordings/${encodeURIComponent(recordingId)}`);
+}
+
 export async function getPatientTelehealthSessions(
   patientId: string
 ): Promise<{ success: boolean; patient_id: string; sessions: TelehealthSession[]; count: number }> {

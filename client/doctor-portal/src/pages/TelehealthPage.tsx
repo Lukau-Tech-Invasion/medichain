@@ -13,7 +13,7 @@ import {
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
-import { JitsiMeetComponent } from '@medichain/shared';
+import { JitsiMeetComponent, TelehealthRecordingList } from '@medichain/shared';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -366,6 +366,7 @@ export default function TelehealthPage() {
                       {t('docTelehealth.durationMinutes', { minutes: session.duration_minutes })}
                     </span>
                   </div>
+                  {isOver(session.status) && <TelehealthRecordingList sessionId={session.session_id} />}
                 </div>
                 <div className="flex gap-2 ml-4">
                   {!isOver(session.status) && (

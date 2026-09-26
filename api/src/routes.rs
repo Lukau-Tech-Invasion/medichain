@@ -560,6 +560,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::join_telehealth_session)
         .service(clinical_endpoints::telehealth_event) // POST /…/event (Phase 7 SSE relay + audit)
         .service(clinical_endpoints::telehealth_recording) // POST /…/recording (Phase 6)
+        // Consented recording (WP7.6): status, each party's consent, the
+        // recorder's upload, the list, and the audited download.
+        .service(clinical_endpoints::get_recording_status)
+        .service(clinical_endpoints::set_recording_consent)
+        .service(clinical_endpoints::ingest_telehealth_recording)
+        .service(clinical_endpoints::list_telehealth_recordings)
+        .service(clinical_endpoints::download_telehealth_recording)
         .service(clinical_endpoints::end_telehealth_session)
         .service(clinical_endpoints::get_patient_telehealth_sessions)
         .service(clinical_endpoints::list_my_telehealth_sessions)
