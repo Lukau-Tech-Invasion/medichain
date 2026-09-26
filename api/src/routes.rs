@@ -462,6 +462,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::send_message)
         .service(clinical_endpoints::get_messages)
         .service(clinical_endpoints::mark_message_read)
+        .service(clinical_endpoints::upload_message_attachment)
+        .service(clinical_endpoints::download_message_attachment)
         // Consent Form endpoints
         .service(clinical_endpoints::get_consent_types)
         .service(clinical_endpoints::sign_consent)

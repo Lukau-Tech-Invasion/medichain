@@ -95,7 +95,9 @@ describe('MessagesPage', () => {
     mockFetch.mockImplementation((url, init) => {
       if (String(url).includes('/api/messages/send') && init?.method === 'POST') {
         replySent = true;
-        return json({ success: true });
+        // The API's real answer carries the stored message (its id is what
+        // attachments are added to), not a bare success flag.
+        return json({ success: true, message: { message_id: 'msg-reply', sender_id: doctorId } });
       }
       if (String(url).includes('/api/messages')) {
         return json(responseMessages(replySent));

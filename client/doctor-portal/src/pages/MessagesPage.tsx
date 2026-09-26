@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AttachmentPicker,
+  attachFilesToMessage,
+  MessageAttachmentList,
   getApiErrorMessage,
   markMessageRead,
   useTranslation,
@@ -40,6 +43,8 @@ export default function MessagesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [sendForm, setSendForm] = useState<SendForm>(EMPTY_FORM);
+  // Files for the next message; attached right after it is sent.
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendLoading, setSendLoading] = useState(false);
   const [error, setError] = useState('');
@@ -133,11 +138,21 @@ export default function MessagesPage() {
       if (sendForm.subject.trim()) payload.subject = sendForm.subject.trim();
       if (latest?.thread_id) payload.thread_id = latest.thread_id;
       if (latest?.message_id) payload.reply_to = latest.message_id;
+      let sentId: string;
       try {
-        await sendMessage(payload as Parameters<typeof sendMessage>[0]);
+        const sent = await sendMessage(payload as Parameters<typeof sendMessage>[0]);
+        sentId = sent.message.message_id;
       } catch (refused) {
         setError(getApiErrorMessage(refused, t('docMessages.failSend')));
         return;
+      }
+      // The message exists now; a file that fails to attach is reported by
+      // name rather than letting the send look complete.
+      const failed = files.length > 0 ? await attachFilesToMessage(sentId, files) : [];
+      setFiles([]);
+      if (failed.length > 0) {
+        const list = failed.map((file) => (file.reason ? `${file.name} (${file.reason})` : file.name)).join(', ');
+        setError(t('messages.attachmentsPartlyFailed', { files: list }));
       }
       setSuccess(t('docMessages.sentVisible'));
       setSendForm({ recipient_id: recipientId, subject: '', body: '' });
@@ -268,6 +283,8 @@ export default function MessagesPage() {
               onChange={setSendForm}
               onCancel={() => setShowCompose(false)}
               onSubmit={handleSend}
+              files={files}
+              onFilesChange={setFiles}
               title={t('docMessages.newMessage')}
             />
           ) : selectedConversation ? (
@@ -296,6 +313,7 @@ export default function MessagesPage() {
                   required
                   placeholder={t('docMessages.messagePlaceholder')}
                 />
+                <AttachmentPicker files={files} onChange={setFiles} disabled={sendLoading} />
                 <button
                   type="submit"
                   disabled={sendLoading || !sendForm.body.trim()}
@@ -327,6 +345,7 @@ function MessageBubble({ message, currentUserId }: { message: SecureMessage; cur
           {message.subject && <p className="text-xs font-semibold mb-1 opacity-80">{message.subject}</p>}
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         </div>
+        <MessageAttachmentList attachments={message.attachments} />
         <p className={`mt-1 text-xs text-content-muted ${mine ? 'text-right' : 'text-left'}`}>
           {mine ? 'You' : message.sender_name} · {messageDate(message.sent_at)}
           {mine && message.read ? ' · Read' : ''}
@@ -343,6 +362,8 @@ function ComposeForm({
   onCancel,
   onSubmit,
   title,
+  files,
+  onFilesChange,
 }: {
   form: SendForm;
   loading: boolean;
@@ -350,6 +371,8 @@ function ComposeForm({
   onCancel: () => void;
   onSubmit: (event: React.FormEvent) => void;
   title: string;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -386,6 +409,7 @@ function ComposeForm({
             placeholder={t('docMessages.messagePlaceholder')}
           />
         </div>
+        <AttachmentPicker files={files} onChange={onFilesChange} disabled={loading} />
         <div className="flex gap-2">
           <button type="submit" disabled={loading || !form.recipient_id || !form.body.trim()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

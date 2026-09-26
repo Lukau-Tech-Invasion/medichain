@@ -3438,6 +3438,64 @@ export interface SecureMessage {
   sent_at: number;
   read: boolean;
   thread_id: string;
+  /** Files attached to this message (WP7.2); absent on older responses. */
+  attachments?: MessageAttachment[];
+}
+
+/** A file attached to a secure message. The bytes are fetched on demand. */
+export interface MessageAttachment {
+  id: string;
+  message_id: string;
+  filename: string;
+  content_type: 'application/pdf' | 'image/jpeg' | 'image/png';
+  size_bytes: number;
+  /** `not_scanned` when no malware scanner is set up; the UI says so. */
+  scan_status: 'clean' | 'not_scanned';
+  created_at: string;
+}
+
+/** Largest attachment the API accepts, in bytes (10 MB). */
+export const MESSAGE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+/** Most attachments one message may carry. */
+export const MESSAGE_ATTACHMENTS_MAX_PER_MESSAGE = 5;
+/** The only attachment types the API accepts (it checks the bytes too). */
+export const MESSAGE_ATTACHMENT_TYPES: ReadonlyArray<MessageAttachment['content_type']> = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+];
+
+/**
+ * A file's bytes. `FileReader` rather than `Blob.arrayBuffer()`, which older
+ * Safari (before 14) and some embedded webviews do not provide.
+ */
+function readFileBytes(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error ?? new Error('The file could not be read.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/** Attach one file to a message the caller has sent. */
+export async function uploadMessageAttachment(
+  messageId: string,
+  file: File
+): Promise<{ success: boolean; attachment: MessageAttachment }> {
+  const bytes = await readFileBytes(file);
+  return getApiClient().postBinary(
+    `/api/messages/${encodeURIComponent(messageId)}/attachments?filename=${encodeURIComponent(file.name)}`,
+    bytes,
+    file.type
+  );
+}
+
+/** Download an attachment's bytes (conversation participants only; audited). */
+export async function downloadMessageAttachment(
+  attachmentId: string
+): Promise<{ blob: Blob; contentType: string }> {
+  return getApiClient().getBlob(`/api/messages/attachments/${encodeURIComponent(attachmentId)}`);
 }
 
 export interface MessageConversation {

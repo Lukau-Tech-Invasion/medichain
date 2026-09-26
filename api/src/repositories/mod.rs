@@ -37,6 +37,7 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod message_attachments;
 pub mod patient_search;
 pub mod refill_requests;
 pub mod traits;
@@ -108,6 +109,8 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Attachments on secure messages (WP7.2).
+    pub message_attachments: Arc<dyn message_attachments::MessageAttachmentRepository>,
     /// Prescription refill requests (WP7.1).
     pub refill_requests: Arc<dyn refill_requests::RefillRequestRepository>,
     /// Persistent, permission-granular guardian relationships (supersedes the
@@ -436,6 +439,19 @@ async fn create_refill_postgres(
     Ok(stored)
 }
 
+/// Store an attachment row and its audit row as one PostgreSQL transaction.
+async fn create_attachment_postgres(
+    pool: &sqlx::PgPool,
+    row: &message_attachments::MessageAttachmentEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<message_attachments::MessageAttachmentEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = message_attachments::pg::insert_attachment(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
 /// Close a refill request and write its audit row as one transaction.
 /// `None` (and nothing written) when the request was no longer open.
 async fn close_refill_postgres(
@@ -507,6 +523,9 @@ impl RepositoryContainer {
             triage_assessments: Arc::new(memory::MemoryTriageAssessmentRepository::new()),
             access_logs: Arc::new(memory::MemoryAccessLogRepository::new()),
             refill_requests: Arc::new(refill_requests::MemoryRefillRequestRepository::new()),
+            message_attachments: Arc::new(
+                message_attachments::MemoryMessageAttachmentRepository::new(),
+            ),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
@@ -708,6 +727,20 @@ impl RepositoryContainer {
         }
         let _guard = self.prescription_workflow_lock.lock().await;
         let stored = self.refill_requests.create(request).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Record a message attachment together with its audit row.
+    pub async fn create_message_attachment(
+        &self,
+        row: message_attachments::MessageAttachmentEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<message_attachments::MessageAttachmentEntity> {
+        if let Some(pool) = &self.pool {
+            return create_attachment_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.message_attachments.create(row).await?;
         self.access_logs.create(audit).await?;
         Ok(stored)
     }
@@ -1080,6 +1113,9 @@ impl RepositoryContainer {
             triage_assessments: Arc::new(postgres::PgTriageAssessmentRepository::new(pool.clone())),
             access_logs: Arc::new(postgres::PgAccessLogRepository::new(pool.clone())),
             refill_requests: Arc::new(refill_requests::PgRefillRequestRepository::new(
+                pool.clone(),
+            )),
+            message_attachments: Arc::new(message_attachments::PgMessageAttachmentRepository::new(
                 pool.clone(),
             )),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
