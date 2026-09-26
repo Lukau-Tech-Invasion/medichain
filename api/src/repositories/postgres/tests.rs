@@ -76,6 +76,8 @@ async fn test_pg_prescription_mutation_rolls_back_when_audit_insert_fails() {
         blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     repositories
         .access_logs

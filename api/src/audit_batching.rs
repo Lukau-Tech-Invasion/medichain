@@ -25,7 +25,8 @@ pub const AUDIT_BATCH_EVENT: &str = "audit_batch_chain_anchor";
 /// The columns an access-log row is hashed from, and its batching order.
 const ROW_COLUMNS: &str = "id, accessor_id, accessor_role, patient_id, resource_type, \
     resource_id, action, access_reason, COALESCE(is_emergency_access, false) AS is_emergency_access, \
-    ip_address, user_agent, blockchain_tx_hash, accessed_at, facility_id";
+    ip_address, user_agent, blockchain_tx_hash, accessed_at, facility_id, authority_type, \
+    authority_id";
 
 /// A batch the job just built.
 #[derive(Debug, Clone, PartialEq, Eq)]

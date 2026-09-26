@@ -28,7 +28,7 @@ impl AccessLogRepository for PgAccessLogRepository {
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id
+                blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
 
@@ -46,7 +46,9 @@ impl AccessLogRepository for PgAccessLogRepository {
                 .push_bind(&l.user_agent)
                 .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
-                .push_bind(&l.facility_id);
+                .push_bind(&l.facility_id)
+                .push_bind(&l.authority_type)
+                .push_bind(&l.authority_id);
         });
 
         qb.push(" RETURNING *");

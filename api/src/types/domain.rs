@@ -819,6 +819,10 @@ pub struct AccessLogView {
     pub emergency: bool,
     /// Finalized chain transaction for this entry; `None` means not (yet) anchored.
     pub blockchain_tx_hash: Option<String>,
+    /// What authorised the access (WP9): `care_relationship`, `break_glass`,
+    /// `patient_grant`, `guardian`, `admin`, …; `None` on older rows.
+    pub authority_type: Option<String>,
+    pub authority_id: Option<String>,
 }
 
 #[cfg(test)]

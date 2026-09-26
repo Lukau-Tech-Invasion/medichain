@@ -82,6 +82,40 @@ pub async fn get_all_access_logs(
 /// Get access logs for a patient (paginated)
 /// Requires authentication: Only healthcare providers and the patient themselves can view logs
 /// Query params: ?page=1&limit=20
+/// The source (`encounter`, `referral`, …) of each care relationship cited by
+/// `logs`, looked up once per relationship. A relationship that cannot be read
+/// is left out and logged: the row still says "care relationship".
+async fn relationship_sources(
+    data: &web::Data<AppState>,
+    logs: &[AccessLogView],
+) -> std::collections::HashMap<String, String> {
+    let mut sources = std::collections::HashMap::new();
+    let ids = logs
+        .iter()
+        .filter(|log| log.authority_type.as_deref() == Some("care_relationship"))
+        .filter_map(|log| log.authority_id.clone());
+    for id in ids {
+        if sources.contains_key(&id) {
+            continue;
+        }
+        match data
+            .repositories
+            .care_relationships
+            .get_relationship(&id)
+            .await
+        {
+            Ok(Some(row)) => {
+                sources.insert(id, row.source);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                log::warn!("care relationship {id} unreadable for access history: {error}")
+            }
+        }
+    }
+    sources
+}
+
 #[get("/api/access-logs/{patient_id}")]
 pub async fn get_access_logs(
     data: web::Data<AppState>,
@@ -169,6 +203,7 @@ pub async fn get_access_logs(
     // The name is added here, beside the wallet rather than instead of it, and
     // an accessor who is not a known user keeps only their address -- an
     // unresolvable identity must never be rendered as somebody else's name.
+    let sources = relationship_sources(&data, &paginated_logs).await;
     let named_logs: Vec<serde_json::Value> = paginated_logs
         .iter()
         .map(|entry| {
@@ -181,6 +216,9 @@ pub async fn get_access_logs(
             if let Some(object) = value.as_object_mut() {
                 object.insert("accessor_name".into(), serde_json::json!(name));
                 object.insert("accessor_department".into(), serde_json::json!(department));
+                // "via referral" / "via an appointment": the relationship's source.
+                let source = entry.authority_id.as_ref().and_then(|id| sources.get(id));
+                object.insert("authority_source".into(), serde_json::json!(source));
             }
             value
         })

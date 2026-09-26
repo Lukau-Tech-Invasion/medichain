@@ -38,6 +38,7 @@
 //! - Minimum 2 validation checks per write operation
 
 pub mod blood_units;
+pub mod care_relationships;
 pub mod eob_documents;
 pub mod message_attachments;
 pub mod patient_search;
@@ -116,6 +117,8 @@ pub struct RepositoryContainer {
     pub blood_units: Arc<dyn blood_units::BloodUnitRepository>,
     /// Explanation-of-benefits documents on insurance claims (WP7.3).
     pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
+    /// Care relationships and break-glass grants (WP9).
+    pub care_relationships: Arc<dyn care_relationships::CareRelationshipRepository>,
     /// Consultation recordings (WP7.6).
     pub telehealth_recordings: Arc<dyn telehealth_recordings::TelehealthRecordingRepository>,
     /// Attachments on secure messages (WP7.2).
@@ -386,8 +389,8 @@ async fn insert_access_log(
         "INSERT INTO access_logs (
             id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
             action, access_reason, is_emergency_access, ip_address, user_agent,
-            blockchain_tx_hash, accessed_at, facility_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
     )
     .bind(&log.id)
     .bind(&log.accessor_id)
@@ -403,6 +406,8 @@ async fn insert_access_log(
     .bind(&log.blockchain_tx_hash)
     .bind(log.accessed_at)
     .bind(&log.facility_id)
+    .bind(&log.authority_type)
+    .bind(&log.authority_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -471,6 +476,19 @@ async fn create_eob_postgres(
 ) -> RepositoryResult<eob_documents::EobDocumentEntity> {
     let mut tx = pool.begin().await?;
     let stored = eob_documents::pg::insert_document(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store a break-glass grant and its audit row as one transaction.
+async fn create_break_glass_postgres(
+    pool: &sqlx::PgPool,
+    row: &care_relationships::BreakGlassGrantEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<care_relationships::BreakGlassGrantEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = care_relationships::pg::insert_break_glass(&mut tx, row).await?;
     insert_access_log(&mut tx, audit).await?;
     tx.commit().await?;
     Ok(stored)
@@ -598,6 +616,9 @@ impl RepositoryContainer {
             eob_documents: Arc::new(eob_documents::MemoryEobDocumentRepository::new()),
             telehealth_recordings: Arc::new(
                 telehealth_recordings::MemoryTelehealthRecordingRepository::new(),
+            ),
+            care_relationships: Arc::new(
+                care_relationships::MemoryCareRelationshipRepository::new(),
             ),
             blood_units: Arc::new(blood_units::MemoryBloodUnitRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
@@ -838,6 +859,21 @@ impl RepositoryContainer {
             self.access_logs.create(audit).await?;
         }
         Ok(changed)
+    }
+
+    /// Record a break-glass grant together with its audit row: a grant that
+    /// exists without its audit row would be unexplained chart access.
+    pub async fn create_break_glass_grant(
+        &self,
+        row: care_relationships::BreakGlassGrantEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<care_relationships::BreakGlassGrantEntity> {
+        if let Some(pool) = &self.pool {
+            return create_break_glass_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.care_relationships.create_break_glass(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
     }
 
     /// Record a telehealth recording together with its audit row.
@@ -1089,7 +1125,7 @@ impl RepositoryContainer {
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id
+                blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
         qb.push_values([&log], |mut b, l| {
@@ -1106,7 +1142,9 @@ impl RepositoryContainer {
                 .push_bind(&l.user_agent)
                 .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
-                .push_bind(&l.facility_id);
+                .push_bind(&l.facility_id)
+                .push_bind(&l.authority_type)
+                .push_bind(&l.authority_id);
         });
         qb.build().execute(&mut *tx).await?;
 
@@ -1259,6 +1297,9 @@ impl RepositoryContainer {
             telehealth_recordings: Arc::new(
                 telehealth_recordings::PgTelehealthRecordingRepository::new(pool.clone()),
             ),
+            care_relationships: Arc::new(care_relationships::PgCareRelationshipRepository::new(
+                pool.clone(),
+            )),
             blood_units: Arc::new(blood_units::PgBloodUnitRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),

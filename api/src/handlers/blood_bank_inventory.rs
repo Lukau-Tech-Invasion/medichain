@@ -186,6 +186,8 @@ fn unit_audit(
         blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     }
 }
 

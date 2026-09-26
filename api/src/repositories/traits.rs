@@ -391,6 +391,18 @@ pub struct AccessLogEntity {
     pub blockchain_tx_hash: Option<String>,
     pub accessed_at: DateTime<Utc>,
     pub facility_id: Option<String>,
+    /// What authorised this access (WP9): `self`, `guardian`, `admin`,
+    /// `patient_grant`, `care_relationship`, `break_glass` or
+    /// `emergency_token`. `None` on rows written before it was recorded, and
+    /// on acts that are not disclosures.
+    #[serde(default)]
+    #[sqlx(default)]
+    pub authority_type: Option<String>,
+    /// The id of that authority (the grant, relationship or break-glass
+    /// record), so the patient can be told "via referral from Dr X".
+    #[serde(default)]
+    #[sqlx(default)]
+    pub authority_id: Option<String>,
 }
 
 // =============================================================================

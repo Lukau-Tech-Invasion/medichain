@@ -56,6 +56,9 @@ pub fn canonical_row(row: &AccessLogEntity) -> Vec<u8> {
     push_field(&mut buffer, row.user_agent.as_deref());
     buffer.extend_from_slice(&row.accessed_at.timestamp_micros().to_be_bytes());
     push_field(&mut buffer, row.facility_id.as_deref());
+    // WP9: what authorised the access is part of what happened.
+    push_field(&mut buffer, row.authority_type.as_deref());
+    push_field(&mut buffer, row.authority_id.as_deref());
     buffer
 }
 
@@ -183,6 +186,8 @@ mod tests {
             blockchain_tx_hash: None,
             accessed_at: chrono::DateTime::from_timestamp(1_790_000_000, 123_000).unwrap(),
             facility_id: None,
+            authority_type: None,
+            authority_id: None,
         }
     }
 

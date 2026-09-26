@@ -246,6 +246,16 @@ pub(crate) async fn provision_session(
         .await
         .map_err(|e| e.to_string())?;
 
+    // The consultation's clinician may open the patient's chart (WP9).
+    crate::care_access::record_encounter(
+        data,
+        &session.patient_id,
+        &session.provider_id,
+        &session.session_id,
+        scheduled_at,
+    )
+    .await;
+
     Ok(ProvisionedSession { session, platform })
 }
 
@@ -548,6 +558,8 @@ pub async fn join_telehealth_session(
             blockchain_tx_hash: None,
             accessed_at: joined_at,
             facility_id: None,
+            authority_type: None,
+            authority_id: None,
         };
         if let Err(response) = crate::support::require_durable_audit(&data, log).await {
             return response;
@@ -771,6 +783,8 @@ pub async fn telehealth_event(
         blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log).await {
         return response;
@@ -947,6 +961,8 @@ pub async fn telehealth_recording(
         blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log).await {
         return response;

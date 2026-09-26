@@ -276,6 +276,8 @@ pub async fn trigger_emergency_notification(
         blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log_entry).await {
         return response;

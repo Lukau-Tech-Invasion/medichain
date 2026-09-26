@@ -41,6 +41,10 @@ export interface AccessSession {
   rowCount: number;
   /** The access-log row ids in this session, for verification (WP8). */
   rowIds: string[];
+  /** What authorised the access (WP9), e.g. `care_relationship`, `break_glass`. */
+  authorityType: string | null;
+  /** For a care relationship, where it came from (`encounter`, `referral`). */
+  authoritySource: string | null;
 }
 
 /** Reason shown when a row predates reason recording or none was given. */
@@ -100,6 +104,7 @@ function continues(session: AccessSession, entry: AccessLogEntry): boolean {
     session.reason === (entry.access_reason || REASON_UNKNOWN) &&
     session.kind === kindOf(entry.access_type) &&
     session.emergency === entry.emergency &&
+    session.authorityType === (entry.authority_type ?? null) &&
     gap >= 0 &&
     gap <= SESSION_GAP_MINUTES * MILLISECONDS_PER_MINUTE
   );
@@ -127,6 +132,8 @@ function openSession(entry: AccessLogEntry): AccessSession {
     anchoredCount: entry.blockchain_tx_hash ? 1 : 0,
     rowCount: 1,
     rowIds: [entry.access_id],
+    authorityType: entry.authority_type ?? null,
+    authoritySource: entry.authority_source ?? null,
   };
 }
 
@@ -215,4 +222,22 @@ export function verificationOf(
   if (!finalized) return { state: 'not_anchored' };
   const blocks = checked.map((row) => row.block_number).filter((n): n is number => typeof n === 'number');
   return { state: 'verified', blockNumber: blocks.length > 0 ? Math.max(...blocks) : null };
+}
+
+/** The translation key describing how a session was authorised, if any. */
+export function authorityLabelKey(session: AccessSession): string | null {
+  switch (session.authorityType) {
+    case 'break_glass':
+      return 'accessHistory.breakGlassAccess';
+    case 'care_relationship':
+      return session.authoritySource === 'referral' ? 'accessHistory.viaReferral' : 'accessHistory.viaEncounter';
+    case 'patient_grant':
+      return 'accessHistory.viaPatientGrant';
+    case 'guardian':
+      return 'accessHistory.viaGuardian';
+    case 'admin':
+      return 'accessHistory.viaAdmin';
+    default:
+      return null;
+  }
 }

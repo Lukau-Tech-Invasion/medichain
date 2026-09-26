@@ -524,6 +524,13 @@ export interface AccessLogEntry {
    * is not (yet) anchored -- never render such an entry as verified.
    */
   blockchain_tx_hash?: string | null;
+  /**
+   * What authorised the access (WP9): `care_relationship`, `break_glass`,
+   * `patient_grant`, `guardian`, `admin`, ... Null on older entries.
+   */
+  authority_type?: string | null;
+  /** For a care relationship: where it came from (`encounter`, `referral`). */
+  authority_source?: string | null;
 }
 
 export interface AccessLogsResponse {

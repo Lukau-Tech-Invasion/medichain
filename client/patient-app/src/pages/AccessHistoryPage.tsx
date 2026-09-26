@@ -3,7 +3,7 @@ import { AlertTriangle, Eye, FlaskConical, Loader2, PencilLine, ShieldAlert, Shi
 import { getAccessLogs, useTranslation, formatTimestamp, verifyPatientRecord } from '@medichain/shared';
 import type { AccessLogEntry, RowVerification } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
-import { anchorStateOf, groupAccessSessions, verificationOf } from './accessHistoryGrouping';
+import { anchorStateOf, authorityLabelKey, groupAccessSessions, verificationOf } from './accessHistoryGrouping';
 import type { AccessSession } from './accessHistoryGrouping';
 
 /** Rows fetched per request; the API caps page size at 100. */
@@ -205,6 +205,7 @@ function SessionCard({ session, verify, onVerify }: { session: AccessSession } &
           {session.resources.join(', ')}
         </span>
       </p>
+      <AuthorityLine session={session} />
       <AnchorBadge session={session} />
       <SessionVerify session={session} verify={verify} onVerify={onVerify} />
     </li>
@@ -295,4 +296,24 @@ function SessionVerify({ session, verify, onVerify }: { session: AccessSession }
       {result.state === 'not_anchored' ? t('verification.notAnchored') : t('verification.notChecked')}
     </p>
   );
+}
+
+/**
+ * How the access was authorised (WP9): a care relationship, a grant, or --
+ * highlighted -- break-glass emergency access by someone with no relationship.
+ *
+ * @param props.session - The grouped session.
+ */
+function AuthorityLine({ session }: { session: AccessSession }) {
+  const { t } = useTranslation();
+  const key = authorityLabelKey(session);
+  if (!key) return null;
+  if (session.authorityType === 'break_glass') {
+    return (
+      <p className="mt-2 rounded-md bg-critical-subtle p-2 text-sm font-semibold text-critical-subtle-fg" data-testid="break-glass-entry">
+        {t(key)}
+      </p>
+    );
+  }
+  return <p className="mt-2 text-xs text-content-muted">{t(key)}</p>;
 }
