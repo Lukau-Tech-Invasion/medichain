@@ -326,10 +326,14 @@ pub async fn get_insurance_claim(
         }
     };
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "claim": claim
-    }))
+    // Returned with its EOB documents; `eob_received` is true exactly when one exists.
+    match super::eob_documents::claims_with_eob(&data, vec![claim]).await {
+        Ok(mut claims) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "claim": claims.pop()
+        })),
+        Err(response) => response,
+    }
 }
 
 /// Get patient's insurance claims
@@ -387,6 +391,10 @@ pub async fn get_patient_insurance_claims(
         .into_iter()
         .filter_map(|r| serde_json::from_value(r.data).ok())
         .collect();
+    let patient_claims = match super::eob_documents::claims_with_eob(&data, patient_claims).await {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

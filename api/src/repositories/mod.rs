@@ -37,6 +37,7 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod eob_documents;
 pub mod message_attachments;
 pub mod patient_search;
 pub mod refill_requests;
@@ -109,6 +110,8 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Explanation-of-benefits documents on insurance claims (WP7.3).
+    pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
     /// Attachments on secure messages (WP7.2).
     pub message_attachments: Arc<dyn message_attachments::MessageAttachmentRepository>,
     /// Prescription refill requests (WP7.1).
@@ -452,6 +455,19 @@ async fn create_attachment_postgres(
     Ok(stored)
 }
 
+/// Store an EOB document row and its audit row as one PostgreSQL transaction.
+async fn create_eob_postgres(
+    pool: &sqlx::PgPool,
+    row: &eob_documents::EobDocumentEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<eob_documents::EobDocumentEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = eob_documents::pg::insert_document(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
 /// Close a refill request and write its audit row as one transaction.
 /// `None` (and nothing written) when the request was no longer open.
 async fn close_refill_postgres(
@@ -526,6 +542,7 @@ impl RepositoryContainer {
             message_attachments: Arc::new(
                 message_attachments::MemoryMessageAttachmentRepository::new(),
             ),
+            eob_documents: Arc::new(eob_documents::MemoryEobDocumentRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
@@ -727,6 +744,20 @@ impl RepositoryContainer {
         }
         let _guard = self.prescription_workflow_lock.lock().await;
         let stored = self.refill_requests.create(request).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Record an EOB document together with its audit row.
+    pub async fn create_eob_document(
+        &self,
+        row: eob_documents::EobDocumentEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<eob_documents::EobDocumentEntity> {
+        if let Some(pool) = &self.pool {
+            return create_eob_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.eob_documents.create(row).await?;
         self.access_logs.create(audit).await?;
         Ok(stored)
     }
@@ -1118,6 +1149,7 @@ impl RepositoryContainer {
             message_attachments: Arc::new(message_attachments::PgMessageAttachmentRepository::new(
                 pool.clone(),
             )),
+            eob_documents: Arc::new(eob_documents::PgEobDocumentRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),
             )),

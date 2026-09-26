@@ -122,7 +122,7 @@ export function AttachmentPicker({ files, onChange, disabled }: AttachmentPicker
 }
 
 /** Save a downloaded blob under `filename` through a temporary link. */
-function saveBlob(blob: Blob, filename: string) {
+export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

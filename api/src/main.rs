@@ -48,6 +48,7 @@ mod clinical_scoring;
 mod deferred_emergency_audit;
 mod device_lifecycle;
 mod dispensing_policy;
+mod document_intake;
 mod emergency_capsule;
 mod emergency_grants;
 mod ipfs;

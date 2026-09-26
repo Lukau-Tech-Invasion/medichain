@@ -1468,6 +1468,10 @@ const en_US: TranslationRecord = {
     claimNumberPrefix: 'Claim #: {{number}}',
     yourCostLabel: 'Your cost: ',
     eobButton: 'EOB',
+    eobHeading: 'Explanation of benefits',
+    noEobYet: 'No EOB received yet',
+    eobDocumentsLabel: 'Explanation-of-benefits documents',
+    eobDownloadFailed: 'The document could not be downloaded. Please try again.',
     loadMoreClaims: 'Load more claims',
     loadingMoreClaims: 'Loading...',
     addNewInsuranceTitle: 'Add New Insurance',
@@ -1677,6 +1681,20 @@ const en_US: TranslationRecord = {
     signIn: 'Sign in',
     signingIn: 'Signing in...',
     otherSignInOptions: 'Other sign-in options',
+  },
+
+  docClaims: {
+    title: 'Claims and EOBs',
+    subtitle: "File a medical aid's explanation of benefits against a patient's claim. The patient can then read and download it.",
+    patient: 'Patient',
+    choosePatient: 'Choose a patient to see their claims.',
+    loading: 'Loading claims...',
+    loadFailed: 'Claims could not be loaded. Please try again.',
+    none: 'This patient has no insurance claims.',
+    claimLine: 'Claim {{id}} · service {{date}} · {{status}}',
+    eobFile: 'EOB file (PDF, JPEG or PNG, up to 10 MB)',
+    fileEob: 'File EOB',
+    uploadFailed: 'The EOB could not be filed. Please try again.',
   },
 
   docEPrescribe: {

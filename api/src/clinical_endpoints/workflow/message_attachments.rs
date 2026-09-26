@@ -10,21 +10,15 @@
 //! is one.
 
 use super::*;
-use crate::attachment_scan::{
-    scan_attachment, sniff_attachment_type, ScanError, ScanOutcome, ALLOWED_ATTACHMENT_TYPES,
-    MAX_ATTACHMENT_BYTES,
+use crate::document_intake::{
+    download_response, fetch_verified, intake_error, store_encrypted, validate_upload,
+    ValidatedFile,
 };
 use crate::repositories::message_attachments::MessageAttachmentEntity;
-use futures_util::StreamExt;
 use serde::Serialize;
 
 /// Most files one message may carry.
 const MAX_ATTACHMENTS_PER_MESSAGE: usize = 5;
-/// Longest stored filename, in characters.
-const MAX_FILENAME_CHARS: usize = 120;
-/// Name used when the client gives none that survives cleaning.
-const FALLBACK_FILENAME: &str = "attachment";
-
 /// Query string of the upload: the file's display name.
 #[derive(Debug, Deserialize)]
 pub struct AttachmentUploadQuery {
@@ -61,14 +55,11 @@ impl From<&MessageAttachmentEntity> for AttachmentView {
 
 /// A JSON error with a stable code.
 fn attachment_error(
-    mut builder: actix_web::HttpResponseBuilder,
+    builder: actix_web::HttpResponseBuilder,
     message: &str,
     code: &str,
 ) -> HttpResponse {
-    builder.json(ErrorResponse {
-        error: message.to_string(),
-        code: code.to_string(),
-    })
+    intake_error(builder, message, code)
 }
 
 /// 503 for a storage failure; the underlying error is logged, never returned.
@@ -79,113 +70,6 @@ fn attachment_unavailable(context: &str, error: impl std::fmt::Display) -> HttpR
         "Attachments are temporarily unavailable. Please try again shortly.",
         "ATTACHMENTS_UNAVAILABLE",
     )
-}
-
-/// Reduce a client-supplied filename to a safe display name.
-///
-/// Drops any path, keeps letters, digits, spaces and `._-()`, trims, and caps
-/// the length. Parameters: the raw name. Returns a non-empty name.
-fn clean_filename(raw: Option<&str>) -> String {
-    let base = raw
-        .unwrap_or_default()
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or_default();
-    let kept: String = base
-        .chars()
-        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-' | '(' | ')'))
-        .take(MAX_FILENAME_CHARS)
-        .collect();
-    let trimmed = kept.trim().trim_start_matches('.').trim();
-    if trimmed.is_empty() {
-        FALLBACK_FILENAME.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-/// Read the request body, refusing it as soon as it passes the size cap.
-///
-/// Returns the bytes, or a 413 / 400 response.
-async fn read_capped_body(mut payload: web::Payload) -> Result<Vec<u8>, HttpResponse> {
-    let mut bytes = Vec::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|error| {
-            log::warn!("attachment upload body could not be read: {error}");
-            attachment_error(
-                HttpResponse::BadRequest(),
-                "The file could not be read.",
-                "ATTACHMENT_UNREADABLE",
-            )
-        })?;
-        if bytes.len() + chunk.len() > MAX_ATTACHMENT_BYTES {
-            return Err(attachment_error(
-                HttpResponse::PayloadTooLarge(),
-                "Attachments can be at most 10 MB.",
-                "ATTACHMENT_TOO_LARGE",
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    if bytes.is_empty() {
-        return Err(attachment_error(
-            HttpResponse::BadRequest(),
-            "The file is empty.",
-            "ATTACHMENT_EMPTY",
-        ));
-    }
-    Ok(bytes)
-}
-
-/// The type the file really is, provided it is allowed and matches the
-/// declared `Content-Type`. Otherwise a 415.
-fn verified_type(http_req: &HttpRequest, bytes: &[u8]) -> Result<&'static str, HttpResponse> {
-    let declared = http_req
-        .headers()
-        .get(actix_web::http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| {
-            v.split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_ascii_lowercase()
-        });
-    match sniff_attachment_type(bytes) {
-        Some(actual)
-            if ALLOWED_ATTACHMENT_TYPES.contains(&actual)
-                && declared.as_deref() == Some(actual) =>
-        {
-            Ok(actual)
-        }
-        _ => Err(attachment_error(
-            HttpResponse::UnsupportedMediaType(),
-            "Only PDF, JPEG and PNG files can be attached, and the file must really be one.",
-            "UNSUPPORTED_ATTACHMENT_TYPE",
-        )),
-    }
-}
-
-/// Run the malware-scan hook and turn its answer into a stored status or a
-/// refusal. A configured scanner that cannot answer refuses the upload.
-async fn scanned_status(bytes: &[u8]) -> Result<&'static str, HttpResponse> {
-    match scan_attachment(bytes).await {
-        Ok(ScanOutcome::Infected(signature)) => {
-            log::warn!("attachment refused by malware scan: {signature}");
-            Err(attachment_error(
-                HttpResponse::UnprocessableEntity(),
-                "This file was flagged by the malware scanner and was not attached.",
-                "ATTACHMENT_REJECTED",
-            ))
-        }
-        Ok(outcome) => Ok(outcome.stored_status()),
-        Err(ScanError::ScannerRequired) => Err(attachment_error(
-            HttpResponse::ServiceUnavailable(),
-            "Attachments need a malware scanner, and none is set up for this clinic.",
-            "SCANNER_NOT_CONFIGURED",
-        )),
-        Err(ScanError::Unavailable(detail)) => Err(attachment_unavailable("malware scan", detail)),
-    }
 }
 
 /// The two parties to a message and the patient among them, if any.
@@ -310,54 +194,36 @@ async fn require_attachable(
     Ok(())
 }
 
-/// A validated file, ready to be encrypted and stored.
-struct ValidatedFile {
-    filename: String,
-    content_type: &'static str,
-    scan_status: &'static str,
-    bytes: Vec<u8>,
-}
-
-/// Encrypt the bytes into the IPFS pipeline and describe the stored file.
-async fn store_encrypted(
+/// Encrypt the validated file and describe the stored attachment.
+async fn store_attachment(
     data: &web::Data<AppState>,
     caller: &crate::User,
     message_id: &str,
     conversation: &Conversation,
     file: ValidatedFile,
 ) -> Result<MessageAttachmentEntity, HttpResponse> {
-    let ValidatedFile {
-        filename,
-        content_type,
-        scan_status,
-        bytes,
-    } = file;
-    let metadata = crate::ipfs::EncryptedMetadata {
-        filename: filename.clone(),
-        content_type: content_type.to_string(),
-        uploaded_at: chrono::Utc::now().timestamp(),
-        patient_id: conversation.patient_id.clone().unwrap_or_default(),
-        uploaded_by: caller.wallet_address.clone(),
-        record_type: "message_attachment".to_string(),
-        key_version: String::new(),
-    };
-    let stored = data
-        .ipfs_client
-        .upload_encrypted(&bytes, metadata, &data.encryption_keyring)
-        .await
-        .map_err(|error| attachment_unavailable("encrypted upload", format!("{error:?}")))?;
+    let patient = conversation.patient_id.as_deref();
+    let stored = store_encrypted(
+        data,
+        &file,
+        patient,
+        &caller.wallet_address,
+        "message_attachment",
+    )
+    .await
+    .map_err(|error| attachment_unavailable("encrypted upload", error))?;
     Ok(MessageAttachmentEntity {
         id: format!("ATT-{}", uuid::Uuid::new_v4()),
         message_id: message_id.to_string(),
         uploaded_by: caller.wallet_address.clone(),
         patient_id: conversation.patient_id.clone(),
-        filename,
-        content_type: content_type.to_string(),
-        size_bytes: bytes.len() as i64,
-        sha256: hex::encode(medichain_crypto::sha256(&bytes)),
+        filename: file.filename,
+        content_type: file.content_type.to_string(),
+        size_bytes: stored.size_bytes,
+        sha256: stored.sha256,
         ipfs_hash: stored.ipfs_hash,
         metadata_hash: stored.metadata_hash,
-        scan_status: scan_status.to_string(),
+        scan_status: file.scan_status.to_string(),
         created_at: chrono::Utc::now(),
     })
 }
@@ -389,25 +255,11 @@ pub async fn upload_message_attachment(
     if let Err(response) = require_attachable(&data, &caller, &message_id, &conversation).await {
         return response;
     }
-    let bytes = match read_capped_body(payload).await {
-        Ok(bytes) => bytes,
+    let file = match validate_upload(&http_req, payload, query.filename.as_deref()).await {
+        Ok(file) => file,
         Err(response) => return response,
     };
-    let content_type = match verified_type(&http_req, &bytes) {
-        Ok(content_type) => content_type,
-        Err(response) => return response,
-    };
-    let scan_status = match scanned_status(&bytes).await {
-        Ok(status) => status,
-        Err(response) => return response,
-    };
-    let file = ValidatedFile {
-        filename: clean_filename(query.filename.as_deref()),
-        content_type,
-        scan_status,
-        bytes,
-    };
-    let row = match store_encrypted(&data, &caller, &message_id, &conversation, file).await {
+    let row = match store_attachment(&data, &caller, &message_id, &conversation, file).await {
         Ok(row) => row,
         Err(response) => return response,
     };
@@ -427,26 +279,6 @@ pub async fn upload_message_attachment(
         ),
         Err(error) => attachment_unavailable("record attachment", error),
     }
-}
-
-/// Fetch and decrypt an attachment's bytes, checking they are the bytes
-/// that were stored. Returns them, or a 503 on storage or integrity failure.
-async fn decrypted_bytes(
-    data: &web::Data<AppState>,
-    row: &MessageAttachmentEntity,
-) -> Result<Vec<u8>, HttpResponse> {
-    let downloaded = data
-        .ipfs_client
-        .download_decrypted(&row.ipfs_hash, &row.metadata_hash, &data.encryption_keyring)
-        .await
-        .map_err(|error| attachment_unavailable("encrypted download", format!("{error:?}")))?;
-    if hex::encode(medichain_crypto::sha256(&downloaded.content)) != row.sha256 {
-        return Err(attachment_unavailable(
-            "integrity",
-            format!("checksum mismatch on {}", row.id),
-        ));
-    }
-    Ok(downloaded.content)
 }
 
 /// Download an attachment (the two people in the conversation only).
@@ -493,9 +325,9 @@ pub async fn download_message_attachment(
             "NOT_A_PARTICIPANT",
         );
     }
-    let bytes = match decrypted_bytes(&data, &row).await {
+    let bytes = match fetch_verified(&data, &row.ipfs_hash, &row.metadata_hash, &row.sha256).await {
         Ok(bytes) => bytes,
-        Err(response) => return response,
+        Err(error) => return attachment_unavailable("encrypted download", error),
     };
     let audit = attachment_audit(
         &caller,
@@ -506,15 +338,7 @@ pub async fn download_message_attachment(
     if let Err(response) = crate::support::require_durable_audit(&data, audit).await {
         return response;
     }
-    HttpResponse::Ok()
-        .content_type(row.content_type.as_str())
-        .insert_header((
-            "Content-Disposition",
-            format!("attachment; filename=\"{}\"", row.filename),
-        ))
-        .insert_header(("X-Content-Type-Options", "nosniff"))
-        .insert_header(("Cache-Control", "no-store"))
-        .body(bytes)
+    download_response(&row.filename, &row.content_type, bytes)
 }
 
 /// Attachment descriptions for a set of messages, grouped by message id.
@@ -543,36 +367,9 @@ pub(crate) async fn attachments_by_message(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn filenames_lose_paths_and_markup() {
-        assert_eq!(clean_filename(Some("../../etc/passwd")), "passwd");
-        assert_eq!(
-            clean_filename(Some("C:\\Users\\me\\scan (1).pdf")),
-            "scan (1).pdf"
-        );
-        assert_eq!(
-            clean_filename(Some("<script>x</script>.png")),
-            "script.png" // the "/" in "</script>" is a path separator
-        );
-        assert_eq!(clean_filename(Some("report\"; x=1.pdf")), "report x1.pdf");
-        assert_eq!(clean_filename(Some("...")), FALLBACK_FILENAME);
-        assert_eq!(clean_filename(None), FALLBACK_FILENAME);
-        assert_eq!(
-            clean_filename(Some(&"a".repeat(500))).chars().count(),
-            MAX_FILENAME_CHARS
-        );
-    }
-}
-
-#[cfg(test)]
 mod handler_tests {
     use super::*;
-    use actix_web::{test, App, HttpServer};
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use actix_web::{test, App};
 
     const PATIENT_ID: &str = "PAT-ATT";
     const PATIENT: &str = "patient_att";
@@ -580,67 +377,6 @@ mod handler_tests {
     const OUTSIDER: &str = "nurse_outsider";
     const MESSAGE_ID: &str = "MSG-att00001";
     const PDF: &[u8] = b"%PDF-1.7\nsynthetic test document\n%%EOF";
-
-    /// Store behind the fake IPFS node: content id -> bytes.
-    type Blobs = Arc<Mutex<HashMap<String, Vec<u8>>>>;
-
-    /// The file bytes inside a single-part multipart body.
-    fn multipart_file(body: &[u8]) -> Vec<u8> {
-        let start = body
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .map(|i| i + 4)
-            .unwrap_or(0);
-        let end = body
-            .windows(4)
-            .rposition(|w| w == b"\r\n--")
-            .unwrap_or(body.len());
-        body[start..end.max(start)].to_vec()
-    }
-
-    /// A minimal Kubo RPC stand-in: `add` stores, `cat` returns.
-    async fn fake_ipfs() -> String {
-        let blobs: Blobs = Arc::default();
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = format!("http://{}", listener.local_addr().unwrap());
-        let server = HttpServer::new(move || {
-            let (add_blobs, cat_blobs) = (blobs.clone(), blobs.clone());
-            App::new()
-                .route(
-                    "/api/v0/add",
-                    web::post().to(move |body: web::Bytes| {
-                        let blobs = add_blobs.clone();
-                        async move {
-                            let file = multipart_file(&body);
-                            let cid = format!("b{}", hex::encode(medichain_crypto::sha256(&file)));
-                            blobs.lock().unwrap().insert(cid.clone(), file);
-                            HttpResponse::Ok().json(serde_json::json!({ "Hash": cid }))
-                        }
-                    }),
-                )
-                .route(
-                    "/api/v0/cat",
-                    web::post().to(move |q: web::Query<HashMap<String, String>>| {
-                        let blobs = cat_blobs.clone();
-                        async move {
-                            match blobs
-                                .lock()
-                                .unwrap()
-                                .get(q.get("arg").map(String::as_str).unwrap_or_default())
-                            {
-                                Some(bytes) => HttpResponse::Ok().body(bytes.clone()),
-                                None => HttpResponse::InternalServerError().body("not found"),
-                            }
-                        }
-                    }),
-                )
-        })
-        .listen(listener)
-        .unwrap()
-        .run();
-        actix_web::rt::spawn(server);
-        address
-    }
 
     /// State with a patient, their doctor, an outsider, and one sent message.
     async fn state(ipfs_url: &str) -> web::Data<AppState> {
@@ -726,7 +462,7 @@ mod handler_tests {
 
     #[actix_web::test]
     async fn a_participant_uploads_and_the_other_downloads_the_same_bytes_audited() {
-        let state = state(&fake_ipfs().await).await;
+        let state = state(&crate::test_fixtures::fake_ipfs().await).await;
         let response = call(&state, upload(PDF, "application/pdf"), PATIENT).await;
         assert_eq!(response.status(), 201);
         let body: serde_json::Value = test::read_body_json(response).await;
@@ -762,7 +498,7 @@ mod handler_tests {
 
     #[actix_web::test]
     async fn someone_outside_the_conversation_cannot_download() {
-        let state = state(&fake_ipfs().await).await;
+        let state = state(&crate::test_fixtures::fake_ipfs().await).await;
         let body: serde_json::Value =
             test::read_body_json(call(&state, upload(PDF, "application/pdf"), PATIENT).await).await;
         let id = body["attachment"]["id"].as_str().unwrap();
@@ -782,7 +518,7 @@ mod handler_tests {
 
     #[actix_web::test]
     async fn only_the_sender_can_attach() {
-        let state = state(&fake_ipfs().await).await;
+        let state = state(&crate::test_fixtures::fake_ipfs().await).await;
         assert_eq!(
             call(&state, upload(PDF, "application/pdf"), DOCTOR)
                 .await
@@ -793,7 +529,7 @@ mod handler_tests {
 
     #[actix_web::test]
     async fn the_bytes_decide_the_type_not_the_header() {
-        let state = state(&fake_ipfs().await).await;
+        let state = state(&crate::test_fixtures::fake_ipfs().await).await;
         // An executable declared as a PDF, and a real PDF declared as a PNG.
         assert_eq!(
             call(
@@ -815,9 +551,9 @@ mod handler_tests {
 
     #[actix_web::test]
     async fn an_oversized_file_is_refused() {
-        let state = state(&fake_ipfs().await).await;
+        let state = state(&crate::test_fixtures::fake_ipfs().await).await;
         let mut big = PDF.to_vec();
-        big.resize(MAX_ATTACHMENT_BYTES + 1, b' ');
+        big.resize(crate::attachment_scan::MAX_ATTACHMENT_BYTES + 1, b' ');
         assert_eq!(
             call(&state, upload(&big, "application/pdf"), PATIENT)
                 .await

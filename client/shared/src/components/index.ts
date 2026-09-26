@@ -24,3 +24,5 @@ export {
   formatAttachmentSize,
 } from './MessageAttachments';
 export type { FailedAttachment } from './MessageAttachments';
+export { saveBlob } from './MessageAttachments';
+export { EobDocumentList } from './EobDocuments';

@@ -586,6 +586,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::submit_insurance_claim)
         .service(clinical_endpoints::get_insurance_claim)
         .service(clinical_endpoints::get_patient_insurance_claims)
+        // Explanation-of-benefits documents (WP7.3)
+        .service(clinical_endpoints::upload_claim_eob)
+        .service(clinical_endpoints::download_claim_eob)
         .service(clinical_endpoints::check_insurance_eligibility)
         .service(clinical_endpoints::get_eligibility_checks)
         // Phase 31: Analytics Dashboard endpoints

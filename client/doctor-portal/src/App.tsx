@@ -134,6 +134,7 @@ const AutopsyPage = lazy(() => import('./pages/AutopsyPage'));
 // Admin Portal
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
+const ClaimsEobPage = lazy(() => import('./pages/ClaimsEobPage'));
 const OrderSetsPage = lazy(() => import('./pages/OrderSetsPage'));
 const NoteTemplatesPage = lazy(() => import('./pages/NoteTemplatesPage'));
 const BarcodePage = lazy(() => import('./pages/BarcodePage'));
@@ -353,6 +354,7 @@ function App() {
         {/* Admin Portal */}
         <Route path="admin" element={<LazyRoute element={<AdminDashboardPage />} />} />
         <Route path="user-management" element={<LazyRoute element={<UserManagementPage />} />} />
+        <Route path="claims-eob" element={<LazyRoute element={<ClaimsEobPage />} />} />
         <Route path="order-sets" element={<LazyRoute element={<OrderSetsPage />} />} />
         <Route path="note-templates" element={<LazyRoute element={<NoteTemplatesPage />} />} />
         <Route path="barcode" element={<LazyRoute element={<BarcodePage />} />} />

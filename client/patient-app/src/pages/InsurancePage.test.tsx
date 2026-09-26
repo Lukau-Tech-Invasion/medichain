@@ -183,4 +183,44 @@ describe('InsurancePage (Patient)', () => {
       /card has not been marked as verified/i,
     ));
   });
+
+  /** A stored claim as the API returns it, with `eob_documents`. */
+  function claimWith(documents: unknown[]) {
+    return {
+      claim_id: 'CLM-1', patient_id: mockPatient.healthId, service_date: '2026-09-01',
+      status: 'Paid', total_charge: 850, paid_amount: 700, patient_responsibility: 150,
+      insurance: { payer_name: 'Synthetic Medical Aid' }, service_lines: [],
+      eob_received: documents.length > 0, eob_documents: documents,
+    };
+  }
+
+  async function openClaims() {
+    render(<MemoryRouter><InsurancePage /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByText(/Insurance Information/i)).toBeInTheDocument());
+    // Claims load with the cards; wait for them before opening the tab.
+    await waitFor(() => expect(shared.getPatientInsuranceClaims).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /^\s*Claims\s*$/ }));
+  }
+
+  it('says plainly when no EOB has been received for a claim', async () => {
+    vi.mocked(shared.getPatientInsuranceClaims).mockResolvedValue({
+      success: true, patient_id: mockPatient.healthId, claims: [claimWith([])], count: 1,
+    });
+    await openClaims();
+    expect(await screen.findByText('No EOB received yet')).toBeInTheDocument();
+  });
+
+  it('lists a filed EOB as a download, never a made-up link', async () => {
+    vi.mocked(shared.getPatientInsuranceClaims).mockResolvedValue({
+      success: true, patient_id: mockPatient.healthId, count: 1,
+      claims: [claimWith([{
+        id: 'EOB-1', claim_id: 'CLM-1', filename: 'EOB Sept.pdf', content_type: 'application/pdf',
+        size_bytes: 4096, scan_status: 'clean', created_at: '2026-09-20T09:00:00Z',
+      }])],
+    });
+    await openClaims();
+    expect(await screen.findByRole('button', { name: /EOB Sept.pdf/i })).toBeInTheDocument();
+    expect(screen.queryByText('No EOB received yet')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /EOB/i })).not.toBeInTheDocument();
+  });
 });
