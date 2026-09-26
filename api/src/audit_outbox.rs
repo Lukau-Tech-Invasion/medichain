@@ -258,6 +258,10 @@ impl AuditOutbox {
             .insert(decision.id.clone(), decision.clone());
         Ok(decision)
     }
+    /// One decision by id, if the in-memory store holds it.
+    pub fn decision(&self, id: &str) -> Option<GovernanceDecision> {
+        self.decisions.read().ok()?.get(id).cloned()
+    }
     pub fn approve(&self, id: &str, approver: String) -> Result<GovernanceDecision, &'static str> {
         let mut decisions = self
             .decisions

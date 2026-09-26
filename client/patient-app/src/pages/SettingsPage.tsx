@@ -19,6 +19,7 @@ import {
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { ResearchConsentControl } from '../components/ResearchConsentControl';
 import {
   Settings,
   User,
@@ -52,7 +53,6 @@ interface NotificationSettings {
 }
 
 interface PrivacySettings {
-  shareWithResearchers: boolean;
   anonymousAnalytics: boolean;
   showProfileToProviders: boolean;
   allowEmergencyAccess: boolean;
@@ -82,7 +82,6 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 const DEFAULT_PRIVACY: PrivacySettings = {
-  shareWithResearchers: false,
   anonymousAnalytics: true,
   showProfileToProviders: true,
   allowEmergencyAccess: true,
@@ -629,11 +628,10 @@ export function SettingsPage() {
             label={t('settings.research')}
             description={t('settings.researchDesc')}
           >
-            <ToggleSwitch
-              label={t('settings.research')}
-              enabled={privacy.shareWithResearchers}
-              onChange={() => setPrivacy(p => ({ ...p, shareWithResearchers: !p.shareWithResearchers }))}
-            />
+            {/* A recorded, versioned, revocable consent, not a local preference. */}
+            {patient?.healthId ? (
+              <ResearchConsentControl patientId={patient.healthId} />
+            ) : null}
           </SettingRow>
         </div>
       </div>

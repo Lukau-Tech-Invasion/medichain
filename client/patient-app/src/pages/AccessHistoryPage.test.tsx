@@ -91,6 +91,21 @@ describe('AccessHistoryPage', () => {
     expect(await screen.findByText('Emergency access')).toBeInTheDocument();
   });
 
+  it('says plainly when the record went, de-identified, into a research export', async () => {
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: PATIENT_ID,
+      total_accesses: 1,
+      access_logs: [row('r1', 5, {
+        access_type: 'research_export_included', accessor_role: 'Admin',
+        access_reason: 'Research (de-identified)', resource_type: 'Research export (de-identified)',
+      })],
+    });
+    renderPage();
+    expect(await screen.findByText(/Included in research export \(de-identified\) on/i)).toBeInTheDocument();
+    expect(screen.getByText(/name, ID number, contact details and exact dates were not included/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Viewed/i)).not.toBeInTheDocument();
+  });
+
   it('distinguishes "nobody viewed" from "could not load"', async () => {
     vi.mocked(shared.getAccessLogs).mockRejectedValueOnce(new Error('offline'));
     renderPage();

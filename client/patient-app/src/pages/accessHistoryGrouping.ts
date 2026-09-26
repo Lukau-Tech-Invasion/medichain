@@ -17,7 +17,8 @@ export const SESSION_GAP_MINUTES = 30;
 const MILLISECONDS_PER_MINUTE = 60_000;
 
 /** Whether a session disclosed information or changed the record. */
-export type AccessKind = 'viewed' | 'changed';
+/** A disclosure, a change, or inclusion in a de-identified research export. */
+export type AccessKind = 'viewed' | 'changed' | 'research';
 
 /** One grouped access session, ready to render. */
 export interface AccessSession {
@@ -53,10 +54,14 @@ const RESOURCE_UNKNOWN = 'Medical record';
  * named, everything else is a change. An allowlist of reads, not of writes, so a
  * new write action can never be shown to a patient as "viewed".
  *
+ * Inclusion in a research export is its own kind: it is neither a person
+ * reading the record nor a change to it, and the patient is told exactly that.
+ *
  * @param action - The stored `access_type`.
- * @returns `'viewed'` for reads, otherwise `'changed'`.
+ * @returns `'research'` for export inclusion, `'viewed'` for reads, otherwise `'changed'`.
  */
 export function kindOf(action: string): AccessKind {
+  if (action === 'research_export_included') return 'research';
   const isRead =
     action.startsWith('view') ||
     action.startsWith('download') ||

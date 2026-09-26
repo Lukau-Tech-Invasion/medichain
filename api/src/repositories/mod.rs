@@ -297,6 +297,8 @@ pub struct RepositoryContainer {
     pub family_history_records: Arc<dyn JsonRecordRepository>,
     pub user_setting_records: Arc<dyn JsonRecordRepository>,
     pub used_emergency_tokens: Arc<dyn JsonRecordRepository>,
+    /// Research export runs (WP7.4); their gate is in governance_decisions.
+    pub research_export_runs: Arc<dyn JsonRecordRepository>,
 }
 
 /// The `[start, end)` instant range an appointment occupies.
@@ -690,6 +692,7 @@ impl RepositoryContainer {
             family_history_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             user_setting_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             used_emergency_tokens: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            research_export_runs: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -1366,6 +1369,9 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             used_emergency_tokens: Arc::new(postgres::PgUsedEmergencyTokenRepository::new(
+                pool.clone(),
+            )),
+            research_export_runs: Arc::new(postgres::PgResearchExportRunRepository::new(
                 pool.clone(),
             )),
 
