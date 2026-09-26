@@ -26,7 +26,6 @@ use core::marker::PhantomData;
 /// Weight functions needed for pallet_medical_records.
 pub trait WeightInfo {
     fn create_health_record() -> Weight;
-    fn add_alert() -> Weight;
     fn update_ipfs_hash() -> Weight;
 }
 
@@ -47,19 +46,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
 
-    /// Storage: AccessControl::UserRoles (r:1 w:0)
-    /// Proof: AccessControl::UserRoles (max_values: None, max_size: Some(49), added: 2524, mode: MaxEncodedLen)
-    /// Storage: HealthRecords (r:1 w:1)
-    /// Proof: HealthRecords (max_values: None, max_size: Some(512), added: 2987, mode: MaxEncodedLen)
-    fn add_alert() -> Weight {
-        // Proof Size summary:
-        // Measured: `356`
-        // Estimated: `3977`
-        // Minimum execution time: 24_200_000 picoseconds
-        Weight::from_parts(25_500_000, 3977)
-            .saturating_add(T::DbWeight::get().reads(2_u64))
-            .saturating_add(T::DbWeight::get().writes(1_u64))
-    }
 
     /// Storage: AccessControl::UserRoles (r:1 w:0)
     /// Proof: AccessControl::UserRoles (max_values: None, max_size: Some(49), added: 2524, mode: MaxEncodedLen)
@@ -84,11 +70,6 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
 
-    fn add_alert() -> Weight {
-        Weight::from_parts(25_500_000, 3977)
-            .saturating_add(RocksDbWeight::get().reads(2_u64))
-            .saturating_add(RocksDbWeight::get().writes(1_u64))
-    }
 
     fn update_ipfs_hash() -> Weight {
         Weight::from_parts(24_000_000, 3977)
