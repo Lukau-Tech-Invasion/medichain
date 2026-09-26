@@ -118,6 +118,10 @@ const fn handler_audited(pattern: &'static str, category: &'static str) -> PhiRe
 pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
     route("/api/patients/{patient_id}", "Patient profile"),
     route("/api/patients/{patient_id}/verify", "Record verification"),
+    route(
+        "/api/patients/{patient_id}/records-summary",
+        "Medical records",
+    ),
     route("/api/access-logs/{patient_id}", "Record access history"),
     route(
         "/api/access/patient/{patient_id}/grants",

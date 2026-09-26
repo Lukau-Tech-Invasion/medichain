@@ -1,0 +1,24 @@
+# Off-site backup repository on Azure Blob Storage (WP11). Layer it after
+# docker-compose.backup.yml once the storage account exists:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.backup.yml \
+#     -f docker-compose.backup-offsite.yml up -d
+#
+# pgBackRest encrypts every file (AES-256, its own passphrase, different from
+# repository 1's) before it leaves the host; Azure only ever holds ciphertext.
+# Use a storage-account key scoped to this container, or a SAS token
+# (PGBACKREST_REPO2_AZURE_KEY_TYPE=sas).
+
+services:
+  postgres:
+    environment:
+      PGBACKREST_REPO2_TYPE: azure
+      PGBACKREST_REPO2_PATH: /medichain
+      PGBACKREST_REPO2_AZURE_ACCOUNT: ${PGBACKREST_REPO2_AZURE_ACCOUNT:?set PGBACKREST_REPO2_AZURE_ACCOUNT}
+      PGBACKREST_REPO2_AZURE_CONTAINER: ${PGBACKREST_REPO2_AZURE_CONTAINER:?set PGBACKREST_REPO2_AZURE_CONTAINER}
+      PGBACKREST_REPO2_AZURE_KEY: ${PGBACKREST_REPO2_AZURE_KEY:?set PGBACKREST_REPO2_AZURE_KEY}
+      PGBACKREST_REPO2_AZURE_KEY_TYPE: ${PGBACKREST_REPO2_AZURE_KEY_TYPE:-shared}
+      PGBACKREST_REPO2_CIPHER_TYPE: aes-256-cbc
+      PGBACKREST_REPO2_CIPHER_PASS: ${PGBACKREST_REPO2_CIPHER_PASS:?set PGBACKREST_REPO2_CIPHER_PASS (not the repo1 passphrase)}
+      # Eight weekly fulls off-site: a longer memory than the local copy.
+      PGBACKREST_REPO2_RETENTION_FULL: "8"

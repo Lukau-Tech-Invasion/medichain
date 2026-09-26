@@ -55,6 +55,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(approve_research_export)
         .service(execute_research_export)
         .service(verify_patient_record) // GET /api/patients/{id}/verify (WP8)
+        .service(get_records_summary) // GET /api/patients/{id}/records-summary (WP11)
         .service(break_glass) // POST /api/patients/{id}/break-glass (WP9)
         .service(open_access_context) // POST /api/patients/{id}/access-context (WP10)
         // Blood-unit stock inventory (WP7.5)

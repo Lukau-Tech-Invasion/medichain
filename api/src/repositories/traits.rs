@@ -95,7 +95,7 @@ pub type RepositoryResult<T> = Result<T, RepositoryError>;
 /// other number is this type guessing at the caller's intent. `new(page, size)`
 /// makes the caller say, and [`Pagination::first_page`] covers the common case
 /// of "the first screenful" without inventing a silent constant.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Pagination {
     /// Page number (0-indexed)
     pub page: u32,

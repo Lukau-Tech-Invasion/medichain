@@ -684,21 +684,21 @@ pub async fn get_patient_emergency_records(
     let code_blues = data
         .repositories
         .code_blue
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();
     let trauma = data
         .repositories
         .trauma_assessments_repo
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();
     let stroke = data
         .repositories
         .stroke_assessments_repo
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();

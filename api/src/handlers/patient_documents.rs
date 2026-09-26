@@ -13,6 +13,7 @@
 //! against that patient, so a patient may read their own and a provider may
 //! read any.
 
+use super::record_sections::{read_section, RecordSection};
 use super::*;
 
 /// A patient may read their own documents; any provider may read a patient's.
@@ -57,6 +58,92 @@ fn authorize(
 /// unbounded reads; a patient's record list is paged in the UI anyway.
 const PAGE: u32 = 100;
 
+/// A section's own endpoint: the first page of it, or 503 when its storage
+/// cannot be read (never an empty list standing in for "could not read").
+async fn section_response(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+    section: RecordSection,
+) -> HttpResponse {
+    match read_section(data, patient_id, section, Pagination::new(0, PAGE)).await {
+        Ok(body) => HttpResponse::Ok().json(body),
+        Err(error) => {
+            log::error!(
+                "record section {} could not be read: {error}",
+                section.key()
+            );
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error:
+                    "This part of the record could not be read right now. Please try again shortly."
+                        .to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// Default and largest page the records summary returns per section.
+const SUMMARY_DEFAULT_PER_PAGE: u32 = 50;
+
+/// Paging for the records summary, applied to every section.
+#[derive(Debug, serde::Deserialize)]
+pub struct SummaryQuery {
+    /// 0-indexed page.
+    #[serde(default)]
+    pub page: u32,
+    #[serde(default)]
+    pub per_page: Option<u32>,
+}
+
+/// Every section of a patient's record in one response (WP11), each paged.
+///
+/// Replaces most of the ~20 reads the patient's records page made at once,
+/// which alone spent a twelfth of the per-minute rate limit. A section that
+/// cannot be read is named in `unavailable` rather than failing the whole
+/// response or being shown as empty. The per-section reads are the same ones
+/// each section's own endpoint uses. One disclosure row covers the read.
+#[get("/api/patients/{patient_id}/records-summary")]
+pub async fn get_records_summary(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<SummaryQuery>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    let per_page = query
+        .per_page
+        .unwrap_or(SUMMARY_DEFAULT_PER_PAGE)
+        .clamp(1, PAGE);
+    let page = Pagination::new(query.page, per_page);
+    let reads = RecordSection::ALL
+        .iter()
+        .map(|section| read_section(&data, &patient_id, *section, page));
+    let results = futures::future::join_all(reads).await;
+    let mut sections = serde_json::Map::new();
+    let mut unavailable = Vec::new();
+    for (section, result) in RecordSection::ALL.iter().zip(results) {
+        match result {
+            Ok(body) => {
+                sections.insert(section.key().to_string(), body);
+            }
+            Err(error) => {
+                log::error!("records summary: {} unreadable: {error}", section.key());
+                unavailable.push(section.key());
+            }
+        }
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "page": query.page,
+        "per_page": per_page,
+        "sections": sections,
+        "unavailable": unavailable,
+    }))
+}
+
 /// Every History & Physical recorded for one patient.
 #[get("/api/clinical/patient/{patient_id}/history-physicals")]
 pub async fn list_patient_history_physicals(
@@ -68,17 +155,7 @@ pub async fn list_patient_history_physicals(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .history_physicals
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "patient_id": patient_id,
-        "history_physicals": items,
-    }))
+    section_response(&data, &patient_id, RecordSection::HistoryPhysicals).await
 }
 
 /// Every progress note recorded for one patient.
@@ -92,17 +169,7 @@ pub async fn list_patient_progress_notes(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .progress_notes
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "patient_id": patient_id,
-        "progress_notes": items,
-    }))
+    section_response(&data, &patient_id, RecordSection::ProgressNotes).await
 }
 
 /// Every wound assessment recorded for one patient.
@@ -116,17 +183,7 @@ pub async fn list_patient_wounds(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .wound_assessments
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "patient_id": patient_id,
-        "wounds": items,
-    }))
+    section_response(&data, &patient_id, RecordSection::Wounds).await
 }
 
 /// Everything written when this patient was discharged.
@@ -153,27 +210,7 @@ pub async fn list_patient_discharges(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let summaries = data
-        .repositories
-        .discharge_summaries
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let instructions = data
-        .repositories
-        .discharge_instructions
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "summaries": summaries,
-        "instructions": instructions,
-        "count": summaries.len() + instructions.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::Discharges).await
 }
 
 /// Everything imaging that was ordered for, and reported about, this patient.
@@ -202,27 +239,7 @@ pub async fn list_patient_imaging(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let orders = data
-        .repositories
-        .radiology_orders
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let reports = data
-        .repositories
-        .radiology_reports
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "orders": orders,
-        "reports": reports,
-        "count": orders.len() + reports.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::Imaging).await
 }
 
 /// The pathology on this patient's own specimens.
@@ -251,19 +268,7 @@ pub async fn list_patient_pathology(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let reports = data
-        .repositories
-        .pathology_reports
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "reports": reports,
-        "count": reports.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::Pathology).await
 }
 
 /// Every specialist opinion asked for about this patient.
@@ -287,19 +292,7 @@ pub async fn list_patient_consults(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .consultation_notes
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "consults": items,
-        "count": items.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::Consults).await
 }
 
 /// The nursing care plan written for this patient.
@@ -323,19 +316,7 @@ pub async fn list_patient_care_plans(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .nursing_care_plans
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "care_plans": items,
-        "count": items.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::CarePlans).await
 }
 
 /// This patient's blood work and any blood they were given.
@@ -363,25 +344,7 @@ pub async fn list_patient_blood(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let screens = data
-        .repositories
-        .blood_type_screen_records
-        .get_by_owner(&patient_id)
-        .await
-        .unwrap_or_default();
-    let transfusions = data
-        .repositories
-        .transfusion_event_records
-        .get_by_owner(&patient_id)
-        .await
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "screens": screens,
-        "transfusions": transfusions,
-        "count": screens.len() + transfusions.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::Blood).await
 }
 
 /// Every procedure performed on this patient.
@@ -405,54 +368,7 @@ pub async fn list_patient_procedures(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let page = || Pagination::new(0, PAGE);
-    let intubations = data
-        .repositories
-        .intubation_records
-        .get_by_patient(&patient_id, page())
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let lacerations = data
-        .repositories
-        .laceration_repairs
-        .get_by_patient(&patient_id, page())
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let splints = data
-        .repositories
-        .splint_cast_records
-        .get_by_patient(&patient_id, page())
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let burns = data
-        .repositories
-        .burn_assessments
-        .get_by_patient(&patient_id, page())
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let anesthesia = data
-        .repositories
-        .anesthesia_records
-        .get_by_patient(&patient_id, page())
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    let count =
-        intubations.len() + lacerations.len() + splints.len() + burns.len() + anesthesia.len();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "intubations": intubations,
-        "laceration_repairs": lacerations,
-        "splints_and_casts": splints,
-        "burn_assessments": burns,
-        "anesthesia_records": anesthesia,
-        "count": count,
-    }))
+    section_response(&data, &patient_id, RecordSection::Procedures).await
 }
 
 /// A discharge this patient took against medical advice.
@@ -474,19 +390,7 @@ pub async fn list_patient_ama_discharges(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .ama_discharges
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "ama_discharges": items,
-        "count": items.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::AmaDischarges).await
 }
 
 /// This patient's fluid balance.
@@ -508,19 +412,7 @@ pub async fn list_patient_intake_output(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    let items = data
-        .repositories
-        .io_records
-        .get_by_patient(&patient_id, None, Pagination::new(0, PAGE))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "patient_id": patient_id,
-        "intake_output": items,
-        "count": items.len(),
-    }))
+    section_response(&data, &patient_id, RecordSection::IntakeOutput).await
 }
 
 /// The authorisation boundary for every patient-scoped document listing.
@@ -554,30 +446,7 @@ pub async fn list_patient_pharmacy_decisions(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    match data
-        .repositories
-        .pharmacy_decisions
-        .get_by_owner(&patient_id)
-        .await
-    {
-        Ok(rows) => {
-            let decisions: Vec<serde_json::Value> = rows.into_iter().map(|r| r.data).collect();
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "patient_id": patient_id,
-                "decisions": decisions,
-                "count": decisions.len(),
-            }))
-        }
-        // Not an empty list: "no medicine was refused" is a claim.
-        Err(e) => {
-            log::error!("pharmacy decisions could not be read: {e}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Dispensing decisions could not be read".to_string(),
-                code: "DATABASE_ERROR".to_string(),
-            })
-        }
-    }
+    section_response(&data, &patient_id, RecordSection::PharmacyDecisions).await
 }
 
 /// The ambulance handovers recorded about this patient.
@@ -595,29 +464,7 @@ pub async fn list_patient_ems_handoffs(
     if let Err(resp) = authorize(&data, &http_req, &patient_id) {
         return resp;
     }
-    match data
-        .repositories
-        .ems_handoffs
-        .get_by_patient(&patient_id, Pagination::new(0, PAGE))
-        .await
-    {
-        Ok(page) => {
-            let handoffs: Vec<serde_json::Value> = page.items.into_iter().map(|r| r.data).collect();
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "patient_id": patient_id,
-                "handoffs": handoffs,
-                "count": handoffs.len(),
-            }))
-        }
-        Err(e) => {
-            log::error!("EMS handoffs could not be read: {e}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Ambulance handovers could not be read".to_string(),
-                code: "DATABASE_ERROR".to_string(),
-            })
-        }
-    }
+    section_response(&data, &patient_id, RecordSection::EmsHandoffs).await
 }
 
 #[cfg(test)]
@@ -753,5 +600,70 @@ mod patient_document_access_tests {
                 "a forged caller reached {route}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod records_summary_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    const PATIENT_ID: &str = "PAT-SUMMARY";
+    const PATIENT: &str = "patient_summary";
+    const OTHER: &str = "patient_other_summary";
+
+    async fn state() -> web::Data<AppState> {
+        let state = AppState::new();
+        for (wallet, linked) in [(PATIENT, PATIENT_ID), (OTHER, "PAT-ELSEWHERE")] {
+            let mut user = crate::test_fixtures::staff(wallet, crate::Role::Patient);
+            user.linked_patient_id = Some(linked.into());
+            state.users.write().unwrap().insert(wallet.into(), user);
+        }
+        crate::test_fixtures::seed_patient(&state, PATIENT_ID).await;
+        web::Data::new(state)
+    }
+
+    async fn summary(
+        data: &web::Data<AppState>,
+        wallet: &str,
+        query: &str,
+    ) -> (u16, serde_json::Value) {
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(get_records_summary),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri(&format!(
+                "/api/patients/{PATIENT_ID}/records-summary{query}"
+            ))
+            .insert_header(("x-user-id", wallet))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let status = response.status().as_u16();
+        (status, test::read_body_json(response).await)
+    }
+
+    #[actix_web::test]
+    async fn one_read_returns_every_section_in_its_own_endpoints_shape() {
+        let data = state().await;
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let sections = body["sections"].as_object().unwrap();
+        assert_eq!(sections.len(), RecordSection::ALL.len());
+        assert!(sections["discharges"]["summaries"].is_array());
+        assert!(sections["vitals"]["readings"].is_array());
+        assert_eq!(body["unavailable"], serde_json::json!([]));
+        assert_eq!(body["per_page"], SUMMARY_DEFAULT_PER_PAGE);
+    }
+
+    #[actix_web::test]
+    async fn paging_is_bounded_and_another_patient_is_refused() {
+        let data = state().await;
+        let (_, body) = summary(&data, PATIENT, "?page=2&per_page=10000").await;
+        assert_eq!(body["per_page"], PAGE);
+        assert_eq!(body["page"], 2);
+        assert_eq!(summary(&data, OTHER, "").await.0, 403);
     }
 }

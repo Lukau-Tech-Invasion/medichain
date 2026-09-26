@@ -51,6 +51,7 @@ mod patient_documents;
 mod patient_self_service;
 mod pdf_export;
 mod rbac;
+mod record_sections;
 mod research_exports;
 mod retention_admin;
 mod session;

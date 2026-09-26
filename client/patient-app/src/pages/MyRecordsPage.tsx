@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -133,6 +133,20 @@ export function MyRecordsPage() {
       });
     const documents = (kind: Parameters<typeof getPatientDocuments>[1]) =>
       settle(kind, getPatientDocuments(patientId, kind), {} as Record<string, unknown>);
+    // Most sections come from one summary read (WP11) instead of a request
+    // each. A section the server could not read is named as not loaded, the
+    // same as a failed individual read, and never shown as empty.
+    const summary = await getRecordsSummary(patientId).catch((error: unknown) => {
+      console.error('Failed to load the records summary:', error);
+      return null;
+    });
+    const section = (key: string): Record<string, unknown> => {
+      if (!summary || summary.unavailable.includes(key) || !summary.sections[key]) {
+        failed.push(key);
+        return {};
+      }
+      return summary.sections[key];
+    };
 
     try {
       const [
@@ -172,42 +186,40 @@ export function MyRecordsPage() {
         // A History & Physical, a progress note, a wound assessment and a
         // vitals reading are all written about the patient, and none of them
         // were reachable from this page before.
-        documents('history-physicals'),
-        documents('progress-notes'),
-        documents('wounds'),
-        settle(
-          'vitals',
-          getPatientVitals(patientId),
-          { readings: [] } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
-        ),
+        section('history-physicals'),
+        section('progress-notes'),
+        section('wounds'),
+        // Same shape as the vitals endpoint; `readings` is empty when the
+        // section did not load (and it is then named as not loaded).
+        { readings: [], ...section('vitals') } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
         // The document a patient physically leaves hospital with. It was
         // reachable only by an id the patient has never seen, so it could be
         // written, approved by a second clinician, stored — and never read by
         // the person it was written for.
-        documents('discharges'),
+        section('discharges'),
         // The scan the patient was sent for, waited for and worried about.
         // The report was readable only by an id they have never seen, behind a
         // clinical-staff gate that refused them even with it.
-        documents('imaging'),
+        section('imaging'),
         // Where a cancer diagnosis, a margin status and a staging live — the
         // result a patient chases hardest, and the one they were least able to
         // reach: it was keyed by an accession number they have never seen.
-        documents('pathology'),
+        section('pathology'),
         // What the specialist actually said, and what they want done next. A
         // patient told "the specialist has seen your notes" and unable to read
         // the answer is being asked to take the recommendation on trust.
-        documents('consults'),
+        section('consults'),
         // The one clinical document written in the second person: what the
         // goals of this admission are and what the patient is expected to do.
-        documents('care-plans'),
+        section('care-plans'),
         // A blood group is the single most reusable fact in a record — asked
         // in every emergency department and on every pre-operative form.
-        documents('blood'),
+        section('blood'),
         // "What was done to me" is one question; it was split across five
         // endpoints, none of which the patient could reach.
-        documents('procedures'),
+        section('procedures'),
         // The document most likely to be cited against the patient later.
-        documents('ama-discharges'),
+        section('ama-discharges'),
         // Neurological observations. `POST /api/clinical/gcs` and this read had
         // both existed with no caller at either end: nothing wrote a GCS
         // assessment and nothing displayed one.
@@ -217,7 +229,7 @@ export function MyRecordsPage() {
           { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientGCS>>,
         ),
         // What the ambulance crew found and did before the hospital door.
-        documents('ems-handoffs'),
+        section('ems-handoffs'),
       ]);
 
       const labRecords = labData.map(sub => ({

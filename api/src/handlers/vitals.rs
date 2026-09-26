@@ -35,7 +35,9 @@ pub struct VitalSignsResponse {
     pub message: String,
 }
 
-fn vital_reading_json(v: crate::repositories::traits::VitalSignsEntity) -> serde_json::Value {
+pub(crate) fn vital_reading_json(
+    v: crate::repositories::traits::VitalSignsEntity,
+) -> serde_json::Value {
     serde_json::json!({
         "reading_id": v.id,
         "timestamp": v.recorded_at.timestamp(),

@@ -1310,6 +1310,26 @@ export async function getPatientDocuments(
   });
 }
 
+/** Every section of a patient's record in one read (WP11), each paged. */
+export interface RecordsSummary {
+  patient_id: string;
+  page: number;
+  per_page: number;
+  /** Each section as its own endpoint returns it, keyed by that endpoint's last path segment. */
+  sections: Record<string, Record<string, unknown>>;
+  /** Sections that could not be read: show the record as partial, never as empty. */
+  unavailable: string[];
+}
+
+/** A patient's record sections in one request (WP11). */
+export async function getRecordsSummary(patientId: string, page = 0, perPage?: number): Promise<RecordsSummary> {
+  const query = new URLSearchParams({ page: String(page) });
+  if (perPage !== undefined) query.set('per_page', String(perPage));
+  return getApiClient().get(`/api/patients/${encodeURIComponent(patientId)}/records-summary?${query}`, {
+    keepEnvelope: true,
+  });
+}
+
 /** Each path spelled out, so the route-drift gate can check it against the API. */
 const PATIENT_DOCUMENT_PATHS: Record<PatientDocumentKind, (id: string) => string> = {
   soap: (id) => `/api/clinical/patient/${id}/soap`,
