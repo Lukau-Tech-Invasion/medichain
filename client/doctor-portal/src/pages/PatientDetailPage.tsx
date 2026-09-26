@@ -584,6 +584,11 @@ function PatientDetailPage() {
                 <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
                   {t('docPatientDetail.blood', { type: patient.bloodType })}
                 </span>
+                {patient.bloodType === 'Unknown' && (
+                  <span role="alert" className="text-sm font-medium text-critical-subtle-fg">
+                    {t('emergency.unknownBloodTypeWarning')}
+                  </span>
+                )}
                 {patient.dnrStatus && (
                   <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
                     {t('docPatientDetail.dnr')}

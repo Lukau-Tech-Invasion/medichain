@@ -107,6 +107,21 @@ describe('EmergencyCardPage (Patient)', () => {
     });
   });
 
+  it('warns that an unknown blood type must be cross-matched', async () => {
+    const response = await mockFetch();
+    const patient = await response.json();
+    mockFetch.mockResolvedValue({
+      ...response,
+      json: async () => ({
+        ...patient,
+        emergency_info: { ...patient.emergency_info, blood_type: 'Unknown' },
+      }),
+    });
+    renderPage();
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
+  });
+
   it('renders a real scannable QR code image', async () => {
     renderPage();
 

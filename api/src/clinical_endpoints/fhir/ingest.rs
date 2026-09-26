@@ -143,8 +143,8 @@ fn patient_registration_from_resource(resource: &Value) -> Result<RegisterPatien
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "Patient emergency blood-type extension is required".to_string())?;
+        .unwrap_or("Unknown")
+        .to_string();
     let contact = resource
         .get("contact")
         .and_then(Value::as_array)
@@ -366,10 +366,10 @@ mod tests {
     }
 
     #[test]
-    fn fhir_patient_requires_custom_clinical_profile_fields() {
+    fn fhir_patient_without_blood_type_is_unknown() {
         let mut resource = patient_resource();
         resource.as_object_mut().unwrap().remove("extension");
-        let error = patient_registration_from_resource(&resource).unwrap_err();
-        assert!(error.contains("blood-type"));
+        let request = patient_registration_from_resource(&resource).unwrap();
+        assert_eq!(request.blood_type, "Unknown");
     }
 }

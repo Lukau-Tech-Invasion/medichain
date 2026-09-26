@@ -40,6 +40,26 @@ mod tests {
         web::Data::new(state)
     }
 
+    /// Registration payload with no measured blood group, shared by its
+    /// success, authorization and storage-failure tests.
+    fn untyped_registration_payload() -> serde_json::Value {
+        json!({
+            "full_name": "Untyped Patient",
+            "date_of_birth": "1985-05-05",
+            "national_id": "hash-untyped",
+            "phone": "+27820000000",
+            "allergies": [],
+            "chronic_conditions": [],
+            "current_medications": [],
+            "emergency_contact_name": "Kin",
+            "emergency_contact_phone": "+27820000001",
+            "emergency_contact_relationship": "Sibling",
+            "organ_donor": false,
+            "dnr_status": false,
+            "languages": ["en"]
+        })
+    }
+
     #[actix_rt::test]
     async fn test_health_check() {
         let app_state = setup_app_state().await;
@@ -167,22 +187,7 @@ mod tests {
             test::TestRequest::post()
                 .uri("/api/register")
                 .insert_header(("x-user-id", "doctor_wallet"))
-                .set_json(json!({
-                    "full_name": "Untyped Patient",
-                    "date_of_birth": "1985-05-05",
-                    "national_id": "hash-untyped",
-                    "phone": "+27820000000",
-                    "blood_type": "Unknown",
-                    "allergies": [],
-                    "chronic_conditions": [],
-                    "current_medications": [],
-                    "emergency_contact_name": "Kin",
-                    "emergency_contact_phone": "+27820000001",
-                    "emergency_contact_relationship": "Sibling",
-                    "organ_donor": false,
-                    "dnr_status": false,
-                    "languages": ["en"]
-                }))
+                .set_json(untyped_registration_payload())
                 .to_request(),
         )
         .await;
@@ -201,6 +206,85 @@ mod tests {
         assert_eq!(
             retrieved["emergency_info"]["blood_type"], "Unknown",
             "{retrieved}"
+        );
+    }
+
+    /// A patient cannot register another person, regardless of whether a
+    /// blood group was supplied in the request.
+    #[actix_web::test]
+    async fn an_untyped_registration_by_a_patient_is_forbidden() {
+        let app_state = setup_app_state().await;
+        let mut patient = app_state.users.read().unwrap()["doctor_wallet"].clone();
+        patient.wallet_address = "patient_wallet".to_string();
+        patient.role = Role::Patient;
+        app_state
+            .users
+            .write()
+            .unwrap()
+            .insert("patient_wallet".to_string(), patient);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(register_patient),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(("x-user-id", "patient_wallet"))
+                .set_json(untyped_registration_payload())
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    /// A storage outage does not acknowledge an unpersisted patient and gives
+    /// the client a stable, safe error code.
+    #[actix_web::test]
+    async fn an_untyped_registration_with_unavailable_storage_returns_503() {
+        let seeded = setup_app_state().await;
+        let mut state = AppState::new();
+        let doctor = seeded.users.read().unwrap()["doctor_wallet"].clone();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_wallet".to_string(), doctor);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(250))
+            .connect_lazy_with(
+                sqlx::postgres::PgConnectOptions::new()
+                    .host("127.0.0.1")
+                    .port(1)
+                    .username("unavailable-test")
+                    .database("unavailable"),
+            );
+        state.repositories.pool = Some(pool);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(register_patient),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(untyped_registration_payload())
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(
+            body["error"]["code"], "PATIENT_REGISTRATION_UNAVAILABLE",
+            "{body}"
         );
     }
 

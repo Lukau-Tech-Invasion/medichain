@@ -24,7 +24,7 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText(/Full Name \*/i), { target: { value: 'John Doe' } });
   fireEvent.change(screen.getByLabelText(/Date of Birth \*/i), { target: { value: '1990-01-01' } });
   fireEvent.change(screen.getByLabelText(/National ID \*/i), { target: { value: 'NIN-123' } });
-  fireEvent.change(screen.getByLabelText(/Blood Type \*/i), { target: { value: 'O+' } });
+  fireEvent.change(screen.getByLabelText(/Blood Type \(optional\)/i), { target: { value: 'O+' } });
   fireEvent.change(screen.getByLabelText(/Contact Name \*/i), { target: { value: 'Jane Doe' } });
   fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
   fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
@@ -75,7 +75,7 @@ describe('RegisterPatientPage', () => {
       target: { value: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
     });
     fireEvent.change(screen.getByLabelText(/National ID \*/i), { target: { value: 'NIN-123' } });
-    fireEvent.change(screen.getByLabelText(/Blood Type \*/i), { target: { value: 'O+' } });
+    fireEvent.change(screen.getByLabelText(/Blood Type \(optional\)/i), { target: { value: 'O+' } });
     fireEvent.change(screen.getByLabelText(/Contact Name \*/i), { target: { value: 'Jane Doe' } });
     fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
     fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
@@ -97,7 +97,7 @@ describe('RegisterPatientPage', () => {
         <RegisterPatientPage />
       </MemoryRouter>
     );
-    const bloodType = screen.getByLabelText(/Blood Type \*/i) as HTMLSelectElement;
+    const bloodType = screen.getByLabelText(/Blood Type \(optional\)/i) as HTMLSelectElement;
     expect(Array.from(bloodType.options).map((o) => o.value)).toContain('Unknown');
 
     fireEvent.change(screen.getByLabelText(/Full Name \*/i), { target: { value: 'Untyped Patient' } });
@@ -116,6 +116,26 @@ describe('RegisterPatientPage', () => {
       const register = fetchSpy.mock.calls.find(([url]) => String(url).includes('/register'));
       expect(register, 'no registration request was sent').toBeTruthy();
       expect(JSON.parse(String((register![1] as RequestInit).body)).blood_type).toBe('Unknown');
+    });
+  });
+
+  it('omits blood type when the clinician has not typed the patient', async () => {
+    const fetchSpy = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    render(<MemoryRouter><RegisterPatientPage /></MemoryRouter>);
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText(/Wallet Address/i), {
+      target: { value: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
+    });
+    fireEvent.change(screen.getByLabelText(/Blood Type \(optional\)/i), {
+      target: { value: '' },
+    });
+    fireEvent.submit(screen.getByRole('button', { name: /Register Patient/i }).closest('form')!);
+
+    await waitFor(() => {
+      const register = fetchSpy.mock.calls.find(([url]) => String(url).includes('/register'));
+      expect(register, 'no registration request was sent').toBeTruthy();
+      const body = JSON.parse(String((register![1] as RequestInit).body));
+      expect(body).not.toHaveProperty('blood_type');
     });
   });
 
@@ -142,7 +162,7 @@ describe('RegisterPatientPage', () => {
       target: { value: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
     });
     fireEvent.change(screen.getByLabelText(/National ID \*/i), { target: { value: 'NIN-123' } });
-    fireEvent.change(screen.getByLabelText(/Blood Type \*/i), { target: { value: 'O+' } });
+    fireEvent.change(screen.getByLabelText(/Blood Type \(optional\)/i), { target: { value: 'O+' } });
     fireEvent.change(screen.getByLabelText(/Contact Name \*/i), { target: { value: 'Jane Doe' } });
     fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
     fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });

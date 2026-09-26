@@ -454,6 +454,11 @@ export function MedicalIdPage() {
             <Droplet className="w-8 h-8 text-critical mx-auto mb-2" />
             <p className="text-3xl font-bold text-content">{asText(data.blood_type)}</p>
             <p className="text-sm text-content-muted">{t('medicalId.bloodTypeLabel')}</p>
+            {asText(data.blood_type) === 'Unknown' && (
+              <p role="alert" className="mt-2 text-sm font-medium text-critical-subtle-fg">
+                {t('emergency.unknownBloodTypeWarning')}
+              </p>
+            )}
           </div>
           <div className="p-4 text-center">
             <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-ok' : 'text-content-muted'}`} />

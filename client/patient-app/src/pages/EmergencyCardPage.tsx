@@ -475,6 +475,11 @@ export function EmergencyCardPage() {
               <span className="text-xl font-bold text-critical-subtle-fg">{emergencyData.bloodType}</span>
             </div>
           </div>
+          {emergencyData.bloodType === 'Unknown' && (
+            <p role="alert" className="mt-2 text-sm font-medium text-critical-subtle-fg">
+              {t('emergency.unknownBloodTypeWarning')}
+            </p>
+          )}
         </div>
       </div>
 

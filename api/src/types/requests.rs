@@ -96,6 +96,8 @@ pub struct RegisterPatientRequest {
     /// contact details remain separately required.
     #[serde(default)]
     pub phone: String,
+    /// Omitted when no verified blood group is available; stored as Unknown.
+    #[serde(default)]
     pub blood_type: String,
     /// Allergies - can be simple strings (converted to Mild severity) for backward compatibility
     pub allergies: Vec<String>,

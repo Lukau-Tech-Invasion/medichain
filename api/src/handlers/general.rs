@@ -274,7 +274,11 @@ fn validate_register_patient_request(
             code: "VALIDATION_ERROR".to_string(),
         }));
     }
-    parse_blood_type(&req.blood_type).map_err(|e| {
+    let stated_blood_type = req.blood_type.trim();
+    if stated_blood_type.is_empty() {
+        return Ok(BloodType::Unknown);
+    }
+    parse_blood_type(stated_blood_type).map_err(|e| {
         HttpResponse::BadRequest().json(RegisterPatientResponse {
             success: false,
             patient_id: String::new(),
@@ -477,13 +481,10 @@ pub async fn register_patient(
             .await
         {
             log::error!("Patient persistence failed: {}", e);
-            return HttpResponse::InternalServerError().json(RegisterPatientResponse {
-                success: false,
-                patient_id: String::new(),
-                nfc_tag_id: String::new(),
-                chain_status: None,
-                blockchain_tx_hash: None,
-                message: "Failed to persist patient record".to_string(),
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Patient registration is temporarily unavailable. Please try again."
+                    .to_string(),
+                code: "PATIENT_REGISTRATION_UNAVAILABLE".to_string(),
             });
         }
     }

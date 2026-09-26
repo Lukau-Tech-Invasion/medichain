@@ -134,6 +134,26 @@ describe('PatientDetailPage', () => {
     });
   });
 
+  it('warns staff to cross-match when the blood group is unknown', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        ...mockPatientData,
+        emergency_info: { ...mockPatientData.emergency_info, blood_type: 'Unknown' },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/patients/PAT-001']}>
+        <Routes>
+          <Route path="/patients/:patientId" element={<PatientDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
+  });
+
   it('shows error message when patient is not found', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,

@@ -215,7 +215,7 @@ function RegisterPatientPage() {
         // blank -- which the backend stores faithfully as a known-empty
         // value (CLAUDE.md rule 9).
         phone: undefined,
-        blood_type: formData.bloodType,
+        blood_type: formData.bloodType || undefined,
         allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
         current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
         chronic_conditions: formData.chronicConditions.split(',').map(s => s.trim()).filter(Boolean),
@@ -484,7 +484,6 @@ function RegisterPatientPage() {
                 name="bloodType"
                 value={formData.bloodType}
                 onChange={handleChange}
-                required
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>

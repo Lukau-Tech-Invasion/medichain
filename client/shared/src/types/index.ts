@@ -365,7 +365,7 @@ export interface RegisterPatientRequest {
   gender?: string;
   /** The patient's own number. Absent when not collected. */
   phone?: string;
-  blood_type: string;
+  blood_type?: string;
   /** Allergies - simple strings (converted to Mild severity on backend) */
   allergies: string[];
   current_medications: string[];

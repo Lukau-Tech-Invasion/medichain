@@ -247,6 +247,7 @@ const en_US: TranslationRecord = {
 
   // Emergency
   emergency: {
+    unknownBloodTypeWarning: 'Unknown — type and cross-match before transfusion',
     notifyContactsBtn: 'Text emergency contacts',
     notifyingContacts: 'Sending…',
     notifyContactsConfirm: 'Send an emergency SMS to this patient\'s emergency contacts now?',
@@ -2338,7 +2339,7 @@ const en_US: TranslationRecord = {
     dob: 'Date of Birth *',
     nationalId: 'National ID *',
     nationalIdPlaceholder: 'NIN-12345678901',
-    bloodType: 'Blood Type *',
+    bloodType: 'Blood Type (optional)',
     selectBloodType: 'Select blood type',
     bloodTypeUnknown: 'Unknown (not typed)',
     gender: 'Gender',

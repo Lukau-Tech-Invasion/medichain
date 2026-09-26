@@ -82,6 +82,18 @@ describe('MedicalIdPage (Patient)', () => {
     });
   });
 
+  it('warns that an unknown blood type must be cross-matched', async () => {
+    const response = await mockFetch();
+    const medicalId = await response.json();
+    mockFetch.mockResolvedValue({
+      ...response,
+      json: async () => ({ ...medicalId, blood_type: 'Unknown' }),
+    });
+    renderPage();
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
+  });
+
   it('displays emergency contacts with decision authority', async () => {
     renderPage();
 
