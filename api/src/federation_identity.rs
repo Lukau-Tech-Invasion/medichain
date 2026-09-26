@@ -59,6 +59,7 @@ struct ProfessionalAssignment {
     id: String,
     organization_id: String,
     facility_id: String,
+    facility_name: Option<String>,
     role: String,
     active: bool,
 }
@@ -96,12 +97,42 @@ impl IdentityContextStore {
                         id: format!("legacy-assignment-{}", Uuid::new_v4()),
                         organization_id: "legacy-organization".to_string(),
                         facility_id: LEGACY_FACILITY_ID.to_string(),
+                        facility_name: None,
                         role: role.to_string(),
                         active: true,
                     });
             }
         }
         person_id
+    }
+
+    /// Assign a known professional to an active facility context.
+    ///
+    /// This is used after durable assignment provisioning so the current API
+    /// process immediately reports the real facility instead of its legacy
+    /// placeholder while a newly seeded demo is running.
+    pub fn assign_professional_facility(
+        &self,
+        wallet_address: &str,
+        organization_id: &str,
+        facility_id: &str,
+        facility_name: &str,
+        role: &str,
+    ) {
+        self.person_id_for(wallet_address);
+        if let Ok(mut assignments) = self.professional_assignments.write() {
+            assignments.insert(
+                wallet_address.to_string(),
+                ProfessionalAssignment {
+                    id: format!("assignment-{}", Uuid::new_v4()),
+                    organization_id: organization_id.to_string(),
+                    facility_id: facility_id.to_string(),
+                    facility_name: Some(facility_name.to_string()),
+                    role: role.to_string(),
+                    active: true,
+                },
+            );
+        }
     }
 
     /// Issue a patient context for `wallet_address`. `target_patient_id`
@@ -172,8 +203,8 @@ impl IdentityContextStore {
     /// * `wallet_address` - the clinician's authenticated wallet.
     ///
     /// # Returns
-    /// The facility id, or `None` when the caller has no active assignment
-    /// (never a guessed or default facility).
+    /// The facility name, or `None` when the caller has no active assignment
+    /// with a known facility name (never a guessed or default facility).
     pub fn facility_for_wallet(&self, wallet_address: &str) -> Option<String> {
         self.professional_assignments
             .read()
@@ -183,7 +214,7 @@ impl IdentityContextStore {
             // The legacy bridge fills every assignment with this placeholder;
             // telling a patient "legacy-facility" read their record is noise.
             .filter(|assignment| assignment.facility_id != LEGACY_FACILITY_ID)
-            .map(|assignment| assignment.facility_id.clone())
+            .and_then(|assignment| assignment.facility_name.clone())
     }
 
     pub fn active_context(&self, context_id: &str, wallet_address: &str) -> Option<LoginContext> {
@@ -250,5 +281,27 @@ mod tests {
             .issue_patient_context(wallet, Some("PAT-ward-123"))
             .unwrap();
         assert_eq!(context.patient_profile_id.as_deref(), Some("PAT-ward-123"));
+    }
+
+    #[test]
+    fn a_seeded_assignment_replaces_the_legacy_facility_placeholder() {
+        let store = IdentityContextStore::new();
+        let wallet = "5DemoParamedic";
+        store.register_legacy_user(wallet, None, "Paramedic");
+        store.assign_professional_facility(
+            wallet,
+            "demo-org",
+            "demo-facility-jhb",
+            "MediChain Johannesburg Demonstration Clinic",
+            "Paramedic",
+        );
+        assert_eq!(
+            store.facility_for_wallet(wallet).as_deref(),
+            Some("MediChain Johannesburg Demonstration Clinic")
+        );
+        assert_eq!(
+            store.issue_work_context(wallet).unwrap().role.as_deref(),
+            Some("Paramedic")
+        );
     }
 }

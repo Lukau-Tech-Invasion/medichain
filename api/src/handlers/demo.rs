@@ -19,6 +19,133 @@ pub struct DemoLoginResponse {
     pub message: String,
 }
 
+/// Seed the durable demo facility registry and active staff assignments.
+///
+/// This endpoint exists only to prepare a local demonstration. It requires the
+/// same two explicit flags as demo login and refuses to claim success when the
+/// database is unavailable.
+#[post("/api/demo/seed-facilities")]
+pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
+    let dev_mode = std::env::var("MEDICHAIN_DEV_MODE")
+        .map(|value| value == "true" || value == "1")
+        .unwrap_or(false);
+    if !dev_mode || !crate::support::is_demo_mode() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Demo facility seeding is only available in development demo mode.".to_string(),
+            code: "DEV_MODE_REQUIRED".to_string(),
+        });
+    }
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Demo facility seeding requires durable storage.".to_string(),
+            code: "DEMO_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let facilities = [
+        (
+            "demo-facility-jhb",
+            "MediChain Johannesburg Demonstration Clinic",
+            "clinic",
+            "Gauteng",
+        ),
+        (
+            "demo-facility-pta",
+            "MediChain Pretoria Demonstration Clinic",
+            "clinic",
+            "Gauteng",
+        ),
+        (
+            "demo-facility-cpt",
+            "MediChain Cape Town Demonstration Clinic",
+            "clinic",
+            "Western Cape",
+        ),
+    ];
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log::error!("demo facility transaction: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Demo facility seeding is temporarily unavailable.".to_string(),
+                code: "DEMO_STORAGE_REQUIRED".to_string(),
+            });
+        }
+    };
+    if let Err(error) = sqlx::query("INSERT INTO organizations (id, name, organization_type, status) VALUES ($1, $2, $3, 'active') ON CONFLICT (id) DO NOTHING")
+        .bind("demo-organization").bind("MediChain Demonstration Organisation").bind("healthcare_provider")
+        .execute(&mut *transaction).await {
+        log::error!("seed demo organization: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse { error: "Demo facility seeding is temporarily unavailable.".to_string(), code: "DEMO_STORAGE_REQUIRED".to_string() });
+    }
+    for (id, name, facility_type, province) in facilities {
+        let location =
+            serde_json::json!({ "province": province, "district": "Demonstration district" });
+        if let Err(error) = sqlx::query("INSERT INTO facilities (id, organization_id, name, facility_type, status, location) VALUES ($1, $2, $3, $4, 'active', $5) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, facility_type = EXCLUDED.facility_type, location = EXCLUDED.location")
+            .bind(id).bind("demo-organization").bind(name).bind(facility_type).bind(location).execute(&mut *transaction).await {
+            log::error!("seed demo facility: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse { error: "Demo facility seeding is temporarily unavailable.".to_string(), code: "DEMO_STORAGE_REQUIRED".to_string() });
+        }
+    }
+    let staff: Vec<(String, String)> = data
+        .users
+        .read()
+        .map(|users| {
+            users
+                .values()
+                .filter(|user| user.role != crate::Role::Patient)
+                .map(|user| (user.wallet_address.clone(), user.role.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (wallet, role) in staff {
+        let person_id = match sqlx::query_scalar::<_, String>(
+            "INSERT INTO persons (id, wallet_address, status) VALUES ($1, $2, 'active') \
+             ON CONFLICT (wallet_address) DO UPDATE SET status = 'active' RETURNING id",
+        )
+        .bind(format!("demo-person-{wallet}"))
+        .bind(&wallet)
+        .fetch_one(&mut *transaction)
+        .await
+        {
+            Ok(id) => id,
+            Err(error) => {
+                log::error!("seed demo person: {error}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Demo facility seeding is temporarily unavailable.".to_string(),
+                    code: "DEMO_STORAGE_REQUIRED".to_string(),
+                });
+            }
+        };
+        let professional_id = format!("demo-professional-{wallet}");
+        let assignment_id = format!("demo-assignment-{wallet}");
+        if let Err(error) = sqlx::query("INSERT INTO professional_identities (id, person_id, profession, status) VALUES ($1, $2, $3, 'active') ON CONFLICT (id) DO UPDATE SET profession = EXCLUDED.profession, status = 'active'")
+            .bind(&professional_id).bind(&person_id).bind(&role).execute(&mut *transaction).await {
+            log::error!("seed demo professional: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse { error: "Demo facility seeding is temporarily unavailable.".to_string(), code: "DEMO_STORAGE_REQUIRED".to_string() });
+        }
+        if let Err(error) = sqlx::query("INSERT INTO organization_assignments (id, professional_identity_id, organization_id, facility_id, role, status) VALUES ($1, $2, $3, $4, $5, 'active') ON CONFLICT (id) DO UPDATE SET facility_id = EXCLUDED.facility_id, role = EXCLUDED.role, status = 'active'")
+            .bind(&assignment_id).bind(&professional_id).bind("demo-organization").bind("demo-facility-jhb").bind(&role).execute(&mut *transaction).await {
+            log::error!("seed demo assignment: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse { error: "Demo facility seeding is temporarily unavailable.".to_string(), code: "DEMO_STORAGE_REQUIRED".to_string() });
+        }
+        data.identity_contexts.assign_professional_facility(
+            &wallet,
+            "demo-organization",
+            "demo-facility-jhb",
+            "MediChain Johannesburg Demonstration Clinic",
+            &role,
+        );
+    }
+    if let Err(error) = transaction.commit().await {
+        log::error!("commit demo facilities: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Demo facility seeding is temporarily unavailable.".to_string(),
+            code: "DEMO_STORAGE_REQUIRED".to_string(),
+        });
+    }
+    HttpResponse::Ok().json(serde_json::json!({ "success": true, "facilities": 3 }))
+}
+
 #[post("/api/auth/demo-login")]
 pub async fn demo_login(
     data: web::Data<AppState>,

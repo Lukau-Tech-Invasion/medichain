@@ -20,6 +20,9 @@ pub struct AddVitalSignsRequest {
     pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f32>,
     pub notes: Option<String>,
+    /// Stable fixture key accepted only in explicit demo mode.
+    #[serde(default)]
+    pub demo_seed_key: Option<String>,
 }
 
 /// Response for vital signs reading
@@ -130,15 +133,39 @@ pub async fn add_vital_signs(
         }
     }
 
-    // Generate reading ID
-    let reading_id = format!(
-        "VS-{}",
-        Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("000")
-    );
+    let reading_id = match req.demo_seed_key.as_deref() {
+        Some(key) => {
+            if !crate::support::is_demo_mode()
+                || key.len() != 3
+                || !key.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    error: "Deterministic demo vital signs are disabled in this deployment."
+                        .to_string(),
+                    code: "DEMO_SEED_DISABLED".to_string(),
+                });
+            }
+            let id = format!("VS-DEMO-{key}");
+            if data.repositories.vital_signs.get_by_id(&id).await.is_ok() {
+                return HttpResponse::Ok().json(VitalSignsResponse {
+                    success: true,
+                    reading_id: id,
+                    mean_arterial_pressure: None,
+                    critical_alerts: Vec::new(),
+                    message: "Deterministic demo vital signs already exist.".to_string(),
+                });
+            }
+            id
+        }
+        None => format!(
+            "VS-{}",
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("000")
+        ),
+    };
 
     // Create vital signs reading
     let reading = VitalSignsReading {

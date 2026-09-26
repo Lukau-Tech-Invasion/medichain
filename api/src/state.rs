@@ -287,6 +287,7 @@ impl AppState {
                             "Admin" => Role::Admin,
                             "Doctor" => Role::Doctor,
                             "Nurse" => Role::Nurse,
+                            "Paramedic" => Role::Paramedic,
                             "LabTechnician" => Role::LabTechnician,
                             "Pharmacist" => Role::Pharmacist,
                             "Patient" => Role::Patient,

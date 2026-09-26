@@ -407,6 +407,11 @@ pub async fn create_radiology_report(
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
+        Err(crate::repositories::RepositoryError::Duplicate(_))
+            if crate::support::is_demo_mode() && report.report_id.starts_with("RAD-DEMO-") =>
+        {
+            HttpResponse::Ok().json(serde_json::json!({ "id": report.report_id, "success": true, "already_seeded": true }))
+        }
         Err(e) => {
             log::error!("radiology report could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {

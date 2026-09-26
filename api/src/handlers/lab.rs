@@ -79,15 +79,47 @@ pub async fn submit_lab_results(
         });
     }
 
-    // Generate unique submission ID
-    let submission_id = format!(
-        "LAB-{}",
-        Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("000")
-    );
+    // Demo fixtures use one stable id so a retry cannot create a second lab result.
+    let submission_id = match req.demo_seed_key.as_deref() {
+        Some(key)
+            if crate::support::is_demo_mode()
+                && key.len() == 3
+                && key.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            format!("LAB-DEMO-{key}")
+        }
+        Some(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                error: "Deterministic demo lab results are disabled in this deployment."
+                    .to_string(),
+                code: "DEMO_SEED_DISABLED".to_string(),
+            })
+        }
+        None => format!(
+            "LAB-{}",
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("000")
+        ),
+    };
+    if req.demo_seed_key.is_some()
+        && data
+            .repositories
+            .lab_result_submissions
+            .get_by_id(&submission_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+    {
+        return HttpResponse::Ok().json(SubmitLabResultResponse {
+            success: true,
+            submission_id,
+            message: "Deterministic demo lab result already exists.".to_string(),
+        });
+    }
 
     // Whether a value is abnormal is a derived clinical judgement, so the
     // server makes it -- rule 8. Until now nothing did: every submission stored

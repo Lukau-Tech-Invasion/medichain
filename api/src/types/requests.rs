@@ -111,6 +111,11 @@ pub struct RegisterPatientRequest {
     /// Preferred languages (ISO 639-1 codes), e.g., ["en", "yo", "ha"]
     #[serde(default)]
     pub languages: Vec<String>,
+    /// Three-digit fixture key accepted only when `IS_DEMO=true`. It gives the
+    /// explicit demo seeder stable identifiers without weakening real patient
+    /// registration, where identifiers remain server-generated.
+    #[serde(default)]
+    pub demo_seed_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

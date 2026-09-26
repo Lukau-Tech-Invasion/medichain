@@ -230,6 +230,7 @@ fn patient_registration_from_resource(resource: &Value) -> Result<RegisterPatien
             .and_then(Value::as_bool)
             .unwrap_or(false),
         languages: Vec::new(),
+        demo_seed_key: None,
     })
 }
 
