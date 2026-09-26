@@ -4,6 +4,30 @@ import { MemoryRouter } from 'react-router-dom';
 import LoginPage from './LoginPage';
 import { useAuthStore } from '../store';
 
+/**
+ * The demo-build flag and the demo-credential resolver, controllable per test.
+ * `FEATURES` keeps every real flag; only `QUICK_LOGIN` reads from here, through
+ * a getter so each test can flip it after the module is loaded.
+ */
+const demo = vi.hoisted(() => ({
+  quickLogin: false,
+  getDemoCredentials: vi.fn(),
+}));
+
+vi.mock('@medichain/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return {
+    ...actual,
+    getDemoCredentials: demo.getDemoCredentials,
+    FEATURES: {
+      ...actual.FEATURES,
+      get QUICK_LOGIN() {
+        return demo.quickLogin;
+      },
+    },
+  };
+});
+
 // Mock the auth store
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
@@ -53,6 +77,8 @@ describe('LoginPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    demo.quickLogin = false;
+    demo.getDemoCredentials.mockResolvedValue({ success: true, credentials: [] });
     mockStore();
   });
 
@@ -143,5 +169,66 @@ describe('LoginPage', () => {
     });
     fireEvent.click(extensionButton);
     expect(mockLoginWithExtension).toHaveBeenCalled();
+  });
+
+  /**
+   * WP6: quick login is a presentation affordance. A production build must not
+   * render it, and must not even ask the server for demo accounts.
+   */
+  describe('demo accounts (quick login)', () => {
+    const doctorAccount = {
+      login_id: 'dr.demo',
+      password: 'seeded-fixture-password',
+      name: 'Dr. Demo Clinician',
+      role: 'Doctor',
+    };
+
+    it('is absent, and never requested, when the build is not a demo build', async () => {
+      renderPage();
+
+      expect(screen.queryByText(/Demo accounts — disabled in production/i)).not.toBeInTheDocument();
+      expect(demo.getDemoCredentials).not.toHaveBeenCalled();
+    });
+
+    it('shows the accounts under a visible production-disabled label in a demo build', async () => {
+      demo.quickLogin = true;
+      demo.getDemoCredentials.mockResolvedValue({ success: true, credentials: [doctorAccount] });
+      renderPage();
+
+      expect(await screen.findByText('Demo accounts — disabled in production')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Clinician/i })).toBeInTheDocument();
+    });
+
+    it('signs in through the normal credential path when a demo account is chosen', async () => {
+      demo.quickLogin = true;
+      demo.getDemoCredentials.mockResolvedValue({ success: true, credentials: [doctorAccount] });
+      mockLoginWithCredentials.mockResolvedValue(true);
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Clinician/i }));
+
+      await waitFor(() => {
+        expect(mockLoginWithCredentials).toHaveBeenCalledWith('dr.demo', 'seeded-fixture-password');
+      });
+    });
+
+    it('stays hidden, without breaking sign-in, when the server refuses demo accounts', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      demo.quickLogin = true;
+      demo.getDemoCredentials.mockRejectedValue(new Error('403 DEV_MODE_REQUIRED'));
+      renderPage();
+
+      await waitFor(() => expect(warn).toHaveBeenCalled());
+      expect(screen.queryByText(/Demo accounts — disabled in production/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/Employee ID or work email/i)).toBeEnabled();
+      warn.mockRestore();
+    });
+  });
+
+  it('carries the company copyright and no hackathon branding', () => {
+    renderPage();
+
+    expect(screen.getByText('© 2026 Lukau Invasion (Pty) Ltd')).toBeInTheDocument();
+    expect(screen.queryByText(/Hackathon/i)).not.toBeInTheDocument();
   });
 });

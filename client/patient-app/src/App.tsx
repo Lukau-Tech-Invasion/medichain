@@ -97,7 +97,7 @@ function PageLoader() {
  * - Symptom checking and tracking
  * - Insurance and billing information
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 function App() {
   return (

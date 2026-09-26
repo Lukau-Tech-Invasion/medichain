@@ -14,7 +14,7 @@
 //! - If DATABASE_URL is set, persistent storage with demo users
 //! - Falls back to in-memory storage if no database configured
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};

@@ -100,7 +100,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
  * 
  * Account settings, notifications, privacy, and app preferences.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -833,7 +833,7 @@ export function SettingsPage() {
       {/* App Version */}
       <div className="text-center text-xs text-content-muted space-y-1">
         <p>MediChain Patient App v1.0.0</p>
-        <p>© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.</p>
+        <p>{t('common.copyright')}</p>
       </div>
 
       {/* Logout Confirmation Modal */}

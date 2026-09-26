@@ -107,7 +107,7 @@ interface PatientProfile {
  * allergies, conditions, DNR) stay read-only because a self-declared blood type
  * must never be mistaken for a verified clinical record.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyProfilePage() {
   const { t } = useTranslation();

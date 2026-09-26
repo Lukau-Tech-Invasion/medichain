@@ -29,6 +29,10 @@ COPY client/ .
 # buttons in. Production remains fail-closed unless its deployment opts in.
 ARG VITE_DEMO_CREDENTIALS_ENABLED=false
 ENV VITE_DEMO_CREDENTIALS_ENABLED=$VITE_DEMO_CREDENTIALS_ENABLED
+# Presentation build: shows the labelled "Demo accounts" sign-in shortcut.
+# Off unless docker-compose.demo.yml (or a deliberate override) sets it.
+ARG VITE_DEMO_MODE=false
+ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
 
 # VITE_BASE_PATH drives Vite's `base` AND (via import.meta.env.BASE_URL) the
 # react-router basename, so each app's sub-path is defined in exactly one place.

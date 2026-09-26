@@ -387,7 +387,7 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     POST /api/medical-id/{{id}}/preferences - Update preferences");
     println!("     POST /api/medical-id/{{id}}/emergency-notify - Trigger family alert");
     println!();
-    println!("  © 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026");
+    println!("  © 2026 Lukau Invasion (Pty) Ltd");
     println!();
 }
 

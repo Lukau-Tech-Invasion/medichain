@@ -18,6 +18,8 @@ const en_US: TranslationRecord = {
   },
   common: {
     saving: 'Saving...',
+    // Legal entity name, one place. Not translated per locale: it is a name.
+    copyright: '© 2026 Lukau Invasion (Pty) Ltd',
     // Overridden per locale: see zu-ZA (10177), sw-KE (999), ha-NG (112),
     // am-ET (907), fr-FR (15). Hardcoding 911 in shared copy sent every
     // African deployment a number that does not connect.
@@ -1637,7 +1639,8 @@ const en_US: TranslationRecord = {
     connectWallet: 'Connect Wallet',
     loginExtension: 'Login with Polkadot Extension',
     quickLogin: 'Quick Login - Demo Users',
-    clickToLogin: 'Click any user to instantly login with their wallet',
+    demoAccountsLabel: 'Demo accounts — disabled in production',
+    clickToLogin: 'Each button signs in as a seeded demo account through the normal password sign-in',
     // Staff credential sign-in. `walletAddress`/`walletPlaceholder`/`ss58Hint`
     // above are retained for the enrolment and profile screens, which are the
     // only places an address is still shown.

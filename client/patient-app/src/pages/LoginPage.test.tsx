@@ -122,4 +122,15 @@ describe('LoginPage (Patient)', () => {
     // And no invitation to use one.
     expect(screen.queryByText(/instantly login/i)).toBeNull();
   });
+
+  it('carries the company copyright and no hackathon branding', () => {
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('© 2026 Lukau Invasion (Pty) Ltd')).toBeInTheDocument();
+    expect(screen.queryByText(/Hackathon|All rights reserved/i)).not.toBeInTheDocument();
+  });
 });

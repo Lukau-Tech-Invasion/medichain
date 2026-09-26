@@ -3,7 +3,7 @@
 //! This module provides REST API endpoints for all clinical documentation types.
 //! Uses generic CRUD pattern: clients submit complete structs from clinical.rs
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 pub use crate::clinical::*;
 pub use crate::repositories::traits::*;

@@ -53,7 +53,7 @@ function flattenFamilyHistory(members: FamilyHistoryMember[]): FamilyHistoryEntr
  * - Family History: caller-scoped GET /api/clinical/family-history
  * - Documents: GET /api/records/{patientId}
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MedicalHistoryPage() {
   const navigate = useNavigate();

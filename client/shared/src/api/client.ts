@@ -9,7 +9,7 @@
  * - Connection health monitoring
  * - Proper error recovery
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import type { ApiError } from '../types';

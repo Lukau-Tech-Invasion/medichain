@@ -81,7 +81,7 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
  * - Send/receive messages
  * - Message history
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MessagesPage() {
   const navigate = useNavigate();

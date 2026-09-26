@@ -285,6 +285,7 @@ services:
       dockerfile: client/Dockerfile
       args:
         VITE_DEMO_CREDENTIALS_ENABLED: ${VITE_DEMO_CREDENTIALS_ENABLED:-false}
+        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
     image: medichain-web:local
     container_name: medichain_nginx
     restart: unless-stopped

@@ -4,7 +4,7 @@
  * Blockchain-based health ID system configuration.
  * All authentication is wallet-based using Substrate addresses.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 // ============================================================================
@@ -40,6 +40,18 @@ export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
  */
 const DEMO_CREDENTIALS_ENABLED =
   (import.meta.env?.VITE_DEMO_CREDENTIALS_ENABLED ?? 'false') === 'true';
+
+/**
+ * Presentation (demo) build.
+ *
+ * Only the literal string `'true'` switches it on; unset, empty, `'1'` or a
+ * typo all read as off, so a production build that never mentions the variable
+ * is never a demo build. It decides whether the sign-in page offers the seeded
+ * demo accounts at all — the server still refuses to hand them out unless it
+ * is itself a dev-mode demo deployment, so this can only ever hide the
+ * shortcut, never create one.
+ */
+export const DEMO_MODE = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
 
 /**
  * Detect the best API URL based on environment
@@ -129,7 +141,14 @@ export const FEATURES = {
   
   /** Allow demo wallet generation (for testing) */
   DEMO_WALLET_GENERATION: IS_DEVELOPMENT || DEMO_CREDENTIALS_ENABLED,
-  
+
+  /**
+   * Offer the labelled "Demo accounts" shortcut on the clinician sign-in page.
+   * Off unless the build sets `VITE_DEMO_MODE=true`, including in `vite dev`:
+   * a developer build is not automatically a presentation build.
+   */
+  QUICK_LOGIN: DEMO_MODE,
+
   /** Log debug information */
   DEBUG_LOGGING: IS_DEVELOPMENT,
   

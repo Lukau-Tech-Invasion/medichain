@@ -1,0 +1,40 @@
+# Presentation (demo) stack: the normal stack, the dev chain, and the demo
+# sign-in shortcut, switched on together so a demo is never half-configured.
+#
+# Run (all three files, in this order):
+#   docker compose -f docker-compose.yml -f docker-compose.blockchain.yml \
+#                  -f docker-compose.demo.yml up -d --build
+#
+# Why an override and not new defaults: every value below is unsafe outside a
+# demo. `docker-compose.yml` keeps them off so a deployment that inherits it
+# gets the production posture; this file is the explicit, named opt-in.
+#
+# What it turns on, and what still guards it:
+#   - Real anchoring. docker-compose.blockchain.yml starts the repository's own
+#     `--dev` chain but does not point the API at it, so on its own the API
+#     still reports "blockchain features disabled". The API values here connect
+#     it. The dev signer (//Alice) is accepted only because IS_DEMO=true; the
+#     API refuses it in any other mode (`validate_blockchain_configuration`).
+#   - The "Demo accounts — disabled in production" sign-in buttons. Two gates:
+#     the web bundle is built with VITE_DEMO_MODE=true, and the API answers
+#     `GET /api/auth/demo-credentials` only under MEDICHAIN_DEV_MODE *and* demo
+#     mode. The label says so on screen.
+#
+# Adds no service and no image: only environment and build arguments.
+
+services:
+  api:
+    environment:
+      IS_DEMO: "true"
+      MEDICHAIN_DEV_MODE: "1"
+      BLOCKCHAIN_ENABLED: "true"
+      # The service name from docker-compose.blockchain.yml; its RPC port is
+      # reachable only inside the compose network, never published to the host.
+      SUBSTRATE_WS_URL: ws://substrate-node:9944
+      SUBSTRATE_ALLOW_DEV_SIGNER: "true"
+
+  nginx:
+    build:
+      args:
+        VITE_DEMO_MODE: "true"
+        VITE_DEMO_CREDENTIALS_ENABLED: "true"

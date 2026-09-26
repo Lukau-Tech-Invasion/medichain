@@ -101,9 +101,9 @@ function LoginPage() {
   const [demoAccounts, setDemoAccounts] = useState<DemoCredential[]>([]);
 
   useEffect(() => {
-    // A 403 is the expected answer outside a demo deployment, and leaves the
-    // section unrendered. Failures are silent for the same reason: the shortcut
-    // is a convenience, and its absence is not an error worth showing.
+    // Not a demo build: never ask. A production bundle makes no request for
+    // demo accounts at all, so there is nothing for the server to refuse.
+    if (!FEATURES.QUICK_LOGIN) return;
     let cancelled = false;
     (async () => {
       try {
@@ -111,8 +111,11 @@ function LoginPage() {
         if (!cancelled && Array.isArray(credentials)) {
           setDemoAccounts(credentials as DemoCredential[]);
         }
-      } catch {
-        // No demo accounts available; the section stays hidden.
+      } catch (err) {
+        // A demo build talking to an API that is not in dev+demo mode gets a
+        // 403 here. The section then stays hidden, which is the right outcome,
+        // but the reason is logged so a presenter can see why it is missing.
+        console.warn('[MediChain] Demo accounts unavailable; quick login hidden.', err);
       }
     })();
     return () => {
@@ -237,12 +240,11 @@ function LoginPage() {
           )}
         </form>
 
-        {/* Demo Users - Click to login instantly */}
-        {/* Rendered only when the server actually offered fixture accounts.
-            Outside a demo deployment the resolver 403s, the list is empty,
-            and the whole section disappears -- containment that does not
-            depend on the frontend choosing to hide anything. */}
-        {FEATURES.DEMO_WALLET_GENERATION && demoAccounts.length > 0 && (
+        {/* Demo accounts. Two independent gates: the build must be a demo build
+            (VITE_DEMO_MODE=true), and the server must actually offer fixture
+            accounts -- outside a dev-mode demo deployment the resolver 403s,
+            the list stays empty and the section disappears. */}
+        {FEATURES.QUICK_LOGIN && demoAccounts.length > 0 && (
           <div className="px-6 pb-6">
             <div className="relative mb-4">
               <div className="absolute inset-0 flex items-center">
@@ -255,6 +257,12 @@ function LoginPage() {
                 </span>
               </div>
             </div>
+
+            {/* Said in words, not implied by styling: anyone watching a demo
+                should know these buttons do not exist in a real deployment. */}
+            <p className="mb-3 text-xs text-center font-medium text-caution-subtle-fg bg-caution-subtle border border-caution rounded-md px-2 py-1">
+              {t('docLogin.demoAccountsLabel')}
+            </p>
 
             <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
               {demoAccounts.map((account) => {
@@ -283,7 +291,7 @@ function LoginPage() {
         {/* Footer */}
         <div className="px-8 py-4 bg-surface-sunken border-t border-border text-center">
           <p className="text-xs text-content-muted">
-            © 2025 Lukau Invasion (Pty) Ltd • Rust Africa Hackathon 2026
+            {t('common.copyright')}
           </p>
         </div>
       </div>

@@ -61,7 +61,7 @@ interface MedicationReminder {
  * - Track doses taken
  * - Refill requests
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 /**
  * A prescription as `GET /api/e-prescriptions/patient/{id}` returns it: the

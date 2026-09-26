@@ -57,6 +57,10 @@ export default defineConfig({
       // Overridable, because the standalone deployment is still a supported way
       // to run this.
       VITE_API_PROXY_TARGET: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1',
+      // The login suites sign in through the "Demo accounts" buttons, which
+      // only render in a demo build (FEATURES.QUICK_LOGIN). The API-side gate
+      // (MEDICHAIN_DEV_MODE) still decides whether any accounts are offered.
+      VITE_DEMO_MODE: 'true',
     },
   },
 });

@@ -212,7 +212,7 @@ function LazyRoute({ element }: { element: React.ReactNode }) {
  * - Specialty modules (Burn, Psych, Toxicology, Pediatrics, OB)
  * - Admin functions (User Management, Analytics, CDS Alerts)
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 function App() {
   const initializeTheme = useThemeStore((state) => state.initializeTheme);

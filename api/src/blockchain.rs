@@ -1,6 +1,6 @@
 //! Substrate Blockchain RPC Client for MediChain
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 //!
 //! Provides a lightweight HTTP-based JSON-RPC client for interacting with a
 //! Substrate node. Supports health checks and finalized on-chain event logging

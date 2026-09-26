@@ -11,7 +11,7 @@
  * were removed on 2026-09-24. Their last caller was a patient-app demo sign-in
  * that fabricated a patient record in the browser.
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import type { SubstrateAddress, WalletAccount } from './types';

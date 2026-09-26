@@ -38,7 +38,7 @@ interface JoinResponse {
  * - View past sessions with duration/status
  * - Joins the provider-issued room through the authenticated join endpoint
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function TelehealthPage() {
   const { t } = useTranslation();

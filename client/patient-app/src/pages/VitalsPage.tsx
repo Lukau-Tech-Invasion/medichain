@@ -34,7 +34,7 @@ type VitalReading = PatientVitalReading;
  * - Trend indicators (up/down/stable) compared to previous reading
  * - Full vitals history list
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function VitalsPage() {
   const navigate = useNavigate();

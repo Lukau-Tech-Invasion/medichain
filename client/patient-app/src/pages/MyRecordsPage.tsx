@@ -88,7 +88,7 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
  * Records are encrypted; a record shows as blockchain-anchored only when the
  * server reports a finalized anchor transaction for it.
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyRecordsPage() {
   const { t } = useTranslation();
