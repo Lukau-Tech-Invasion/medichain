@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation, formatTimestamp } from '@medichain/shared';
+import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, TelehealthRecordingList, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { TelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -257,6 +257,12 @@ export function TelehealthPage() {
               <div className="flex items-center gap-2 text-sm text-ok-subtle-fg bg-ok-subtle rounded-lg p-2">
                 <CheckCircle className="w-4 h-4" />
                 {t('telehealth.sessionCompleted')}
+              </div>
+            )}
+
+            {activeTab === 'past' && (
+              <div className="mt-3">
+                <TelehealthRecordingList sessionId={session.session_id} />
               </div>
             )}
           </div>

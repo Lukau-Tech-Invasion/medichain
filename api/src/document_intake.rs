@@ -65,7 +65,19 @@ pub fn clean_filename(raw: Option<&str>) -> String {
 /// Read the request body, refusing it as soon as it passes the size cap.
 ///
 /// Returns the bytes, or a 413 / 400 response.
-pub async fn read_capped_body(mut payload: web::Payload) -> Result<Vec<u8>, HttpResponse> {
+pub async fn read_capped_body(payload: web::Payload) -> Result<Vec<u8>, HttpResponse> {
+    read_body_within(payload, MAX_ATTACHMENT_BYTES, "Files can be at most 10 MB.").await
+}
+
+/// Read the request body, refusing it as soon as it passes `cap` bytes.
+///
+/// Parameters: the body, the cap, and the message a 413 carries. Returns the
+/// bytes, or a 413 (too large) / 400 (unreadable or empty) response.
+pub async fn read_body_within(
+    mut payload: web::Payload,
+    cap: usize,
+    too_large_message: &str,
+) -> Result<Vec<u8>, HttpResponse> {
     let mut bytes = Vec::new();
     while let Some(chunk) = payload.next().await {
         let chunk = chunk.map_err(|error| {
@@ -76,10 +88,10 @@ pub async fn read_capped_body(mut payload: web::Payload) -> Result<Vec<u8>, Http
                 "FILE_UNREADABLE",
             )
         })?;
-        if bytes.len() + chunk.len() > MAX_ATTACHMENT_BYTES {
+        if bytes.len() + chunk.len() > cap {
             return Err(intake_error(
                 HttpResponse::PayloadTooLarge(),
-                "Files can be at most 10 MB.",
+                too_large_message,
                 "FILE_TOO_LARGE",
             ));
         }

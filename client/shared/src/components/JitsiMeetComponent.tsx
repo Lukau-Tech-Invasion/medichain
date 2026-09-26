@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Video, Loader2, AlertTriangle, Users, ShieldCheck, Disc, StopCircle, Radio } from 'lucide-react';
-import { telehealthEvent, telehealthRecording } from '../api/endpoints';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Video, Loader2, AlertTriangle, Users, ShieldCheck, Radio } from 'lucide-react';
+import { telehealthEvent } from '../api/endpoints';
 import { useSSE } from '../hooks';
-import { confirmDialog } from './Dialog';
+import { RecordingControls } from './TelehealthRecording';
 
 /**
  * Shared Jitsi IFrame-API video call component (Telehealth Phase 2).
@@ -14,8 +14,10 @@ import { confirmDialog } from './Dialog';
  * live cross-client status via SSE (Phase 7), and proper teardown via
  * `dispose()`.
  *
- * Moderator-only controls (recording) appear only when `isModerator` is true, so
- * the same component serves providers (moderators) and patients (participants).
+ * Recording (WP7.6) is a bar under the header, shown to both participants:
+ * each consents for themselves, both see the indicator, and the clinician's
+ * start/stop drives the recorder only after both have consented. With no
+ * recorder set up, the bar says so instead of offering a dead button.
  *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
@@ -104,8 +106,8 @@ export function JitsiMeetComponent({
   const [status, setStatus] = useState<'loading' | 'connected' | 'error'>('loading');
   const [participants, setParticipants] = useState(1);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordBusy, setRecordBusy] = useState(false);
+  // What the recorder was last told, so it is told once per change.
+  const recorderStateRef = useRef(false);
 
   // Phase 7: consume the backend SSE stream so this client reflects what the
   // *other* participant is doing (e.g. the patient joining) without polling.
@@ -204,36 +206,20 @@ export function JitsiMeetComponent({
   };
 
   /**
-   * Moderator-only recording toggle (Phase 6). Starting requires explicit
-   * consent — the backend rejects a start without it and writes an audit row.
-   * We track state server-side and best-effort drive Jitsi's own recorder.
+   * Keep the video platform's recorder in step with the recording state the
+   * API holds. Only the moderator's client drives it; the API decides.
    */
-  const toggleRecording = async () => {
-    if (recordBusy) return;
-    const starting = !recording;
-    if (starting) {
-      const consented = await confirmDialog({
-        title: 'Record this consultation?',
-        message:
-          'This consultation will be recorded. All participants will be notified. ' +
-          'Continue only with the patient’s consent.',
-        confirmLabel: 'Start recording',
-      });
-      if (!consented) return;
-    }
-    setRecordBusy(true);
-    try {
-      const res = await telehealthRecording(sessionId, starting ? 'start' : 'stop', starting || undefined);
-      const enabled = res.recording_enabled ?? starting;
-      setRecording(enabled);
-      // Best-effort: drive Jitsi's recorder where the deployment supports it.
-      apiRef.current?.executeCommand(starting ? 'startRecording' : 'stopRecording', { mode: 'file' });
-    } catch {
-      setErrorMsg('Could not update recording. Check your permissions and try again.');
-    } finally {
-      setRecordBusy(false);
-    }
-  };
+  const followRecording = useCallback(
+    (recording: boolean) => {
+      const api = apiRef.current;
+      // Before the call has joined there is no recorder to tell; the next
+      // poll after joining catches up.
+      if (!isModerator || !api || recorderStateRef.current === recording) return;
+      recorderStateRef.current = recording;
+      api.executeCommand(recording ? 'startRecording' : 'stopRecording', { mode: 'file' });
+    },
+    [isModerator]
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
@@ -262,23 +248,6 @@ export function JitsiMeetComponent({
               <Radio size={14} className="animate-pulse" /> {remoteActivity}
             </span>
           )}
-          {recording && (
-            <span className="flex items-center gap-1 text-red-400">
-              <Disc size={14} className="animate-pulse" /> Recording
-            </span>
-          )}
-          {isModerator && status === 'connected' && (
-            <button
-              onClick={toggleRecording}
-              disabled={recordBusy}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
-                recording ? 'bg-gray-700 hover:bg-gray-600' : 'bg-critical hover:bg-critical'
-              }`}
-            >
-              {recording ? <StopCircle size={16} /> : <Disc size={16} />}
-              {recording ? 'Stop recording' : 'Record'}
-            </button>
-          )}
           <button
             onClick={leave}
             className="px-3 py-1.5 rounded-lg bg-critical hover:bg-critical"
@@ -286,6 +255,10 @@ export function JitsiMeetComponent({
             Leave call
           </button>
         </div>
+      </div>
+
+      <div className="bg-surface px-3 py-2 border-b border-border">
+        <RecordingControls sessionId={sessionId} onRecordingChange={followRecording} />
       </div>
 
       {status === 'error' ? (
