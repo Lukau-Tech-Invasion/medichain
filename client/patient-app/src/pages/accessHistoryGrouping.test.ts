@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { AccessLogEntry } from '@medichain/shared';
-import { anchorStateOf, groupAccessSessions, kindOf } from './accessHistoryGrouping';
+import type { AccessLogEntry, RowVerification } from '@medichain/shared';
+import { anchorStateOf, groupAccessSessions, kindOf, verificationOf } from './accessHistoryGrouping';
 
 /** Build one access-log row; `minute` is minutes after 14:00 on a fixed day. */
 function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}): AccessLogEntry {
@@ -82,5 +82,46 @@ describe('kindOf', () => {
     expect(kindOf('update_consent')).toBe('changed');
     // Inclusion in a research export is neither a read nor a change.
     expect(kindOf('research_export_included')).toBe('research');
+  });
+});
+
+describe('verificationOf', () => {
+  const verification = (id: string, overrides: Partial<RowVerification> = {}): RowVerification => ({
+    access_log_id: id,
+    accessed_at: '2026-09-26T12:00:00Z',
+    integrity: 'intact',
+    batch_id: 1,
+    leaf_index: 0,
+    merkle_root: 'ab'.repeat(32),
+    proof: [],
+    anchor_status: 'finalized',
+    block_number: 10,
+    tx_hash: '0x1',
+    ...overrides,
+  });
+
+  it('is verified only when every row is intact and finalized, naming the latest block', () => {
+    const [session] = groupAccessSessions([row('a', 1), row('b', 2)]);
+    const rows = new Map([
+      ['a', verification('a', { block_number: 10 })],
+      ['b', verification('b', { block_number: 12 })],
+    ]);
+    expect(verificationOf(session, rows)).toEqual({ state: 'verified', blockNumber: 12 });
+  });
+
+  it('turns the whole session into a mismatch when one row fails', () => {
+    const [session] = groupAccessSessions([row('a', 1), row('b', 2)]);
+    const rows = new Map([
+      ['a', verification('a')],
+      ['b', verification('b', { integrity: 'mismatch' })],
+    ]);
+    expect(verificationOf(session, rows).state).toBe('mismatch');
+  });
+
+  it('does not call pending, unbatched or uncovered rows verified', () => {
+    const [session] = groupAccessSessions([row('a', 1)]);
+    expect(verificationOf(session, new Map([['a', verification('a', { anchor_status: 'pending' })]])).state).toBe('not_anchored');
+    expect(verificationOf(session, new Map([['a', verification('a', { integrity: 'unbatched', anchor_status: null })]])).state).toBe('not_anchored');
+    expect(verificationOf(session, new Map()).state).toBe('not_checked');
   });
 });

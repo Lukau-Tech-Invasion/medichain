@@ -1,3 +1,4 @@
+import { ChainNetworkLabel } from '@medichain/shared';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageSwitcher } from '@medichain/shared';
@@ -266,6 +267,7 @@ export function LoginPage() {
       {/* Footer */}
       <footer className="p-6 text-center text-sm text-content-secondary">
         {t('common.copyright')}
+        <ChainNetworkLabel />
       </footer>
     </div>
   );

@@ -54,6 +54,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_research_exports)
         .service(approve_research_export)
         .service(execute_research_export)
+        .service(verify_patient_record) // GET /api/patients/{id}/verify (WP8)
         // Blood-unit stock inventory (WP7.5)
         .service(list_blood_units)
         .service(receive_blood_unit)

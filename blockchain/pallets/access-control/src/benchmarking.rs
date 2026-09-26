@@ -172,5 +172,21 @@ mod benchmarks {
         assert_eq!(AccessCount::<T>::get(&patient), 0);
     }
 
+    /// Benchmark for anchor_audit_batch extrinsic (WP8)
+    ///
+    /// One role read, one root lookup and one insert; the batch size does not
+    /// change the work (only the root goes on chain).
+    #[benchmark]
+    fn anchor_audit_batch() {
+        let operator: T::AccountId = whitelisted_caller();
+        UserRoles::<T>::insert(&operator, Role::Doctor);
+        let root = [9u8; 32];
+
+        #[extrinsic_call]
+        anchor_audit_batch(RawOrigin::Signed(operator), root, 1, 1024, 1024);
+
+        assert!(AuditBatches::<T>::contains_key(root));
+    }
+
     impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
 }

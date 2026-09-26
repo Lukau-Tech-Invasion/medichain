@@ -144,6 +144,37 @@ pub mod pallet {
         pub revoked: bool,
     }
 
+    /// Largest access-audit batch one extrinsic may anchor. Mirrors
+    /// `MAX_BATCH_LEAVES` in the API's batching job.
+    pub const MAX_AUDIT_BATCH_LEAVES: u32 = 1024;
+
+    /// A Merkle root of access-audit rows anchored by the API (WP8). Only the
+    /// root and the rows' sequence range leave the API — never audit content.
+    #[derive(
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Eq,
+        PartialEq,
+        DebugNoBound,
+        TypeInfo,
+        MaxEncodedLen,
+    )]
+    #[scale_info(skip_type_params(T))]
+    pub struct AuditBatchRecord<T: Config> {
+        /// Lowest audit sequence number in the batch.
+        pub from_seq: u64,
+        /// Highest audit sequence number in the batch.
+        pub to_seq: u64,
+        /// Number of rows (leaves) in the batch.
+        pub leaf_count: u32,
+        /// Operator account that submitted it.
+        pub submitted_by: T::AccountId,
+        /// Block in which it was anchored.
+        pub anchored_at: BlockNumberFor<T>,
+    }
+
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
@@ -229,6 +260,13 @@ pub mod pallet {
     pub type AccessCount<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
+    /// Storage: anchored access-audit batches by Merkle root (WP8). Read at a
+    /// finalized block, it proves a root was anchored and when.
+    #[pallet::storage]
+    #[pallet::getter(fn audit_batch)]
+    pub type AuditBatches<T: Config> =
+        StorageMap<_, Blake2_128Concat, [u8; 32], AuditBatchRecord<T>, OptionQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -280,6 +318,14 @@ pub mod pallet {
             reason_hash: [u8; 32],
             emergency: bool,
         },
+        /// A Merkle root of access-audit rows was anchored (WP8).
+        AuditBatchAnchored {
+            root: [u8; 32],
+            from_seq: u64,
+            to_seq: u64,
+            leaf_count: u32,
+            submitted_by: T::AccountId,
+        },
     }
 
     #[pallet::error]
@@ -310,6 +356,13 @@ pub mod pallet {
         CannotRevokeSelf,
         /// Access already revoked
         AlreadyRevoked,
+        /// An audit batch must hold at least one row and at most
+        /// `MAX_AUDIT_BATCH_LEAVES`
+        InvalidBatchSize,
+        /// An audit batch's range must be ordered and hold its row count
+        InvalidBatchRange,
+        /// This Merkle root is already anchored
+        BatchAlreadyAnchored,
     }
 
     #[pallet::call]
@@ -613,6 +666,71 @@ pub mod pallet {
                 accessor_hash,
                 reason_hash,
                 emergency,
+            });
+            Ok(())
+        }
+
+        /// Anchor the Merkle root of a batch of access-audit rows (WP8).
+        ///
+        /// Replaces one extrinsic per read: the API batches its audit rows,
+        /// and a row's inclusion proof against this root shows it is exactly
+        /// what was anchored. Only the root and the sequence range go on
+        /// chain.
+        ///
+        /// # Arguments
+        /// * `root` - SHA3-256 Merkle root of the batch's leaves.
+        /// * `from_seq`, `to_seq` - lowest and highest row sequence numbers.
+        /// * `leaf_count` - rows in the batch.
+        ///
+        /// # Errors
+        /// * `NotHealthcareProvider` - the submitter holds no provider role.
+        /// * `InvalidBatchSize` - zero rows, or more than the maximum.
+        /// * `InvalidBatchRange` - `from_seq > to_seq`, or more rows than the
+        ///   range can hold.
+        /// * `BatchAlreadyAnchored` - the root is already on chain.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::WeightInfo::anchor_audit_batch())]
+        pub fn anchor_audit_batch(
+            origin: OriginFor<T>,
+            root: [u8; 32],
+            from_seq: u64,
+            to_seq: u64,
+            leaf_count: u32,
+        ) -> DispatchResult {
+            let submitted_by = ensure_signed(origin)?;
+            ensure!(
+                Self::is_healthcare_provider(&submitted_by),
+                Error::<T>::NotHealthcareProvider
+            );
+            ensure!(
+                leaf_count > 0 && leaf_count <= MAX_AUDIT_BATCH_LEAVES,
+                Error::<T>::InvalidBatchSize
+            );
+            let span = to_seq
+                .checked_sub(from_seq)
+                .and_then(|gap| gap.checked_add(1))
+                .ok_or(Error::<T>::InvalidBatchRange)?;
+            ensure!(u64::from(leaf_count) <= span, Error::<T>::InvalidBatchRange);
+            ensure!(
+                !AuditBatches::<T>::contains_key(root),
+                Error::<T>::BatchAlreadyAnchored
+            );
+            AuditBatches::<T>::insert(
+                root,
+                AuditBatchRecord {
+                    from_seq,
+                    to_seq,
+                    leaf_count,
+                    submitted_by: submitted_by.clone(),
+                    anchored_at: frame_system::Pallet::<T>::block_number(),
+                },
+            );
+            Self::deposit_event(Event::AuditBatchAnchored {
+                root,
+                from_seq,
+                to_seq,
+                leaf_count,
+                submitted_by,
             });
             Ok(())
         }

@@ -1,4 +1,4 @@
-import type { AccessLogEntry } from '@medichain/shared';
+import type { AccessLogEntry, RowVerification } from '@medichain/shared';
 
 /**
  * Turns raw access-log rows into the sessions a patient can read.
@@ -39,6 +39,8 @@ export interface AccessSession {
   /** How many of the session's rows carry a finalized chain transaction. */
   anchoredCount: number;
   rowCount: number;
+  /** The access-log row ids in this session, for verification (WP8). */
+  rowIds: string[];
 }
 
 /** Reason shown when a row predates reason recording or none was given. */
@@ -124,6 +126,7 @@ function openSession(entry: AccessLogEntry): AccessSession {
     emergency: entry.emergency,
     anchoredCount: entry.blockchain_tx_hash ? 1 : 0,
     rowCount: 1,
+    rowIds: [entry.access_id],
   };
 }
 
@@ -140,6 +143,7 @@ function extend(session: AccessSession, entry: AccessLogEntry): void {
   }
   session.endedAt = entry.timestamp;
   session.rowCount += 1;
+  session.rowIds.push(entry.access_id);
   if (entry.blockchain_tx_hash) {
     session.anchoredCount += 1;
   }
@@ -179,4 +183,36 @@ export type AnchorState = 'anchored' | 'partial' | 'pending';
 export function anchorStateOf(session: AccessSession): AnchorState {
   if (session.anchoredCount === 0) return 'pending';
   return session.anchoredCount === session.rowCount ? 'anchored' : 'partial';
+}
+
+/** What verification says about one session (WP8). */
+export type SessionVerification =
+  | { state: 'mismatch' }
+  | { state: 'verified'; blockNumber: number | null }
+  | { state: 'not_anchored' }
+  | { state: 'not_checked' };
+
+/**
+ * Summarise the verification of a session's rows.
+ *
+ * Any row that no longer proves into its batch makes the whole session a
+ * mismatch. "Verified" needs every row intact AND in a finalized batch;
+ * anything short of that is "not anchored yet", never "verified".
+ *
+ * @param session - A grouped session.
+ * @param rows - The verification result rows, by access-log id.
+ * @returns The session's verification state.
+ */
+export function verificationOf(
+  session: AccessSession,
+  rows: Map<string, RowVerification>,
+): SessionVerification {
+  const mine = session.rowIds.map((id) => rows.get(id));
+  if (mine.some((row) => row === undefined)) return { state: 'not_checked' };
+  const checked = mine as RowVerification[];
+  if (checked.some((row) => row.integrity === 'mismatch')) return { state: 'mismatch' };
+  const finalized = checked.every((row) => row.integrity === 'intact' && row.anchor_status === 'finalized');
+  if (!finalized) return { state: 'not_anchored' };
+  const blocks = checked.map((row) => row.block_number).filter((n): n is number => typeof n === 'number');
+  return { state: 'verified', blockNumber: blocks.length > 0 ? Math.max(...blocks) : null };
 }

@@ -27,3 +27,4 @@ export type { FailedAttachment } from './MessageAttachments';
 export { saveBlob } from './MessageAttachments';
 export { EobDocumentList } from './EobDocuments';
 export { RecordingControls, TelehealthRecordingList } from './TelehealthRecording';
+export { ChainNetworkLabel } from './ChainNetworkLabel';

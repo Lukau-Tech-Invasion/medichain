@@ -2980,6 +2980,42 @@ export async function telehealthRecording(
   });
 }
 
+/** A proof step: the sibling hash and which side it sits on. */
+export interface MerkleProofStep {
+  sibling: string;
+  side: 'left' | 'right';
+}
+
+/** One access-log row's verification against its Merkle batch (WP8). */
+export interface RowVerification {
+  access_log_id: string;
+  accessed_at: string;
+  integrity: 'intact' | 'mismatch' | 'unbatched';
+  batch_id: number | null;
+  leaf_index: number | null;
+  merkle_root: string | null;
+  proof: MerkleProofStep[];
+  anchor_status: 'finalized' | 'pending' | null;
+  block_number: number | null;
+  tx_hash: string | null;
+}
+
+/** The emergency capsule checked against finalized chain state. */
+export type CapsuleVerification = 'match' | 'mismatch' | 'unanchored' | 'none';
+
+/** A patient's record verification (WP8). */
+export interface RecordVerification {
+  patient_id: string;
+  emergency_capsule: CapsuleVerification;
+  access_logs: RowVerification[];
+  rows_checked_limit: number;
+}
+
+/** Verify a patient's emergency capsule and access history. */
+export async function verifyPatientRecord(patientId: string): Promise<RecordVerification> {
+  return getApiClient().get(`/api/patients/${encodeURIComponent(patientId)}/verify`, { keepEnvelope: true });
+}
+
 /** Which side of a consultation the caller is on. */
 export type RecordingParty = 'provider' | 'patient';
 
