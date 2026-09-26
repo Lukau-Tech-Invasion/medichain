@@ -110,6 +110,12 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "message_attachment_uploaded",
         "message_attachment_downloaded",
     ],
+    # `eob_audit` takes the action as a parameter; its two call sites in the
+    # same file pass these literals.
+    "api/src/clinical_endpoints/billing/eob_documents.rs::action.to_string()": [
+        "eob_uploaded",
+        "eob_downloaded",
+    ],
     # Test-only: the refill `pg_tests` helper `audit(action)` is called with
     # these three literals, which must be ones the constraint accepts.
     "api/src/repositories/refill_requests.rs::action.into()": [

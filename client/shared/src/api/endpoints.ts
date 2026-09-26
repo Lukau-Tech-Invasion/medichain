@@ -3055,6 +3055,40 @@ export async function getPatientInsuranceClaims(
   );
 }
 
+/** A payer's explanation of benefits filed against a claim (WP7.3). */
+export interface EobDocument {
+  id: string;
+  claim_id: string;
+  filename: string;
+  content_type: 'application/pdf' | 'image/jpeg' | 'image/png';
+  size_bytes: number;
+  scan_status: 'clean' | 'not_scanned';
+  created_at: string;
+}
+
+/** File a payer's EOB against a claim (administrators only). */
+export async function uploadClaimEob(
+  claimId: string,
+  file: File
+): Promise<{ success: boolean; document: EobDocument }> {
+  const bytes = await readFileBytes(file);
+  return getApiClient().postBinary(
+    `/api/insurance/claims/${encodeURIComponent(claimId)}/eob?filename=${encodeURIComponent(file.name)}`,
+    bytes,
+    file.type
+  );
+}
+
+/** Download an EOB (the claim's patient or an administrator; audited). */
+export async function downloadClaimEob(
+  claimId: string,
+  documentId: string
+): Promise<{ blob: Blob; contentType: string }> {
+  return getApiClient().getBlob(
+    `/api/insurance/claims/${encodeURIComponent(claimId)}/eob/${encodeURIComponent(documentId)}`
+  );
+}
+
 // ============================================================================
 // Analytics (Phase 31)
 // ============================================================================

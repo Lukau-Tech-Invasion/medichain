@@ -15,7 +15,8 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
+import type { EobDocument } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -83,7 +84,8 @@ export interface InsuranceClaim {
   status: ClaimStatus;
   submittedDate: string;
   processedDate: string | null;
-  eobUrl: string | null;
+  /** The payer's explanation-of-benefits documents filed on this claim. */
+  eobDocuments: EobDocument[];
 }
 
 /** ClaimStatus values the backend's richer `ClaimStatus` enum collapses into. */
@@ -106,9 +108,9 @@ const CLAIM_STATUS_MAP: Record<string, ClaimStatus> = {
 /**
  * Maps the backend's `InsuranceClaim` (line-item claim with a nested
  * `PatientInsurance`) onto this page's flatter display shape. The backend has
- * no single "allowed amount" concept distinct from `total_charge`, and no EOB
- * document URL (only an `eob_received` flag) — both fall back honestly rather
- * than being fabricated.
+ * no single "allowed amount" concept distinct from `total_charge`, which falls
+ * back honestly rather than being fabricated. EOB documents come with the
+ * claim (`eob_documents`); an empty list reads as "No EOB received yet".
  */
 function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
   const insurance = (raw.insurance as Record<string, unknown>) ?? {};
@@ -137,7 +139,7 @@ function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
     status: CLAIM_STATUS_MAP[String(raw.status ?? '')] ?? 'submitted',
     submittedDate: toIsoDate(raw.submitted_at) ?? String(raw.service_date ?? ''),
     processedDate: toIsoDate(raw.adjudicated_at),
-    eobUrl: null,
+    eobDocuments: Array.isArray(raw.eob_documents) ? (raw.eob_documents as EobDocument[]) : [],
   };
 }
 
@@ -708,6 +710,11 @@ const InsurancePage: React.FC = () => {
                         {formatCurrency(claim.patientResponsibility, claim.currency, locale)}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="pt-3 mt-3 border-t border-border space-y-1">
+                    <p className="text-xs font-medium text-content-secondary">{t('insurance.eobHeading')}</p>
+                    <EobDocumentList documents={claim.eobDocuments} />
                   </div>
                 </div>
               ))

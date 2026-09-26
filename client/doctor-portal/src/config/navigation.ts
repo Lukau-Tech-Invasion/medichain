@@ -215,6 +215,9 @@ export const ADMIN_NAV: NavSection[] = [
       { id: 'admin-console', to: '/admin', label: 'Admin Console', icon: Settings, priority: 'high' },
       { id: 'users', to: '/user-management', label: 'User Management', icon: UserCog, priority: 'high' },
       { id: 'patients', to: '/patients', label: 'Patient Search', icon: Search },
+      // Filing payers' explanation-of-benefits documents (WP7.3). The upload
+      // endpoint is administrator-only.
+      { id: 'claims-eob', to: '/claims-eob', label: 'Claims & EOBs', icon: FileText },
     ],
   },
   {

@@ -85,3 +85,70 @@ pub async fn seed_patient(state: &AppState, id: &str) {
         .await
         .expect("seed patient");
 }
+
+use actix_web::{web, App, HttpResponse, HttpServer};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// Store behind the fake IPFS node: content id -> bytes.
+type FakeIpfsBlobs = Arc<Mutex<HashMap<String, Vec<u8>>>>;
+
+/// The file bytes inside a single-part multipart body.
+fn multipart_file(body: &[u8]) -> Vec<u8> {
+    let start = body
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| i + 4)
+        .unwrap_or(0);
+    let end = body
+        .windows(4)
+        .rposition(|w| w == b"\r\n--")
+        .unwrap_or(body.len());
+    body[start..end.max(start)].to_vec()
+}
+
+/// A minimal Kubo RPC stand-in (`add` stores, `cat` returns) on a free local
+/// port. Returns its base URL for `IpfsClient::new`. Lets encrypted-document
+/// tests run the real encrypt, upload, download and decrypt path.
+pub async fn fake_ipfs() -> String {
+    let blobs: FakeIpfsBlobs = Arc::default();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let server = HttpServer::new(move || {
+        let (add_blobs, cat_blobs) = (blobs.clone(), blobs.clone());
+        App::new()
+            .route(
+                "/api/v0/add",
+                web::post().to(move |body: web::Bytes| {
+                    let blobs = add_blobs.clone();
+                    async move {
+                        let file = multipart_file(&body);
+                        let cid = format!("b{}", hex::encode(medichain_crypto::sha256(&file)));
+                        blobs.lock().unwrap().insert(cid.clone(), file);
+                        HttpResponse::Ok().json(serde_json::json!({ "Hash": cid }))
+                    }
+                }),
+            )
+            .route(
+                "/api/v0/cat",
+                web::post().to(move |q: web::Query<HashMap<String, String>>| {
+                    let blobs = cat_blobs.clone();
+                    async move {
+                        match blobs
+                            .lock()
+                            .unwrap()
+                            .get(q.get("arg").map(String::as_str).unwrap_or_default())
+                        {
+                            Some(bytes) => HttpResponse::Ok().body(bytes.clone()),
+                            None => HttpResponse::InternalServerError().body("not found"),
+                        }
+                    }
+                }),
+            )
+    })
+    .listen(listener)
+    .unwrap()
+    .run();
+    actix_web::rt::spawn(server);
+    address
+}
