@@ -38,6 +38,8 @@ mod repositories;
 mod services;
 
 mod attachment_scan;
+mod audit_batching;
+mod audit_merkle;
 mod audit_outbox;
 mod auth_challenges;
 mod auth_sessions;
@@ -99,6 +101,9 @@ pub(crate) use startup::*;
 pub(crate) use state::*;
 pub(crate) use support::*;
 pub(crate) use types::*;
+
+/// Seconds between runs of the access-audit Merkle batching job (WP8).
+const AUDIT_BATCH_INTERVAL_SECS: u64 = 60;
 
 /// Initialize logging (Phase 8.2).
 ///
@@ -413,6 +418,15 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
                 Err(error) => log::error!("patient name index backfill failed: {error}"),
             }
         });
+    }
+
+    // Merkle-batch the access audit (WP8). Runs whether or not the chain is
+    // up: batches wait, queued in the outbox, until it is.
+    if let Some(pool) = app_state.db_pool.clone() {
+        crate::audit_batching::spawn_batching_job(
+            pool,
+            tokio::time::Duration::from_secs(AUDIT_BATCH_INTERVAL_SECS),
+        );
     }
 
     if let (Some(pool), Some(client)) = (

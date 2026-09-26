@@ -4,7 +4,7 @@
 
 #![cfg(test)]
 
-use crate::{mock::*, AlertType, Error};
+use crate::{mock::*, Error};
 use frame_support::{assert_noop, assert_ok};
 
 /// A stand-in commitment to an off-chain emergency capsule.
@@ -32,7 +32,6 @@ fn create_health_record_works() {
         // A freshly created record has no capsule published yet.
         assert_eq!(record.emergency_capsule_version, 0);
         assert_eq!(record.ipfs_hash.to_vec(), ipfs_hash);
-        assert_eq!(record.alerts.len(), 0);
         assert_eq!(record.last_modified_by, DOCTOR);
     });
 }
@@ -116,118 +115,6 @@ fn create_health_record_fails_if_exists() {
     });
 }
 
-/// Test adding medical alert by healthcare provider
-#[test]
-fn add_alert_works() {
-    new_test_ext().execute_with(|| {
-        let ipfs_hash = b"QmYwAPJzv5CZsnAzt8auVTLFa".to_vec();
-
-        assert_ok!(MedicalRecords::create_health_record(
-            RuntimeOrigin::signed(DOCTOR),
-            PATIENT,
-            TEST_COMMITMENT,
-            ipfs_hash,
-        ));
-
-        let description_hash = [1u8; 32];
-
-        assert_ok!(MedicalRecords::add_alert(
-            RuntimeOrigin::signed(DOCTOR),
-            PATIENT,
-            AlertType::Allergy,
-            description_hash,
-            5, // severity
-        ));
-
-        let record = MedicalRecords::health_records(PATIENT).unwrap();
-        assert_eq!(record.alerts.len(), 1);
-        assert_eq!(record.alerts[0].severity, 5);
-        assert_eq!(record.last_modified_by, DOCTOR);
-    });
-}
-
-/// Test patient cannot add alerts to their own record
-#[test]
-fn patient_cannot_add_alert() {
-    new_test_ext().execute_with(|| {
-        let ipfs_hash = b"QmYwAPJzv5CZsnAzt8auVTLFa".to_vec();
-
-        assert_ok!(MedicalRecords::create_health_record(
-            RuntimeOrigin::signed(DOCTOR),
-            PATIENT,
-            TEST_COMMITMENT,
-            ipfs_hash,
-        ));
-
-        assert_noop!(
-            MedicalRecords::add_alert(
-                RuntimeOrigin::signed(PATIENT),
-                PATIENT,
-                AlertType::ChronicCondition,
-                [0u8; 32],
-                3,
-            ),
-            Error::<Test>::NotHealthcareProvider
-        );
-    });
-}
-
-/// Test alert fails if no record exists
-#[test]
-fn add_alert_fails_if_no_record() {
-    new_test_ext().execute_with(|| {
-        assert_noop!(
-            MedicalRecords::add_alert(
-                RuntimeOrigin::signed(DOCTOR),
-                PATIENT,
-                AlertType::ChronicCondition,
-                [0u8; 32],
-                3,
-            ),
-            Error::<Test>::RecordNotFound
-        );
-    });
-}
-
-/// Test invalid severity fails
-#[test]
-fn add_alert_fails_invalid_severity() {
-    new_test_ext().execute_with(|| {
-        let ipfs_hash = b"QmYwAPJzv5CZsnAzt8auVTLFa".to_vec();
-
-        assert_ok!(MedicalRecords::create_health_record(
-            RuntimeOrigin::signed(DOCTOR),
-            PATIENT,
-            TEST_COMMITMENT,
-            ipfs_hash,
-        ));
-
-        // Severity 0 is invalid
-        assert_noop!(
-            MedicalRecords::add_alert(
-                RuntimeOrigin::signed(DOCTOR),
-                PATIENT,
-                AlertType::Medication,
-                [0u8; 32],
-                0,
-            ),
-            Error::<Test>::InvalidSeverity
-        );
-
-        // Severity 6 is invalid
-        assert_noop!(
-            MedicalRecords::add_alert(
-                RuntimeOrigin::signed(DOCTOR),
-                PATIENT,
-                AlertType::Medication,
-                [0u8; 32],
-                6,
-            ),
-            Error::<Test>::InvalidSeverity
-        );
-    });
-}
-
 /// Test IPFS hash update by healthcare provider
 #[test]
 fn update_ipfs_hash_works() {
@@ -276,46 +163,6 @@ fn patient_cannot_update_ipfs_hash() {
     });
 }
 
-/// Test maximum alerts limit (NASA Power of 10: Rule 2 - bounded loops)
-#[test]
-fn add_alert_respects_max_limit() {
-    new_test_ext().execute_with(|| {
-        let ipfs_hash = b"QmYwAPJzv5CZsnAzt8auVTLFa".to_vec();
-
-        assert_ok!(MedicalRecords::create_health_record(
-            RuntimeOrigin::signed(DOCTOR),
-            PATIENT,
-            TEST_COMMITMENT,
-            ipfs_hash,
-        ));
-
-        // Add maximum alerts (10)
-        for i in 0..10 {
-            let mut desc_hash = [0u8; 32];
-            desc_hash[0] = i;
-            assert_ok!(MedicalRecords::add_alert(
-                RuntimeOrigin::signed(DOCTOR),
-                PATIENT,
-                AlertType::Allergy,
-                desc_hash,
-                3,
-            ));
-        }
-
-        // 11th alert should fail
-        assert_noop!(
-            MedicalRecords::add_alert(
-                RuntimeOrigin::signed(DOCTOR),
-                PATIENT,
-                AlertType::Other,
-                [11u8; 32],
-                1,
-            ),
-            Error::<Test>::TooManyAlerts
-        );
-    });
-}
-
 /// Test different healthcare providers can update same record
 #[test]
 fn multiple_providers_can_update_record() {
@@ -330,17 +177,14 @@ fn multiple_providers_can_update_record() {
             ipfs_hash,
         ));
 
-        // Nurse adds alert
-        assert_ok!(MedicalRecords::add_alert(
+        // Nurse updates the IPFS hash
+        assert_ok!(MedicalRecords::update_ipfs_hash(
             RuntimeOrigin::signed(NURSE),
             PATIENT,
-            AlertType::Allergy,
-            [1u8; 32],
-            4,
+            b"QmUpdatedByNurse12345678".to_vec(),
         ));
 
         let record = MedicalRecords::health_records(PATIENT).unwrap();
-        assert_eq!(record.alerts.len(), 1);
         assert_eq!(record.last_modified_by, NURSE);
 
         // Doctor updates IPFS hash
@@ -558,5 +402,54 @@ fn medical_record_upserts_require_a_healthcare_provider() {
             ),
             Error::<Test>::NotHealthcareProvider
         );
+    });
+}
+
+// ============================================================================
+// Migration v0 → v1: plaintext alerts removed (WP8)
+// ============================================================================
+
+/// A v0 record carrying plaintext alerts comes out of the migration with every
+/// other field intact, no alerts, and the storage version at 1. Running it
+/// again changes nothing.
+#[test]
+fn migration_v1_drops_plaintext_alerts_and_keeps_everything_else() {
+    use crate::migrations::v1::{MigrateV0ToV1, V0AlertType, V0HealthRecord, V0MedicalAlert};
+    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
+    use parity_scale_codec::Encode;
+
+    new_test_ext().execute_with(|| {
+        StorageVersion::new(0).put::<MedicalRecords>();
+        let alert = V0MedicalAlert {
+            alert_type: V0AlertType::Allergy,
+            description_hash: [7u8; 32],
+            severity: 5,
+        };
+        let old = V0HealthRecord::<Test> {
+            patient: PATIENT,
+            emergency_capsule_commitment: TEST_COMMITMENT,
+            emergency_capsule_version: 3,
+            ipfs_hash: b"QmOld".to_vec().try_into().unwrap(),
+            alerts: vec![alert].try_into().unwrap(),
+            created_at: 1,
+            updated_at: 2,
+            last_modified_by: NURSE,
+        };
+        let key = crate::HealthRecords::<Test>::hashed_key_for(PATIENT);
+        frame_support::storage::unhashed::put_raw(&key, &old.encode());
+
+        MigrateV0ToV1::<Test>::on_runtime_upgrade();
+
+        let record = MedicalRecords::health_records(PATIENT).expect("record kept");
+        assert_eq!(record.emergency_capsule_commitment, TEST_COMMITMENT);
+        assert_eq!(record.emergency_capsule_version, 3);
+        assert_eq!(record.ipfs_hash.to_vec(), b"QmOld".to_vec());
+        assert_eq!((record.created_at, record.updated_at), (1, 2));
+        assert_eq!(record.last_modified_by, NURSE);
+        assert_eq!(MedicalRecords::on_chain_storage_version(), 1);
+
+        // Idempotent: a second run is a no-op, not a second translation.
+        MigrateV0ToV1::<Test>::on_runtime_upgrade();
+        assert_eq!(MedicalRecords::health_records(PATIENT), Some(record));
     });
 }

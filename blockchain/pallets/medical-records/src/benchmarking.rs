@@ -72,72 +72,6 @@ mod benchmarks {
         assert_eq!(record.last_modified_by, provider);
     }
 
-    /// Benchmark for add_alert extrinsic
-    ///
-    /// Measures the cost of adding a medical alert.
-    /// Variables:
-    /// - Number of existing alerts (worst case: MAX_ALLERGIES - 1 = 9)
-    #[benchmark]
-    fn add_alert() {
-        // Setup: Create healthcare provider and patient with existing record
-        let provider: T::AccountId = whitelisted_caller();
-        let patient: T::AccountId = account("patient", 0, 0);
-
-        pallet_access_control::UserRoles::<T>::insert(
-            &provider,
-            pallet_access_control::Role::Doctor,
-        );
-        pallet_access_control::UserRoles::<T>::insert(
-            &patient,
-            pallet_access_control::Role::Patient,
-        );
-
-        // Create a health record with some existing alerts (worst case)
-        let current_block = frame_system::Pallet::<T>::block_number();
-        let ipfs_hash: BoundedVec<u8, ConstU32<MAX_IPFS_HASH_LENGTH>> =
-            vec![b'Q'; 46].try_into().unwrap();
-
-        // Create alerts close to max (leaving room for one more)
-        let mut existing_alerts: BoundedVec<MedicalAlert, ConstU32<MAX_ALLERGIES>> =
-            BoundedVec::default();
-        for i in 0..(MAX_ALLERGIES - 1) {
-            let alert = MedicalAlert {
-                alert_type: AlertType::Allergy,
-                description_hash: [i as u8; 32],
-                severity: 3,
-            };
-            existing_alerts.try_push(alert).unwrap();
-        }
-
-        let record = HealthRecord {
-            patient: patient.clone(),
-            emergency_capsule_commitment: TEST_COMMITMENT,
-            emergency_capsule_version: 0,
-            ipfs_hash,
-            alerts: existing_alerts,
-            created_at: current_block,
-            updated_at: current_block,
-            last_modified_by: provider.clone(),
-        };
-
-        HealthRecords::<T>::insert(&patient, record);
-
-        let description_hash = [0xFFu8; 32];
-
-        #[extrinsic_call]
-        add_alert(
-            RawOrigin::Signed(provider.clone()),
-            patient.clone(),
-            AlertType::ChronicCondition,
-            description_hash,
-            5, // Max severity
-        );
-
-        // Verify the alert was added
-        let updated_record = HealthRecords::<T>::get(&patient).unwrap();
-        assert_eq!(updated_record.alerts.len(), MAX_ALLERGIES as usize);
-    }
-
     /// Benchmark for update_ipfs_hash extrinsic
     ///
     /// Measures the cost of updating the IPFS hash.
@@ -168,7 +102,6 @@ mod benchmarks {
             emergency_capsule_commitment: TEST_COMMITMENT,
             emergency_capsule_version: 0,
             ipfs_hash: old_hash,
-            alerts: BoundedVec::default(),
             created_at: current_block,
             updated_at: current_block,
             last_modified_by: provider.clone(),

@@ -147,5 +147,9 @@ pub struct HealthCheckResponse {
     pub status: String,
     pub version: String,
     pub timestamp: DateTime<Utc>,
+    /// Whether the chain is enabled and its node answered the last health check.
     pub blockchain_connected: bool,
+    /// `development` unless the deployment declares `production`; the UI footer
+    /// labels a development chain as such.
+    pub chain_network: String,
 }

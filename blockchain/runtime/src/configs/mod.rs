@@ -42,7 +42,12 @@ parameter_types! {
 
 /// Runtime migrations outside the ones declared in the pallets themselves.
 #[allow(unused_parens)]
-type SingleBlockMigrations = ();
+/// Storage migrations run on the next runtime upgrade. Each is versioned, so
+/// it runs once and is a no-op afterwards.
+///
+/// `MigrateV0ToV1` removes the plaintext medical alerts `add_alert` wrote to
+/// `HealthRecords` (WP8; the call itself is gone).
+type SingleBlockMigrations = (pallet_medical_records::migrations::v1::MigrateV0ToV1<Runtime>,);
 
 /// Defaults come from `SolochainDefaultConfig` via `derive_impl`, overridden as
 /// needed. (The previous runtime used `TestDefaultConfig` here, which is the

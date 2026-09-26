@@ -501,3 +501,91 @@ fn genesis_provider_can_log_delegated_access() {
         ));
     });
 }
+
+// =============================================================================
+// Audit batch anchoring (WP8)
+// =============================================================================
+
+/// A provider anchors a batch root; it is stored with its range and block,
+/// and the event carries it.
+#[test]
+fn anchor_audit_batch_stores_the_root_and_emits_an_event() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(7);
+        assert_ok!(AccessControl::anchor_audit_batch(
+            RuntimeOrigin::signed(DOCTOR),
+            [3u8; 32],
+            10,
+            19,
+            10,
+        ));
+        let record = AccessControl::audit_batch([3u8; 32]).expect("root stored");
+        assert_eq!(
+            (record.from_seq, record.to_seq, record.leaf_count),
+            (10, 19, 10)
+        );
+        assert_eq!(record.anchored_at, 7);
+        System::assert_last_event(
+            crate::Event::<Test>::AuditBatchAnchored {
+                root: [3u8; 32],
+                from_seq: 10,
+                to_seq: 19,
+                leaf_count: 10,
+                submitted_by: DOCTOR,
+            }
+            .into(),
+        );
+    });
+}
+
+/// Only a provider may anchor, and the same root cannot be anchored twice.
+#[test]
+fn anchor_audit_batch_is_provider_gated_and_refuses_a_repeat() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_noop!(
+            AccessControl::anchor_audit_batch(
+                RuntimeOrigin::signed(UNAUTHORIZED),
+                [1u8; 32],
+                1,
+                1,
+                1
+            ),
+            Error::<Test>::NotHealthcareProvider
+        );
+        assert_ok!(AccessControl::anchor_audit_batch(
+            RuntimeOrigin::signed(DOCTOR),
+            [1u8; 32],
+            1,
+            1,
+            1
+        ));
+        assert_noop!(
+            AccessControl::anchor_audit_batch(RuntimeOrigin::signed(DOCTOR), [1u8; 32], 2, 2, 1),
+            Error::<Test>::BatchAlreadyAnchored
+        );
+    });
+}
+
+/// Empty, oversized and impossible batches are refused.
+#[test]
+fn anchor_audit_batch_refuses_malformed_batches() {
+    new_test_ext_with_roles().execute_with(|| {
+        let anchor = |from, to, count| {
+            AccessControl::anchor_audit_batch(
+                RuntimeOrigin::signed(DOCTOR),
+                [2u8; 32],
+                from,
+                to,
+                count,
+            )
+        };
+        assert_noop!(anchor(1, 5, 0), Error::<Test>::InvalidBatchSize);
+        assert_noop!(
+            anchor(1, 5_000, crate::MAX_AUDIT_BATCH_LEAVES + 1),
+            Error::<Test>::InvalidBatchSize
+        );
+        assert_noop!(anchor(9, 1, 1), Error::<Test>::InvalidBatchRange);
+        // Six rows cannot have distinct sequence numbers in 1..=5.
+        assert_noop!(anchor(1, 5, 6), Error::<Test>::InvalidBatchRange);
+    });
+}

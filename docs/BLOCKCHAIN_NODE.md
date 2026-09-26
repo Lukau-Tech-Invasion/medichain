@@ -35,7 +35,7 @@ blockchain/
   Cargo.toml            # workspace root, pins the whole Polkadot SDK release
   pallets/
     access-control/     # RBAC + emergency access + delegated audit
-    medical-records/    # capsule commitments, IPFS pointers, alerts
+    medical-records/    # capsule commitments, IPFS pointers
     patient-identity/   # national-ID hashes, health IDs
   runtime/              # medichain-runtime  (WASM + native)
   node/                 # medichain-node     (the binary)

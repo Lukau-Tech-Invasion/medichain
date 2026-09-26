@@ -66,13 +66,6 @@ impl ChainAnchorOutcome {
         }
     }
 
-    fn finalized(transaction_hash: String) -> Self {
-        Self {
-            status: "finalized".to_string(),
-            transaction_hash: Some(transaction_hash),
-        }
-    }
-
     fn pending() -> Self {
         Self {
             status: "pending".to_string(),
@@ -329,7 +322,21 @@ async fn queue_chain_operation(
     Ok(ChainAnchorOutcome::pending())
 }
 
-/// Finalize an access audit now or durably queue the exact operation for retry.
+/// Refuse an argument the chain would reject, before it is queued: a queued
+/// operation that can never succeed would retry forever.
+fn require_ss58(account: &str) -> Result<(), String> {
+    account
+        .parse::<sp_core::crypto::AccountId32>()
+        .map(|_| ())
+        .map_err(|_| "patient wallet is not SS58".to_string())
+}
+
+/// Durably queue an access audit anchor. Never awaits the chain: the outbox
+/// worker submits it and records the result only from a finalized block.
+///
+/// Since WP8 ordinary reads are anchored in Merkle batches instead
+/// (`audit_batching`); this per-event anchor is kept for emergency and
+/// break-glass access and for consent acts.
 pub async fn anchor_access_or_queue(
     data: &crate::AppState,
     aggregate_type: &str,
@@ -341,36 +348,23 @@ pub async fn anchor_access_or_queue(
     if !crate::blockchain::blockchain_enabled() {
         return Ok(ChainAnchorOutcome::disabled());
     }
-    let client = data
-        .substrate_client
-        .as_ref()
-        .ok_or_else(|| "blockchain client is unavailable".to_string())?;
-    match client
-        .log_access_on_chain(aggregate_id, accessor_id, patient_account, access_type)
-        .await
-    {
-        Ok(result) => Ok(ChainAnchorOutcome::finalized(result.hash)),
-        Err(crate::blockchain::BlockchainError::InvalidArgument(error)) => Err(error),
-        Err(error) => {
-            log::warn!("Chain access anchor failed; queuing durable retry: {error}");
-            queue_chain_operation(
-                data,
-                "chain_access_anchor",
-                aggregate_type,
-                aggregate_id,
-                serde_json::json!({
-                    "patient_account": patient_account,
-                    "audit_event_id": aggregate_id,
-                    "accessor_id": accessor_id,
-                    "access_type": access_type
-                }),
-            )
-            .await
-        }
-    }
+    require_ss58(patient_account)?;
+    queue_chain_operation(
+        data,
+        "chain_access_anchor",
+        aggregate_type,
+        aggregate_id,
+        serde_json::json!({
+            "patient_account": patient_account,
+            "audit_event_id": aggregate_id,
+            "accessor_id": accessor_id,
+            "access_type": access_type
+        }),
+    )
+    .await
 }
 
-/// Finalize patient registration now or durably queue it for retry.
+/// Durably queue a patient registration for the chain (never awaited).
 pub async fn anchor_patient_registration_or_queue(
     data: &crate::AppState,
     patient_id: &str,
@@ -382,36 +376,23 @@ pub async fn anchor_patient_registration_or_queue(
     if !crate::blockchain::blockchain_enabled() {
         return Ok(ChainAnchorOutcome::disabled());
     }
-    let client = data
-        .substrate_client
-        .as_ref()
-        .ok_or_else(|| "blockchain client is unavailable".to_string())?;
-    match client
-        .register_patient_on_chain(patient_account, id_hash, id_type, registered_by)
-        .await
-    {
-        Ok(result) => Ok(ChainAnchorOutcome::finalized(result.hash)),
-        Err(crate::blockchain::BlockchainError::InvalidArgument(error)) => Err(error),
-        Err(error) => {
-            log::warn!("Patient chain registration failed; queuing durable retry: {error}");
-            queue_chain_operation(
-                data,
-                "patient_registration_chain_anchor",
-                "patient",
-                patient_id,
-                serde_json::json!({
-                    "patient_account": patient_account,
-                    "id_hash": id_hash,
-                    "id_type": id_type,
-                    "registered_by": registered_by
-                }),
-            )
-            .await
-        }
-    }
+    require_ss58(patient_account)?;
+    queue_chain_operation(
+        data,
+        "patient_registration_chain_anchor",
+        "patient",
+        patient_id,
+        serde_json::json!({
+            "patient_account": patient_account,
+            "id_hash": id_hash,
+            "id_type": id_type,
+            "registered_by": registered_by
+        }),
+    )
+    .await
 }
 
-/// Finalize an IPFS record anchor now or durably queue it for retry.
+/// Durably queue an IPFS record anchor for the chain (never awaited).
 pub async fn anchor_medical_record_or_queue(
     data: &crate::AppState,
     record_id: &str,
@@ -423,36 +404,23 @@ pub async fn anchor_medical_record_or_queue(
     if !crate::blockchain::blockchain_enabled() {
         return Ok(ChainAnchorOutcome::disabled());
     }
-    let client = data
-        .substrate_client
-        .as_ref()
-        .ok_or_else(|| "blockchain client is unavailable".to_string())?;
-    match client
-        .record_ipfs_hash_on_chain(patient_account, ipfs_hash, record_type, uploaded_by)
-        .await
-    {
-        Ok(result) => Ok(ChainAnchorOutcome::finalized(result.hash)),
-        Err(crate::blockchain::BlockchainError::InvalidArgument(error)) => Err(error),
-        Err(error) => {
-            log::warn!("Medical-record chain anchor failed; queuing durable retry: {error}");
-            queue_chain_operation(
-                data,
-                "medical_record_chain_anchor",
-                "medical_record",
-                record_id,
-                serde_json::json!({
-                    "patient_account": patient_account,
-                    "ipfs_hash": ipfs_hash,
-                    "record_type": record_type,
-                    "uploaded_by": uploaded_by
-                }),
-            )
-            .await
-        }
-    }
+    require_ss58(patient_account)?;
+    queue_chain_operation(
+        data,
+        "medical_record_chain_anchor",
+        "medical_record",
+        record_id,
+        serde_json::json!({
+            "patient_account": patient_account,
+            "ipfs_hash": ipfs_hash,
+            "record_type": record_type,
+            "uploaded_by": uploaded_by
+        }),
+    )
+    .await
 }
 
-/// Finalize an emergency-capsule commitment now or durably queue it for retry.
+/// Durably queue an emergency-capsule commitment for the chain (never awaited).
 pub async fn anchor_capsule_or_queue(
     data: &crate::AppState,
     patient_id: &str,
@@ -463,35 +431,24 @@ pub async fn anchor_capsule_or_queue(
     if !crate::blockchain::blockchain_enabled() {
         return Ok(ChainAnchorOutcome::disabled());
     }
-    let chain_version =
-        u32::try_from(version).map_err(|_| "capsule version must be non-negative".to_string())?;
-    let client = data
-        .substrate_client
-        .as_ref()
-        .ok_or_else(|| "blockchain client is unavailable".to_string())?;
-    match client
-        .set_emergency_capsule_commitment_on_chain(patient_account, commitment, chain_version)
-        .await
-    {
-        Ok(result) => Ok(ChainAnchorOutcome::finalized(result.hash)),
-        Err(crate::blockchain::BlockchainError::InvalidArgument(error)) => Err(error),
-        Err(error) => {
-            log::warn!("Capsule chain anchor failed; queuing durable retry: {error}");
-            queue_chain_operation(
-                data,
-                "emergency_capsule_chain_anchor",
-                "emergency_capsule",
-                &format!("{patient_id}:{version}"),
-                serde_json::json!({
-                    "patient_id": patient_id,
-                    "patient_account": patient_account,
-                    "commitment": commitment,
-                    "version": version
-                }),
-            )
-            .await
-        }
+    u32::try_from(version).map_err(|_| "capsule version must be non-negative".to_string())?;
+    require_ss58(patient_account)?;
+    if crate::audit_merkle::decode_digest(commitment).is_none() {
+        return Err("commitment must be 64 hex characters".to_string());
     }
+    queue_chain_operation(
+        data,
+        "emergency_capsule_chain_anchor",
+        "emergency_capsule",
+        &format!("{patient_id}:{version}"),
+        serde_json::json!({
+            "patient_id": patient_id,
+            "patient_account": patient_account,
+            "commitment": commitment,
+            "version": version
+        }),
+    )
+    .await
 }
 
 async fn submit_queued_chain_operation(
@@ -562,10 +519,39 @@ async fn submit_queued_chain_operation(
                 )
                 .await
         }
+        crate::audit_batching::AUDIT_BATCH_EVENT => submit_batch_anchor(client, payload).await,
         other => Err(crate::blockchain::BlockchainError::InvalidArgument(
             format!("unsupported chain outbox event type: {other}"),
         )),
     }
+}
+
+/// Submit a queued Merkle batch root (WP8).
+async fn submit_batch_anchor(
+    client: &crate::blockchain::SubstrateClient,
+    payload: &serde_json::Value,
+) -> Result<crate::blockchain::ChainTxResult, crate::blockchain::BlockchainError> {
+    let invalid = |name: &str| {
+        crate::blockchain::BlockchainError::InvalidArgument(format!(
+            "batch outbox payload has an invalid {name}"
+        ))
+    };
+    let number = |name: &str| payload.get(name).and_then(serde_json::Value::as_i64);
+    let root = payload
+        .get("merkle_root")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| invalid("merkle_root"))?;
+    let first = number("first_seq").and_then(|v| u64::try_from(v).ok());
+    let last = number("last_seq").and_then(|v| u64::try_from(v).ok());
+    let count = number("leaf_count").and_then(|v| u32::try_from(v).ok());
+    client
+        .anchor_audit_batch_on_chain(
+            root,
+            first.ok_or_else(|| invalid("first_seq"))?,
+            last.ok_or_else(|| invalid("last_seq"))?,
+            count.ok_or_else(|| invalid("leaf_count"))?,
+        )
+        .await
 }
 
 async fn record_queued_chain_success(
@@ -686,7 +672,8 @@ pub async fn deliver_pending_chain_events(
         "SELECT id, event_type, aggregate_id, payload FROM audit_outbox_events
          WHERE delivered_at IS NULL AND event_type IN (
             'chain_access_anchor', 'consent_chain_anchor', 'patient_registration_chain_anchor',
-            'medical_record_chain_anchor', 'emergency_capsule_chain_anchor'
+            'medical_record_chain_anchor', 'emergency_capsule_chain_anchor',
+            'audit_batch_chain_anchor'
          )
          ORDER BY occurred_at ASC LIMIT 50 FOR UPDATE SKIP LOCKED",
     )
@@ -699,6 +686,18 @@ pub async fn deliver_pending_chain_events(
             submit_queued_chain_operation(client, &event_type, &aggregate_id, &payload).await;
         match outcome {
             Ok(result) => {
+                if event_type == crate::audit_batching::AUDIT_BATCH_EVENT {
+                    let block_number = client
+                        .finalized_block_number(&result.finalized_block_hash)
+                        .await;
+                    crate::audit_batching::record_batch_finalized(
+                        &mut transaction,
+                        &payload,
+                        &result,
+                        block_number,
+                    )
+                    .await?;
+                }
                 record_queued_chain_success(&mut transaction, &event_type, &payload, &result.hash)
                     .await?;
                 sqlx::query(

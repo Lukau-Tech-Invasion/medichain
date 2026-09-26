@@ -31,6 +31,7 @@ pub trait WeightInfo {
     fn revoke_access() -> Weight;
     fn cleanup_expired_access() -> Weight;
     fn log_access() -> Weight;
+    fn anchor_audit_batch() -> Weight;
 }
 
 /// Weights for pallet_access_control using the Substrate node and target hardware.
@@ -108,6 +109,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn log_access() -> Weight {
         Weight::from_parts(11_000_000, 0)
     }
+
+    /// Storage: UserRoles (r:1 w:0), AuditBatches (r:1 w:1)
+    /// Hand-estimated (WP8) from `log_delegated_access` plus one map read and
+    /// write, pending a benchmark run of `anchor_audit_batch`.
+    fn anchor_audit_batch() -> Weight {
+        Weight::from_parts(20_000_000, 3_600)
+            .saturating_add(T::DbWeight::get().reads(2_u64))
+            .saturating_add(T::DbWeight::get().writes(1_u64))
+    }
 }
 
 /// For backwards compatibility and tests
@@ -144,5 +154,11 @@ impl WeightInfo for () {
 
     fn log_access() -> Weight {
         Weight::from_parts(11_000_000, 0)
+    }
+
+    fn anchor_audit_batch() -> Weight {
+        Weight::from_parts(20_000_000, 3_600)
+            .saturating_add(RocksDbWeight::get().reads(2_u64))
+            .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
 }

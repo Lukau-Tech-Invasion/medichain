@@ -743,6 +743,24 @@ const en_US: TranslationRecord = {
     errorJoinFailed: 'Failed to join the video call',
   },
 
+  // Record verification against the blockchain (WP8)
+  verification: {
+    verify: 'Verify',
+    verifying: 'Verifying...',
+    failed: 'Verification could not be completed right now. This is not a finding about your record; please try again.',
+    verifiedBlock: 'Verified against block #{{block}}',
+    verifiedNoBlock: 'Verified against a finalized block',
+    notAnchored: 'Unchanged, but not anchored on the blockchain yet',
+    notChecked: 'This entry is older than the entries verification covers.',
+    mismatch: 'Warning: this entry no longer matches what was recorded. Please contact the clinic.',
+    capsuleMatch: 'Your emergency card matches the record on the blockchain.',
+    capsuleMismatch: 'Warning: your emergency card does not match the record on the blockchain. Please contact the clinic.',
+    capsuleUnanchored: 'Your emergency card is not anchored on the blockchain yet, so it cannot be verified.',
+    capsuleNone: 'You have no emergency card to verify yet.',
+    developmentChain: 'Blockchain: development chain',
+    productionChain: 'Blockchain: production network',
+  },
+
   // Consented consultation recording (WP7.6)
   telehealthRecording: {
     checking: 'Checking recording...',

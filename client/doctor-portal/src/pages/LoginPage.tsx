@@ -1,3 +1,4 @@
+import { ChainNetworkLabel } from '@medichain/shared';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
@@ -293,6 +294,7 @@ function LoginPage() {
           <p className="text-xs text-content-muted">
             {t('common.copyright')}
           </p>
+          <ChainNetworkLabel />
         </div>
       </div>
     </div>

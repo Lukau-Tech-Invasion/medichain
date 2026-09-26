@@ -156,7 +156,7 @@ Nothing in the application ever calls:
 | access-control | `assign_role`, `revoke_role` | Role changes. The chain's role table can only be seeded at genesis |
 | access-control | `grant_emergency_access`, `revoke_access` | Break-glass grants — the whole consent model |
 | access-control | `cleanup_expired_access` | Expired grants are never reaped on-chain |
-| medical-records | `create_health_record`, `add_alert` | Record creation and clinical alerts |
+| medical-records | `create_health_record` (`add_alert` removed in WP8: it published alert type and severity in plaintext) | Record creation |
 | patient-identity | `verify_identity` | Identity verification status |
 | patient-identity | `set_preferred_language`, `set_photo_id` | Patient identity attributes |
 

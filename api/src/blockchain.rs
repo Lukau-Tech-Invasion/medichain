@@ -37,6 +37,19 @@ use subxt::{OnlineClient, PolkadotConfig};
 /// Returns `true` when the `BLOCKCHAIN_ENABLED` environment variable is set
 /// to `"true"` (case-insensitive). Disabled integrations return a typed error;
 /// they never fabricate a transaction hash or claim that an event was anchored.
+/// Environment variable declaring which network the chain is.
+pub const CHAIN_NETWORK_ENV: &str = "MEDICHAIN_CHAIN_NETWORK";
+
+/// `production` only when the deployment declares it; anything else is a
+/// development chain. Production means independent validator organisations
+/// (see the governance decisions); until then the UI says "development chain".
+pub fn chain_network() -> &'static str {
+    match std::env::var(CHAIN_NETWORK_ENV).as_deref().map(str::trim) {
+        Ok("production") => "production",
+        _ => "development",
+    }
+}
+
 pub fn blockchain_enabled() -> bool {
     std::env::var("BLOCKCHAIN_ENABLED")
         .ok()
@@ -624,6 +637,64 @@ impl SubstrateClient {
         .await
     }
 
+    /// Anchor a Merkle batch root of the access audit (WP8) with one
+    /// extrinsic: `AccessControl::anchor_audit_batch(root, from, to, count)`.
+    ///
+    /// # Returns
+    /// The finalized transaction, or an error (an invalid root is refused
+    /// before anything is submitted).
+    pub async fn anchor_audit_batch_on_chain(
+        &self,
+        root_hex: &str,
+        from_seq: u64,
+        to_seq: u64,
+        leaf_count: u32,
+    ) -> Result<ChainTxResult, BlockchainError> {
+        let root = decode_commitment(root_hex).ok_or_else(|| {
+            BlockchainError::InvalidArgument("batch root must be 64 hex characters".into())
+        })?;
+        let params = vec![
+            DynamicValue::from_bytes(root),
+            DynamicValue::u128(u128::from(from_seq)),
+            DynamicValue::u128(u128::from(to_seq)),
+            DynamicValue::u128(u128::from(leaf_count)),
+        ];
+        self.pending_extrinsic("AccessControl", "anchor_audit_batch", params)
+            .await
+    }
+
+    /// The hash of the latest finalized block, or an error if the node
+    /// cannot say.
+    pub async fn finalized_head(&self) -> Result<String, BlockchainError> {
+        let result = self
+            .call_rpc("chain_getFinalizedHead", serde_json::json!([]))
+            .await?;
+        result
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| BlockchainError::Rpc("finalized head is not a string".into()))
+    }
+
+    /// The number of the block with `block_hash`, or `None` if the node
+    /// cannot say (logged; the batch is still finalized by its hash).
+    pub async fn finalized_block_number(&self, block_hash: &str) -> Option<u64> {
+        match self
+            .call_rpc("chain_getHeader", serde_json::json!([block_hash]))
+            .await
+        {
+            Ok(header) => header
+                .get("number")
+                .and_then(Value::as_str)
+                .and_then(|hex_number| {
+                    u64::from_str_radix(hex_number.trim_start_matches("0x"), 16).ok()
+                }),
+            Err(error) => {
+                warn!("[blockchain] block number of {block_hash} unavailable: {error}");
+                None
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------
@@ -753,111 +824,116 @@ impl SubstrateClient {
 }
 
 // ------------------------------------------------------------------
+// Finalized chain reads (WP8: promoted from the test module)
+// ------------------------------------------------------------------
+
+use subxt::dynamic::At;
+use subxt::ext::scale_value::{Composite, Value as ScaleValue, ValueDef};
+
+/// Metadata-decoded subset of `pallet_medical_records::HealthRecord`.
+///
+/// Field names intentionally match runtime metadata. `DecodeAsType` skips
+/// fields outside this proof, so the verifier follows metadata instead of
+/// assuming fixed byte offsets or duplicating the full pallet type.
+#[derive(Debug)]
+pub struct CapsuleChainState {
+    pub patient: [u8; 32],
+    pub emergency_capsule_commitment: [u8; 32],
+    pub emergency_capsule_version: u32,
+}
+
+/// Convert metadata-decoded fixed-byte arrays and AccountId newtypes.
+fn decoded_bytes(value: &ScaleValue) -> Result<Vec<u8>, String> {
+    let values = match &value.value {
+        ValueDef::Composite(Composite::Unnamed(values)) => values,
+        other => return Err(format!("expected byte composite, got {other:?}")),
+    };
+    if values.len() == 1 && values[0].as_u128().is_none() {
+        return decoded_bytes(&values[0]);
+    }
+    values
+        .iter()
+        .map(|item| {
+            let number = item
+                .as_u128()
+                .ok_or_else(|| format!("byte item is not an integer: {item:?}"))?;
+            u8::try_from(number).map_err(|_| format!("byte item is out of range: {number}"))
+        })
+        .collect()
+}
+
+/// Extract the material fields from a metadata-decoded health record.
+fn capsule_state_from_value(value: &ScaleValue) -> Result<CapsuleChainState, String> {
+    let patient = decoded_bytes(
+        value
+            .at("patient")
+            .ok_or_else(|| "HealthRecords.patient is absent from metadata value".to_string())?,
+    )?
+    .try_into()
+    .map_err(|bytes: Vec<u8>| format!("patient is {} bytes, expected 32", bytes.len()))?;
+    let commitment = decoded_bytes(
+        value
+            .at("emergency_capsule_commitment")
+            .ok_or_else(|| "HealthRecords.emergency_capsule_commitment is absent".to_string())?,
+    )?
+    .try_into()
+    .map_err(|bytes: Vec<u8>| format!("commitment is {} bytes, expected 32", bytes.len()))?;
+    let version = value
+        .at("emergency_capsule_version")
+        .and_then(ScaleValue::as_u128)
+        .ok_or_else(|| "HealthRecords.emergency_capsule_version is not a u32".to_string())?
+        .try_into()
+        .map_err(|_| "HealthRecords.emergency_capsule_version exceeds u32".to_string())?;
+    Ok(CapsuleChainState {
+        patient,
+        emergency_capsule_commitment: commitment,
+        emergency_capsule_version: version,
+    })
+}
+
+/// Read and decode `MedicalRecords.HealthRecords` at one finalized block.
+pub async fn read_capsule_at_finalized_block(
+    client: &SubstrateClient,
+    patient: [u8; 32],
+    block_hash: &str,
+) -> Result<CapsuleChainState, String> {
+    let hash_bytes = hex::decode(block_hash.trim_start_matches("0x"))
+        .map_err(|error| format!("invalid finalized block hash: {error}"))?;
+    if hash_bytes.len() != 32 {
+        return Err(format!(
+            "finalized block hash is {} bytes, expected 32",
+            hash_bytes.len()
+        ));
+    }
+    let hash = subxt::utils::H256::from_slice(&hash_bytes);
+    let api = client
+        .subxt
+        .as_ref()
+        .ok_or_else(|| "subxt client is not connected".to_string())?;
+    let at_block = api
+        .at_block(hash)
+        .await
+        .map_err(|error| format!("cannot open finalized block: {error}"))?;
+    let address =
+        subxt::dynamic::storage::<([u8; 32],), ScaleValue>("MedicalRecords", "HealthRecords");
+    let value = at_block
+        .storage()
+        .fetch(address, (patient,))
+        .await
+        .map_err(|error| format!("cannot read HealthRecords: {error}"))?;
+    let decoded = value
+        .decode()
+        .map_err(|error| format!("cannot decode HealthRecords using runtime metadata: {error}"))?;
+    capsule_state_from_value(&decoded)
+}
+
+// ------------------------------------------------------------------
 // Tests
 // ------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subxt::dynamic::At;
-    use subxt::ext::scale_value::{Composite, Value, ValueDef};
-
-    /// Metadata-decoded subset of `pallet_medical_records::HealthRecord`.
-    ///
-    /// Field names intentionally match runtime metadata. `DecodeAsType` skips
-    /// fields outside this proof, so the verifier follows metadata instead of
-    /// assuming fixed byte offsets or duplicating the full pallet type.
-    #[derive(Debug)]
-    struct CapsuleChainState {
-        patient: [u8; 32],
-        emergency_capsule_commitment: [u8; 32],
-        emergency_capsule_version: u32,
-    }
-
-    /// Convert metadata-decoded fixed-byte arrays and AccountId newtypes.
-    fn decoded_bytes(value: &Value) -> Result<Vec<u8>, String> {
-        let values = match &value.value {
-            ValueDef::Composite(Composite::Unnamed(values)) => values,
-            other => return Err(format!("expected byte composite, got {other:?}")),
-        };
-        if values.len() == 1 && values[0].as_u128().is_none() {
-            return decoded_bytes(&values[0]);
-        }
-        values
-            .iter()
-            .map(|item| {
-                let number = item
-                    .as_u128()
-                    .ok_or_else(|| format!("byte item is not an integer: {item:?}"))?;
-                u8::try_from(number).map_err(|_| format!("byte item is out of range: {number}"))
-            })
-            .collect()
-    }
-
-    /// Extract the material fields from a metadata-decoded health record.
-    fn capsule_state_from_value(value: &Value) -> Result<CapsuleChainState, String> {
-        let patient =
-            decoded_bytes(value.at("patient").ok_or_else(|| {
-                "HealthRecords.patient is absent from metadata value".to_string()
-            })?)?
-            .try_into()
-            .map_err(|bytes: Vec<u8>| format!("patient is {} bytes, expected 32", bytes.len()))?;
-        let commitment =
-            decoded_bytes(value.at("emergency_capsule_commitment").ok_or_else(|| {
-                "HealthRecords.emergency_capsule_commitment is absent".to_string()
-            })?)?
-            .try_into()
-            .map_err(|bytes: Vec<u8>| {
-                format!("commitment is {} bytes, expected 32", bytes.len())
-            })?;
-        let version = value
-            .at("emergency_capsule_version")
-            .and_then(Value::as_u128)
-            .ok_or_else(|| "HealthRecords.emergency_capsule_version is not a u32".to_string())?
-            .try_into()
-            .map_err(|_| "HealthRecords.emergency_capsule_version exceeds u32".to_string())?;
-        Ok(CapsuleChainState {
-            patient,
-            emergency_capsule_commitment: commitment,
-            emergency_capsule_version: version,
-        })
-    }
-
-    /// Read and decode `MedicalRecords.HealthRecords` at one finalized block.
-    async fn read_capsule_at_finalized_block(
-        client: &SubstrateClient,
-        patient: [u8; 32],
-        block_hash: &str,
-    ) -> Result<CapsuleChainState, String> {
-        let hash_bytes = hex::decode(block_hash.trim_start_matches("0x"))
-            .map_err(|error| format!("invalid finalized block hash: {error}"))?;
-        if hash_bytes.len() != 32 {
-            return Err(format!(
-                "finalized block hash is {} bytes, expected 32",
-                hash_bytes.len()
-            ));
-        }
-        let hash = subxt::utils::H256::from_slice(&hash_bytes);
-        let api = client
-            .subxt
-            .as_ref()
-            .ok_or_else(|| "subxt client is not connected".to_string())?;
-        let at_block = api
-            .at_block(hash)
-            .await
-            .map_err(|error| format!("cannot open finalized block: {error}"))?;
-        let address =
-            subxt::dynamic::storage::<([u8; 32],), Value>("MedicalRecords", "HealthRecords");
-        let value = at_block
-            .storage()
-            .fetch(address, (patient,))
-            .await
-            .map_err(|error| format!("cannot read HealthRecords: {error}"))?;
-        let decoded = value.decode().map_err(|error| {
-            format!("cannot decode HealthRecords using runtime metadata: {error}")
-        })?;
-        capsule_state_from_value(&decoded)
-    }
 
     /// Verify that WebSocket URLs are correctly converted to HTTP equivalents.
     #[test]

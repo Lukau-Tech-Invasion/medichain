@@ -1,3 +1,4 @@
+import { ChainNetworkLabel } from '@medichain/shared';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -832,6 +833,7 @@ export function SettingsPage() {
       <div className="text-center text-xs text-content-muted space-y-1">
         <p>MediChain Patient App v1.0.0</p>
         <p>{t('common.copyright')}</p>
+        <ChainNetworkLabel />
       </div>
 
       {/* Logout Confirmation Modal */}

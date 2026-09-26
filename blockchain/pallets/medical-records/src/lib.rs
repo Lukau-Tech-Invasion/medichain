@@ -10,7 +10,7 @@
 //!
 //! ## NASA Power of 10 Compliance
 //! - Rule 1: No recursion
-//! - Rule 2: All loops have fixed upper bounds (max 10 allergies)
+//! - Rule 2: All loops have fixed upper bounds
 //! - Rule 3: No dynamic memory after init
 //! - Rule 6: Data objects declared at smallest scope
 
@@ -19,6 +19,7 @@
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+pub mod migrations;
 pub mod mock;
 pub mod tests;
 pub mod weights;
@@ -33,8 +34,6 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
 
-    /// Maximum allergies per patient (Rule 2: bounded loops)
-    pub const MAX_ALLERGIES: u32 = 10;
     /// Maximum IPFS hash length
     pub const MAX_IPFS_HASH_LENGTH: u32 = 64;
     /// Maximum name length
@@ -64,41 +63,6 @@ pub mod pallet {
         ONegative,
         #[default]
         Unknown,
-    }
-
-    /// Medical alert for critical conditions
-    #[derive(
-        Clone, Encode, Decode, DecodeWithMemTracking, Eq, PartialEq, Debug, TypeInfo, MaxEncodedLen,
-    )]
-    pub struct MedicalAlert {
-        /// Type of alert (Allergy, ChronicCondition, etc.)
-        pub alert_type: AlertType,
-        /// Description hash (stored encrypted on IPFS)
-        pub description_hash: [u8; 32],
-        /// Severity level (1-5, 5 being most severe)
-        pub severity: u8,
-    }
-
-    /// Types of medical alerts
-    #[derive(
-        Clone,
-        Encode,
-        Decode,
-        DecodeWithMemTracking,
-        Eq,
-        PartialEq,
-        Debug,
-        TypeInfo,
-        MaxEncodedLen,
-        Default,
-    )]
-    pub enum AlertType {
-        Allergy,
-        ChronicCondition,
-        Medication,
-        Disability,
-        #[default]
-        Other,
     }
 
     /// Health record stored on-chain (metadata only)
@@ -142,8 +106,6 @@ pub mod pallet {
         pub emergency_capsule_version: u32,
         /// IPFS hash of encrypted full record
         pub ipfs_hash: BoundedVec<u8, ConstU32<MAX_IPFS_HASH_LENGTH>>,
-        /// Medical alerts (allergies, conditions)
-        pub alerts: BoundedVec<MedicalAlert, ConstU32<MAX_ALLERGIES>>,
         /// Block when created
         pub created_at: BlockNumberFor<T>,
         /// Block when last updated
@@ -152,7 +114,12 @@ pub mod pallet {
         pub last_modified_by: T::AccountId,
     }
 
+    /// Storage layout version. 1: `HealthRecord` no longer carries plaintext
+    /// alerts (see `migrations::v1`).
+    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     /// `RuntimeEvent` is deliberately absent: since FRAME 48 the bound is appended
@@ -180,12 +147,6 @@ pub mod pallet {
             ipfs_hash: BoundedVec<u8, ConstU32<MAX_IPFS_HASH_LENGTH>>,
             created_by: T::AccountId,
         },
-        /// Medical alert added [patient, alert_type, added_by]
-        AlertAdded {
-            patient: T::AccountId,
-            alert_type: AlertType,
-            added_by: T::AccountId,
-        },
         /// IPFS hash updated [patient, new_hash, updated_by]
         IpfsHashUpdated {
             patient: T::AccountId,
@@ -207,14 +168,10 @@ pub mod pallet {
         RecordAlreadyExists,
         /// Record not found
         RecordNotFound,
-        /// Too many alerts (max 10)
-        TooManyAlerts,
         /// Invalid IPFS hash format
         InvalidIpfsHash,
         /// Only healthcare providers can create/edit records
         NotHealthcareProvider,
-        /// Invalid severity level
-        InvalidSeverity,
         /// Capsule commitment version is not newer than the stored one
         StaleCapsuleVersion,
     }
@@ -270,7 +227,6 @@ pub mod pallet {
                 // commitment via `set_emergency_capsule_commitment` starts at 1.
                 emergency_capsule_version: 0,
                 ipfs_hash: bounded_hash.clone(),
-                alerts: BoundedVec::default(),
                 created_at: current_block,
                 updated_at: current_block,
                 last_modified_by: provider.clone(),
@@ -287,67 +243,11 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Add a medical alert (allergy, condition, etc.)
-        ///
-        /// **IMPORTANT**: Only healthcare providers can add alerts.
-        ///
-        /// # Arguments
-        /// * `patient` - Patient account
-        /// * `alert_type` - Type of alert
-        /// * `description_hash` - Hash of encrypted description
-        /// * `severity` - Severity level (1-5)
-        ///
-        /// # Errors
-        /// * `NotHealthcareProvider` - Caller is not authorized
-        /// * `RecordNotFound` - No health record for patient
-        /// * `TooManyAlerts` - Maximum 10 alerts reached
-        /// * `InvalidSeverity` - Severity must be 1-5
-        #[pallet::call_index(1)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_alert())]
-        pub fn add_alert(
-            origin: OriginFor<T>,
-            patient: T::AccountId,
-            alert_type: AlertType,
-            description_hash: [u8; 32],
-            severity: u8,
-        ) -> DispatchResult {
-            let provider = ensure_signed(origin)?;
-
-            // CRITICAL: Only healthcare providers can add alerts
-            ensure!(
-                pallet_access_control::Pallet::<T>::can_edit_medical_records(&provider),
-                Error::<T>::NotHealthcareProvider
-            );
-
-            // Validate severity (Rule 6: check early)
-            ensure!((1..=5).contains(&severity), Error::<T>::InvalidSeverity);
-
-            HealthRecords::<T>::try_mutate(&patient, |maybe_record| -> DispatchResult {
-                let record = maybe_record.as_mut().ok_or(Error::<T>::RecordNotFound)?;
-
-                let alert = MedicalAlert {
-                    alert_type: alert_type.clone(),
-                    description_hash,
-                    severity,
-                };
-
-                record
-                    .alerts
-                    .try_push(alert)
-                    .map_err(|_| Error::<T>::TooManyAlerts)?;
-
-                record.updated_at = <frame_system::Pallet<T>>::block_number();
-                record.last_modified_by = provider.clone();
-
-                Self::deposit_event(Event::AlertAdded {
-                    patient: patient.clone(),
-                    alert_type,
-                    added_by: provider,
-                });
-
-                Ok(())
-            })
-        }
+        // Call index 1 was `add_alert`, which wrote an alert's type and
+        // severity to the chain in plaintext. Removed (WP8) on the same POPIA
+        // grounds as the plaintext blood type (HZ-003); the emergency capsule
+        // commitment already covers alerts. Never reuse index 1: a client
+        // built against old metadata must fail, not call something else.
 
         /// Update the IPFS hash (when record is updated off-chain)
         ///
@@ -499,7 +399,6 @@ pub mod pallet {
                         emergency_capsule_commitment: commitment,
                         emergency_capsule_version: version,
                         ipfs_hash: BoundedVec::default(),
-                        alerts: BoundedVec::default(),
                         created_at: current_block,
                         updated_at: current_block,
                         last_modified_by: provider.clone(),
@@ -554,7 +453,6 @@ pub mod pallet {
                         emergency_capsule_commitment: [0u8; 32],
                         emergency_capsule_version: 0,
                         ipfs_hash: bounded_hash.clone(),
-                        alerts: BoundedVec::default(),
                         created_at: current_block,
                         updated_at: current_block,
                         last_modified_by: provider.clone(),

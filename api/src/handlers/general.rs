@@ -4,12 +4,20 @@ use super::*;
 // API Endpoints
 // ============================================================================
 
-fn health_payload() -> HealthCheckResponse {
+/// The liveness payload. `blockchain_connected` is read from the chain client
+/// (it used to be hard-coded `false`, so a running chain was never shown).
+fn health_payload(data: &AppState) -> HealthCheckResponse {
+    let connected = crate::blockchain::blockchain_enabled()
+        && data
+            .substrate_client
+            .as_ref()
+            .is_some_and(|client| client.is_connected());
     HealthCheckResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
-        blockchain_connected: false, // Updated by actual blockchain client - see /health/db
+        blockchain_connected: connected,
+        chain_network: crate::blockchain::chain_network().to_string(),
     }
 }
 
@@ -18,8 +26,8 @@ fn health_payload() -> HealthCheckResponse {
 /// This is the path the compose healthcheck and nginx's `location = /health`
 /// name, so it stays exactly where it is.
 #[get("/health")]
-pub async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(health_payload())
+pub async fn health_check(data: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(health_payload(&data))
 }
 
 /// The same health check, on the one prefix a browser can actually reach.
@@ -41,8 +49,8 @@ pub async fn health_check() -> impl Responder {
 /// API", which is what the indicator claims. Storage health is `/health/ready`
 /// and `/health/db`, which report degradation instead of hiding it.
 #[get("/api/health")]
-pub async fn api_health_check() -> impl Responder {
-    HttpResponse::Ok().json(health_payload())
+pub async fn api_health_check(data: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(health_payload(&data))
 }
 
 /// Readiness probe (graceful degradation).

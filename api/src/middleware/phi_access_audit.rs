@@ -106,6 +106,7 @@ const fn handler_audited(pattern: &'static str, category: &'static str) -> PhiRe
 /// the build if a route with a patient path parameter is missing from here.
 pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
     route("/api/patients/{patient_id}", "Patient profile"),
+    route("/api/patients/{patient_id}/verify", "Record verification"),
     route("/api/access-logs/{patient_id}", "Record access history"),
     route(
         "/api/access/patient/{patient_id}/grants",
@@ -529,7 +530,8 @@ fn spawn_patient_notice(data: web::Data<AppState>, log: &AccessLogEntity) {
     });
 }
 
-/// Queue the disclosure for blockchain anchoring without waiting for the chain.
+/// Queue an emergency disclosure for its own blockchain anchor without waiting
+/// for the chain.
 ///
 /// The background outbox worker submits the extrinsic and, on finality, writes
 /// the transaction hash back onto the access-log row (`audit_outbox`).
@@ -538,7 +540,9 @@ fn spawn_patient_notice(data: web::Data<AppState>, log: &AccessLogEntity) {
 /// * `data` - application state.
 /// * `log` - the persisted disclosure row.
 async fn queue_chain_anchor(data: &web::Data<AppState>, log: &AccessLogEntity) {
-    if !crate::blockchain::blockchain_enabled() {
+    // Ordinary reads are anchored in Merkle batches (`audit_batching`, WP8);
+    // only emergency and break-glass reads keep their own extrinsic.
+    if !crate::blockchain::blockchain_enabled() || !log.is_emergency_access {
         return;
     }
     let Some(patient_id) = log.patient_id.as_deref() else {

@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod access_control;
 mod access_logs;
+mod audit_verification;
 mod auth_challenge;
 mod auth_jwt;
 mod blood_bank_inventory;
@@ -61,6 +62,7 @@ mod wallet_auth;
 
 pub use access_control::*;
 pub use access_logs::*;
+pub use audit_verification::*;
 pub use auth_challenge::*;
 pub use auth_jwt::*;
 pub use blood_bank_inventory::*;
