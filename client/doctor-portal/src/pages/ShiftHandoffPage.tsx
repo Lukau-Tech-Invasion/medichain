@@ -11,7 +11,7 @@ import {
   useValidatedForm,
   shiftHandoffSchema,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   ArrowRightLeft,
   FileText,
@@ -134,7 +134,7 @@ export default function ShiftHandoffPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
@@ -254,7 +254,7 @@ export default function ShiftHandoffPage() {
     }
   };
 
-  const addPatientToHandoff = (patient: PatientProfile) => {
+  const addPatientToHandoff = (patient: PatientDirectoryEntry) => {
     const existingHandoff = patientHandoffs.find(p => p.patientId === patient.patient_id);
     if (existingHandoff) {
       setError(t('docShiftHandoff.errorPatientAlreadyAdded'));

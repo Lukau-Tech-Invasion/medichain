@@ -12,7 +12,7 @@ import {
   autopsyReportSchema,
   formatDateOnly,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   FileText,
@@ -138,7 +138,7 @@ const AutopsyPage: React.FC = () => {
   // Who did it, by name: records store the actor's wallet address.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [autopsies, setAutopsies] = useState<AutopsyReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

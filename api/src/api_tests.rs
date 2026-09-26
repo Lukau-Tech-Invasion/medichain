@@ -4,8 +4,8 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_current_user_info, get_patient_by_id, get_settings, health_check, register_patient,
-        save_settings, AppState, Role, User,
+        get_current_user_info, get_patient_by_id, get_settings, health_check, list_patients,
+        register_patient, save_settings, AppState, Role, User,
     };
     use actix_web::{test, web, App};
     use chrono::Utc;
@@ -285,6 +285,176 @@ mod tests {
         assert_eq!(
             body["error"]["code"], "PATIENT_REGISTRATION_UNAVAILABLE",
             "{body}"
+        );
+    }
+
+    /// A lookup yields only directory fields and one organisation audit event.
+    #[actix_web::test]
+    async fn patient_directory_search_has_one_audit_and_no_patient_disclosures() {
+        let state = setup_app_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .wrap(crate::middleware::phi_access_audit::PhiAccessAuditMiddleware)
+                .service(register_patient)
+                .service(list_patients),
+        )
+        .await;
+        let registration = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .set_json(untyped_registration_payload())
+                .to_request(),
+        )
+        .await;
+        assert!(registration.status().is_success());
+        let created: serde_json::Value = test::read_body_json(registration).await;
+        let patient_id = created["patient_id"].as_str().unwrap();
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/patients?q=Untyped")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(("x-access-reason", "Treatment"))
+                .to_request(),
+        )
+        .await;
+        assert!(response.status().is_success());
+        let body: serde_json::Value = test::read_body_json(response).await;
+        let rows = body["data"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["patient_id"], patient_id);
+        assert_eq!(rows[0]["full_name"], "Untyped Patient");
+        for forbidden in [
+            "emergency_info",
+            "national_id",
+            "phone",
+            "allergies",
+            "medications",
+        ] {
+            assert!(rows[0].get(forbidden).is_none(), "{forbidden} leaked");
+        }
+        let events: Vec<_> = state
+            .audit_outbox
+            .pending()
+            .into_iter()
+            .filter(|event| event.event_type == "patient_directory_search")
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].aggregate_type, "organisation");
+        assert_eq!(events[0].payload["actor_id"], "doctor_wallet");
+        assert_eq!(events[0].payload["purpose"], "Treatment");
+        assert_eq!(events[0].payload["result_count"], 1);
+        assert!(events[0].payload.get("patient_id").is_none());
+        let logs = state
+            .repositories
+            .access_logs
+            .list(crate::repositories::traits::Pagination::first_page(10))
+            .await
+            .unwrap();
+        assert_eq!(logs.total, 0);
+    }
+
+    /// The directory is unavailable to patient accounts, even with a purpose.
+    #[actix_web::test]
+    async fn patient_role_cannot_search_the_directory() {
+        let state = setup_app_state().await;
+        let mut patient = state.users.read().unwrap()["doctor_wallet"].clone();
+        patient.wallet_address = "patient_wallet".to_string();
+        patient.role = Role::Patient;
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("patient_wallet".to_string(), patient);
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(list_patients)).await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/patients")
+                .insert_header(("x-user-id", "patient_wallet"))
+                .insert_header(("x-access-reason", "Treatment"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
+        assert!(state.audit_outbox.pending().is_empty());
+    }
+
+    /// A purpose must be declared by the caller; the server never invents one.
+    #[actix_web::test]
+    async fn directory_search_without_a_purpose_is_rejected() {
+        let state = setup_app_state().await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(list_patients)).await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/patients")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert!(state.audit_outbox.pending().is_empty());
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/patients")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(("x-access-reason", "Not stated"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert!(state.audit_outbox.pending().is_empty());
+    }
+
+    /// A failed durable audit blocks the directory response.
+    #[actix_web::test]
+    async fn directory_audit_storage_failure_returns_503() {
+        let seeded = setup_app_state().await;
+        let mut state = AppState::new();
+        let doctor = seeded.users.read().unwrap()["doctor_wallet"].clone();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_wallet".to_string(), doctor);
+        state.db_pool = Some(
+            sqlx::postgres::PgPoolOptions::new()
+                .acquire_timeout(std::time::Duration::from_millis(250))
+                .connect_lazy_with(
+                    sqlx::postgres::PgConnectOptions::new()
+                        .host("127.0.0.1")
+                        .port(1)
+                        .username("unavailable-test")
+                        .database("unavailable"),
+                ),
+        );
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(list_patients),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/patients")
+                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(("x-access-reason", "Treatment"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            actix_web::http::StatusCode::SERVICE_UNAVAILABLE
         );
     }
 

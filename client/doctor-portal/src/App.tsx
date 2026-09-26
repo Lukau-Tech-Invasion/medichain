@@ -4,7 +4,7 @@ import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { AccessReasonGate } from './components/AccessReasonGate';
+import { AccessReasonGate, DirectoryReasonGate } from './components/AccessReasonGate';
 import { I18nProvider, DialogHost } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
@@ -229,9 +229,11 @@ function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<PageLoader />}>
-              <Layout />
-            </Suspense>
+            <DirectoryReasonGate>
+              <Suspense fallback={<PageLoader />}>
+                <Layout />
+              </Suspense>
+            </DirectoryReasonGate>
           </ProtectedRoute>
         }
       >

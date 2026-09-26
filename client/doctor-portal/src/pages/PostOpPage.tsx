@@ -4,7 +4,7 @@ import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { getPatients, createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 /** `null` until the clinician scores that component. */
 type AldreteValue = 0 | 1 | 2 | null;
@@ -103,7 +103,7 @@ const PostOpPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');

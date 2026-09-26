@@ -16,7 +16,7 @@ import {
   useValidatedForm,
   pathologyRequestSchema,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 
@@ -152,7 +152,7 @@ const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -69,7 +69,9 @@ export default function PatientSelect({
       setLoadError(null);
       try {
         const patientArray = await getPatients({ query: searchTerm, limit: 50 });
-        if (active) setPatients(patientArray);
+        // Unreadable rows remain visible in the directory but cannot be used
+        // as a clinical selector until their profile can be decrypted.
+        if (active) setPatients(patientArray.filter((patient) => patient.content_available !== false));
       } catch {
         if (active) setLoadError('Failed to load patients');
       } finally {

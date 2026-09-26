@@ -13,7 +13,7 @@ import {
   transferChainOfCustody,
   getApiErrorMessage,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -85,7 +85,7 @@ const ChainOfCustodyPage: React.FC = () => {
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<ChainOfCustody[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'new-collection' | 'transfer' | 'history'>('active');
   const [selectedRecord, setSelectedRecord] = useState<ChainOfCustody | null>(null);

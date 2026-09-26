@@ -12,7 +12,7 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type ImmobilizationType = 'splint' | 'cast' | 'sling' | 'brace' | 'boot';
 type Material = 'fiberglass' | 'plaster' | 'prefab' | 'aluminum' | 'soft';
@@ -70,7 +70,7 @@ const SplintPage: React.FC = () => {
   const sideLabel = (v: string): string => ({
     left: t('docSplint.sideLeft'), right: t('docSplint.sideRight'), bilateral: t('docSplint.sideBilateral'),
   }[v] ?? v);
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<SplintRecord[]>([]);
 
   /**

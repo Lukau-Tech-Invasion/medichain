@@ -141,18 +141,27 @@ export interface PatientListOptions {
   cursor?: string;
 }
 
-export async function getPatients(options: PatientListOptions = {}): Promise<PatientProfile[]> {
+/** Discovery fields only. Open the chart for clinical details and its access audit. */
+export interface PatientDirectoryEntry {
+  patient_id: string;
+  full_name: string;
+  date_of_birth: string;
+  facility?: string | null;
+  content_available?: boolean;
+}
+
+export async function getPatients(options: PatientListOptions = {}): Promise<PatientDirectoryEntry[]> {
   const params = new URLSearchParams();
   if (options.query?.trim()) params.set('q', options.query.trim());
   if (options.limit !== undefined) params.set('limit', String(options.limit));
   if (options.cursor) params.set('cursor', options.cursor);
   const suffix = params.size ? `?${params.toString()}` : '';
-  const response = await getApiClient().get<{ data: PatientProfile[]; pagination: unknown }>(`/api/patients${suffix}`);
+  const response = await getApiClient().get<{ data: PatientDirectoryEntry[]; pagination: unknown }>(`/api/patients${suffix}`);
   // Handle both paginated response and direct array for backward compatibility
   if (Array.isArray(response)) {
-    return response;
+    return response.filter((patient) => patient.content_available !== false);
   }
-  return response.data || [];
+  return (response.data || []).filter((patient) => patient.content_available !== false);
 }
 
 export async function getPatient(patientId: string): Promise<PatientProfile> {

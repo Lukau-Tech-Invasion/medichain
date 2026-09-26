@@ -35,8 +35,8 @@ fn unreadable_reason(
 /// A patient whose PHI cannot be decrypted must still appear: the alternative
 /// — silently dropping it — makes a record that exists indistinguishable from
 /// one that was never created, which in a clinical roster is a safety problem,
-/// not a cosmetic one. Unreadable rows carry only the columns that are stored
-/// in clear (id, blood type, flags) plus `content_available: false`.
+/// not a cosmetic one. Unreadable rows expose only the id and an explicit
+/// availability marker; no clear-text clinical columns enter the directory.
 #[derive(Clone)]
 struct RosterRow {
     ts: i64,
@@ -79,34 +79,60 @@ fn readable_patient_json(
     value
 }
 
-/// Everything about a patient that is stored unencrypted, for a row whose
-/// profile blob could not be read.
-fn unreadable_roster_row(
-    entity: &crate::repositories::traits::PatientEntity,
-    reason: &'static str,
-) -> RosterRow {
+/// Directory rows contain identifiers needed to select a chart, never clinical data.
+fn directory_patient_json(profile: &PatientProfile, facility: Option<String>) -> serde_json::Value {
+    serde_json::json!({
+        "patient_id": profile.patient_id,
+        "full_name": profile.full_name,
+        "date_of_birth": profile.date_of_birth,
+        "facility": facility,
+        "content_available": true,
+    })
+}
+
+/// A minimal directory placeholder for a row whose encrypted profile failed.
+fn unreadable_roster_row(entity: &crate::repositories::traits::PatientEntity) -> RosterRow {
     RosterRow {
         ts: entity.updated_at.timestamp_millis(),
         id: entity.id.clone(),
         value: serde_json::json!({
             "patient_id": entity.id,
-            "wallet_address": entity.wallet_address,
-            "health_id": entity.health_id,
-            "gender": entity.gender,
-            "national_id_type": entity.national_id_type,
-            "organ_donor": entity.organ_donor,
-            "dnr_status": entity.dnr_status,
-            "is_active": entity.is_active,
-            "created_at": entity.created_at,
-            "last_updated": entity.updated_at,
-            "emergency_info": { "blood_type": entity.blood_type },
-            // The contract for a degraded row. Clients must render these
-            // distinctly rather than showing blank fields as though the record
-            // were empty.
+            "full_name": "",
+            "date_of_birth": "",
+            "facility": null,
             "content_available": false,
-            "content_unavailable_reason": reason,
+            "content_unavailable_reason": "Profile unavailable",
         }),
     }
+}
+
+/// Persist one organisation-level event before releasing a directory page.
+async fn audit_directory_search(
+    data: &web::Data<AppState>,
+    actor: &User,
+    purpose: &str,
+    result_count: u64,
+) -> Result<(), String> {
+    let facility = data
+        .identity_contexts
+        .facility_for_wallet(&actor.wallet_address);
+    data.audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "patient_directory_search".to_string(),
+            "organisation".to_string(),
+            facility.clone().unwrap_or_else(|| "unassigned".to_string()),
+            serde_json::json!({
+                "actor_id": actor.wallet_address,
+                "actor_role": actor.role.to_string(),
+                "facility": facility,
+                "purpose": purpose,
+                "result_count": result_count,
+            }),
+            Utc::now(),
+        )
+        .await
+        .map(|_| ())
 }
 
 /// Get all registered patients (paginated)
@@ -150,6 +176,21 @@ pub async fn list_patients(
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
+
+    let purpose = http_req
+        .headers()
+        .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| crate::middleware::phi_access_audit::normalise_access_reason(Some(value)))
+        .filter(|value| value != crate::middleware::phi_access_audit::REASON_NOT_STATED);
+    let Some(purpose) = purpose else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A directory search purpose is required".to_string(),
+            code: "DIRECTORY_PURPOSE_REQUIRED".to_string(),
+        });
+    };
 
     let requested_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
     let cursor = match query.cursor.as_deref() {
@@ -200,7 +241,12 @@ pub async fn list_patients(
                 rows.push(RosterRow {
                     ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
-                    value: readable_patient_json(&profile, entity),
+                    value: directory_patient_json(
+                        &profile,
+                        entity.registered_by.as_deref().and_then(|registrar| {
+                            data.identity_contexts.facility_for_wallet(registrar)
+                        }),
+                    ),
                 });
             }
             None => {
@@ -210,7 +256,7 @@ pub async fn list_patients(
                     entity.id
                 );
                 unreadable += 1;
-                rows.push(unreadable_roster_row(entity, reason));
+                rows.push(unreadable_roster_row(entity));
             }
         }
     }
@@ -221,6 +267,14 @@ pub async fn list_patients(
         None
     };
     let page: Vec<serde_json::Value> = rows.into_iter().map(|row| row.value).collect();
+
+    if let Err(error) = audit_directory_search(&data, &current_user, &purpose, total).await {
+        log::error!("Patient directory audit failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient directory is temporarily unavailable".to_string(),
+            code: "DIRECTORY_AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

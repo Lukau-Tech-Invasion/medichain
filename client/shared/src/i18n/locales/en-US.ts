@@ -31,6 +31,8 @@ const en_US: TranslationRecord = {
     search: 'Search',
     filter: 'Filter',
     loading: 'Loading...',
+    retry: 'Try again',
+    loadMore: 'Load more',
     saveFailed: 'Could not save. The record was not stored — please try again.',
     // Shown where a live source could not be read. Not "offline" and not
     // "no data": the page does not know, and must not imply either.
@@ -211,6 +213,7 @@ const en_US: TranslationRecord = {
   // Why a clinician is opening a patient's chart (shown to the patient)
   accessReason: {
     title: 'Why are you opening this record?',
+    directoryTitle: 'Why are you looking up patients?',
     explainer:
       'The patient can see who opened their record and why. Your answer is recorded with every part of the chart you view.',
     treatment: 'Treatment',

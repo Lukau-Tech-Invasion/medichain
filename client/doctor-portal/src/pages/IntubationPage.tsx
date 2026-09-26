@@ -12,7 +12,7 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type IntubationMethod = 'oral' | 'nasal' | 'surgical' | 'video';
@@ -106,7 +106,7 @@ const IntubationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
 
   /**

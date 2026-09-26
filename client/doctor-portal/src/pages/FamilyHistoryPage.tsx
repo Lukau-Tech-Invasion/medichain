@@ -13,7 +13,7 @@ import {
 } from '@medichain/shared';
 import type {
   FamilyMedicalHistory,
-  PatientProfile,
+  PatientDirectoryEntry,
   FamilyHistoryAssessmentResult,
   AffectedRelativeInput,
 } from '@medichain/shared';
@@ -167,7 +167,7 @@ const FamilyHistoryPage: React.FC = () => {
   >({});
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

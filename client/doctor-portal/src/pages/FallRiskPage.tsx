@@ -10,7 +10,7 @@ import {
   bandFor,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   AlertTriangle,
   Shield,
@@ -64,8 +64,8 @@ export default function FallRiskPage() {
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
@@ -192,7 +192,7 @@ export default function FallRiskPage() {
 
         const patientId = searchParams.get('patient');
         if (patientId && patientData) {
-          const patient = patientData.find((p: PatientProfile) => p.patient_id === patientId);
+          const patient = patientData.find((p: PatientDirectoryEntry) => p.patient_id === patientId);
           if (patient) setSelectedPatient(patient);
         }
       } catch (err) {

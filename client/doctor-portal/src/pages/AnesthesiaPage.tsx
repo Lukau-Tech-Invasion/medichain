@@ -14,7 +14,7 @@ import {
   anesthesiaRecordSchema,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'combined';
@@ -78,7 +78,7 @@ const AnesthesiaPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
 
   /**

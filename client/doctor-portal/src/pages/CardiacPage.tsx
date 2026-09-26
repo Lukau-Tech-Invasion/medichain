@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { createCardiac, getPatients, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
 import type { TimiCriteriaInput } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   Heart,
   HeartPulse,
@@ -57,7 +57,7 @@ export default function CardiacPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -329,7 +329,6 @@ export default function CardiacPage() {
                   <div className="mt-4 p-3 bg-surface-sunken rounded-lg">
                     <p className="font-medium">{selectedPatientData.full_name}</p>
                     <p className="text-sm text-content-muted">{t('docCardiac.dobLabel', { value: selectedPatientData.date_of_birth })}</p>
-                    <p className="text-sm text-content-muted">{t('docCardiac.bloodTypeLabel', { value: selectedPatientData.emergency_info?.blood_type || t('docCardiac.bloodTypeUnknown') })}</p>
                   </div>
                 )}
                 {selectedPatient && (

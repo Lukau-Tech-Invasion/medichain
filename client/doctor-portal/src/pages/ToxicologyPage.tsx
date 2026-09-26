@@ -4,7 +4,7 @@ import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { getPatients, createTox, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
 type ExposureRoute = 'oral' | 'inhalation' | 'dermal' | 'injection' | 'ocular' | 'unknown';
@@ -94,7 +94,7 @@ const ToxicologyPage: React.FC = () => {
   const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');

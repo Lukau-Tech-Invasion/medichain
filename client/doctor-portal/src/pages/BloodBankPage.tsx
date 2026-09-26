@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
+  getApiClient,
   listBloodBank,
   createBloodTypeScreen,
   createTransfusion,
@@ -12,7 +13,7 @@ import {
   useValidatedForm,
   transfusionStartSchema,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry, PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
@@ -155,7 +156,7 @@ const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [orders, setOrders] = useState<BloodOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +250,18 @@ const BloodBankPage: React.FC = () => {
     const patient = patients.find(p => p.patient_id === selectedPatientId);
     if (!patient) return;
 
-    const newOrder: BloodOrder = {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const purpose = getApiClient().getDirectoryPurpose();
+      if (!purpose) throw new Error('Directory purpose was not declared');
+      // The directory is intentionally untyped; only this patient-specific
+      // audited read may supply a blood group for a crossmatch order.
+      const profile = await getApiClient().get<PatientProfile>(
+        `/api/patients/${encodeURIComponent(selectedPatientId)}`,
+        { headers: { 'X-Access-Reason': purpose } },
+      );
+      const newOrder: BloodOrder = {
       // Assigned by the server, which ignores any id sent.
       orderId: '',
       patientId: selectedPatientId,
@@ -261,7 +273,7 @@ const BloodBankPage: React.FC = () => {
       //
       // Still 'Unknown' when the profile genuinely has none, which is a real
       // state and the reason the order needs a type-and-screen first.
-      bloodType: patient.emergency_info?.blood_type || 'Unknown',
+      bloodType: profile.emergency_info?.blood_type || 'Unknown',
       orderDate: new Date().toISOString().split('T')[0],
       orderTime: new Date().toTimeString().slice(0, 5),
       orderedBy: user?.userId || 'Unknown',
@@ -270,11 +282,7 @@ const BloodBankPage: React.FC = () => {
       indication,
       priority,
       status: 'ordered'
-    };
-
-    try {
-      setIsLoading(true);
-      setError(null);
+      };
       const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
         // The server assigns the order ID and signed orderer.  Reload those

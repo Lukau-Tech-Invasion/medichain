@@ -4,7 +4,7 @@ import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
 type LegalStatus = 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
@@ -202,7 +202,7 @@ const PsychPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');

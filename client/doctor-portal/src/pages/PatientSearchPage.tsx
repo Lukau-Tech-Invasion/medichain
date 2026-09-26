@@ -1,500 +1,139 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { usePatientStore, useAuthStore } from '../store';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertCircle, Loader2, Search, Users } from 'lucide-react';
 import { getApiClient, useTranslation } from '@medichain/shared';
-import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useAuthStore } from '../store';
 
-/**
- * A patient as `GET /api/patients` actually returns it.
- *
- * The clinical fields live inside the emergency capsule (`emergency_info`),
- * not on the patient root. This page previously declared them flat
- * (`blood_type`, `allergies`, `medical_conditions`, ...), so every one of them
- * read back `undefined`: blood type rendered as "Unknown", the allergy and
- * medication tags never appeared, and the i18n interpolation for a missing
- * value printed the raw `{{gender}}` / `{{id}}` placeholder to the clinician.
- * Keep this shape in step with `PatientProfile` in `api/src/types/domain.rs`.
- */
-interface ApiAllergy {
-  name: string;
-}
-
-interface ApiEmergencyInfo {
-  blood_type?: string;
-  /** Structured allergies; older/summary payloads may still send bare strings. */
-  allergies?: Array<ApiAllergy | string>;
-  current_medications?: string[];
-  chronic_conditions?: string[];
-}
-
-interface ApiPatient {
+/** The directory deliberately carries no medical or national-ID fields. */
+interface DirectoryPatient {
   patient_id: string;
-  /** Only some endpoints expose a distinct health ID; it falls back to `patient_id`. */
-  health_id?: string;
-  full_name: string;
-  date_of_birth: string;
-  /** Not captured at registration yet, so this is routinely absent. */
-  gender?: string | null;
-  national_id: string;
-  emergency_info?: ApiEmergencyInfo;
-  /**
-   * False when the patient is stored but their encrypted profile could not be
-   * decrypted. Such rows carry only the unencrypted columns — no name, no DOB —
-   * and must be rendered as "unreadable" rather than as an empty patient.
-   */
-  content_available?: boolean;
-  content_unavailable_reason?: string;
+  full_name?: string;
+  date_of_birth?: string;
+  facility?: string | null;
+  content_available: boolean;
 }
 
-/** Allergies arrive as objects but may be bare strings; render just the name. */
-function allergyNames(allergies: ApiEmergencyInfo['allergies']): string[] {
-  return (allergies ?? []).map((a) => (typeof a === 'string' ? a : a.name));
+interface DirectoryPage {
+  data: DirectoryPatient[];
+  total: number;
+  next_cursor?: string | null;
+  unreadable_count: number;
 }
 
-interface Patient {
-  patientId: string;
-  /** False for a stored patient whose PHI could not be decrypted. */
-  contentAvailable: boolean;
-  unavailableReason?: string;
-  healthId: string;
-  fullName: string;
-  dateOfBirth: string;
-  gender: string;
-  bloodType: string;
-  nationalHealthId: string;
-  allergies: string[];
-  medications: string[];
-  conditions: string[];
-  lastVisit?: string;
+/** Search the encrypted-name index on the server with a bounded page. */
+async function fetchDirectory(query: string, cursor?: string): Promise<DirectoryPage> {
+  const params = new URLSearchParams({ limit: '50' });
+  if (query.trim()) params.set('q', query.trim());
+  if (cursor) params.set('cursor', cursor);
+  return getApiClient().get<DirectoryPage>(`/api/patients?${params}`, { keepEnvelope: true });
 }
 
-// Helper to convert blood type enum to display string
-function formatBloodType(bloodType: string | undefined): string {
-  if (!bloodType) return 'Unknown';
-  const bloodTypeMap: Record<string, string> = {
-    'APositive': 'A+',
-    'ANegative': 'A-',
-    'BPositive': 'B+',
-    'BNegative': 'B-',
-    'ABPositive': 'AB+',
-    'ABNegative': 'AB-',
-    'OPositive': 'O+',
-    'ONegative': 'O-',
-  };
-  return bloodTypeMap[bloodType] || bloodType;
-}
-
-/**
- * PatientSearchPage - Search and browse patients
- */
+/** Minimal clinical directory; opening a chart is the patient-specific read. */
 function PatientSearchPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  /**
-   * What the server says it holds, which is not the same as what this page has
-   * loaded: `/api/patients` is cursor-paginated (50 per page by default), so
-   * counting the local array reported the page size as the system total.
-   */
-  const [totalInSystem, setTotalInSystem] = useState<number | null>(null);
-  /** Non-zero means some stored records could not be decrypted. */
-  const [unreadableCount, setUnreadableCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [apiConnected, setApiConnected] = useState(false);
-  const [filterBloodType, setFilterBloodType] = useState<string>('all');
-  const [filterGender, setFilterGender] = useState<string>('all');
-  const [showFilters, setShowFilters] = useState(false);
-  const { searchResults, setSearchResults, addToRecentPatients } = usePatientStore();
   const { user, isAuthenticated } = useAuthStore();
+  const [input, setInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [patients, setPatients] = useState<DirectoryPatient[]>([]);
+  const [total, setTotal] = useState(0);
+  const [unreadable, setUnreadable] = useState(0);
+  const [cursor, setCursor] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
-    }
+    if (!isAuthenticated) navigate('/login');
   }, [isAuthenticated, navigate]);
 
-  // Fetch patients from API on mount
-  useEffect(() => {
-    if (!user) return;
-    
-    const fetchPatients = async () => {
-      try {
-        setLoading(true);
-        // Both shapes are real: the API client unwraps a `{data: [...]}` envelope
-        // to the bare array for some endpoints and not others, so a type naming
-        // only one of them silently yields an empty roster for the other.
-        const data = await getApiClient().get<
-          | { data?: ApiPatient[]; total?: number; unreadable_count?: number }
-          | ApiPatient[]
-        >('/api/patients');
-        setApiConnected(true);
-        
-        // Handle paginated response
-        const patientArray = Array.isArray(data) ? data : (data.data ?? []);
-        
-        // Transform API response to Patient format
-        const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => {
-          const emergency = p.emergency_info;
-          return {
-            patientId: p.patient_id,
-            contentAvailable: p.content_available !== false,
-            unavailableReason: p.content_unavailable_reason,
-            healthId: p.health_id ?? p.patient_id,
-            fullName: p.full_name ?? '',
-            dateOfBirth: p.date_of_birth,
-            gender: p.gender ?? '',
-            bloodType: formatBloodType(emergency?.blood_type),
-            nationalHealthId: p.national_id,
-            allergies: allergyNames(emergency?.allergies),
-            medications: emergency?.current_medications ?? [],
-            conditions: emergency?.chronic_conditions ?? [],
-            lastVisit: new Date().toISOString().split('T')[0],
-          };
-        });
-        
-        setPatients(transformedPatients);
-        setTotalInSystem(
-          !Array.isArray(data) && typeof data.total === 'number'
-            ? data.total
-            : transformedPatients.length
-        );
-        setUnreadableCount(
-          !Array.isArray(data) && typeof data.unreadable_count === 'number'
-            ? data.unreadable_count
-            : 0
-        );
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t('docPatientSearch.failFetch'));
-        setApiConnected(false);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPatients();
-  }, [user, t]);
-
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
+  const load = useCallback(async (term: string, next?: string) => {
+    setLoading(true);
+    setError(false);
+    try {
+      const page = await fetchDirectory(term, next);
+      setPatients((current) => next ? [...current, ...page.data] : page.data);
+      setTotal(page.total);
+      setUnreadable(page.unreadable_count);
+      setCursor(page.next_cursor ?? undefined);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    setIsSearching(true);
-    
-    const results = patients.filter(
-      p => 
-        (p.fullName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-        (p.patientId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-        (p.nationalHealthId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-        (p.healthId?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-    );
-    
-    // Convert Patient to EmergencyInfo format for store
-    const emergencyInfoResults = results.map(p => ({
-      patientId: p.patientId,
-      fullName: p.fullName,
-      bloodType: p.bloodType,
-      allergies: p.allergies,
-      currentMedications: p.medications,
-      chronicConditions: p.conditions,
-      emergencyContacts: [],
-      lastUpdated: p.lastVisit,
-      lastAccessed: new Date().toISOString(),
-    }));
-    
-    setSearchResults(emergencyInfoResults);
-    setIsSearching(false);
-  };
-
-  const handlePatientClick = (patient: Patient) => {
-    // Convert Patient to EmergencyInfo format for store
-    const emergencyInfo = {
-      patientId: patient.patientId,
-      fullName: patient.fullName,
-      bloodType: patient.bloodType,
-      allergies: patient.allergies,
-      currentMedications: patient.medications,
-      chronicConditions: patient.conditions,
-      emergencyContacts: [] as { name: string; phone: string; relationship: string }[],
-      lastUpdated: patient.lastVisit,
-      lastAccessed: new Date().toISOString(),
-    };
-    addToRecentPatients(emergencyInfo);
-  };
-
-  // Apply filters
-  const filteredPatients = patients.filter(p => {
-    if (filterBloodType !== 'all' && p.bloodType !== filterBloodType) return false;
-    if (filterGender !== 'all' && (p.gender?.toLowerCase() || '') !== filterGender) return false;
-    return true;
-  });
-
-  // Show search results or all patients
-  const displayPatients: Patient[] = searchResults.length > 0
-    ? filteredPatients.filter(p => searchResults.some(r => r.patientId === p.patientId))
-    : filteredPatients;
+  useEffect(() => {
+    if (user) void load('');
+  }, [user, load]);
 
   return (
-    <div className="p-8">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-content">{t('docPatientSearch.title')}</h1>
-          <p className="text-content-muted mt-1">
-            {t('docPatientSearch.subtitle')}
-          </p>
+    <main className="p-8">
+      <h1 className="text-2xl font-bold text-content">{t('docPatientSearch.title')}</h1>
+      <p className="mt-1 text-content-muted">{t('docPatientSearch.subtitle')}</p>
+      <form className="mt-6 flex gap-3" onSubmit={(event) => {
+        event.preventDefault();
+        setQuery(input.trim());
+        void load(input.trim());
+      }}>
+        <label htmlFor="directory-query" className="sr-only">{t('docPatientSearch.search')}</label>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={18} aria-hidden="true" />
+          <input id="directory-query" value={input} onChange={(event) => setInput(event.target.value)}
+            placeholder={t('docPatientSearch.searchPlaceholder')}
+            className="w-full rounded-lg border border-border-interactive bg-surface py-3 pl-10 pr-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
-          }`}>
-            <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-            {apiConnected ? t('docPatientSearch.apiConnected') : t('docPatientSearch.apiDisconnected')}
-          </span>
-        </div>
-      </div>
-
-      {/* Search Bar */}
-      <form onSubmit={handleSearch} className="mb-6">
-        <div className="flex gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('docPatientSearch.searchPlaceholder')}
-              className="w-full pl-12 pr-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none transition-all"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowFilters(!showFilters)}
-            className={`px-4 py-3 border rounded-lg hover:bg-surface-sunken transition-colors flex items-center gap-2 ${
-              showFilters ? 'border-brand bg-brand-subtle' : 'border-border'
-            }`}
-          >
-            <Filter size={20} />
-            {t('docPatientSearch.filters')}
-          </button>
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-          >
-            {isSearching ? t('docPatientSearch.searching') : t('docPatientSearch.search')}
-          </button>
-        </div>
+        <button type="submit" disabled={loading}
+          className="rounded-lg bg-brand px-5 py-3 text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50">
+          {t('docPatientSearch.search')}
+        </button>
       </form>
-
-      {/* Filters Panel */}
-      {showFilters && (
-        <div className="mb-6 p-4 bg-surface-sunken rounded-lg border border-border">
-          <div className="flex flex-wrap gap-4">
-            <div>
-              <label className="block text-sm font-medium text-content-secondary mb-1">{t('docPatientSearch.bloodType')}</label>
-              <select
-                value={filterBloodType}
-                onChange={(e) => setFilterBloodType(e.target.value)}
-                className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="all">{t('docPatientSearch.allBloodTypes')}</option>
-                <option value="A+">A+</option>
-                <option value="A-">A-</option>
-                <option value="B+">B+</option>
-                <option value="B-">B-</option>
-                <option value="AB+">AB+</option>
-                <option value="AB-">AB-</option>
-                <option value="O+">O+</option>
-                <option value="O-">O-</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-content-secondary mb-1">{t('docPatientSearch.gender')}</label>
-              <select
-                value={filterGender}
-                onChange={(e) => setFilterGender(e.target.value)}
-                className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="all">{t('docPatientSearch.allGenders')}</option>
-                <option value="male">{t('docPatientSearch.male')}</option>
-                <option value="female">{t('docPatientSearch.female')}</option>
-              </select>
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterBloodType('all');
-                  setFilterGender('all');
-                }}
-                className="px-3 py-2 text-sm text-content-muted hover:text-content-secondary"
-              >
-                {t('docPatientSearch.clearFilters')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Results */}
-      <div className="bg-surface rounded-xl shadow">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Users className="text-content-muted" size={20} />
-            <span className="font-medium text-content-secondary">
-              {displayPatients.length} {displayPatients.length !== 1 ? t('docPatientSearch.patients') : t('docPatientSearch.patient')}
-              {(filterBloodType !== 'all' || filterGender !== 'all') && (
-                <span className="text-content-muted ml-1">{t('docPatientSearch.filtered')}</span>
-              )}
-            </span>
-          </div>
-          <span className="text-sm text-content-muted">
-            {t('docPatientSearch.totalInSystem', {
-              count: totalInSystem ?? patients.length,
-            })}
-            {unreadableCount > 0 && (
-              <span className="ml-2 text-caution-subtle-fg">
-                {t('docPatientSearch.unreadableSummary', { count: unreadableCount })}
-              </span>
-            )}
+      <section aria-live="polite" className="mt-6 rounded-xl border border-border bg-surface">
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <span className="flex items-center gap-2 font-medium text-content-secondary">
+            <Users size={18} aria-hidden="true" />
+            {t('docPatientSearch.totalInSystem', { count: total })}
           </span>
+          {unreadable > 0 && <span className="text-sm text-caution-subtle-fg">
+            {t('docPatientSearch.unreadableSummary', { count: unreadable })}
+          </span>}
         </div>
-
-        {!loading && !error && displayPatients.length > 0 && (
-          <div className="divide-y divide-border">
-            {displayPatients.map((patient) => (
-              <Link
-                key={patient.patientId}
-                to={`/patients/${patient.patientId}`}
-                onClick={() => handlePatientClick(patient)}
-                className="block p-4 hover:bg-surface-sunken transition-colors"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-brand-subtle rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-brand font-bold">
-                        {patient.fullName
-                          ? patient.fullName.split(' ').map(n => n[0]).join('')
-                          : '?'}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-content">
-                        {patient.fullName || (
-                          <span className="text-content-muted italic">
-                            {t('docPatientSearch.recordUnreadable')}
-                          </span>
-                        )}
-                      </p>
-                      {!patient.contentAvailable && (
-                        <p
-                          className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-caution-subtle text-caution-subtle-fg text-xs"
-                          title={patient.unavailableReason}
-                        >
-                          <AlertCircle size={12} aria-hidden="true" />
-                          {t('docPatientSearch.phiUnavailable')}
-                        </p>
-                      )}
-                      {/* Composed from whatever is actually known rather than
-                          from one fixed template per combination. Interpolating
-                          an absent value leaves the literal "{{dob}}" on screen,
-                          and gender and DOB are independently optional — gender
-                          is not always collected, and neither is readable on a
-                          record whose PHI could not be decrypted. */}
-                      <p className="text-sm text-content-muted">
-                        {[
-                          patient.patientId,
-                          patient.gender || null,
-                          patient.dateOfBirth
-                            ? t('docPatientSearch.dobLabel', { dob: patient.dateOfBirth })
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' • ')}
-                      </p>
-                      <p className="text-xs text-content-muted mt-0.5">
-                        {t('docPatientSearch.healthId', { id: patient.healthId })}
-                      </p>
-                      
-                      {/* Medical Info Tags */}
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {patient.allergies.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-critical-subtle text-critical-subtle-fg text-xs rounded-full">
-                            <AlertCircle size={12} />
-                            {patient.allergies.length} {patient.allergies.length !== 1 ? t('docPatientSearch.allergies') : t('docPatientSearch.allergy')}
-                          </span>
-                        )}
-                        {patient.medications.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-notice-subtle text-notice-subtle-fg text-xs rounded-full">
-                            <Pill size={12} />
-                            {patient.medications.length} {patient.medications.length !== 1 ? t('docPatientSearch.medications') : t('docPatientSearch.medication')}
-                          </span>
-                        )}
-                        {patient.conditions.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-sunken text-content-secondary text-xs rounded-full">
-                            <Heart size={12} />
-                            {patient.conditions.length} {patient.conditions.length !== 1 ? t('docPatientSearch.conditions') : t('docPatientSearch.condition')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="flex items-center gap-1 justify-end">
-                        <Droplet size={14} className="text-critical" />
-                        <span className="text-sm font-semibold text-critical-subtle-fg">{patient.bloodType}</span>
-                      </div>
-                      <p className="text-xs text-content-muted mt-1">
-                        {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}
-                      </p>
-                    </div>
-                    <ChevronRight className="text-content-muted" size={20} />
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {loading && (
-          <div className="p-12 text-center">
-            <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
-            <p className="text-content-muted">{t('docPatientSearch.loading')}</p>
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="p-12 text-center">
-            <Users className="mx-auto mb-3 text-red-300" size={48} />
-            <p className="text-critical">{error}</p>
-            <p className="text-sm text-content-muted mt-1">
-              {t('docPatientSearch.apiHint')}
-            </p>
-          </div>
-        )}
-
-        {!loading && !error && displayPatients.length === 0 && (
-          <div className="p-12 text-center">
-            <Users className="mx-auto mb-3 text-content-muted" size={48} />
-            <p className="text-content-muted">{t('docPatientSearch.noneFound')}</p>
-            <p className="text-sm text-content-muted mt-1">
-              {t('docPatientSearch.tryDifferent')}
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
+        {patients.map((patient) => <DirectoryRow key={patient.patient_id} patient={patient} />)}
+        {loading && <p className="flex items-center gap-2 p-6 text-content-muted">
+          <Loader2 className="animate-spin" size={18} aria-hidden="true" />{t('docPatientSearch.loading')}
+        </p>}
+        {error && <div role="alert" className="p-6 text-critical">
+          {t('docPatientSearch.failFetch')}
+          <button type="button" onClick={() => void load(query)} className="ml-3 underline focus-visible:ring-2 focus-visible:ring-primary-500">
+            {t('common.retry')}
+          </button>
+        </div>}
+        {!loading && !error && patients.length === 0 && <p className="p-6 text-content-muted">{t('docPatientSearch.noneFound')}</p>}
+      </section>
+      {cursor && !loading && <button type="button" onClick={() => void load(query, cursor)}
+        className="mt-4 rounded-lg border border-border px-4 py-2 text-content focus-visible:ring-2 focus-visible:ring-primary-500">
+        {t('common.loadMore')}
+      </button>}
+    </main>
   );
+}
+
+/** Render only fields authorised for discovery. */
+function DirectoryRow({ patient }: { patient: DirectoryPatient }) {
+  const { t } = useTranslation();
+  const contents = <>
+    <strong className="text-content">{patient.full_name || t('docPatientSearch.recordUnreadable')}</strong>
+    <span className="block text-sm text-content-muted">{patient.patient_id}</span>
+    {patient.date_of_birth && <span className="block text-sm text-content-muted">
+      {t('docPatientSearch.dobLabel', { dob: patient.date_of_birth })}
+    </span>}
+    {patient.facility && <span className="block text-sm text-content-muted">{patient.facility}</span>}
+    {!patient.content_available && <span className="flex items-center gap-1 text-sm text-caution-subtle-fg">
+      <AlertCircle size={14} aria-hidden="true" />{t('docPatientSearch.phiUnavailable')}
+    </span>}
+  </>;
+  return patient.content_available
+    ? <Link to={`/patients/${encodeURIComponent(patient.patient_id)}`} className="block border-b border-border p-4 hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-primary-500">{contents}</Link>
+    : <div className="border-b border-border p-4">{contents}</div>;
 }
 
 export default PatientSearchPage;

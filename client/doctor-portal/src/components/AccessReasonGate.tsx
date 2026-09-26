@@ -67,6 +67,25 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
   return <ReasonPrompt onDeclare={declare} title={t('accessReason.title')} />;
 }
 
+/** Ask once per portal session before any patient directory search is issued. */
+export function DirectoryReasonGate({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState<string>();
+
+  useEffect(() => () => getApiClient().setDirectoryPurpose(undefined), []);
+
+  if (!reason) {
+    return <ReasonPrompt
+      title={t('accessReason.directoryTitle')}
+      onDeclare={(chosen) => {
+        getApiClient().setDirectoryPurpose(chosen);
+        setReason(chosen);
+      }}
+    />;
+  }
+  return <>{children}</>;
+}
+
 /**
  * The prompt itself: four one-click reasons plus a short free-text option.
  *

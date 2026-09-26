@@ -14,7 +14,7 @@ import {
   imagingRequestSchema,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
 type ImagingStatus = 'ordered' | 'scheduled' | 'in-progress' | 'completed' | 'prelim' | 'final';
@@ -126,7 +126,7 @@ const ImagingPage: React.FC = () => {
       case 'final': return t('docImaging.statusFinal');
     }
   };
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [orders, setOrders] = useState<ImagingOrder[]>([]);
   const [activeTab, setActiveTab] = useState<'orders' | 'new' | 'results'>('orders');
   const [searchTerm, setSearchTerm] = useState('');

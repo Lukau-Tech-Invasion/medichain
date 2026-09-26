@@ -229,6 +229,8 @@ export class ApiClient {
    * can say *why*, not just *who* and *when*.
    */
   private patientAccessContext?: PatientAccessContext;
+  /** Stated once for this portal session before any directory rows load. */
+  private directoryPurpose?: string;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -527,6 +529,16 @@ export class ApiClient {
     this.patientAccessContext = context;
   }
 
+  /** Set the clinician's declared purpose for browsing the patient directory. */
+  setDirectoryPurpose(purpose: string | undefined): void {
+    this.directoryPurpose = purpose;
+  }
+
+  /** Reuse the clinician's declared purpose when a workflow opens a chart. */
+  getDirectoryPurpose(): string | undefined {
+    return this.directoryPurpose;
+  }
+
   /**
    * Headers declaring why a patient's data is being read, when applicable.
    *
@@ -536,8 +548,12 @@ export class ApiClient {
    *   patient in the open chart; otherwise an empty object.
    */
   private accessReasonHeaders(method: string, path: string): Record<string, string> {
+    if (method.toUpperCase() !== 'GET') return {};
+    if (path.split('?')[0] === '/api/patients' && this.directoryPurpose) {
+      return { 'X-Access-Reason': this.directoryPurpose };
+    }
     const context = this.patientAccessContext;
-    if (!context || method.toUpperCase() !== 'GET') return {};
+    if (!context) return {};
     // Match whole path segments only, so PAT-1 never matches PAT-10.
     const segments = path.split('?')[0].split('/').map(safeDecodeSegment);
     return segments.includes(context.patientId) ? { 'X-Access-Reason': context.reason } : {};

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { createPreOp, getApiClient, getPatients, useTranslation, formatDateOnly } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   Stethoscope,
   AlertTriangle,
@@ -47,8 +47,8 @@ export default function PreOpPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
@@ -214,7 +214,7 @@ export default function PreOpPage() {
 
         const patientId = searchParams.get('patient');
         if (patientId && patientData) {
-          const patient = patientData.find((p: PatientProfile) => p.patient_id === patientId);
+          const patient = patientData.find((p: PatientDirectoryEntry) => p.patient_id === patientId);
           if (patient) setSelectedPatient(patient);
         }
       } catch (err) {

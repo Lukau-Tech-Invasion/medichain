@@ -4,7 +4,7 @@ import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { getPatients, createOb, useTranslation, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type FetalHeartCategory = 'I' | 'II' | 'III';
 type LaborStage = 'latent' | 'active' | 'second' | 'third' | 'postpartum';
@@ -68,7 +68,7 @@ const ObstetricsPage: React.FC = () => {
   const fhrDesc = (cat: FetalHeartCategory): string => ({
     I: t('docObstetrics.fhrDescI'), II: t('docObstetrics.fhrDescII'), III: t('docObstetrics.fhrDescIII'),
   }[cat]);
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [assessments, setAssessments] = useState<ObAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');

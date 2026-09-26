@@ -18,7 +18,7 @@ import {
   promptDialog,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   AlertTriangle,
@@ -91,7 +91,7 @@ const CriticalValuePage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const { catalog } = useScoringCatalog();
   const thresholds: CriticalValueThreshold[] = useMemo(
     () =>

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider, getApiClient } from '@medichain/shared';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { AccessReasonGate } from './AccessReasonGate';
+import { AccessReasonGate, DirectoryReasonGate } from './AccessReasonGate';
 
 function renderGate(patientId: string | undefined) {
   return render(
@@ -48,5 +48,37 @@ describe('AccessReasonGate', () => {
     first.unmount();
     renderGate('PAT-GATE-4');
     expect(screen.getByText('chart contents')).toBeInTheDocument();
+  });
+});
+
+describe('DirectoryReasonGate', () => {
+  it('does not mount directory callers before a purpose is declared', () => {
+    const setPurpose = vi.spyOn(getApiClient(), 'setDirectoryPurpose');
+    const { unmount } = render(
+      <I18nProvider><DirectoryReasonGate><p>directory callers</p></DirectoryReasonGate></I18nProvider>,
+    );
+    expect(screen.queryByText('directory callers')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Treatment' }));
+    expect(screen.getByText('directory callers')).toBeInTheDocument();
+    expect(setPurpose).toHaveBeenCalledWith('treatment');
+    unmount();
+    expect(setPurpose).toHaveBeenLastCalledWith(undefined);
+    vi.restoreAllMocks();
+  });
+
+  it('sends the declared purpose with a directory request', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: [], total: 0 }),
+    });
+    const { unmount } = render(
+      <I18nProvider><DirectoryReasonGate><p>directory callers</p></DirectoryReasonGate></I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Referral' }));
+    await getApiClient().get('/api/patients?q=Smith');
+    const options = vi.mocked(global.fetch).mock.calls[0][1] as RequestInit;
+    expect((options.headers as Record<string, string>)['X-Access-Reason']).toBe('referral');
+    unmount();
   });
 });
