@@ -86,7 +86,7 @@ test('a lab technician enters a result and it reaches the review queue', async (
   // empty rows would report values nobody measured -- rule 10, an unmeasured
   // thing is not a zero. Checked in the same session rather than its own test:
   // each sign-in costs a burst of requests, and two in a minute walks into the
-  // API's 120/minute limiter, which fails as something that looks like a
+  // API's per-minute limiter (240 by default), which fails as something that looks like a
   // product defect and is not.
   await page.getByRole('tab', { name: /enter result/i }).click();
   await selectPatient(page, '#lab-entry-patient', patientName);

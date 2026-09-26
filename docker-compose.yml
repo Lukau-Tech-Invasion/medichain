@@ -104,7 +104,7 @@ services:
       # harness to opt into a larger per-minute budget. The API rejects zero
       # and invalid values, so a malformed override cannot disable limiting.
       MEDICHAIN_RATE_LIMIT_ANONYMOUS: ${MEDICHAIN_RATE_LIMIT_ANONYMOUS:-60}
-      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: ${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-120}
+      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: ${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-240}
       # The dispensing policy is deployment-supplied on purpose: the API ships
       # no built-in drug schedule (`api/src/dispensing_policy.rs`), so a
       # deployment that does not provide one cannot dispense a policy-governed

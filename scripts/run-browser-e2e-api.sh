@@ -76,7 +76,7 @@ export MEDICHAIN_DEV_MODE=1
 # The API allows 60 requests/minute anonymous and 120 per authenticated user.
 # A browser suite drives ONE signed-in account through a whole clinical
 # workflow as fast as Playwright can click, and a 52-test serial run blows
-# through 120/minute for that user well before it finishes.
+# through the default per-minute budget for that user well before it finishes.
 #
 # The failure does not look like a rate limit. Sign-ins are starved mid-suite
 # and the run reports product failures: a run on 2026-09-15 said "8 passed,

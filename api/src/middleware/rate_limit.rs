@@ -5,7 +5,7 @@
 //!
 //! **Rate Limit Configuration:**
 //! - Anonymous requests: 60 requests/minute
-//! - Authenticated users: 120 requests/minute  
+//! - Authenticated users: 240 requests/minute
 //! - Admin users: 300 requests/minute
 //!
 //! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
@@ -42,7 +42,9 @@ pub struct RateLimitConfig {
 
 /// The shipped limits. Overridable only by environment, never by a request.
 const DEFAULT_ANONYMOUS_LIMIT: u32 = 60;
-const DEFAULT_AUTHENTICATED_LIMIT: u32 = 120;
+// 240, raised from 120 on 2026-09-26: a clinician moving through a chart, and
+// the demo seed, legitimately exceeded 120/minute for one signed-in user.
+const DEFAULT_AUTHENTICATED_LIMIT: u32 = 240;
 
 /// Read a positive limit from the environment, or keep the shipped default.
 ///
@@ -50,7 +52,7 @@ const DEFAULT_AUTHENTICATED_LIMIT: u32 = 120;
 ///
 /// The browser suites drive one signed-in account through a whole clinical
 /// workflow as fast as the browser can click, which legitimately exceeds
-/// 120 requests/minute for that user. The consequence was not a clear failure:
+/// the default requests/minute for that user. The consequence was not a clear failure:
 /// sign-ins were starved mid-suite and the run reported product failures --
 /// "8 passed, 40 did not run" -- for specs that were entirely green when run
 /// alone. A limit that cannot be raised for a test harness makes the full suite
@@ -382,7 +384,7 @@ mod tests {
     fn test_default_config() {
         let config = RateLimitConfig::default();
         assert_eq!(config.anonymous_limit, 60);
-        assert_eq!(config.authenticated_limit, 120);
+        assert_eq!(config.authenticated_limit, 240);
         assert_eq!(config.window_duration, Duration::from_secs(60));
     }
 
