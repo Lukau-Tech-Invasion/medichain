@@ -16,6 +16,7 @@ import {
 import type { PatientDirectoryEntry, PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { BloodInventoryPanel } from '../components/BloodInventoryPanel';
 import { useToastActions } from '../components/Toast';
 
 /**
@@ -160,7 +161,7 @@ const BloodBankPage: React.FC = () => {
   const [orders, setOrders] = useState<BloodOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'orders' | 'newOrder' | 'transfusion'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'newOrder' | 'transfusion' | 'inventory'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<BloodOrder | null>(null);
@@ -521,6 +522,17 @@ const BloodBankPage: React.FC = () => {
           <Plus className="inline h-4 w-4 mr-2" />
           {t('docBloodBank.tabNewOrder')}
         </button>
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'inventory'
+              ? 'text-critical-subtle-fg border-b-2 border-red-600'
+              : 'text-content-muted hover:text-content-secondary'
+          }`}
+        >
+          <Droplets className="inline h-4 w-4 mr-2" />
+          {t('docBloodInventory.tab')}
+        </button>
         {selectedOrder && (
           <button
             onClick={() => setActiveTab('transfusion')}
@@ -535,6 +547,12 @@ const BloodBankPage: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Inventory Tab (WP7.5): stock, alerts and unit actions. Changing
+          stock is for blood-bank staff; everyone here can read it. */}
+      {activeTab === 'inventory' && (
+        <BloodInventoryPanel canManage={user?.role === 'LabTechnician' || user?.role === 'Admin'} />
+      )}
 
       {/* Orders Tab */}
       {activeTab === 'orders' && (

@@ -3723,6 +3723,83 @@ export async function giveResearchConsent(patientId: string): Promise<{ success:
 }
 
 // ============================================================================
+// Blood-unit stock inventory (WP7.5)
+// ============================================================================
+
+export type BloodProductCode = 'PackedRBC' | 'FFP' | 'Platelets' | 'Cryoprecipitate' | 'WholeBlood';
+export type BloodUnitStatus = 'available' | 'reserved' | 'issued' | 'expired' | 'discarded';
+
+/** One physical blood unit; `status` already reads `expired` past its date. */
+export interface BloodUnit {
+  id: string;
+  unit_number: string;
+  product_type: BloodProductCode;
+  abo: 'A' | 'B' | 'AB' | 'O';
+  rh: 'positive' | 'negative';
+  collected_on: string;
+  expires_on: string;
+  status: BloodUnitStatus;
+  location: string;
+  reserved_for_patient_id: string | null;
+  crossmatch_reference: string | null;
+  issued_to_patient_id: string | null;
+  transfusion_id: string | null;
+  discard_reason: string | null;
+}
+
+/** Stock counts and alerts computed by the server. */
+export interface BloodStockSummary {
+  stock: Array<{ product_type: BloodProductCode; abo: string; rh: string; available: number }>;
+  expiring_unit_ids: string[];
+  low_stock_groups: string[];
+  expiry_warning_days: number;
+  low_stock_units: number;
+  /** True until the thresholds carry a clinical sign-off. */
+  thresholds_are_defaults: boolean;
+}
+
+export async function getBloodUnits(): Promise<{ success: boolean; units: BloodUnit[]; summary: BloodStockSummary }> {
+  return getApiClient().get('/api/blood-bank/units');
+}
+
+export async function receiveBloodUnit(unit: {
+  unit_number: string;
+  product_type: BloodProductCode;
+  abo: BloodUnit['abo'];
+  rh: BloodUnit['rh'];
+  collected_on: string;
+  expires_on: string;
+  location: string;
+}): Promise<{ success: boolean; unit: BloodUnit }> {
+  return getApiClient().post('/api/blood-bank/units', unit);
+}
+
+export async function reserveBloodUnit(
+  unitId: string,
+  patientId: string,
+  crossmatchReference: string
+): Promise<{ success: boolean; unit: BloodUnit }> {
+  return getApiClient().post(`/api/blood-bank/units/${encodeURIComponent(unitId)}/reserve`, {
+    patient_id: patientId,
+    crossmatch_reference: crossmatchReference.trim(),
+  });
+}
+
+export async function releaseBloodUnit(unitId: string): Promise<{ success: boolean; unit: BloodUnit }> {
+  return getApiClient().post(`/api/blood-bank/units/${encodeURIComponent(unitId)}/release`, {});
+}
+
+export async function issueBloodUnit(unitId: string, transfusionId: string): Promise<{ success: boolean; unit: BloodUnit }> {
+  return getApiClient().post(`/api/blood-bank/units/${encodeURIComponent(unitId)}/issue`, {
+    transfusion_id: transfusionId.trim(),
+  });
+}
+
+export async function discardBloodUnit(unitId: string, reason: string): Promise<{ success: boolean; unit: BloodUnit }> {
+  return getApiClient().post(`/api/blood-bank/units/${encodeURIComponent(unitId)}/discard`, { reason: reason.trim() });
+}
+
+// ============================================================================
 // Research exports (WP7.4) — administrators
 // ============================================================================
 

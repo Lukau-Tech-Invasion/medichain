@@ -37,6 +37,7 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod blood_units;
 pub mod eob_documents;
 pub mod message_attachments;
 pub mod patient_search;
@@ -110,6 +111,8 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Blood-unit stock (WP7.5).
+    pub blood_units: Arc<dyn blood_units::BloodUnitRepository>,
     /// Explanation-of-benefits documents on insurance claims (WP7.3).
     pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
     /// Attachments on secure messages (WP7.2).
@@ -470,6 +473,38 @@ async fn create_eob_postgres(
     Ok(stored)
 }
 
+/// Store a received blood unit and its audit row as one transaction.
+async fn receive_unit_postgres(
+    pool: &sqlx::PgPool,
+    unit: &blood_units::BloodUnitEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<blood_units::BloodUnitEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = blood_units::pg::insert_unit(&mut tx, unit).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Apply a guarded blood-unit transition and its audit row as one
+/// transaction. `None`, with nothing written, when the guard refused it.
+async fn transition_unit_postgres(
+    pool: &sqlx::PgPool,
+    id: &str,
+    transition: &blood_units::UnitTransition,
+    at: chrono::DateTime<chrono::Utc>,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<Option<blood_units::BloodUnitEntity>> {
+    let mut tx = pool.begin().await?;
+    let Some(changed) = blood_units::pg::apply_transition(&mut tx, id, transition, at).await?
+    else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(Some(changed))
+}
+
 /// Close a refill request and write its audit row as one transaction.
 /// `None` (and nothing written) when the request was no longer open.
 async fn close_refill_postgres(
@@ -545,6 +580,7 @@ impl RepositoryContainer {
                 message_attachments::MemoryMessageAttachmentRepository::new(),
             ),
             eob_documents: Arc::new(eob_documents::MemoryEobDocumentRepository::new()),
+            blood_units: Arc::new(blood_units::MemoryBloodUnitRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
@@ -749,6 +785,40 @@ impl RepositoryContainer {
         let stored = self.refill_requests.create(request).await?;
         self.access_logs.create(audit).await?;
         Ok(stored)
+    }
+
+    /// Receive a blood unit into stock, with its audit row.
+    /// `Duplicate` when the unit number is already on record.
+    pub async fn receive_blood_unit(
+        &self,
+        unit: blood_units::BloodUnitEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<blood_units::BloodUnitEntity> {
+        if let Some(pool) = &self.pool {
+            return receive_unit_postgres(pool, &unit, &audit).await;
+        }
+        let stored = self.blood_units.create(unit).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Apply a blood-unit transition with its audit row. `None` when the
+    /// unit was not in a state that allows it.
+    pub async fn transition_blood_unit(
+        &self,
+        id: &str,
+        transition: blood_units::UnitTransition,
+        at: chrono::DateTime<chrono::Utc>,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<Option<blood_units::BloodUnitEntity>> {
+        if let Some(pool) = &self.pool {
+            return transition_unit_postgres(pool, id, &transition, at, &audit).await;
+        }
+        let changed = self.blood_units.apply(id, &transition, at).await?;
+        if changed.is_some() {
+            self.access_logs.create(audit).await?;
+        }
+        Ok(changed)
     }
 
     /// Record an EOB document together with its audit row.
@@ -1153,6 +1223,7 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             eob_documents: Arc::new(eob_documents::PgEobDocumentRepository::new(pool.clone())),
+            blood_units: Arc::new(blood_units::PgBloodUnitRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),
             )),
