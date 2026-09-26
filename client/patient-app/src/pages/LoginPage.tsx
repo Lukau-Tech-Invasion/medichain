@@ -6,7 +6,7 @@ import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * Demo patient accounts with actual wallet addresses from the database
- * These are pre-registered accounts for testing and hackathon demos
+ * These were pre-registered accounts for testing and demos
  */
 /*
  * The five hardcoded "Quick Login - Demo Patients" identities were removed

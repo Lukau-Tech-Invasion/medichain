@@ -6,7 +6,7 @@ import { useAuthStore, usePatientStore } from '../store';
 import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
 
 /**
- * EmergencyAccessPage - Core feature for hackathon demo
+ * EmergencyAccessPage - Core emergency-access workflow
  * 
  * Allows healthcare providers to quickly access patient emergency info
  * via NFC tap, QR code scan, or manual ID entry.

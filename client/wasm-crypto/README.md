@@ -101,4 +101,5 @@ wasm-pack test --headless --chrome
 
 ## 📄 License
 
-MIT © 2025 Lukau Invasion (Pty) Ltd
+Proprietary. © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
+See the repository [LICENSE](../../LICENSE).
