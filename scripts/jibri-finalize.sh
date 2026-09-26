@@ -16,8 +16,8 @@
 #   MEDICHAIN_RECORDING_INGEST_TOKEN  the same secret the API is given
 #   JITSI_ROOM_PREFIX                 default MediChain
 #
-# Not yet wired into any container: adding the Jibri service is pending
-# approval (see docker-compose.jitsi.yml).
+# Wired into the `jitsi-jibri` service of docker-compose.jitsi.yml (profile
+# `recording`) as JIBRI_FINALIZE_RECORDING_SCRIPT_PATH.
 set -eu
 
 dir="${1:?usage: jibri-finalize.sh <recording directory>}"

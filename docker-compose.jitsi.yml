@@ -6,6 +6,9 @@
 # mints HS256 tokens (api/src/telehealth.rs) that this Prosody instance validates.
 #
 # Run:  docker compose -f docker-compose.yml -f docker-compose.jitsi.yml up -d
+# With consultation recording (WP7.6), add the recorder:
+#       JITSI_ENABLE_RECORDING=1 docker compose -f docker-compose.yml \
+#         -f docker-compose.jitsi.yml --profile recording up -d
 # Then: set JITSI_DOMAIN=<your domain> for the API so it signs `sub` correctly.
 #
 # Full variable reference: https://github.com/jitsi/docker-jitsi-meet (env.example).
@@ -36,6 +39,10 @@ services:
       - TZ=UTC
       # E2EE off so recording/transcription is possible (per the recording decision).
       - ENABLE_E2EE=0
+      # Off unless the recorder is deployed: a Record control with no
+      # recorder behind it would be a dead button. MediChain's own consent bar
+      # (both parties) gates every start; see JitsiMeetComponent.
+      - ENABLE_RECORDING=${JITSI_ENABLE_RECORDING:-0}
     depends_on:
       - jitsi-prosody
     networks:
@@ -73,6 +80,14 @@ services:
       - JICOFO_COMPONENT_SECRET=${JICOFO_COMPONENT_SECRET:?set JICOFO_COMPONENT_SECRET in .env}
       - JVB_AUTH_USER=jvb
       - JVB_AUTH_PASSWORD=${JVB_AUTH_PASSWORD:?set JVB_AUTH_PASSWORD in .env}
+      # Recorder accounts (WP7.6). Prosody creates them; Jibri signs in with
+      # the same values. Only used when JITSI_ENABLE_RECORDING=1.
+      - ENABLE_RECORDING=${JITSI_ENABLE_RECORDING:-0}
+      - XMPP_RECORDER_DOMAIN=recorder.${JITSI_DOMAIN:-meet.medichain.local}
+      - JIBRI_XMPP_USER=jibri
+      - JIBRI_XMPP_PASSWORD=${JIBRI_XMPP_PASSWORD:-}
+      - JIBRI_RECORDER_USER=recorder
+      - JIBRI_RECORDER_PASSWORD=${JIBRI_RECORDER_PASSWORD:-}
       - TZ=UTC
     networks:
       - medichain_network
@@ -94,6 +109,10 @@ services:
       - JICOFO_AUTH_USER=focus
       - JICOFO_AUTH_PASSWORD=${JICOFO_AUTH_PASSWORD:?set JICOFO_AUTH_PASSWORD in .env}
       - JICOFO_COMPONENT_SECRET=${JICOFO_COMPONENT_SECRET:?set JICOFO_COMPONENT_SECRET in .env}
+      # Route recording requests to the Jibri pool (WP7.6).
+      - ENABLE_RECORDING=${JITSI_ENABLE_RECORDING:-0}
+      - JIBRI_BREWERY_MUC=jibribrewery
+      - JIBRI_PENDING_TIMEOUT=90
       - TZ=UTC
     depends_on:
       - jitsi-prosody
@@ -120,6 +139,64 @@ services:
       - jitsi-prosody
     networks:
       - medichain_network
+
+  # Consultation recorder (WP7.6). Opt-in: runs only with `--profile recording`.
+  # It records a room only when a moderator starts recording, which MediChain
+  # allows only after the clinician AND the patient consented in the app. When
+  # a recording finishes, scripts/jibri-finalize.sh uploads it to the API (which
+  # encrypts it and indexes it with both consent times) and deletes the local
+  # file; a recording the API refuses (consent withdrawn) is deleted too.
+  #
+  # Host requirements (see the docker-jitsi-meet Jibri docs for the pinned
+  # release): 2 GB shared memory per recorder, and on older images the ALSA
+  # loopback module on the host (`modprobe snd-aloop`). One Jibri container
+  # records one consultation at a time; add replicas for concurrency.
+  jitsi-jibri:
+    container_name: medichain_jitsi_jibri
+    image: jitsi/jibri:stable
+    profiles: ["recording"]
+    restart: unless-stopped
+    shm_size: "2gb"
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - ${JITSI_CONFIG:-./.jitsi-config}/jibri:/config:Z
+      # Local recordings live here only until the finalize hook uploads them.
+      - jibri_recordings:/config/recordings
+      - ./scripts/jibri-finalize.sh:/usr/local/bin/medichain-finalize.sh:ro
+    environment:
+      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_SERVER=jitsi-prosody
+      - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_RECORDER_DOMAIN=recorder.${JITSI_DOMAIN:-meet.medichain.local}
+      - JIBRI_BREWERY_MUC=jibribrewery
+      - JIBRI_XMPP_USER=jibri
+      - JIBRI_XMPP_PASSWORD=${JIBRI_XMPP_PASSWORD:-}
+      - JIBRI_RECORDER_USER=recorder
+      - JIBRI_RECORDER_PASSWORD=${JIBRI_RECORDER_PASSWORD:-}
+      - JIBRI_RECORDING_DIR=/config/recordings
+      - JIBRI_FINALIZE_RECORDING_SCRIPT_PATH=/usr/local/bin/medichain-finalize.sh
+      - JIBRI_STRIP_DOMAIN_JID=muc
+      - DISPLAY=:0
+      # Read by the finalize hook. The API refuses plain HTTP for patient
+      # data, so this must be the HTTPS address the reverse proxy serves.
+      # Optional here only so the default stack (no `recording` profile) still
+      # starts: Compose checks required variables even for inactive profiles.
+      # Unset, Jibri cannot sign in and the hook refuses to run.
+      - MEDICHAIN_API_URL=${MEDICHAIN_API_URL:-}
+      - MEDICHAIN_RECORDING_INGEST_TOKEN=${MEDICHAIN_RECORDING_INGEST_TOKEN:-}
+      - JITSI_ROOM_PREFIX=${JITSI_ROOM_PREFIX:-MediChain}
+      - TZ=UTC
+    depends_on:
+      - jitsi-jicofo
+    networks:
+      - medichain_network
+
+volumes:
+  jibri_recordings:
 
 networks:
   # The same network docker-compose.yml creates, so the API and the Jitsi
