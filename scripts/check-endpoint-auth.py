@@ -161,7 +161,8 @@ ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
                 'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',
                 'require_demo_mode', 'is_demo_mode',
                 # Resolves the caller, requires a clinical role, audits the read.
-                'require_registry_reader', 'require_clinical_staff']
+                'require_registry_reader', 'require_clinical_staff',
+                'require_ems_staff']
 # Ties the decision to the specific patient/resource being touched.
 RESOURCE_MARKERS = ['resolve_patient_access', 'caller_may_access_patient',
                     'require_emergency_list_access', 'require_card_access',

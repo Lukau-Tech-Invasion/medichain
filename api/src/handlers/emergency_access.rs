@@ -469,35 +469,44 @@ mod hz_001_exchange_tests {
 
     #[actix_web::test]
     async fn matching_hash_yields_a_verifiable_token() {
-        let state = AppState::new();
-        seed_tag(&state, "PAT-EX-1", "correct-hash").await;
-        let device_id = seed_responder_and_device(&state);
-        let app_state = web::Data::new(state);
-        let app = actix_web::App::new()
-            .app_data(app_state.clone())
-            .service(exchange_nfc_hash_for_token);
-        let app = test::init_service(app).await;
+        for role in [Role::Doctor, Role::Paramedic] {
+            let state = AppState::new();
+            seed_tag(&state, "PAT-EX-1", "correct-hash").await;
+            let device_id = seed_responder_and_device(&state);
+            state
+                .users
+                .write()
+                .unwrap()
+                .get_mut("responder-wallet")
+                .unwrap()
+                .role = role;
+            let app_state = web::Data::new(state);
+            let app = actix_web::App::new()
+                .app_data(app_state.clone())
+                .service(exchange_nfc_hash_for_token);
+            let app = test::init_service(app).await;
 
-        let req = test::TestRequest::post()
-            .uri("/api/emergency/nfc-token")
-            .insert_header(("X-User-Id", "responder-wallet"))
-            .set_json(serde_json::json!({
-                "patient_id": "PAT-EX-1",
-                "nfc_hash": "correct-hash",
-                "device_id": device_id,
-                "reason_code": "trauma"
-            }))
-            .to_request();
-        let resp: NfcTokenExchangeResponse = test::call_and_read_body_json(&app, req).await;
+            let req = test::TestRequest::post()
+                .uri("/api/emergency/nfc-token")
+                .insert_header(("X-User-Id", "responder-wallet"))
+                .set_json(serde_json::json!({
+                    "patient_id": "PAT-EX-1",
+                    "nfc_hash": "correct-hash",
+                    "device_id": device_id,
+                    "reason_code": "trauma"
+                }))
+                .to_request();
+            let resp: NfcTokenExchangeResponse = test::call_and_read_body_json(&app, req).await;
 
-        assert!(
-            crate::clinical_endpoints::emergency_access::verify_emergency_token(
-                &resp.token,
-                "PAT-EX-1"
-            )
-            .is_ok(),
-            "the issued token must verify for the patient it was issued for"
-        );
+            assert!(
+                crate::clinical_endpoints::emergency_access::verify_emergency_token(
+                    &resp.token,
+                    "PAT-EX-1"
+                )
+                .is_ok(),
+                "the issued token must verify for the patient it was issued for"
+            );
+        }
     }
 
     #[actix_web::test]

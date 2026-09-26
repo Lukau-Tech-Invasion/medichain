@@ -1249,7 +1249,7 @@ pub async fn create_mci(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.may_manage_ems() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
@@ -1376,7 +1376,7 @@ pub async fn get_mci(
         }
     };
 
-    if !current_user.role.can_view_medical_records() {
+    if !current_user.role.may_manage_ems() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
@@ -1424,5 +1424,73 @@ pub async fn get_mci(
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod paramedic_mci_tests {
+    use crate::test_fixtures::register;
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    #[actix_web::test]
+    async fn paramedic_may_create_and_read_mci_but_patient_may_not() {
+        let state = AppState::new();
+        register(&state, "5MedicMci", Role::Paramedic);
+        register(&state, "5PatientMci", Role::Patient);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_mci)
+                .service(super::get_mci),
+        )
+        .await;
+        let body = serde_json::json!({"incident": {
+            "incident_name": "Highway collision", "incident_type": "motor_vehicle_collision",
+            "location": "N1"
+        }});
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/mci")
+                .insert_header(("X-User-Id", "5PatientMci"))
+                .set_json(&body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let created = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/mci")
+                .insert_header(("X-User-Id", "5MedicMci"))
+                .set_json(body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let result: serde_json::Value = test::read_body_json(created).await;
+        let path = format!(
+            "/api/clinical/mci/{}",
+            result["incident_id"].as_str().unwrap()
+        );
+        let allowed = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&path)
+                .insert_header(("X-User-Id", "5MedicMci"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(allowed.status(), StatusCode::OK);
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&path)
+                .insert_header(("X-User-Id", "5PatientMci"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     }
 }

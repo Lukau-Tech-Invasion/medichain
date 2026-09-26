@@ -14,6 +14,7 @@ export type Role =
   | 'Nurse' 
   | 'LabTechnician' 
   | 'Pharmacist' 
+  | 'Paramedic'
   | 'Patient';
 
 /**

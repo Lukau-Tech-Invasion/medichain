@@ -25,7 +25,7 @@ import { connectRealWallet, signMessage } from '@medichain/shared';
 /**
  * User roles matching the blockchain pallet
  */
-export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Patient';
+export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Paramedic' | 'Patient';
 
 /**
  * The signed-in clinician's identity.

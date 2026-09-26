@@ -185,6 +185,8 @@ function SmartDashboardRouter() {
       return <Suspense fallback={<PageLoader />}><LabTechDashboardPage /></Suspense>;
     case 'pharmacist':
       return <Suspense fallback={<PageLoader />}><PharmacistDashboardPage /></Suspense>;
+    case 'paramedic':
+      return <Navigate to="/ems-handoff" replace />;
     case 'doctor':
     default:
       return <DashboardPage />;

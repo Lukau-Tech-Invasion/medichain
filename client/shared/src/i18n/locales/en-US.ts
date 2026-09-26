@@ -1624,6 +1624,7 @@ const en_US: TranslationRecord = {
     Nurse: 'Nurse',
     LabTechnician: 'Lab Technician',
     Pharmacist: 'Pharmacist',
+    Paramedic: 'Paramedic',
     Patient: 'Patient',
   },
 
@@ -2951,6 +2952,7 @@ const en_US: TranslationRecord = {
     title: 'Ambulance handover',
     subtitle: 'Record the crew\'s handover as it is given: who and when, what happened, what they found, what they did.',
     patientLabel: 'Patient',
+    patientIdLabel: 'Patient ID from card or dispatch (optional)',
     patientHint: 'Leave empty if the patient is not yet identified; the handover can be recorded now.',
     agencyLabel: 'Ambulance service',
     unitLabel: 'Unit / call sign',
@@ -7965,6 +7967,7 @@ const en_US: TranslationRecord = {
     role_admin: 'Administrator',
     role_doctor: 'Doctor',
     role_nurse: 'Nurse',
+    role_paramedic: 'Paramedic',
     'role_lab-technician': 'Lab Technician',
     role_pharmacist: 'Pharmacist',
     role_radiologist: 'Radiologist',

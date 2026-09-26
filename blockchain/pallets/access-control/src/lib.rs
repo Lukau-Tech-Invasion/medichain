@@ -89,6 +89,8 @@ pub mod pallet {
         /// Patient (read-only, cannot self-register)
         #[default]
         Patient,
+        /// Emergency medical services; appended to preserve existing SCALE role indices.
+        Paramedic,
     }
 
     /// Type of access granted

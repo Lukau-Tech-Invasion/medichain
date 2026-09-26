@@ -516,7 +516,7 @@ pub async fn create_ems_handoff(
     http_req: HttpRequest,
     req: web::Json<CreateEmsHandoffRequest>,
 ) -> impl Responder {
-    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+    let caller = match crate::support::require_ems_staff(&data, &http_req) {
         Ok(u) => u,
         Err(resp) => return resp,
     };
@@ -592,7 +592,7 @@ pub async fn list_recent_ems_handoffs(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_ems_staff(&data, &http_req) {
         return resp;
     }
     let hours = query
@@ -631,7 +631,7 @@ pub async fn get_ems_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_ems_staff(&data, &http_req) {
         return resp;
     }
     let id = path.into_inner();
@@ -800,7 +800,8 @@ mod ems_handoff_tests {
                 App::new()
                     .app_data(web::Data::new($state))
                     .service(super::create_ems_handoff)
-                    .service(super::list_recent_ems_handoffs),
+                    .service(super::list_recent_ems_handoffs)
+                    .service(super::get_ems_handoff),
             )
             .await
         };
@@ -889,5 +890,50 @@ mod ems_handoff_tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn paramedic_may_create_and_read_handover_but_patient_may_not() {
+        let state = AppState::new();
+        register(&state, "5Medic", Role::Paramedic);
+        register(&state, "5Patient", Role::Patient);
+        let app = app!(state);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/emergency/ems-handoff")
+                .insert_header(("X-User-Id", "5Medic"))
+                .set_json(serde_json::json!({
+                    "ems_agency": "Metro EMS", "chief_complaint": "Fall"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let created: serde_json::Value = test::read_body_json(response).await;
+        let id = created["id"].as_str().unwrap();
+        for path in [
+            "/api/emergency/ems-handoffs".to_string(),
+            format!("/api/emergency/ems-handoff/{id}"),
+        ] {
+            let allowed = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&path)
+                    .insert_header(("X-User-Id", "5Medic"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(allowed.status(), StatusCode::OK, "{path}");
+            let denied = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&path)
+                    .insert_header(("X-User-Id", "5Patient"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN, "{path}");
+        }
     }
 }

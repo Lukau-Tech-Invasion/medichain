@@ -225,8 +225,9 @@ pub fn parse_role(s: &str) -> Result<Role, String> {
         "nurse" => Ok(Role::Nurse),
         "labtechnician" | "lab_technician" | "lab-technician" | "lab" => Ok(Role::LabTechnician),
         "pharmacist" => Ok(Role::Pharmacist),
+        "paramedic" => Ok(Role::Paramedic),
         "patient" => Ok(Role::Patient),
-        _ => Err(format!("Invalid role: {}. Valid roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient", s)),
+        _ => Err(format!("Invalid role: {}. Valid roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Paramedic, Patient", s)),
     }
 }
 
@@ -539,6 +540,21 @@ pub fn require_clinical_staff(
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
             error: "This endpoint is restricted to clinical staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    Ok(user)
+}
+
+/// Resolve a caller for EMS handovers and MCI without granting chart access.
+pub fn require_ems_staff(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user = require_registered_caller(data, req)?;
+    if !user.role.may_manage_ems() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            error: "This endpoint is restricted to emergency staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
     }

@@ -327,6 +327,12 @@ pub async fn get_patient_by_id(
             code: "FORBIDDEN".to_string(),
         });
     }
+    if current_user.role != Role::Patient && !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "This role cannot open a patient chart".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
 
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {

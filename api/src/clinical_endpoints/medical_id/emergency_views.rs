@@ -130,6 +130,15 @@ pub async fn get_emergency_medical_id(
             });
         }
     };
+    let responder = match get_user(&data, &emergency_claims.sub) {
+        Some(user) if user.role.may_break_glass() => user,
+        _ => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                error: "Responder is no longer authorized for emergency access".to_string(),
+                code: "RESPONDER_ROLE_REQUIRED".to_string(),
+            });
+        }
+    };
 
     // Get patient from repository
     let patient = match data.repositories.patients.get_by_id(&patient_id).await {
@@ -159,7 +168,7 @@ pub async fn get_emergency_medical_id(
     let log_entry = crate::repositories::AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: emergency_claims.sub.clone(),
-        accessor_role: "FirstResponder".to_string(),
+        accessor_role: responder.role.to_string(),
         patient_id: Some(patient_id.clone()),
         resource_type: "emergency_medical_id".to_string(),
         resource_id: Some(patient_id.clone()),
@@ -760,6 +769,25 @@ mod hz_001_regression_tests {
     #[actix_web::test]
     async fn exchanged_token_grants_access_and_expires() {
         let state = crate::AppState::new();
+        state.users.write().unwrap().insert(
+            "responder-wallet".to_string(),
+            crate::User {
+                wallet_address: "responder-wallet".to_string(),
+                username: None,
+                name: "EMS responder".to_string(),
+                role: crate::Role::Paramedic,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
         let patient_id = "PAT-HZ001-2";
         state
             .repositories
@@ -802,6 +830,43 @@ mod hz_001_regression_tests {
             .to_request();
         let ok_resp = test::call_service(&app, ok_req).await;
         assert!(ok_resp.status().is_success());
+        let history = app_state
+            .repositories
+            .access_logs
+            .get_by_patient(
+                patient_id,
+                crate::repositories::traits::Pagination::first_page(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(history.items.len(), 1);
+        assert_eq!(history.items[0].accessor_role, "Paramedic");
+
+        // Removing emergency authority invalidates a previously issued grant.
+        let revoked_token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-wallet",
+            &device_id,
+            "trauma",
+            120,
+        )
+        .unwrap();
+        app_state
+            .users
+            .write()
+            .unwrap()
+            .get_mut("responder-wallet")
+            .unwrap()
+            .role = crate::Role::Patient;
+        let revoked_request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {revoked_token}")))
+            .to_request();
+        let revoked_response = test::call_service(&app, revoked_request).await;
+        assert_eq!(
+            revoked_response.status(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
 
         let expired_req = test::TestRequest::get()
             .uri(&format!("/api/medical-id/{patient_id}/emergency"))

@@ -21,7 +21,7 @@ import {
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
-type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
+type UserRole = 'admin' | 'doctor' | 'nurse' | 'paramedic' | 'lab-technician' | 'pharmacist' | 'patient';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 interface SystemUser {
@@ -57,6 +57,7 @@ function normalizeUserRole(role?: string): UserRole {
     case 'admin':
     case 'doctor':
     case 'nurse':
+    case 'paramedic':
     case 'pharmacist':
     case 'patient':
       return role.toLowerCase() as UserRole;
@@ -283,6 +284,7 @@ const UserManagementPage: React.FC = () => {
       admin: 'bg-surface-sunken text-content-secondary',
       doctor: 'bg-notice-subtle text-notice-subtle-fg',
       nurse: 'bg-ok-subtle text-ok-subtle-fg',
+      paramedic: 'bg-caution-subtle text-caution-subtle-fg',
       'lab-technician': 'bg-caution-subtle text-caution-subtle-fg',
       pharmacist: 'bg-surface-sunken text-content-secondary',
       patient: 'bg-surface-sunken text-content-secondary',
@@ -332,6 +334,7 @@ const UserManagementPage: React.FC = () => {
       admin: ['view_patients', 'edit_patients', 'manage_users', 'manage_roles', 'view_audit_logs', 'manage_settings', 'system_admin'],
       doctor: ['view_patients', 'edit_patients', 'prescribe_medications', 'order_labs', 'order_imaging', 'view_lab_results', 'document_notes', 'emergency_access'],
       nurse: ['view_patients', 'edit_patients', 'view_lab_results', 'document_notes'],
+      paramedic: ['emergency_access'],
       'lab-technician': ['view_patients', 'view_lab_results', 'document_notes'],
       pharmacist: ['view_patients', 'prescribe_medications', 'view_lab_results'],
       patient: ['view_patients'],
@@ -441,6 +444,7 @@ const UserManagementPage: React.FC = () => {
                   <option value="admin">{t('docUserManagement.role_admin')}</option>
                   <option value="doctor">{t('docUserManagement.role_doctor')}</option>
                   <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                  <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
                   <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                   <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
                 </select>
@@ -713,6 +717,7 @@ const UserManagementPage: React.FC = () => {
                 >
                   <option value="doctor">{t('docUserManagement.role_doctor')}</option>
                   <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                  <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
                   <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                   <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
                 </select>
@@ -833,7 +838,7 @@ const UserManagementPage: React.FC = () => {
             </p>
 
             <div className="space-y-6">
-              {(['admin', 'doctor', 'nurse', 'lab-technician', 'pharmacist', 'patient'] as UserRole[]).map((role) => (
+              {(['admin', 'doctor', 'nurse', 'paramedic', 'lab-technician', 'pharmacist', 'patient'] as UserRole[]).map((role) => (
                 <div key={role} className="border border-border-strong rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -940,6 +945,7 @@ const UserManagementPage: React.FC = () => {
                     <option value="admin">{t('docUserManagement.role_admin')}</option>
                     <option value="doctor">{t('docUserManagement.role_doctor')}</option>
                     <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                    <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
                     <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                     <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
                   </select>

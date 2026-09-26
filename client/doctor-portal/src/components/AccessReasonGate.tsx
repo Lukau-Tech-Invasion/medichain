@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { getApiClient, useTranslation } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /** Reason codes the server maps to fixed wording for the patient. */
 const REASON_CODES = ['treatment', 'referral', 'emergency', 'administrative'] as const;
@@ -70,9 +71,12 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
 /** Ask once per portal session before any patient directory search is issued. */
 export function DirectoryReasonGate({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
+  const role = useAuthStore((state) => state.user?.role);
   const [reason, setReason] = useState<string>();
 
   useEffect(() => () => getApiClient().setDirectoryPurpose(undefined), []);
+
+  if (role === 'Paramedic') return <>{children}</>;
 
   if (!reason) {
     return <ReasonPrompt

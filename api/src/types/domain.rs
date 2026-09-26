@@ -12,6 +12,7 @@ pub enum Role {
     Nurse,
     LabTechnician,
     Pharmacist,
+    Paramedic,
     Patient,
 }
 
@@ -45,8 +46,7 @@ impl Role {
     /// that has failed, and every use is audited before disclosure. Excluding
     /// it would leave a deployment with no recourse at the worst moment.
     ///
-    /// Paramedics map to `Nurse` in this system, so pre-hospital break-glass is
-    /// covered by the `Nurse` arm.
+    /// Paramedics hold their own restricted role; emergency access is audited.
     ///
     /// Decided 2026-09-10 by the product owner, closing the open question
     /// `docs/NEXT_WEEK_TODO.md` printed on every CI run. It gates
@@ -56,7 +56,18 @@ impl Role {
     /// device-bound grant is gated on a professional work context and an
     /// enrolled managed device instead.)
     pub fn may_break_glass(&self) -> bool {
-        matches!(self, Role::Doctor | Role::Nurse | Role::Admin)
+        matches!(
+            self,
+            Role::Doctor | Role::Nurse | Role::Paramedic | Role::Admin
+        )
+    }
+
+    /// Emergency services may write handovers and manage an MCI board.
+    pub fn may_manage_ems(&self) -> bool {
+        matches!(
+            self,
+            Role::Doctor | Role::Nurse | Role::Paramedic | Role::Admin
+        )
     }
 
     /// Which roles may issue a patient a national health ID card.
@@ -75,7 +86,7 @@ impl Role {
     ///
     /// Doctor and Nurse are included because card issuance happens at
     /// registration, at the point of care, by the clinician in front of the
-    /// patient; paramedics map to `Nurse`. `Admin` is included because it
+    /// patient. `Admin` is included because it
     /// already suspends cards. Neither a pharmacist dispensing against a
     /// prescription nor a lab technician analysing a sample is in a position to
     /// establish who a patient is.
@@ -163,6 +174,7 @@ impl std::fmt::Display for Role {
             Role::Nurse => write!(f, "Nurse"),
             Role::LabTechnician => write!(f, "LabTechnician"),
             Role::Pharmacist => write!(f, "Pharmacist"),
+            Role::Paramedic => write!(f, "Paramedic"),
             Role::Patient => write!(f, "Patient"),
         }
     }
@@ -812,6 +824,16 @@ pub struct AccessLogView {
 #[cfg(test)]
 mod role_authority_tests {
     use super::*;
+
+    /// The EMS role can handle emergencies without inheriting chart authority.
+    #[test]
+    fn paramedic_role_is_restricted_to_emergency_authority() {
+        assert!(Role::Paramedic.may_manage_ems());
+        assert!(Role::Paramedic.may_break_glass());
+        assert!(!Role::Paramedic.is_healthcare_provider());
+        assert!(!Role::Paramedic.can_view_medical_records());
+        assert!(!Role::Paramedic.can_edit_medical_records());
+    }
 
     /// The separation of duties, asserted rather than commented.
     ///

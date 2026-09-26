@@ -9,6 +9,7 @@ import {
 import type { CreateEmsHandoffBody, EmsHandoff, EmsVitals } from '@medichain/shared';
 import { Loader2, Plus, RefreshCw, Trash2, Truck } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * Ambulance handover: the receiving clinician records what the crew reports.
@@ -64,6 +65,7 @@ function vitalsBody(draft: VitalsDraft): EmsVitals {
 
 function EmsHandoffPage() {
   const { t } = useTranslation();
+  const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
 
   const [handoffs, setHandoffs] = useState<EmsHandoff[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -193,7 +195,11 @@ function EmsHandoffPage() {
       <form onSubmit={submit} className="bg-surface rounded-xl shadow p-6 space-y-6">
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <PatientSelect id="ems-patient" label={t('docEms.patientLabel')} value={patientId} onChange={setPatientId} />
+            {isParamedic ? <>
+              <label htmlFor="ems-patient" className={label}>{t('docEms.patientIdLabel')}</label>
+              <input id="ems-patient" value={patientId} onChange={(event) => setPatientId(event.target.value)}
+                className={field} autoComplete="off" />
+            </> : <PatientSelect id="ems-patient" label={t('docEms.patientLabel')} value={patientId} onChange={setPatientId} />}
             <p className="text-xs text-content-muted mt-1">{t('docEms.patientHint')}</p>
           </div>
           <div>

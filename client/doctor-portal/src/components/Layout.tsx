@@ -46,8 +46,11 @@ const ROLE_PLURAL: Record<Role, string> = {
   Nurse: 'nurses',
   LabTechnician: 'laboratory technicians',
   Pharmacist: 'pharmacists',
+  Paramedic: 'paramedics',
   Patient: 'patients',
 };
+
+const PARAMEDIC_ALLOWED_ROUTES = new Set(['/dashboard', '/emergency', '/ems-handoff', '/mci', '/settings']);
 
 /** "nurses", or "doctors and nurses" — never "doctors, nurses". */
 function formatRoleList(names: string[]): string {
@@ -410,6 +413,8 @@ function Layout() {
     () => rolesOwningRoute(userRole, location.pathname),
     [userRole, location.pathname]
   );
+  const paramedicRestricted = userRole === 'Paramedic'
+    && !PARAMEDIC_ALLOWED_ROUTES.has(location.pathname);
   const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
   
   const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
@@ -793,7 +798,14 @@ function Layout() {
             </button>
           </div>
         )}
-        {routeOwners.length > 0 ? (
+        {paramedicRestricted ? (
+          <RestrictedSection
+            title="This screen"
+            audience="clinical chart staff"
+            currentRole={t('docRoles.Paramedic')}
+            guidance="Use the emergency, handover, or mass casualty workspace."
+          />
+        ) : routeOwners.length > 0 ? (
           <RestrictedSection
             title="This screen"
             audience={formatRoleList(routeOwners.map((r) => ROLE_PLURAL[r]))}

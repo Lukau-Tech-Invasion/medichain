@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@medichain/shared';
 import { NFCTapSimulator, EmergencyPatientCard } from '../components';
-import { usePatientStore } from '../store';
+import { useAuthStore, usePatientStore } from '../store';
 import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
 
 /**
@@ -15,6 +15,7 @@ function EmergencyAccessPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { currentEmergency, emergencyExpiresAt, clearEmergencyAccess } = usePatientStore();
+  const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -103,14 +104,14 @@ function EmergencyAccessPage() {
                 >
                   {t('docEmergencyAccess.endAccess')}
                 </button>
-                <button
+                {!isParamedic && <button
                   type="button"
                   onClick={() => navigate(`/patients/${currentEmergency.patientId}`)}
                   className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   <FileText size={18} />
                   {t('docEmergencyAccess.viewRecords')}
-                </button>
+                </button>}
               </div>
             </div>
           ) : (

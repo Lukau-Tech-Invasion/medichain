@@ -99,7 +99,8 @@ pub async fn get_emergency_capsule_versions(
     // obvious comparison fails closed and locks a patient out of their own
     // emergency directive.
     let is_own_record = crate::support::caller_owns_patient_record(&data, &uid, &patient_id);
-    if !user.role.is_healthcare_provider() && !user.role.is_admin() && !is_own_record {
+    if !user.role.is_healthcare_provider() && user.role != crate::Role::Paramedic && !is_own_record
+    {
         return HttpResponse::Forbidden().json(error_envelope_json(
             error_codes::INSUFFICIENT_ROLE,
             "Not permitted to read this patient's emergency capsule",
@@ -407,10 +408,12 @@ mod capsule_read_access_tests {
         let data = state(vec![
             user(Role::Doctor, "doc-1", None),
             user(Role::Nurse, "nurse-1", None),
+            user(Role::Paramedic, "ems-1", None),
             user(Role::Admin, "admin-1", None),
         ]);
         assert_eq!(status_for(data.clone(), "doc-1", "PAT-1").await, 200);
         assert_eq!(status_for(data.clone(), "nurse-1", "PAT-1").await, 200);
+        assert_eq!(status_for(data.clone(), "ems-1", "PAT-1").await, 200);
         assert_eq!(status_for(data, "admin-1", "PAT-1").await, 200);
     }
 

@@ -619,6 +619,32 @@ mod tests {
         );
     }
 
+    /// A responder may use emergency workflows without gaining the full chart.
+    #[actix_rt::test]
+    async fn paramedic_cannot_open_patient_profile() {
+        let app_state = setup_app_state().await;
+        let mut paramedic = app_state.users.read().unwrap()["doctor_wallet"].clone();
+        paramedic.wallet_address = "paramedic_wallet".to_string();
+        paramedic.role = Role::Paramedic;
+        app_state
+            .users
+            .write()
+            .unwrap()
+            .insert(paramedic.wallet_address.clone(), paramedic);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(get_patient_by_id),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri("/api/patients/PAT-EXISTING")
+            .insert_header(("x-user-id", "paramedic_wallet"))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
     /// The wallet is a column on the patient row, not part of the encrypted
     /// profile, and the read served only the profile -- so a wallet bound at
     /// registration read back as absent. A patient without one must read back

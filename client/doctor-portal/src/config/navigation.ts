@@ -56,7 +56,7 @@ import {
 // Types
 // =============================================================================
 
-export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Patient';
+export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Paramedic' | 'Patient';
 
 export interface NavItem {
   id: string;
@@ -170,6 +170,18 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     text: 'text-content-secondary',
     textLight: 'text-content-secondary',
     border: 'border-pink-200',
+    hoverBg: 'hover:bg-surface-sunken',
+    activeBg: 'bg-surface-sunken',
+    activeText: 'text-content-secondary',
+  },
+  Paramedic: {
+    primary: 'teal',
+    bg: 'bg-teal-700',
+    bgLight: 'bg-surface-sunken',
+    bgGradient: 'from-teal-700 to-teal-800',
+    text: 'text-content-secondary',
+    textLight: 'text-content-secondary',
+    border: 'border-teal-200',
     hoverBg: 'hover:bg-surface-sunken',
     activeBg: 'bg-surface-sunken',
     activeText: 'text-content-secondary',
@@ -661,6 +673,24 @@ export const PHARMACIST_NAV: NavSection[] = [
 // Quick Actions per Role
 // =============================================================================
 
+export const PARAMEDIC_NAV: NavSection[] = [
+  {
+    id: 'emergency',
+    label: 'Emergency',
+    icon: Siren,
+    defaultExpanded: true,
+    items: [
+      { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
+      { id: 'mci', to: '/mci', label: 'Mass Casualty', icon: Users },
+    ],
+  },
+  {
+    id: 'settings', label: 'Settings', icon: Settings, collapsible: false,
+    items: [{ id: 'settings', to: '/settings', label: 'Settings', icon: Settings }],
+  },
+];
+
 export const ROLE_QUICK_ACTIONS: Record<Role, QuickAction[]> = {
   Admin: [
     { id: 'add-user', to: '/user-management', label: 'Add User', icon: UserPlus, shortcut: 'U' },
@@ -681,6 +711,9 @@ export const ROLE_QUICK_ACTIONS: Record<Role, QuickAction[]> = {
   Pharmacist: [
     { id: 'verify', to: '/orders', label: 'Verify Rx', icon: FileCheck, shortcut: 'V' },
     { id: 'dispense', to: '/medication-admin', label: 'Dispense', icon: Package, shortcut: 'D' },
+  ],
+  Paramedic: [
+    { id: 'ems-handoff', to: '/ems-handoff', label: 'Record handover', icon: Siren },
   ],
   Patient: [],
 };
@@ -704,6 +737,8 @@ export function getNavForRole(role: Role): NavSection[] {
       return LAB_TECH_NAV;
     case 'Pharmacist':
       return PHARMACIST_NAV;
+    case 'Paramedic':
+      return PARAMEDIC_NAV;
     default:
       return DOCTOR_NAV; // Fallback
   }
@@ -745,6 +780,7 @@ const NAV_BY_ROLE: ReadonlyArray<readonly [Role, NavSection[]]> = [
   ['Nurse', NURSE_NAV],
   ['LabTechnician', LAB_TECH_NAV],
   ['Pharmacist', PHARMACIST_NAV],
+  ['Paramedic', PARAMEDIC_NAV],
 ];
 
 const pathsOf = (sections: NavSection[]): string[] =>
