@@ -2329,6 +2329,82 @@ export async function getPatientEPrescriptions(
 }
 
 // ============================================================================
+// Prescription refill requests (WP7.1)
+// ============================================================================
+
+/** Where a refill request is in its life. */
+export type RefillRequestStatus = 'requested' | 'approved' | 'denied' | 'cancelled';
+
+/** A refill request as `/api/.../refill-requests` returns it. */
+export interface RefillRequest {
+  id: string;
+  prescription_id: string;
+  patient_id: string;
+  medication_name: string;
+  status: RefillRequestStatus;
+  patient_note: string | null;
+  /** Set when a doctor denied the request; the patient reads it. */
+  denial_reason: string | null;
+  decided_at: string | null;
+  /** The new, unsigned prescription an approval created. */
+  new_prescription_id: string | null;
+  created_at: string;
+}
+
+/** Longest note a patient may attach (mirrors the API's limit). */
+export const REFILL_NOTE_MAX_CHARS = 500;
+/** Shortest and longest denial reason the API accepts. */
+export const REFILL_DENIAL_REASON_MIN_CHARS = 10;
+export const REFILL_DENIAL_REASON_MAX_CHARS = 500;
+
+/** Ask for a refill of one of the caller's own prescriptions. */
+export async function requestPrescriptionRefill(
+  prescriptionId: string,
+  note?: string
+): Promise<{ success: boolean; request: RefillRequest }> {
+  return getApiClient().post(
+    `/api/e-prescriptions/${encodeURIComponent(prescriptionId)}/refill-requests`,
+    { note: note?.trim() ? note.trim() : null }
+  );
+}
+
+/** A patient's refill requests, newest first. */
+export async function getPatientRefillRequests(
+  patientId: string
+): Promise<{ success: boolean; requests: RefillRequest[] }> {
+  return getApiClient().get(`/api/patients/${encodeURIComponent(patientId)}/refill-requests`);
+}
+
+/** Withdraw one of the caller's own open refill requests. */
+export async function cancelRefillRequest(
+  requestId: string
+): Promise<{ success: boolean; request: RefillRequest }> {
+  return getApiClient().post(`/api/refill-requests/${encodeURIComponent(requestId)}/cancel`, {});
+}
+
+/** Open refill requests on the signed-in doctor's own prescriptions. */
+export async function getRefillRequestQueue(): Promise<{ success: boolean; requests: RefillRequest[] }> {
+  return getApiClient().get('/api/refill-requests/queue');
+}
+
+/** Approve a refill: returns the new, unsigned prescription's id to sign. */
+export async function approveRefillRequest(
+  requestId: string
+): Promise<{ success: boolean; request: RefillRequest; new_prescription_id: string }> {
+  return getApiClient().post(`/api/refill-requests/${encodeURIComponent(requestId)}/approve`, {});
+}
+
+/** Deny a refill with a reason the patient will read. */
+export async function denyRefillRequest(
+  requestId: string,
+  reason: string
+): Promise<{ success: boolean; request: RefillRequest }> {
+  return getApiClient().post(`/api/refill-requests/${encodeURIComponent(requestId)}/deny`, {
+    reason: reason.trim(),
+  });
+}
+
+// ============================================================================
 // Appointments (Phase 17)
 // ============================================================================
 

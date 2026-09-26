@@ -97,6 +97,19 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "prescription_verification_rejected",
         "prescription_verification_expired",
         "prescription_verification_revoked",
+        # Refill requests (WP7.1). billing/refill_requests.rs passes
+        # `RefillAuditAction::as_str()`, a closed four-arm match of literals.
+        "refill_requested",
+        "refill_approved",
+        "refill_denied",
+        "refill_cancelled",
+    ],
+    # Test-only: the refill `pg_tests` helper `audit(action)` is called with
+    # these three literals, which must be ones the constraint accepts.
+    "api/src/repositories/refill_requests.rs::action.into()": [
+        "refill_requested",
+        "refill_approved",
+        "refill_denied",
     ],
     # The recording handler picks one of two literals immediately above the
     # struct literal.

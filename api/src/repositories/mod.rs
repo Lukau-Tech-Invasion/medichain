@@ -38,6 +38,7 @@
 //! - Minimum 2 validation checks per write operation
 
 pub mod patient_search;
+pub mod refill_requests;
 pub mod traits;
 
 #[cfg(feature = "postgres")]
@@ -107,6 +108,8 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Prescription refill requests (WP7.1).
+    pub refill_requests: Arc<dyn refill_requests::RefillRequestRepository>,
     /// Persistent, permission-granular guardian relationships (supersedes the
     /// Horizon HZ-008 in-memory `guardian_relationships::GuardianRegistry`).
     pub guardian_relationships: Arc<dyn GuardianRelationshipRepository>,
@@ -420,6 +423,76 @@ async fn apply_prescription_postgres(
     Ok(changed)
 }
 
+/// Store a refill request and its audit row as one PostgreSQL transaction.
+async fn create_refill_postgres(
+    pool: &sqlx::PgPool,
+    request: &refill_requests::RefillRequestEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<refill_requests::RefillRequestEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = refill_requests::pg::insert_request(&mut tx, request).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Close a refill request and write its audit row as one transaction.
+/// `None` (and nothing written) when the request was no longer open.
+async fn close_refill_postgres(
+    pool: &sqlx::PgPool,
+    closure: &refill_requests::RefillClosure,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+    let mut tx = pool.begin().await?;
+    let Some(closed) = refill_requests::pg::close_request(&mut tx, closure).await? else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(Some(closed))
+}
+
+/// Approve a refill as one transaction: create the new prescription, take one
+/// refill off the original (guarded on its current count), close the request
+/// and audit. Returns `None`, with nothing written, if the count moved or the
+/// request was no longer open.
+async fn approve_refill_postgres(
+    pool: &sqlx::PgPool,
+    approval: &refill_requests::RefillApproval,
+) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+    let mut tx = pool.begin().await?;
+    let created = &approval.new_prescription;
+    sqlx::query(
+        "INSERT INTO e_prescription_v2_records (id, owner_id, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&created.id)
+    .bind(&created.owner_id)
+    .bind(&created.data)
+    .bind(created.created_at)
+    .bind(created.updated_at)
+    .execute(&mut *tx)
+    .await?;
+    let decremented = sqlx::query_scalar::<_, String>(
+        "UPDATE e_prescription_v2_records SET data = $2, updated_at = NOW()
+         WHERE id = $1 AND data ->> 'refills_remaining' = $3 RETURNING id",
+    )
+    .bind(&approval.original_prescription_id)
+    .bind(&approval.updated_original.data)
+    .bind(&approval.expected_refills_remaining)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if decremented.is_none() {
+        return Ok(None);
+    }
+    let Some(closed) = refill_requests::pg::close_request(&mut tx, &approval.closure).await? else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, &approval.audit).await?;
+    tx.commit().await?;
+    Ok(Some(closed))
+}
+
 impl RepositoryContainer {
     /// Create a new repository container with memory backend
     pub fn new_memory() -> Self {
@@ -433,6 +506,7 @@ impl RepositoryContainer {
             vital_signs: Arc::new(memory::MemoryVitalSignsRepository::new()),
             triage_assessments: Arc::new(memory::MemoryTriageAssessmentRepository::new()),
             access_logs: Arc::new(memory::MemoryAccessLogRepository::new()),
+            refill_requests: Arc::new(refill_requests::MemoryRefillRequestRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
@@ -618,6 +692,86 @@ impl RepositoryContainer {
                 Ok(changed)
             }
         }
+    }
+
+    /// Store a new refill request together with its audit row.
+    ///
+    /// `Duplicate` when the prescription already has an open request (the
+    /// database's partial unique index, mirrored in memory).
+    pub async fn create_refill_request(
+        &self,
+        request: refill_requests::RefillRequestEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<refill_requests::RefillRequestEntity> {
+        if let Some(pool) = &self.pool {
+            return create_refill_postgres(pool, &request, &audit).await;
+        }
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let stored = self.refill_requests.create(request).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Deny or cancel an open refill request, with its audit row.
+    /// `None` when the request was not open (already decided or cancelled).
+    pub async fn close_refill_request(
+        &self,
+        closure: refill_requests::RefillClosure,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+        if let Some(pool) = &self.pool {
+            return close_refill_postgres(pool, &closure, &audit).await;
+        }
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let closed = self.refill_requests.close_if_open(&closure).await?;
+        if closed.is_some() {
+            self.access_logs.create(audit).await?;
+        }
+        Ok(closed)
+    }
+
+    /// Approve an open refill request: new prescription, original decremented,
+    /// request closed and audited, all or nothing on PostgreSQL. `None` when
+    /// the request was not open or the original's refill count has moved.
+    pub async fn approve_refill_request(
+        &self,
+        approval: refill_requests::RefillApproval,
+    ) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+        if let Some(pool) = &self.pool {
+            return approve_refill_postgres(pool, &approval).await;
+        }
+        // Same lock as every other prescription transition, so a dispense and
+        // an approval cannot interleave on the memory backend.
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let still_open = self
+            .refill_requests
+            .get_by_id(&approval.closure.request_id)
+            .await?
+            .is_some_and(|request| request.status == "requested");
+        if !still_open {
+            return Ok(None);
+        }
+        let decremented = self
+            .e_prescriptions_v2
+            .replace_if_field_eq(
+                &approval.original_prescription_id,
+                "refills_remaining",
+                &approval.expected_refills_remaining,
+                approval.updated_original,
+            )
+            .await?;
+        if decremented.is_none() {
+            return Ok(None);
+        }
+        self.e_prescriptions_v2
+            .create(approval.new_prescription)
+            .await?;
+        let closed = self
+            .refill_requests
+            .close_if_open(&approval.closure)
+            .await?;
+        self.access_logs.create(approval.audit).await?;
+        Ok(closed)
     }
 
     /// Persist a new patient and its NFC tag.
@@ -925,6 +1079,9 @@ impl RepositoryContainer {
             vital_signs: Arc::new(postgres::PgVitalSignsRepository::new(pool.clone())),
             triage_assessments: Arc::new(postgres::PgTriageAssessmentRepository::new(pool.clone())),
             access_logs: Arc::new(postgres::PgAccessLogRepository::new(pool.clone())),
+            refill_requests: Arc::new(refill_requests::PgRefillRequestRepository::new(
+                pool.clone(),
+            )),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),
             )),

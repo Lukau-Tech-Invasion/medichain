@@ -572,6 +572,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_dispense_events)
         .service(clinical_endpoints::get_esignature_prescription)
         .service(clinical_endpoints::get_patient_e_prescriptions)
+        // Prescription refill requests (WP7.1)
+        .service(clinical_endpoints::create_refill_request)
+        .service(clinical_endpoints::list_patient_refill_requests)
+        .service(clinical_endpoints::refill_request_queue)
+        .service(clinical_endpoints::approve_refill_request)
+        .service(clinical_endpoints::deny_refill_request)
+        .service(clinical_endpoints::cancel_refill_request)
         // Phase 30: Insurance Claim Integration endpoints
         .service(clinical_endpoints::create_insurance_claim)
         .service(clinical_endpoints::submit_insurance_claim)

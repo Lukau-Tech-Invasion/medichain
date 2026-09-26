@@ -4193,6 +4193,10 @@ pub struct EPrescription {
     pub patient_instructions: String,
     /// Diagnosis codes
     pub diagnosis_codes: Vec<String>,
+    /// The prescription this one refills, when it was created by approving a
+    /// patient's refill request. Absent on every original prescription.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refill_of: Option<String>,
 }
 
 /// Prescribed medication details

@@ -5,12 +5,14 @@ import {
   getPatientPharmacyDecisions,
   getPatientReminders,
   getPatientAdherence,
+  getPatientRefillRequests,
   logMedicationAdherence,
   useTranslation,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PharmacyDecision } from '@medichain/shared';
+import type { PharmacyDecision, RefillRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { RefillRequestPanel, type RefillLoadState } from '../components/RefillRequestPanel';
 import {
   Pill,
   Clock,
@@ -178,6 +180,10 @@ export function MedicationsPage() {
   // they were prescribed did not arrive. Recorded on the pharmacy side and,
   // until this, readable only by clinical staff.
   const [pharmacyNotes, setPharmacyNotes] = useState<PharmacyDecision[]>([]);
+  // Refill requests load on their own: if they fail, the medicines list still
+  // shows, and each card says the refill status could not be read.
+  const [refillRequests, setRefillRequests] = useState<RefillRequest[]>([]);
+  const [refillLoad, setRefillLoad] = useState<RefillLoadState>('loading');
   const [loading, setLoading] = useState(true);
   // Said out loud when a dose could not be recorded. Silence plus a tick is the
   // worst of both: the patient believes the record exists and it does not.
@@ -207,6 +213,16 @@ export function MedicationsPage() {
       ]);
 
       setApiConnected(true);
+      setRefillLoad('loading');
+      getPatientRefillRequests(patientId)
+        .then((body) => {
+          setRefillRequests(body.requests ?? []);
+          setRefillLoad('ready');
+        })
+        .catch((err: unknown) => {
+          console.error('Refill requests could not be loaded:', err);
+          setRefillLoad('error');
+        });
       getPatientPharmacyDecisions(patientId)
         .then((body) => setPharmacyNotes(body.decisions ?? []))
         .catch(() => setPharmacyNotes([]));
@@ -286,6 +302,11 @@ export function MedicationsPage() {
         : r
     ));
     setAdherenceError('');
+  };
+
+  /** Put the server's copy of a refill request first, replacing any older copy. */
+  const upsertRefillRequest = (request: RefillRequest) => {
+    setRefillRequests((prev) => [request, ...prev.filter((existing) => existing.id !== request.id)]);
   };
 
   const pendingReminders = reminders.filter(r => !r.taken);
@@ -514,11 +535,14 @@ export function MedicationsPage() {
                 </div>
               )}
 
-              {med.refillsRemaining <= 1 && (
-                <p className="mt-3 text-sm text-caution-subtle-fg">
-                  {t('medications.refillRequestUnavailable')}
-                </p>
-              )}
+              <RefillRequestPanel
+                prescriptionId={med.id}
+                refillsRemaining={med.refillsRemaining}
+                isActive={med.status === 'active'}
+                latest={refillRequests.find((request) => request.prescription_id === med.id)}
+                loadState={refillLoad}
+                onChanged={upsertRefillRequest}
+              />
             </div>
           ))}
 

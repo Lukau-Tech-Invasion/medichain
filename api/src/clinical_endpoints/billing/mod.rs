@@ -11,7 +11,9 @@ pub use super::*;
 mod e_prescriptions;
 mod insurance_claims;
 mod insurance_eligibility;
+mod refill_requests;
 
 pub use e_prescriptions::*;
 pub use insurance_claims::*;
 pub use insurance_eligibility::*;
+pub use refill_requests::*;
