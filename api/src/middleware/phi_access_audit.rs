@@ -197,6 +197,10 @@ pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
     route("/api/consent/patient/{patient_id}", "Consent records"),
     route("/api/e-prescriptions/patient/{patient_id}", "Prescriptions"),
     route(
+        "/api/patients/{patient_id}/refill-requests",
+        "Refill requests",
+    ),
+    route(
         "/api/emergency/cardiac/patient/{patient_id}",
         "Cardiac emergency records",
     ),

@@ -183,6 +183,7 @@ pub async fn create_esignature_prescription(
         pharmacy_notes: req.pharmacy_notes.clone(),
         patient_instructions: req.patient_instructions.clone(),
         diagnosis_codes: req.diagnosis_codes.clone(),
+        refill_of: None,
     };
 
     let patient_id_for_notify = req.patient_id.clone();
@@ -237,14 +238,14 @@ pub async fn create_esignature_prescription(
 /// The transition guards compare against the *stored* JSON, so they must use
 /// the serde representation. Deriving it means a future `rename_all` moves the
 /// guards with it instead of silently disabling every transition.
-fn status_token(status: &crate::clinical::PrescriptionStatus) -> String {
+pub(super) fn status_token(status: &crate::clinical::PrescriptionStatus) -> String {
     serde_json::to_value(status)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
 }
 
-fn prescription_record(
+pub(super) fn prescription_record(
     prescription: &crate::clinical::EPrescription,
     id: &str,
 ) -> crate::repositories::traits::JsonRecordEntity {
@@ -260,7 +261,7 @@ fn prescription_record(
 
 /// Record a prescription lifecycle transition in the durable access log.
 ///
-fn prescription_audit(
+pub(super) fn prescription_audit(
     prescription: &crate::clinical::EPrescription,
     actor: &str,
     actor_role: &str,
@@ -694,7 +695,7 @@ fn verification_event(
 }
 
 /// Loads a prescription, or the response explaining why it could not be.
-async fn load_prescription(
+pub(super) async fn load_prescription(
     data: &web::Data<AppState>,
     prescription_id: &str,
 ) -> Result<crate::clinical::EPrescription, HttpResponse> {
@@ -1778,6 +1779,7 @@ mod lifecycle_tests {
             pharmacy_notes: None,
             patient_instructions: "Take with food".to_string(),
             diagnosis_codes: Vec::new(),
+            refill_of: None,
         };
 
         let now = chrono::Utc::now();

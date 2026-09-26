@@ -72,7 +72,7 @@ export function AccessHistoryPage() {
           <button
             type="button"
             onClick={() => void loadPage(1)}
-            className="mt-3 px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-health-500"
+            className="mt-3 px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             {t('accessHistory.retry')}
           </button>
@@ -95,7 +95,7 @@ export function AccessHistoryPage() {
         <button
           type="button"
           onClick={() => void loadPage(page + 1)}
-          className="mt-4 w-full px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-health-500"
+          className="mt-4 w-full px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           {t('accessHistory.loadOlder')}
         </button>

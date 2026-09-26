@@ -12,6 +12,7 @@ import {
 import { FileText, Send, AlertCircle, Download } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
+import { PRESCRIBER_ATTESTATION, RefillRequestQueue } from '../components/RefillRequestQueue';
 import { useAuthStore } from '../store/authStore';
 
 export default function EPrescribePage() {
@@ -83,8 +84,7 @@ export default function EPrescribePage() {
       if (prescriptionId) {
         await signEPrescription(prescriptionId, {
           signature_method: 'wallet',
-          attestation:
-            'I certify that this prescription is issued for a legitimate medical purpose in the usual course of my professional practice.',
+          attestation: PRESCRIBER_ATTESTATION,
         });
         await transmitEPrescription(prescriptionId);
       }
@@ -208,6 +208,7 @@ export default function EPrescribePage() {
           </div>
         </div>
       )}
+      {mayPrescribe && <RefillRequestQueue />}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
         <div className="bg-surface shadow rounded-lg p-6">

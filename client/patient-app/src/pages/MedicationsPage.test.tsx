@@ -125,11 +125,50 @@ describe('MedicationsPage (Patient)', () => {
     });
   });
 
-  it('does not present an unsupported refill request as a working action', async () => {
+  /** Answer the refill-requests read with `status` and `body`; everything else as set up. */
+  function refillRequestsAnswer(status: number, body: unknown) {
+    const fallback = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/refill-requests')) {
+        return Promise.resolve({
+          ok: status < 400,
+          status,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve(body),
+        });
+      }
+      return fallback?.(url, init);
+    });
+  }
+
+  it('says when no refills are left instead of offering a request', async () => {
     render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
 
-    expect(await screen.findByText(/Online refill requests are not available/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No refills left/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /request refill/i })).not.toBeInTheDocument();
+  });
+
+  it('shows an open refill request on its prescription', async () => {
+    refillRequestsAnswer(200, {
+      success: true,
+      requests: [{
+        id: 'RFR-1', prescription_id: 'med1', patient_id: 'HEALTH123', medication_name: 'Aspirin',
+        status: 'requested', patient_note: null, denial_reason: null, decided_at: null,
+        new_prescription_id: null, created_at: '2026-09-25T09:00:00Z',
+      }],
+    });
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Waiting for your doctor/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Withdraw request/i })).toBeInTheDocument();
+  });
+
+  it('keeps the medicines list when refill requests cannot be loaded', async () => {
+    refillRequestsAnswer(403, { error: { code: 'FORBIDDEN', message: 'Access denied' } });
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Aspirin')).toBeInTheDocument();
+    expect(await screen.findByText(/Refill requests could not be loaded/i)).toBeInTheDocument();
   });
 
   it('allows switching to reminders tab', async () => {
