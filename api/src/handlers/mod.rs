@@ -17,6 +17,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+mod access_context;
 mod access_control;
 mod access_logs;
 mod audit_verification;
@@ -61,6 +62,7 @@ mod triage;
 mod vitals;
 mod wallet_auth;
 
+pub use access_context::*;
 pub use access_control::*;
 pub use access_logs::*;
 pub use audit_verification::*;

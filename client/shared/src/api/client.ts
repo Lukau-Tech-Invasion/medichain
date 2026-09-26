@@ -196,6 +196,12 @@ export interface PatientAccessContext {
   patientId: string;
   /** Reason code: Treatment, Referral, Emergency, Administrative, or free text. */
   reason: string;
+  /**
+   * Server-issued access context (WP10). When present it is sent with every
+   * read of this patient, and the server records the reason it holds for the
+   * context rather than the declared header.
+   */
+  contextId?: string;
 }
 
 export class ApiClient {
@@ -555,7 +561,10 @@ export class ApiClient {
     if (!context) return {};
     // Match whole path segments only, so PAT-1 never matches PAT-10.
     const segments = path.split('?')[0].split('/').map(safeDecodeSegment);
-    return segments.includes(context.patientId) ? { 'X-Access-Reason': context.reason } : {};
+    if (!segments.includes(context.patientId)) return {};
+    return context.contextId
+      ? { 'X-Access-Reason': context.reason, 'X-Access-Context': context.contextId }
+      : { 'X-Access-Reason': context.reason };
   }
 
   /**

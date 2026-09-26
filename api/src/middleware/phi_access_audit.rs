@@ -53,6 +53,16 @@ const DISCLOSURE_ACTION: &str = "view";
 /// Header a clinician client sends to declare why a chart was opened.
 pub const ACCESS_REASON_HEADER: &str = "x-access-reason";
 
+/// Header carrying a server-issued access context id (WP10). When it names a
+/// valid context for this clinician and patient, the disclosure row takes its
+/// reason from the context rather than from [`ACCESS_REASON_HEADER`].
+pub const ACCESS_CONTEXT_HEADER: &str = "x-access-context";
+
+/// The reason recorded on a server-issued access context, carried in the
+/// request extensions from the chart gate to the disclosure row.
+#[derive(Debug, Clone)]
+struct ContextReason(String);
+
 /// Reason recorded when the clinician did not declare one. The patient sees it,
 /// which is the point: an unexplained read is itself information.
 pub const REASON_NOT_STATED: &str = "Not stated";
@@ -438,6 +448,7 @@ fn build_access_log(
         .headers()
         .get(ACCESS_REASON_HEADER)
         .and_then(|value| value.to_str().ok());
+    let context_reason = req.extensions().get::<ContextReason>().map(|r| r.0.clone());
     AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: disclosure.accessor_id.clone(),
@@ -450,7 +461,9 @@ fn build_access_log(
         // The matched route is forensic evidence of exactly which read happened.
         resource_id: Some(disclosure.pattern.clone()),
         action: DISCLOSURE_ACTION.to_string(),
-        access_reason: Some(normalise_access_reason(reason_header)),
+        access_reason: Some(
+            context_reason.unwrap_or_else(|| normalise_access_reason(reason_header)),
+        ),
         is_emergency_access: authority.as_ref().is_some_and(|a| a.is_emergency()),
         ip_address: req.peer_addr().map(|addr| addr.ip().to_string()),
         user_agent: req
@@ -653,15 +666,16 @@ enum ChartGate {
     /// Not a gated chart read (not a patient-scoped GET, no caller, or the
     /// patient's own record): the handler decides as before.
     NotGated,
-    /// Authorised; the authority goes onto the disclosure row.
-    Allowed(crate::care_access::ChartAuthority),
+    /// Authorised; the authority (and a server-held reason, when the read
+    /// cites a valid access context) goes onto the disclosure row.
+    Allowed(crate::care_access::ChartAuthority, Option<String>),
     /// Refused before the handler ran.
     Refused(HttpResponse),
 }
 
 /// 403 for a clinician with no authority over this chart. Says how to proceed
 /// in an emergency rather than leaving them stuck.
-fn chart_refused(may_break_glass: bool) -> HttpResponse {
+pub(crate) fn chart_refused(may_break_glass: bool) -> HttpResponse {
     HttpResponse::Forbidden().json(serde_json::json!({
         "success": false,
         "error": "You have no care relationship with this patient. In an emergency, break the glass: give a reason and the patient will be told.",
@@ -690,6 +704,43 @@ fn gated_patient_id(req: &ServiceRequest) -> Option<String> {
     path_param(&pattern, req.path(), rule.patient_param)
 }
 
+/// The reason held by the access context this read cites, when the context
+/// is this clinician's, for this patient, and unexpired. Anything else --
+/// no header, an unknown or someone else's context, an unreadable store --
+/// leaves the reason to the declared header, exactly as before (logged).
+async fn context_reason(
+    req: &ServiceRequest,
+    data: &web::Data<AppState>,
+    clinician: &str,
+    patient_id: &str,
+) -> Option<String> {
+    let id = req
+        .headers()
+        .get(ACCESS_CONTEXT_HEADER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .to_string();
+    match data
+        .repositories
+        .care_relationships
+        .get_access_context(&id)
+        .await
+    {
+        Ok(Some(context)) if context.covers(clinician, patient_id, Utc::now()) => {
+            Some(context.reason)
+        }
+        Ok(_) => {
+            log::warn!("access context {id} does not cover this read; using the declared reason");
+            None
+        }
+        Err(error) => {
+            log::error!("access context {id} unreadable: {error}");
+            None
+        }
+    }
+}
+
 /// Decide whether this request may read this chart (WP9). Emergency-card
 /// and other handler-audited routes carry their own authority and are never
 /// gated here; an unidentified caller is left to the handler (401).
@@ -704,7 +755,10 @@ async fn chart_gate(req: &ServiceRequest, data: &web::Data<AppState>) -> ChartGa
     };
     match crate::care_access::resolve_chart_access(data, &caller, &patient_id).await {
         Ok(crate::care_access::ChartAuthority::SelfAccess) => ChartGate::NotGated,
-        Ok(authority) if authority.is_permitted() => ChartGate::Allowed(authority),
+        Ok(authority) if authority.is_permitted() => {
+            let reason = context_reason(req, data, &caller.wallet_address, &patient_id).await;
+            ChartGate::Allowed(authority, reason)
+        }
         Ok(_) => ChartGate::Refused(chart_refused(caller.role.can_view_medical_records())),
         Err(error) => {
             log::error!(
@@ -760,8 +814,11 @@ where
             if let Some(data) = req.app_data::<web::Data<AppState>>().cloned() {
                 match chart_gate(&req, &data).await {
                     ChartGate::NotGated => {}
-                    ChartGate::Allowed(authority) => {
+                    ChartGate::Allowed(authority, reason) => {
                         req.extensions_mut().insert(authority);
+                        if let Some(reason) = reason {
+                            req.extensions_mut().insert(ContextReason(reason));
+                        }
                     }
                     ChartGate::Refused(response) => {
                         return Ok(req.into_response(response).map_into_right_body());

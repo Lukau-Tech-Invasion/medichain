@@ -225,6 +225,10 @@ const en_US: TranslationRecord = {
     otherLabel: 'Another reason',
     otherPlaceholder: 'Another reason (short)',
     continue: 'Continue',
+    opening: 'Opening the chart...',
+    openFailed: 'The chart could not be opened. Please try again.',
+    tryAgain: 'Try again',
+    cancel: 'Cancel',
   },
 
   // Who viewed my records (patient transparency)

@@ -2991,6 +2991,18 @@ export async function breakGlass(
   return getApiClient().post(`/api/patients/${encodeURIComponent(patientId)}/break-glass`, { reason });
 }
 
+/** A server-issued chart access context (WP10). */
+export interface AccessContext {
+  access_context_id: string;
+  authority_type: string;
+  expires_at: string;
+}
+
+/** Declare why a chart is being opened; the server checks authority first (WP10). */
+export async function openAccessContext(patientId: string, reason: string): Promise<AccessContext> {
+  return getApiClient().post(`/api/patients/${encodeURIComponent(patientId)}/access-context`, { reason });
+}
+
 /** A proof step: the sibling hash and which side it sits on. */
 export interface MerkleProofStep {
   sibling: string;
