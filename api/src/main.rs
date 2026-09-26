@@ -42,6 +42,7 @@ mod audit_outbox;
 mod auth_challenges;
 mod auth_sessions;
 mod blockchain;
+mod blood_inventory;
 mod clinical;
 mod clinical_endpoints;
 mod clinical_scoring;

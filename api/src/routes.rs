@@ -54,6 +54,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_research_exports)
         .service(approve_research_export)
         .service(execute_research_export)
+        // Blood-unit stock inventory (WP7.5)
+        .service(list_blood_units)
+        .service(receive_blood_unit)
+        .service(reserve_blood_unit)
+        .service(release_blood_unit)
+        .service(issue_blood_unit)
+        .service(discard_blood_unit)
         // Demo-only: hands the sign-in shortcut the seeded fixture
         // credentials so it can drive the real credential flow. 403s
         // outside dev+demo mode, so production has no shortcut to reach.

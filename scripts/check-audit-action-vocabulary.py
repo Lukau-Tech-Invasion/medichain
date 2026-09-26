@@ -125,6 +125,15 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "research_export_executed",
         "research_export_included",
     ],
+    # `unit_audit` takes the action as a parameter; its five call sites in the
+    # same file pass these literals.
+    "api/src/handlers/blood_bank_inventory.rs::action.to_string()": [
+        "blood_unit_received",
+        "blood_unit_reserved",
+        "blood_unit_released",
+        "blood_unit_issued",
+        "blood_unit_discarded",
+    ],
     # Test-only: the refill `pg_tests` helper `audit(action)` is called with
     # these three literals, which must be ones the constraint accepts.
     "api/src/repositories/refill_requests.rs::action.into()": [
