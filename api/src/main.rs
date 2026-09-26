@@ -653,6 +653,13 @@ async fn main() -> std::io::Result<()> {
                     actix_web::http::header::HeaderName::from_static(
                         crate::middleware::phi_access_audit::ACCESS_REASON_HEADER,
                     ),
+                    // Server-issued chart access context (WP10).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::middleware::phi_access_audit::ACCESS_CONTEXT_HEADER,
+                    ),
+                    // Sent by the client on every mutation; without it here a
+                    // cross-origin write fails its preflight in production.
+                    actix_web::http::header::HeaderName::from_static("idempotency-key"),
                 ])
                 .max_age(3600);
 

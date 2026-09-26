@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { getPatients, clickable } from '@medichain/shared';
+import { getPatients, clickable, getApiClient, useTranslation } from '@medichain/shared';
+import { ChartAccessPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
 import { Search, User, ChevronDown, Loader2, X } from 'lucide-react';
 
 export interface Patient {
@@ -33,6 +34,9 @@ interface PatientSelectProps {
  * - Searchable dropdown
  * - Shows patient name, ID, and health ID
  * - Keyboard accessible
+ * - Asks why the chart is being opened (once per patient per tab) and opens a
+ *   server-issued access context before the page receives the patient, so
+ *   every page that picks a patient and loads their data is covered (WP10)
  */
 export default function PatientSelect({
   value,
@@ -54,6 +58,9 @@ export default function PatientSelect({
   // The component's own load failure, distinct from the `error` prop a page
   // passes down from its field validation.
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { t } = useTranslation();
+  // A patient picked but not yet opened: the reason prompt is showing.
+  const [pending, setPending] = useState<Patient | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -103,10 +110,29 @@ export default function PatientSelect({
   // Get selected patient details for display
   const selectedPatient = patients.find(p => p.patient_id === value);
 
-  const handleSelect = (patient: Patient) => {
+  // Reads of the selected patient cite its access context; leaving the page
+  // clears it, so the next page's patient cannot inherit this one's.
+  useEffect(() => {
+    const access = declaredAccessFor(value || undefined);
+    if (value && access) applyAccess(value, access);
+  }, [value]);
+  useEffect(() => () => getApiClient().setPatientAccessContext(undefined), []);
+
+  const choose = (patient: Patient) => {
     onChange(patient.patient_id, patient);
     setSearchTerm('');
     setIsOpen(false);
+  };
+
+  const handleSelect = (patient: Patient) => {
+    const access = declaredAccessFor(patient.patient_id);
+    if (access) {
+      applyAccess(patient.patient_id, access);
+      choose(patient);
+      return;
+    }
+    setIsOpen(false);
+    setPending(patient);
   };
 
   const handleClear = () => {
@@ -265,6 +291,27 @@ export default function PatientSelect({
         <p id={id ? `${id}-error` : undefined} role="alert" className="mt-1 text-sm text-critical-subtle-fg">
           {error}
         </p>
+      )}
+      {pending && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('accessReason.title')}
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+        >
+          <div className="w-full max-w-xl">
+            <ChartAccessPrompt
+              patientId={pending.patient_id}
+              title={t('accessReason.title')}
+              onReady={(access) => {
+                applyAccess(pending.patient_id, access);
+                choose(pending);
+                setPending(null);
+              }}
+              onCancel={() => setPending(null)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

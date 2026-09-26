@@ -67,6 +67,28 @@ impl BreakGlassGrantEntity {
     }
 }
 
+/// A server-issued chart access context (WP10): the declared reason for
+/// opening a chart, recorded against the authority that allowed it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct AccessContextEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub clinician_id: String,
+    pub reason: String,
+    pub authority_type: String,
+    pub authority_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+impl AccessContextEntity {
+    /// Whether this context lets `clinician` cite it for `patient_id` at `now`.
+    pub fn covers(&self, clinician: &str, patient_id: &str, now: DateTime<Utc>) -> bool {
+        self.clinician_id == clinician && self.patient_id == patient_id && now < self.expires_at
+    }
+}
+
 /// Storage for care relationships and break-glass grants.
 #[async_trait]
 pub trait CareRelationshipRepository: Send + Sync + fmt::Debug {
@@ -97,6 +119,13 @@ pub trait CareRelationshipRepository: Send + Sync + fmt::Debug {
         clinician_id: &str,
         now: DateTime<Utc>,
     ) -> RepositoryResult<Option<BreakGlassGrantEntity>>;
+    /// Store a chart access context (WP10).
+    async fn create_access_context(
+        &self,
+        row: AccessContextEntity,
+    ) -> RepositoryResult<AccessContextEntity>;
+    /// One access context by id, or `None`.
+    async fn get_access_context(&self, id: &str) -> RepositoryResult<Option<AccessContextEntity>>;
 }
 
 /// In-memory rows.
@@ -104,6 +133,7 @@ pub trait CareRelationshipRepository: Send + Sync + fmt::Debug {
 pub struct MemoryCareRelationshipRepository {
     relationships: RwLock<HashMap<String, CareRelationshipEntity>>,
     break_glass: RwLock<HashMap<String, BreakGlassGrantEntity>>,
+    access_contexts: RwLock<HashMap<String, AccessContextEntity>>,
 }
 
 impl MemoryCareRelationshipRepository {
@@ -215,6 +245,32 @@ impl CareRelationshipRepository for MemoryCareRelationshipRepository {
             .max_by_key(|g| g.expires_at)
             .cloned())
     }
+
+    async fn create_access_context(
+        &self,
+        row: AccessContextEntity,
+    ) -> RepositoryResult<AccessContextEntity> {
+        let bounded = row.expires_at > row.created_at
+            && row.expires_at <= row.created_at + chrono::Duration::hours(MAX_BREAK_GLASS_HOURS);
+        let reason = row.reason.trim().chars().count();
+        if !bounded || !(1..=140).contains(&reason) {
+            return Err(RepositoryError::Validation(
+                "an access context needs a reason and a limit".into(),
+            ));
+        }
+        let mut rows = self.access_contexts.write().map_err(lock_error)?;
+        rows.insert(row.id.clone(), row.clone());
+        Ok(row)
+    }
+
+    async fn get_access_context(&self, id: &str) -> RepositoryResult<Option<AccessContextEntity>> {
+        Ok(self
+            .access_contexts
+            .read()
+            .map_err(lock_error)?
+            .get(id)
+            .cloned())
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -231,6 +287,8 @@ pub(crate) mod pg {
         "id, patient_id, clinician_id, facility_id, source, source_id, starts_at, ends_at, created_at";
     const BREAK_GLASS_COLUMNS: &str =
         "id, patient_id, clinician_id, reason, starts_at, expires_at, created_at";
+    const CONTEXT_COLUMNS: &str = "id, patient_id, clinician_id, reason, authority_type, \
+        authority_id, created_at, expires_at";
 
     /// PostgreSQL-backed [`CareRelationshipRepository`].
     #[derive(Debug, Clone)]
@@ -355,6 +413,38 @@ pub(crate) mod pg {
                 .bind(patient_id)
                 .bind(clinician_id)
                 .bind(now)
+                .fetch_optional(&self.pool)
+                .await?)
+        }
+
+        async fn create_access_context(
+            &self,
+            row: AccessContextEntity,
+        ) -> RepositoryResult<AccessContextEntity> {
+            let sql = format!(
+                "INSERT INTO access_contexts ({CONTEXT_COLUMNS})
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {CONTEXT_COLUMNS}"
+            );
+            Ok(sqlx::query_as::<_, AccessContextEntity>(&sql)
+                .bind(&row.id)
+                .bind(&row.patient_id)
+                .bind(&row.clinician_id)
+                .bind(&row.reason)
+                .bind(&row.authority_type)
+                .bind(&row.authority_id)
+                .bind(row.created_at)
+                .bind(row.expires_at)
+                .fetch_one(&self.pool)
+                .await?)
+        }
+
+        async fn get_access_context(
+            &self,
+            id: &str,
+        ) -> RepositoryResult<Option<AccessContextEntity>> {
+            let sql = format!("SELECT {CONTEXT_COLUMNS} FROM access_contexts WHERE id = $1");
+            Ok(sqlx::query_as::<_, AccessContextEntity>(&sql)
+                .bind(id)
                 .fetch_optional(&self.pool)
                 .await?)
         }
@@ -498,6 +588,21 @@ mod pg_tests {
         repo.create_break_glass(break_glass(&format!("BG-{}", uuid::Uuid::new_v4()), 1))
             .await
             .unwrap();
+        // An access context is bounded to a shift by the table itself.
+        let now = Utc::now();
+        let context = |hours: i64| AccessContextEntity {
+            id: format!("ACX-{}", uuid::Uuid::new_v4()),
+            patient_id: "PAT-CARE".into(),
+            clinician_id: "doctor_care".into(),
+            reason: "Treatment".into(),
+            authority_type: "care_relationship".into(),
+            authority_id: None,
+            created_at: now,
+            expires_at: now + chrono::Duration::hours(hours),
+        };
+        assert!(repo.create_access_context(context(13)).await.is_err());
+        let stored = repo.create_access_context(context(8)).await.unwrap();
+        assert!(repo.get_access_context(&stored.id).await.unwrap().is_some());
         pool.close().await;
     }
 }
