@@ -217,9 +217,9 @@ function DashboardPage() {
      * legacy `X-User-Id` session headers, so it never carried the bearer token
      * the rest of the app uses and never took the client's refresh-once-on-401
      * path. And its 401 branch called `restoreSession()` and, when that failed,
-     * `logout()` -- but `restoreSession` fails closed **by design** (no access
-     * or refresh token is persisted, see the comment on it), so it can only
-     * ever fail, which made a single 401 on this one panel a forced sign-out.
+     * `logout()`. At that time restore could not recover tokens after reload,
+     * so a single 401 on this panel forced sign-out. Restore now uses the
+     * HttpOnly refresh cookie; requests still use the shared refresh path.
      *
      * This runs on mount and then every 30 seconds, so a clinician reading a
      * chart could be returned to the login screen by a request they never made,

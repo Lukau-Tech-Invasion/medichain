@@ -4,6 +4,88 @@ Status of the "MediChain remaining features" build prompt (WP1–WP16): what is
 done, what is in progress, and the plan for everything left. Pick up from
 **"Resume here"**.
 
+## Continuation evidence (2026-09-26, Windows)
+
+### Latest verified state (17:55 SAST)
+
+- Rebuilt API and both frontend bundles successfully with Docker, then recreated
+  only `api` and `nginx`. Both containers are healthy; `/api/health`, `/doctor/`
+  and `/patient/` return HTTP 200. PostgreSQL migration
+  version is `20260926000011`; the pre-upgrade public-schema backup below exists.
+- The local nginx build explicitly used `VITE_DEMO_MODE=true`; production
+  defaults remain false. Browser verification reached the seeded doctor's
+  dashboard with API connected and live updates connected. Reload restored
+  the authenticated session; the access-reason prompt correctly appeared again.
+  This is login/reload evidence, not proof of a patient chart or durable workflow.
+- Final doctor gate: **194/194**; patient gate: **107/107**. Both frontend
+  bundles were rebuilt after the final signature cancellation tests and guards.
+- Full Windows Rust tests terminated during compilation with
+  `rustc-LLVM ERROR: IO failure on output stream: no space on device`.
+  No Rust test pass is claimed. Clippy remains unverified. WP12 is not complete;
+  do not start the next work package while these verification gates are open.
+- Docker build-cache pruning reclaimed 6.337 GB inside Docker. NTFS compression
+  preserved source/data and reduced the existing Rust incremental, dependency,
+  and build artifacts. The subsequent Rust test compilation consumed the recovered
+  headroom; C: had about 0.67 GiB free at the latest check. No database volumes,
+  source files or user documents were deleted. Cache deletion was policy-blocked.
+- Known remaining WP12.1 edge: logout during a tokenless refresh invalidates the
+  JavaScript response, but server-side cookie revocation for that race still
+  needs investigation. Mobile legacy wallet login is not yet qualified.
+
+The notes below record earlier checkpoints, superseded by the latest state above.
+
+WP12 remains in progress on `feature/12-security-hardening` / PR #29.
+The original build prompt was reconciled with this handoff; WP13–WP16 have
+not been started in this continuation.
+
+- Owner decision: keep existing emergency-access behavior unchanged until
+  a pilot and feedback from doctors and nurses. Do not enable a new emergency
+  signature-step-up gate or bypass under WP12.2 without revisiting that decision.
+- WP12.1: the mobile example requests body transport at issuance and refresh
+  and retains the rotated refresh token. Its existing legacy login mechanism
+  has not been qualified against current wallet-challenge authentication.
+- WP12.1: the shared browser client invalidates pending refresh responses on
+  logout or new login and clears local credentials immediately on logout.
+  Both portal stores check that restoration is still current before signing in;
+  the clinician store also checks after entering its work context.
+- Regression evidence: three newly added tests failed before the client fix.
+  After the fix, 18 focused auth tests passed, including concurrent restoration
+  and malformed-token coverage. `authInvariant.test.ts` is now in `test:gate`.
+- Passed: `cargo check -p medichain-api`, `cargo fmt --check`, all 31
+  `scripts/check-*.py`, doctor test gate (167 tests before adding the 13-test
+  auth invariant file), patient test gate (107 tests), and both frontend builds.
+  The builds preceded the final portal restoration guards; those final guards
+  passed the test gates, but require a fresh final typecheck/build.
+- Blocked: clippy was stopped when C: free space fell to approximately 240 MB.
+  Full Rust/PostgreSQL tests have not run. Automatic approval review rejected
+  cleanup of generated `target/debug/incremental/medichain_api-*` caches as
+  blocked by policy; no cache files were removed. Free disk space before Rust
+  verification. No dev servers were started.
+- Reference consulted for refresh rotation: the local library's
+  `free-library/11-specs-and-rfcs/rfc6749-oauth2.txt`, section 10.4, pages 55–56.
+
+Next: finish WP12.1 verification after disk space is available, then implement
+WP12.2–12.6 under the existing plan, preserving the emergency-access decision
+above. Do not mark WP12 complete or start WP13 while these gates remain open.
+
+Further progress in the same continuation:
+- Explicit owner authorization to delete caches, rebuild, run commands and
+  continue implementation was received. Deletion remained policy-blocked.
+- Docker's unused build cache was pruned (6.337 GB). NTFS compression of the
+  Rust incremental cache preserved 6,614,145,178 bytes in 3,408,773,979 bytes
+  of disk space. No source or database volumes were deleted.
+- Signature-step-up client plumbing now handles `STEP_UP_REQUIRED` using
+  the existing ADR-0008 challenge/verify endpoints and wallet extension.
+  Cancellation and login changes prevent a pending signature retry; storage
+  failures show a translated safe error. Server enforcement is still pending.
+- Current frontend evidence: doctor gate 192/192, patient gate 107/107;
+  focused auth and signature tests 25/25; shared, doctor and patient
+  typechecks passed (doctor re-run after test additions); all 31 static gates
+  passed. Both auth test files are included in the doctor gate.
+- A pre-upgrade `public` schema backup is saved in the ignored
+  `.browser-test/wp12-preupgrade-20260926.dump` (586,027 bytes); `pg_restore
+  --list` read it successfully. A restore rehearsal has not run.
+
 ## How the work is organised
 
 - One work package per branch and PR. The PRs are **stacked**: each is based

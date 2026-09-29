@@ -16,7 +16,6 @@ import {
   Stethoscope,
   FileCheck,
   Syringe,
-  Clock,
   Shield,
   CheckCircle,
 } from 'lucide-react';
@@ -84,9 +83,8 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
 /**
  * My Records Page
  *
- * View and download medical records stored on IPFS.
- * Records are encrypted; a record shows as blockchain-anchored only when the
- * server reports a finalized anchor transaction for it.
+ * View clinical records and download available encrypted documents.
+ * The interface presents care information without legacy chain metadata.
  *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -313,10 +311,11 @@ export function MyRecordsPage() {
         type: 'discharge_summary' as const,
         title: 'Discharge summary',
         description: String(
-          summary.discharge_diagnosis || summary.primary_diagnosis || 'Summary of this admission'
+          (typeof summary.discharge_diagnosis === 'string' ? summary.discharge_diagnosis : (summary.discharge_diagnosis as { description?: string } | null)?.description) ||
+          summary.primary_diagnosis || (summary.data as Record<string, unknown> | undefined)?.primary_diagnosis || 'Summary of this admission'
         ),
-        provider: String(summary.attending_physician_id || summary.created_by || 'MediChain provider'),
-        date: timestampDate(summary.discharge_date as string | number | undefined),
+        provider: String(summary.attending_physician_id || summary.created_by || (summary.data as Record<string, unknown> | undefined)?.prepared_by || 'MediChain provider'),
+        date: timestampDate((summary.discharge_date || summary.discharge_datetime || summary.created_at) as string | number | undefined),
         contentHash: `discharge-${summary.id}`,
         metadataHash: String(summary.id),
         chainTxHash: null,
@@ -818,7 +817,7 @@ export function MyRecordsPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
@@ -889,12 +888,7 @@ export function MyRecordsPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-medium text-content truncate">{record.title}</h3>
-                  {record.chainTxHash && (
-                    <Shield
-                      className="w-4 h-4 text-ok-subtle-fg flex-shrink-0"
-                      aria-label={t('records.anchored')}
-                    />
-                  )}
+
                 </div>
                 <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
                 <div className="flex items-center gap-4 text-xs text-content-muted">
@@ -928,6 +922,7 @@ export function MyRecordsPage() {
             <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold text-content">{t('records.recordDetails')}</h2>
               <button
+                aria-label={t('common.close')}
                 onClick={() => setSelectedRecord(null)}
                 className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
               >
@@ -966,27 +961,6 @@ export function MyRecordsPage() {
                     <p className="font-medium text-content">{formatDate(selectedRecord.date)}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.status')}</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${selectedRecord.chainTxHash ? 'bg-success-500' : 'bg-caution'}`} />
-                      <p className="font-medium text-content">
-                        {selectedRecord.chainTxHash ? t('records.anchored') : t('records.notAnchored')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* IPFS Hash */}
-              <div className="p-4 bg-info-light rounded-xl">
-                <p className="text-sm text-info-dark mb-1 font-medium flex items-center gap-2 inline-flex items-center min-h-[24px] py-1">
-                  <Shield className="w-4 h-4" />
-                  {t('records.documentHash')}
-                </p>
-                <p className="font-mono text-xs text-info break-all">{selectedRecord.contentHash}</p>
               </div>
 
               {/* Lab Results Details (only for lab_result type) */}
@@ -1119,3 +1093,4 @@ export function MyRecordsPage() {
     </div>
   );
 }
+

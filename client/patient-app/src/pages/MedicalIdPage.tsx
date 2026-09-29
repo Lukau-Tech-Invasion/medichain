@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getMedicalId,
+  getMedicalIdQr,
   useTranslation,
   useToastActions,
   updateMedicalIdPreferences,
@@ -156,6 +157,25 @@ export function MedicalIdPage() {
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
   const [savingPreference, setSavingPreference] = useState(false);
+  const [downloadingQr, setDownloadingQr] = useState(false);
+
+  /** Download the authorised PNG instead of opening an unauthenticated API link. */
+  async function downloadQr() {
+    if (!patient) return;
+    setDownloadingQr(true);
+    try {
+      const qr = await getMedicalIdQr(patient.healthId);
+      if (!qr.qr_image_base64) throw new Error('QR image unavailable');
+      const link = document.createElement('a');
+      link.href = `data:image/png;base64,${qr.qr_image_base64}`;
+      link.download = 'medichain-medical-id.png';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      showError('The medical ID QR code could not be downloaded. Please try again.');
+    } finally { setDownloadingQr(false); }
+  }
 
   // The API returns these as strings on some paths and objects (e.g.
   // `{name, ...}`) on others. Rendering an object directly threw
@@ -175,7 +195,6 @@ export function MedicalIdPage() {
   };
 
   const [isLoading, setIsLoading] = useState(true);
-  const [showLockScreenPreview, setShowLockScreenPreview] = useState(false);
   const [activeView, setActiveView] = useState<'full' | 'emergency' | 'lockscreen'>('full');
 
   // Redirect if not authenticated
@@ -209,7 +228,7 @@ export function MedicalIdPage() {
     if (patient) {
       loadMedicalId();
     }
-  }, [patient, activeView, loadMedicalId]);
+  }, [patient, loadMedicalId]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
@@ -344,13 +363,13 @@ export function MedicalIdPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header with settings */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-content">{t('medicalId.title')}</h1>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowLockScreenPreview(!showLockScreenPreview)}
+            onClick={() => setActiveView('lockscreen')}
             className="p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
             title={t('medicalId.lockScreenPreviewTooltip')}
           >
@@ -371,6 +390,7 @@ export function MedicalIdPage() {
         {(['full', 'emergency', 'lockscreen'] as const).map(view => (
           <button
             key={view}
+            aria-pressed={activeView === view}
             onClick={() => setActiveView(view)}
             className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${
               activeView === view
@@ -411,12 +431,15 @@ export function MedicalIdPage() {
       </div>
 
       {/* Main Medical ID Card */}
-      <div className="bg-surface rounded-3xl shadow-lg overflow-hidden">
+      {activeView !== 'full' && <p role="status" className="text-sm text-content-muted">
+        {activeView === 'lockscreen' ? 'Lock-screen card preview. This does not change your phone lock screen.' : 'Emergency summary preview.'}
+      </p>}
+      <div className={`bg-surface rounded-3xl shadow-lg overflow-hidden ${activeView === 'lockscreen' ? 'max-w-sm mx-auto' : ''}`}>
         {/* Red Emergency Header */}
-        <div className="bg-gradient-to-r from-red-700 to-red-800 text-white p-6">
+        <div className="bg-gradient-to-r from-red-700 to-red-800 text-white p-4">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-surface/20 rounded-full flex items-center justify-center">
-              <User className="w-8 h-8" />
+            <div className="w-12 h-12 bg-surface/20 rounded-full flex items-center justify-center">
+              <User className="w-6 h-6" />
             </div>
             <div>
               <h2 className="text-2xl font-bold">
@@ -451,8 +474,8 @@ export function MedicalIdPage() {
         {/* Blood Type & Organ Donor */}
         <div className="grid grid-cols-2 divide-x divide-border">
           <div className="p-4 text-center">
-            <Droplet className="w-8 h-8 text-critical mx-auto mb-2" />
-            <p className="text-3xl font-bold text-content">{asText(data.blood_type)}</p>
+            <Droplet className="w-6 h-6 text-critical mx-auto mb-2" />
+            <p className="text-xl sm:text-2xl font-bold break-words text-content">{asText(data.blood_type)}</p>
             <p className="text-sm text-content-muted">{t('medicalId.bloodTypeLabel')}</p>
             {asText(data.blood_type) === 'Unknown' && (
               <p role="alert" className="mt-2 text-sm font-medium text-critical-subtle-fg">
@@ -461,7 +484,7 @@ export function MedicalIdPage() {
             )}
           </div>
           <div className="p-4 text-center">
-            <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-ok' : 'text-content-muted'}`} />
+            <Heart className={`w-6 h-6 mx-auto mb-2 ${data.organ_donor ? 'text-ok' : 'text-content-muted'}`} />
             <p className="text-lg font-bold text-content">
               {data.organ_donor ? t('medicalId.organDonorYes') : t('medicalId.organDonorNo')}
             </p>
@@ -489,9 +512,10 @@ export function MedicalIdPage() {
           </div>
         )}
 
+        <div className={activeView === 'lockscreen' ? 'grid' : 'grid md:grid-cols-2'}>
         {/* Allergies */}
         <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-5 h-5 text-critical" />
             <h3 className="font-bold text-content">{t('medicalId.allergiesTitle')}</h3>
           </div>
@@ -516,7 +540,7 @@ export function MedicalIdPage() {
 
         {/* Medical Conditions */}
         <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
             <h3 className="font-bold text-content">{t('medicalId.conditionsTitle')}</h3>
           </div>
@@ -535,7 +559,7 @@ export function MedicalIdPage() {
 
         {/* Medications */}
         <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <Pill className="w-5 h-5 text-purple-500" />
             <h3 className="font-bold text-content">{t('medicalId.medicationsTitle')}</h3>
           </div>
@@ -555,7 +579,7 @@ export function MedicalIdPage() {
 
         {/* Emergency Contacts */}
         <div className="p-4 border-t border-border bg-surface-sunken">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <Phone className="w-5 h-5 text-ok" />
             <h3 className="font-bold text-content">{t('medicalId.emergencyContactsTitle')}</h3>
           </div>
@@ -593,9 +617,9 @@ export function MedicalIdPage() {
         </div>
 
         {/* Primary Doctor */}
-        {data.primary_doctor && (
+        {activeView === 'full' && data.primary_doctor && (
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-2">
               <Stethoscope className="w-5 h-5 text-notice-subtle-fg" />
               <h3 className="font-bold text-content">{t('medicalId.primaryCareProviderTitle')}</h3>
             </div>
@@ -628,9 +652,9 @@ export function MedicalIdPage() {
         )}
 
         {/* Insurance */}
-        {data.insurance && (
+        {activeView === 'full' && data.insurance && (
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-2">
               <Shield className="w-5 h-5 text-brand" />
               <h3 className="font-bold text-content">{t('medicalId.insuranceTitle')}</h3>
             </div>
@@ -643,7 +667,7 @@ export function MedicalIdPage() {
 
         {/* Languages */}
         <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <FileText className="w-5 h-5 text-content-muted" />
             <h3 className="font-bold text-content">{t('medicalId.languagesTitle')}</h3>
           </div>
@@ -655,31 +679,32 @@ export function MedicalIdPage() {
             ))}
           </div>
         </div>
+        </div>
       </div>
 
       {/* QR Code Section */}
       <div className="patient-card text-center">
-        <div className="flex items-center justify-center gap-2 mb-3">
+        <div className="flex items-center justify-center gap-2 mb-2">
           <Download className="w-5 h-5 text-content-muted" />
           <h3 className="font-bold text-content">{t('medicalId.qrCodeTitle')}</h3>
         </div>
-        <p className="text-sm text-content-muted mb-3">
+        <p className="text-sm text-content-muted mb-2">
           {t('medicalId.qrCodeDesc')}
         </p>
-        <a
-          href={`/api/medical-id/${data.patient_id}/qr`}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => void downloadQr()}
+          disabled={downloadingQr}
           className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-brand-fg rounded-lg text-sm font-medium hover:bg-brand transition-colors"
         >
           <Download className="w-4 h-4" />
           {t('medicalId.downloadQrCode')}
-        </a>
+        </button>
       </div>
 
       {/* Emergency Numbers */}
       <div className="bg-critical-subtle border border-critical rounded-xl p-4">
-        <h3 className="flex items-center gap-2 font-bold text-critical-subtle-fg mb-3">
+        <h3 className="flex items-center gap-2 font-bold text-critical-subtle-fg mb-2">
           <AlertTriangle className="w-5 h-5" aria-hidden="true" /> {t('medicalId.emergencyServicesTitle')}
         </h3>
         <div className="grid grid-cols-2 gap-3">

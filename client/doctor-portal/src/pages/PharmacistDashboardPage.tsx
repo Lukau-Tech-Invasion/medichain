@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Pill,
   AlertTriangle,
@@ -132,6 +132,7 @@ function interactionDetailText(severity: string | undefined): string {
 export default function PharmacistDashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [queueParams] = useSearchParams();
   const [data, setData] = useState<PharmacistDashboardData | null>(null);
   // A pharmacist's decision on an allergy alert needs a reason: a refusal
   // nobody can account for is not a clinical decision, and the prescriber and
@@ -282,7 +283,7 @@ export default function PharmacistDashboardPage() {
 
   // Quick actions for pharmacists
   const quickActions: QuickAction[] = [
-    { id: 'verify', label: t('docPharmDashboard.qaVerify'), icon: FileCheck, href: '/e-prescribe', color: 'green' },
+    { id: 'verify', label: t('docPharmDashboard.qaVerify'), icon: FileCheck, href: '/e-prescribe?status=pending', color: 'green' },
     { id: 'interactions', label: t('docPharmDashboard.qaInteractions'), icon: ShieldAlert, href: '/drug-interactions', color: 'emergency' },
     { id: 'dispense', label: t('docPharmDashboard.qaDispense'), icon: Pill, href: '/medication-admin', color: 'blue' },
     { id: 'iv-prep', label: t('docPharmDashboard.qaIv'), icon: Beaker, href: '/orders', color: 'purple' },
@@ -447,7 +448,10 @@ export default function PharmacistDashboardPage() {
 
   // The rows carry the prescription itself, not a flattened array of strings:
   // the action column has to know the id and the current state.
-  const prescriptionQueue = data?.prescriptions?.list?.slice(0, 10) || [];
+  const prescriptionQueue = (data?.prescriptions?.list ?? []).filter(rx =>
+    (queueParams.get('priority') !== 'STAT' || rx.priority === 'STAT') &&
+    (queueParams.get('status') !== 'pending' || !['Dispensed', 'Cancelled'].includes(rx.status))
+  );
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
@@ -470,7 +474,7 @@ export default function PharmacistDashboardPage() {
           value={data?.prescriptions?.pending_fill || 0}
           icon={<Pill className="text-caution-subtle-fg" size={24} />}
           color="bg-caution-subtle"
-          onClick={() => navigate('/e-prescribe')}
+          onClick={() => navigate('/e-prescribe?status=pending')}
           loading={loading}
         />
         <StatCard
@@ -513,6 +517,8 @@ export default function PharmacistDashboardPage() {
               {t('docPharmDashboard.viewAll')}
             </button>
           </div>
+          {queueParams.get('priority') === 'STAT' && <p role="status" className="mb-3 text-sm">Showing STAT prescriptions only.</p>}
+          {queueParams.get('status') === 'pending' && <p role="status" className="mb-3 text-sm">Showing prescriptions awaiting completion.</p>}
           {prescriptionQueue.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">

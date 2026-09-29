@@ -114,7 +114,7 @@ body {
 /* Patient card styling */
 @layer components {
   .patient-card {
-    @apply bg-surface rounded-xl shadow-card p-6 transition-all duration-200;
+    @apply bg-surface rounded-xl shadow-card p-4 sm:p-5 transition-all duration-200;
   }
 
   .patient-card:hover {

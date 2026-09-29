@@ -3,13 +3,14 @@ import { useTranslation } from '../i18n/react';
 import type { StepUpState } from '../hooks/useStepUp';
 
 /**
- * Ask for a TOTP code so a refused privileged action can go through.
+ * Ask for a TOTP code or an interactive wallet signature for a held action.
  *
  * Rendered by any page whose action can be met with `403 MFA_REQUIRED`. See
  * `useStepUp` for why this exists: the server names the remedy in its error
  * message, and until this dialog there was nothing a person could do with it.
  *
- * Two distinct demands, because they have different remedies:
+ * Distinct demands have different remedies:
+ *   * `signature` — sign the server challenge through a wallet extension.
  *   * `step_up` — enrolled, but this session is not freshly verified. A code
  *     fixes it here.
  *   * `enrollment` — no MFA at all. A code cannot fix that; the person has to
@@ -23,6 +24,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
   if (!state.demand) return null;
 
   const enrolling = state.demand === 'enrollment';
+  const signing = state.demand === 'signature';
 
   return (
     <div
@@ -36,7 +38,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           {t('stepUp.title')}
         </h2>
         <p className="text-sm text-content-muted mb-4">
-          {enrolling ? t('stepUp.enrollBody') : t('stepUp.body')}
+          {enrolling ? t('stepUp.enrollBody') : signing ? t('stepUp.signatureBody') : t('stepUp.body')}
         </p>
 
         {state.error && (
@@ -45,7 +47,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           </div>
         )}
 
-        {!enrolling && (
+        {!enrolling && !signing && (
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -83,6 +85,18 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           </form>
         )}
 
+        {signing && (
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={state.cancel}
+              className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px] focus-visible:ring-2 focus-visible:ring-brand">
+              {t('stepUp.cancel')}
+            </button>
+            <button type="button" disabled={state.verifying} onClick={() => void state.submitSignature()}
+              className="px-4 py-2 rounded-lg bg-brand text-brand-fg min-h-[44px] focus-visible:ring-2 focus-visible:ring-brand disabled:bg-disabled disabled:text-disabled-fg">
+              {state.verifying ? t('stepUp.verifying') : t('stepUp.sign')}
+            </button>
+          </div>
+        )}
         {enrolling && (
           <div className="flex justify-end">
             <button

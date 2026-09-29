@@ -47,6 +47,8 @@ export interface ApiClientConfig {
 }
 
 export interface RequestOptions {
+  /** Owner of a hash-addressed document; used only to select an existing audit purpose. */
+  patientId?: string;
   /** Skip retry logic for this request */
   noRetry?: boolean;
   /**
@@ -227,6 +229,8 @@ export class ApiClient {
    */
   private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
+  // A response from an older login must not undo logout or replace a new login.
+  private sessionGeneration = 0;
   /**
    * The chart a clinician currently has open and why they opened it. Sent as
    * `X-Access-Reason` on reads of that patient so the patient's access history
@@ -287,6 +291,7 @@ export class ApiClient {
    * has been established.
    */
   setTokens(accessToken: string | undefined, _refreshToken?: string): void {
+    this.sessionGeneration += 1;
     // The refresh token is an HttpOnly cookie the browser holds and script
     // cannot read (WP12); the second parameter is accepted and ignored so
     // older callers keep compiling.
@@ -308,8 +313,11 @@ export class ApiClient {
    */
   async endSession(options?: { allDevices?: boolean }): Promise<boolean> {
     const path = options?.allDevices ? '/api/auth/logout-all' : '/api/auth/logout';
+    const hadAccessToken = Boolean(this.accessToken);
+    const headers = this.getMutationHeaders();
+    this.clearTokens();
     let revoked = false;
-    if (this.accessToken) {
+    if (hadAccessToken) {
       try {
         // Logout is deliberately absent from the middleware's allowlist —
         // it is a keyed-subject mutation like any other — so it needs a key.
@@ -317,7 +325,7 @@ export class ApiClient {
         // while the client cleared its tokens and believed otherwise.
         const resp = await fetch(`${this.baseUrl}${path}`, {
           method: 'POST',
-          headers: this.getMutationHeaders(),
+          headers,
           // So the server can clear the HttpOnly refresh cookie.
           credentials: 'include',
         });
@@ -327,7 +335,6 @@ export class ApiClient {
         revoked = false;
       }
     }
-    this.clearTokens();
     return revoked;
   }
 
@@ -341,9 +348,8 @@ export class ApiClient {
    * unenforceable for any client still holding a signer.
    */
   clearTokens(): void {
-    if (this.accessToken) {
-      this.sessionEnded = true;
-    }
+    this.sessionGeneration += 1;
+    this.sessionEnded = true;
     this.accessToken = undefined;
   }
 
@@ -416,9 +422,11 @@ export class ApiClient {
    * share a single in-flight refresh. Returns true on success.
    */
   private async refreshAccessToken(): Promise<boolean> {
+    if (this.sessionEnded) return false;
     if (this.refreshPromise) {
       return this.refreshPromise;
     }
+    const generation = this.sessionGeneration;
     this.refreshPromise = (async () => {
       try {
         // The refresh token travels as the HttpOnly cookie (WP12).
@@ -427,16 +435,19 @@ export class ApiClient {
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
+        if (generation !== this.sessionGeneration) return false;
         if (!resp.ok) {
           this.clearTokens();
           return false;
         }
         const data = await resp.json();
-        if (data?.access_token) {
+        if (generation !== this.sessionGeneration) return false;
+        if (typeof data?.access_token === 'string' && data.access_token.length > 0) {
           this.accessToken = data.access_token as string;
           this.sessionEnded = false;
           return true;
         }
+        this.clearTokens();
         return false;
       } catch {
         return false;
@@ -558,7 +569,7 @@ export class ApiClient {
    * @returns `{ 'X-Access-Reason': reason }` for a GET whose path names the
    *   patient in the open chart; otherwise an empty object.
    */
-  private accessReasonHeaders(method: string, path: string): Record<string, string> {
+  private accessReasonHeaders(method: string, path: string, patientId?: string): Record<string, string> {
     if (method.toUpperCase() !== 'GET') return {};
     if (path.split('?')[0] === '/api/patients' && this.directoryPurpose) {
       return { 'X-Access-Reason': this.directoryPurpose };
@@ -567,7 +578,7 @@ export class ApiClient {
     if (!context) return {};
     // Match whole path segments only, so PAT-1 never matches PAT-10.
     const segments = path.split('?')[0].split('/').map(safeDecodeSegment);
-    if (!segments.includes(context.patientId)) return {};
+    if (patientId ? patientId !== context.patientId : !segments.includes(context.patientId)) return {};
     return context.contextId
       ? { 'X-Access-Reason': context.reason, 'X-Access-Context': context.contextId }
       : { 'X-Access-Reason': context.reason };
@@ -595,7 +606,7 @@ export class ApiClient {
     const idempotencyKey = isMutationMethod(method)
       ? (callerKey ?? createOperationKey())
       : undefined;
-    const reasonHeaders = this.accessReasonHeaders(method, path);
+    const reasonHeaders = this.accessReasonHeaders(method, path, options?.patientId);
     const requestHeaders = idempotencyKey
       ? { ...reasonHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey }
       : { ...reasonHeaders, ...options?.headers };

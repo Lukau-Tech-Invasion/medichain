@@ -1,3 +1,5 @@
+import { useTextSize } from './hooks/useTextSize';
+import { usePatientAuthStore } from './store/authStore';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { Layout, I18nProvider, DialogHost } from '@medichain/shared';
@@ -100,6 +102,8 @@ function PageLoader() {
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 function App() {
+  useTextSize();
+  const logout = usePatientAuthStore(state => state.logout);
   return (
     <I18nProvider>
     <ToastProvider>
@@ -113,7 +117,7 @@ function App() {
         path="/"
         element={
           <Suspense fallback={<PageLoader />}>
-            <Layout variant="patient" />
+            <Layout variant="patient" onLogout={logout} />
           </Suspense>
         }
       >

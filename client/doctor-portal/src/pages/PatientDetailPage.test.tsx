@@ -21,6 +21,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getGuardiansForWard: vi.fn(),
   updateGuardianPermissions: vi.fn(),
   updatePatient: vi.fn(),
+  getPatientRecords: vi.fn().mockResolvedValue([]),
 }));
 
 describe('PatientDetailPage', () => {
@@ -191,7 +192,7 @@ describe('PatientDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Records$/i }));
 
     expect(screen.getByRole('heading', { name: /Medical Records/i })).toBeInTheDocument();
-    expect(screen.getByText(/stored encrypted on IPFS/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/No uploaded documents/i)).toBeInTheDocument());
   });
 
   it('saves supported clinical details through the provider update API', async () => {
@@ -276,7 +277,7 @@ describe('PatientDetailPage', () => {
     );
   });
 
-  it('does not claim an on-chain anchoring for an unfinalized hash', async () => {
+  it('does not expose legacy blockchain details', async () => {
     // A transaction hash with `chain_finalized: false` is a placeholder. Showing
     // it as an anchoring would assert something that did not happen.
     vi.mocked(shared.getEmergencyCapsuleVersions).mockResolvedValue({
@@ -289,8 +290,9 @@ describe('PatientDetailPage', () => {
     await openAccessTab();
 
     await waitFor(() =>
-      expect(screen.getByText(/Not anchored on-chain/i)).toBeInTheDocument()
+      expect(screen.getByText(/Version 2 is in force/i)).toBeInTheDocument()
     );
+    expect(screen.queryByText(/on-chain/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/0xdeadbeef/)).not.toBeInTheDocument();
   });
 

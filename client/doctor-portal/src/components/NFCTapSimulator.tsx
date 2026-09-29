@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { EmergencyInfo } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
-import { usePatientStore } from '../store';
+import { usePatientStore, useAuthStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
 import { enterWorkContext, grantBoundEmergencyAccess, listUsableDevices } from '@medichain/shared';
 import type { UsableDevice } from '@medichain/shared';
@@ -25,6 +25,7 @@ interface NFCTapSimulatorProps {
 function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const navigate = useNavigate();
   const { setEmergencyAccess } = usePatientStore();
+  const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
   
   const [tapState, setTapState] = useState<TapState>('idle');
   const [nfcTagId, setNfcTagId] = useState('');
@@ -108,13 +109,13 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       // Navigate to patient detail after short delay
       setTimeout(() => {
-        navigate(`/patients/${data.emergency_info.patient_id}`);
+        if (!isParamedic) navigate(`/patients/${data.emergency_info.patient_id}`);
       }, 1500);
     } catch (err) {
       setTapState('error');
       setError(err instanceof Error ? err.message : 'Failed to access records');
     }
-  }, [deviceId, setEmergencyAccess, navigate, onEmergencyAccess]);
+  }, [deviceId, setEmergencyAccess, navigate, onEmergencyAccess, isParamedic]);
 
   /**
    * Use demo NFC tag
@@ -152,7 +153,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <p className="text-content-muted text-sm mt-1">
           {tapState === 'idle' && 'Tap patient NFC card or scan QR code'}
           {tapState === 'waiting' && 'Reading patient data...'}
-          {tapState === 'success' && 'Loading patient records...'}
+          {tapState === 'success' && (isParamedic ? 'Emergency summary is ready below.' : 'Loading patient records...')}
           {tapState === 'error' && error}
         </p>
       </div>

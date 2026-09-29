@@ -62,6 +62,22 @@ describe('SettingsPage (Patient)', () => {
     });
   });
 
+  it('applies each text size immediately and includes it in saved settings', async () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    const large = await screen.findByRole('button', { name: /^large$/i });
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled());
+    fireEvent.click(large);
+    expect(document.documentElement.style.fontSize).toBe('112.5%');
+    fireEvent.click(screen.getByRole('button', { name: /^small$/i }));
+    expect(document.documentElement.style.fontSize).toBe('87.5%');
+    fireEvent.click(screen.getByRole('button', { name: /^medium$/i }));
+    expect(document.documentElement.style.fontSize).toBe('100%');
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(saveUserSettings).toHaveBeenCalledWith(expect.objectContaining({
+      appSettings: expect.objectContaining({ fontSize: 'medium' }),
+    })));
+  });
+
   it('loads, edits, and persists settings plus Medical ID preferences', async () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>);
 

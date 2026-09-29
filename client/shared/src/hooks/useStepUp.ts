@@ -1,9 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiClient } from '../api/client';
-import { getSessionAssurance, mfaChallenge } from '../api/endpoints';
+import { getSessionAssurance, mfaChallenge, requestSignatureStepUp, verifySignatureStepUp } from '../api/endpoints';
+import { signMessage } from '../wallet/service';
+import { useTranslation } from '../i18n/react';
+import { debugLog } from '../config';
 
 /**
- * Recover from a `403 MFA_REQUIRED` instead of dead-ending on it.
+ * Recover from a TOTP or signature step-up refusal instead of dead-ending on it.
+ * Signature confirmation uses the interactive wallet extension required by
+ * ADR-0008; it never substitutes an already-unlocked application signer.
  *
  * # Why this exists
  *
@@ -27,7 +32,7 @@ import { getSessionAssurance, mfaChallenge } from '../api/endpoints';
  */
 
 /** What the server answers when a step-up (or an enrollment) is needed. */
-export type StepUpDemand = 'step_up' | 'enrollment' | null;
+export type StepUpDemand = 'step_up' | 'enrollment' | 'signature' | null;
 
 function errorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
@@ -46,6 +51,8 @@ function errorCode(error: unknown): string | null {
  */
 export function stepUpDemandOf(error: unknown): StepUpDemand {
   switch (errorCode(error)) {
+    case 'STEP_UP_REQUIRED':
+      return 'signature';
     case 'MFA_REQUIRED':
       return 'step_up';
     case 'MFA_ENROLLMENT_REQUIRED':
@@ -70,6 +77,8 @@ export interface StepUpState {
   run: <T>(action: () => Promise<T>) => Promise<T | undefined>;
   /** Supply a TOTP code for the held action. */
   submitCode: (code: string) => Promise<void>;
+  /** Ask the wallet extension to sign a fresh session challenge, then retry. */
+  submitSignature: () => Promise<void>;
   /** Abandon the held action. */
   cancel: () => void;
   /**
@@ -86,6 +95,10 @@ export interface StepUpState {
 }
 
 export function useStepUp(): StepUpState {
+  const { t } = useTranslation();
+  const attempt = useRef(0);
+  // Leaving the screen abandons its held mutation, even if the wallet is open.
+  useEffect(() => () => { attempt.current += 1; }, []);
   const [demand, setDemand] = useState<StepUpDemand>(null);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');
@@ -100,6 +113,7 @@ export function useStepUp(): StepUpState {
       const needed = stepUpDemandOf(err);
       if (!needed) throw err;
       setDemand(needed);
+      attempt.current += 1;
       setError('');
       setPending({ action: action as () => Promise<unknown> });
       return undefined;
@@ -133,10 +147,41 @@ export function useStepUp(): StepUpState {
   );
 
   const cancel = useCallback(() => {
+    attempt.current += 1;
     setPending(null);
     setDemand(null);
     setError('');
+    setVerifying(false);
   }, []);
+
+  /** Retry only if the user has not cancelled or changed login during signing. */
+  const submitSignature = useCallback(async () => {
+    if (!pending || demand !== 'signature' || verifying) return;
+    const currentAttempt = attempt.current;
+    const client = getApiClient();
+    const accessToken = client.getAccessToken();
+    const wallet = client.getUserId();
+    setVerifying(true);
+    setError('');
+    try {
+      if (!wallet || !accessToken) throw new Error('Session unavailable');
+      const { challenge } = await requestSignatureStepUp();
+      if (attempt.current !== currentAttempt || client.getAccessToken() !== accessToken) return;
+      const signature = await signMessage(wallet, challenge.message);
+      if (attempt.current !== currentAttempt || client.getAccessToken() !== accessToken) return;
+      const result = await verifySignatureStepUp(challenge, signature);
+      if (attempt.current !== currentAttempt || client.getAccessToken() !== accessToken) return;
+      if (!result.success) throw new Error('Signature refused');
+      await pending.action();
+      setPending(null);
+      setDemand(null);
+    } catch (failure) {
+      debugLog('useStepUp', 'Wallet confirmation failed', failure);
+      if (attempt.current === currentAttempt) setError(t('stepUp.signatureFailed'));
+    } finally {
+      if (attempt.current === currentAttempt) setVerifying(false);
+    }
+  }, [pending, demand, verifying, t]);
 
   const checkAssurance = useCallback(async (): Promise<boolean | null> => {
     try {
@@ -147,5 +192,5 @@ export function useStepUp(): StepUpState {
     }
   }, []);
 
-  return { demand, verifying, error, run, submitCode, cancel, checkAssurance };
+  return { demand, verifying, error, run, submitCode, submitSignature, cancel, checkAssurance };
 }

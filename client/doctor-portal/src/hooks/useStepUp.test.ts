@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useStepUp, stepUpDemandOf } from '@medichain/shared';
-import { mfaChallenge, getSessionAssurance } from '../../../shared/src/api/endpoints';
+import { mfaChallenge, getSessionAssurance, requestSignatureStepUp, verifySignatureStepUp } from '../../../shared/src/api/endpoints';
+import { signMessage } from '../../../shared/src/wallet/service';
 import { getApiClient } from '../../../shared/src/api/client';
 
 // The hook lives in `@medichain/shared`; the test lives here because that is
@@ -17,7 +18,10 @@ import { getApiClient } from '../../../shared/src/api/client';
 vi.mock('../../../shared/src/api/endpoints', () => ({
   mfaChallenge: vi.fn(),
   getSessionAssurance: vi.fn(),
+  requestSignatureStepUp: vi.fn(),
+  verifySignatureStepUp: vi.fn(),
 }));
+vi.mock('../../../shared/src/wallet/service', () => ({ signMessage: vi.fn() }));
 vi.mock('../../../shared/src/api/client', () => ({ getApiClient: vi.fn() }));
 
 /**
@@ -35,6 +39,7 @@ describe('stepUpDemandOf', () => {
   it('recognises both refusals, at the top level and nested under data.error', () => {
     expect(stepUpDemandOf(stepUpRefusal)).toBe('step_up');
     expect(stepUpDemandOf(enrolRefusal)).toBe('enrollment');
+    expect(stepUpDemandOf({ code: 'STEP_UP_REQUIRED' })).toBe('signature');
     expect(stepUpDemandOf({ data: { error: { code: 'MFA_REQUIRED' } } })).toBe('step_up');
   });
 
@@ -49,7 +54,55 @@ describe('useStepUp', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getApiClient).mockReturnValue({ setTokens } as never);
+    vi.mocked(getApiClient).mockReturnValue({
+      setTokens, getAccessToken: () => 'session-token', getUserId: () => 'registered-wallet',
+    } as never);
+  });
+
+  it('signs the server challenge interactively before retrying a signature-gated action', async () => {
+    const challenge = { challenge_id: 'challenge', nonce: 'nonce', message: 'server-issued-message' };
+    vi.mocked(requestSignatureStepUp).mockResolvedValue({ challenge });
+    vi.mocked(signMessage).mockResolvedValue('wallet-signature');
+    vi.mocked(verifySignatureStepUp).mockResolvedValue({ success: true });
+    const action = vi.fn().mockRejectedValueOnce({ code: 'STEP_UP_REQUIRED' }).mockResolvedValueOnce('done');
+    const { result } = renderHook(() => useStepUp());
+    await act(async () => { await result.current.run(action); });
+    expect(result.current.demand).toBe('signature');
+    await act(async () => { await result.current.submitSignature(); });
+    expect(signMessage).toHaveBeenCalledWith('registered-wallet', challenge.message);
+    expect(verifySignatureStepUp).toHaveBeenCalledWith(challenge, 'wallet-signature');
+    expect(action).toHaveBeenCalledTimes(2);
+    expect(result.current.demand).toBeNull();
+  });
+
+  it('does not retry when signature verification fails', async () => {
+    vi.mocked(requestSignatureStepUp).mockResolvedValue({ challenge: { challenge_id: 'c', nonce: 'n', message: 'm' } });
+    vi.mocked(signMessage).mockResolvedValue('signature');
+    vi.mocked(verifySignatureStepUp).mockRejectedValue(new Error('private storage failure'));
+    const action = vi.fn().mockRejectedValue({ code: 'STEP_UP_REQUIRED' });
+    const { result } = renderHook(() => useStepUp());
+    await act(async () => { await result.current.run(action); });
+    await act(async () => { await result.current.submitSignature(); });
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.error).not.toContain('private storage failure');
+    expect(result.current.demand).toBe('signature');
+  });
+
+  it('does not retry a cancelled action after the wallet returns', async () => {
+    vi.mocked(requestSignatureStepUp).mockResolvedValue({ challenge: { challenge_id: 'c', nonce: 'n', message: 'm' } });
+    let finish!: (signature: string) => void;
+    vi.mocked(signMessage).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const action = vi.fn().mockRejectedValue({ code: 'STEP_UP_REQUIRED' });
+    const { result } = renderHook(() => useStepUp());
+    await act(async () => { await result.current.run(action); });
+    let signing!: Promise<void>;
+    await act(async () => { signing = result.current.submitSignature(); });
+    act(() => { result.current.cancel(); });
+    await act(async () => { finish('late-signature'); await signing; });
+    expect(verifySignatureStepUp).not.toHaveBeenCalled();
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(result.current.demand).toBeNull();
   });
 
   it('passes a successful action straight through', async () => {
@@ -63,6 +116,26 @@ describe('useStepUp', () => {
 
     expect(value).toBe('done');
     expect(result.current.demand).toBeNull();
+  });
+
+  it.each(['unmount', 'logout'])('abandons a pending signature on %s', async (event) => {
+    let accessToken: string | undefined = 'session-token';
+    vi.mocked(getApiClient).mockReturnValue({
+      setTokens, getAccessToken: () => accessToken, getUserId: () => 'registered-wallet',
+    } as never);
+    vi.mocked(requestSignatureStepUp).mockResolvedValue({ challenge: { challenge_id: 'c', nonce: 'n', message: 'm' } });
+    let finish!: (signature: string) => void;
+    vi.mocked(signMessage).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const action = vi.fn().mockRejectedValue({ code: 'STEP_UP_REQUIRED' });
+    const { result, unmount } = renderHook(() => useStepUp());
+    await act(async () => { await result.current.run(action); });
+    let signing!: Promise<void>;
+    await act(async () => { signing = result.current.submitSignature(); });
+    if (event === 'unmount') unmount();
+    else accessToken = undefined;
+    await act(async () => { finish('late-signature'); await signing; });
+    expect(verifySignatureStepUp).not.toHaveBeenCalled();
+    expect(action).toHaveBeenCalledTimes(1);
   });
 
   it('holds a refused action, then retries it with the elevated token', async () => {

@@ -588,11 +588,10 @@ function Layout() {
 
       {/* Quick Actions */}
       {(!isCollapsed || isMobile) && (
-        <div className="px-3 py-3 border-t border-border">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-content-muted uppercase tracking-wide">Quick Actions</span>
-          </div>
-          <div className="flex gap-2 flex-wrap">
+        <div className="shrink-0 px-3 py-2 border-t border-border">
+          <details>
+          <summary className="min-h-[36px] cursor-pointer text-sm font-medium text-content-muted flex items-center">Quick actions <span className="ml-auto" aria-hidden="true">+</span></summary>
+          <div className="flex gap-2 flex-wrap pt-2">
             {getQuickActionsForRole(userRole).map(action => (
               <button
                 key={action.id}
@@ -601,19 +600,20 @@ function Layout() {
                 aria-label={action.label}
               >
                 <action.icon size={14} />
-                <span className="hidden sm:inline">{action.label}</span>
+                <span >{action.label}</span>
               </button>
             ))}
           </div>
+          </details>
         </div>
       )}
 
       {/* User info & logout */}
-      <div className="p-3 border-t border-border">
+      <div className="shrink-0 p-2 border-t border-border">
         {(!isCollapsed || isMobile) ? (
           <>
-            <div className="flex items-center gap-3 mb-3 px-2">
-              <div className={`w-10 h-10 ${theme.bgLight} rounded-full flex items-center justify-center`}>
+            <div className="flex items-center gap-2 mb-1 px-2">
+              <div className={`w-8 h-8 ${theme.bgLight} rounded-full flex items-center justify-center`}>
                 <Activity className={theme.textLight} size={20} />
               </div>
               <div className="flex-1 min-w-0">
@@ -628,9 +628,10 @@ function Layout() {
                 full-screen portal -- which is how every clinician runs this --
                 there was no control for notifications anywhere on the page.
                 The badge counted them and nothing could open them. */}
+            <div className="flex items-center gap-1">
             <button
               onClick={() => navigate('/notifications')}
-              className="w-full flex items-center justify-between gap-2 px-4 py-2 mb-1 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
+              className="flex-1 min-h-[44px] flex items-center justify-between gap-1 px-2 py-2 text-sm text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
               // The tooltip names what the control does. It used to report the
               // SSE connection state, so hovering "Notifications" said "Live
               // Connection Active" -- which describes the bell's colour, not
@@ -658,11 +659,12 @@ function Layout() {
             </button>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
+              className="min-h-[44px] flex items-center justify-center gap-1 px-2 py-2 text-sm text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
             >
               <LogOut size={18} />
               <span>Logout</span>
             </button>
+            </div>
           </>
         ) : (
           <>

@@ -44,7 +44,7 @@ describe('LoginPage (Patient)', () => {
 
     expect(screen.getByText(/Welcome to MediChain/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/5ABC...XYZ/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Connect Wallet/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Sign in$/i })).toBeInTheDocument();
   });
 
   it('shows error message if wallet address is empty', async () => {
@@ -54,10 +54,10 @@ describe('LoginPage (Patient)', () => {
       </BrowserRouter>
     );
 
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
+    const loginButton = screen.getByRole('button', { name: /^Sign in$/i });
     fireEvent.click(loginButton);
 
-    expect(await screen.findByText(/Please enter your wallet address/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Please enter your account sign-in address/i)).toBeInTheDocument();
   });
 
   it('shows error message if wallet address format is invalid', async () => {
@@ -70,10 +70,10 @@ describe('LoginPage (Patient)', () => {
     const input = screen.getByPlaceholderText(/5ABC...XYZ/i);
     fireEvent.change(input, { target: { value: 'invalid-address' } });
 
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
+    const loginButton = screen.getByRole('button', { name: /^Sign in$/i });
     fireEvent.click(loginButton);
 
-    expect(await screen.findByText(/Invalid wallet address format/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Invalid account sign-in address format/i)).toBeInTheDocument();
   });
 
   it('calls login when valid wallet address is provided', async () => {
@@ -89,7 +89,7 @@ describe('LoginPage (Patient)', () => {
     const input = screen.getByPlaceholderText(/5ABC...XYZ/i);
     fireEvent.change(input, { target: { value: validAddress } });
 
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
+    const loginButton = screen.getByRole('button', { name: /^Sign in$/i });
     fireEvent.click(loginButton);
 
     await waitFor(() => {

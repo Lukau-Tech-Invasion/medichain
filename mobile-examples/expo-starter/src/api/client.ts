@@ -101,7 +101,7 @@ export class MobileApiClient {
   async issueJwt(walletAddress: string): Promise<JwtTokens> {
     const resp = await fetch(`${this.baseUrl}/api/auth/jwt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Refresh-Transport': 'body' },
       body: JSON.stringify({ wallet_address: walletAddress }),
     });
     if (!resp.ok) throw new Error(`JWT issuance failed: ${resp.status}`);
@@ -166,13 +166,14 @@ export class MobileApiClient {
     try {
       const resp = await fetch(`${this.baseUrl}/api/auth/jwt/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Refresh-Transport': 'body' },
         body: JSON.stringify({ refresh_token: this.refreshToken }),
       });
       if (!resp.ok) return false;
       const data = await resp.json();
-      if (data?.access_token) {
+      if (data?.access_token && data?.refresh_token) {
         this.accessToken = data.access_token;
+        this.refreshToken = data.refresh_token;
         return true;
       }
       return false;

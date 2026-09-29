@@ -569,14 +569,19 @@ export const useAuthStore = create<AuthState>()(
         }
 
         if (await getApiClient().restoreSession()) {
+          const restoredToken = getApiClient().getAccessToken();
           // A reload leaves the legacy session token; re-enter the work context
           // the professional screens run under, as sign-in does.
           try {
             const context = await enterWorkContext();
+            if (getProviderAuth()?.address !== storedAuth.address ||
+                getApiClient().getAccessToken() !== restoredToken) return false;
             getApiClient().setTokens(context.access_token);
           } catch (contextError) {
             debugLog('authStore', 'Work context unavailable after restore:', contextError);
           }
+          if (getProviderAuth()?.address !== storedAuth.address ||
+              !getApiClient().getAccessToken()) return false;
           const user: User = get().user ?? {
             walletAddress: storedAuth.address,
             userId: storedAuth.address,

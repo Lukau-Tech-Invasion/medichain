@@ -273,9 +273,12 @@ export function MedicationRemindersPage() {
               className="w-full border border-border-interactive rounded-lg px-3 py-2 bg-surface text-content"
               rows={3}
               value={times}
-              onChange={(e) => setTimes(e.target.value)}
+              onChange={(e) => { setTimes(e.target.value); clearField('reminderTimeCount'); }}
+              aria-invalid={Boolean(errors.reminderTimeCount)}
+              aria-describedby={errors.reminderTimeCount ? 'reminder-times-error' : undefined}
               placeholder={t('medications.reminderTimesPh')}
             />
+            {errors.reminderTimeCount && <p id="reminder-times-error" role="alert" className="text-critical text-sm">{errors.reminderTimeCount}</p>}
           </div>
           <div className="flex gap-2">
             <button

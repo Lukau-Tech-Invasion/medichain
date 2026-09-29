@@ -163,13 +163,14 @@ export function VitalsPage() {
               >
                 <p className="text-sm text-content">
                   {t('vitals.fluidLine', {
-                    intake: String(record.total_intake_ml ?? record.intake_ml ?? '—'),
-                    output: String(record.total_output_ml ?? record.output_ml ?? '—'),
+                    intake: String(record.total_intake ?? record.total_intake_ml ?? record.intake_ml ?? '—'),
+                    output: String(record.total_output ?? record.total_output_ml ?? record.output_ml ?? '—'),
                   })}
                 </p>
-                {record.recorded_at ? (
+                {record.recorded_at || record.record_date ? (
                   <p className="text-xs text-content-muted">
-                    {formatTimestamp(String(record.recorded_at))}
+                    {record.recorded_at ? formatTimestamp(String(record.recorded_at)) :
+                      formatTimestamp(String(record.record_date), { dateStyle: 'medium' })}
                   </p>
                 ) : null}
               </li>

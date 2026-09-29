@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
-import { ChartAccessPrompt, ReasonPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
+import { ChartAccessPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
 import type { DeclaredAccess } from './ChartAccess';
 
 interface AccessReasonGateProps {
@@ -32,7 +32,7 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
     setAccess(declaredAccessFor(patientId));
   }, [patientId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!patientId || !access) return undefined;
     applyAccess(patientId, access);
     return () => getApiClient().setPatientAccessContext(undefined);
@@ -44,24 +44,23 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
   return <ChartAccessPrompt patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />;
 }
 
-/** Ask once per portal session before any patient directory search is issued. */
+/**
+ * Initialise directory audit context without interrupting portal navigation.
+ * This labels the actual directory operation, not a clinician-declared reason
+ * for accessing a chart. Selecting a patient still opens ChartAccessPrompt.
+ * Children wait until the header is installed so their first search is audited.
+ */
 export function DirectoryReasonGate({ children }: { children: ReactNode }) {
-  const { t } = useTranslation();
   const role = useAuthStore((state) => state.user?.role);
-  const [reason, setReason] = useState<string>();
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => () => getApiClient().setDirectoryPurpose(undefined), []);
+  useEffect(() => {
+    getApiClient().setDirectoryPurpose('Patient directory lookup');
+    setReady(true);
+    return () => getApiClient().setDirectoryPurpose(undefined);
+  }, []);
 
-  if (role === 'Paramedic') return <>{children}</>;
-
-  if (!reason) {
-    return <ReasonPrompt
-      title={t('accessReason.directoryTitle')}
-      onDeclare={(chosen) => {
-        getApiClient().setDirectoryPurpose(chosen);
-        setReason(chosen);
-      }}
-    />;
-  }
-  return <>{children}</>;
+  if (role === 'Paramedic' || ready) return <>{children}</>;
+  return null;
 }
+

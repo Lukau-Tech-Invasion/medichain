@@ -5,7 +5,7 @@
  * Prioritizes caching critical emergency data.
  */
 
-const STATIC_CACHE = 'medichain-patient-static-v3';
+const STATIC_CACHE = 'medichain-patient-static-v4';
 const DATA_CACHE = 'medichain-patient-data-v3';
 
 // Docker mounts this app at `/patient/`. Keep every cached and notification
@@ -103,7 +103,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets - cache first
+  // HTML must follow a deployment; cache-first navigation kept old screens
+  // alive indefinitely. Preserve the offline shell when the network fails.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(async () =>
+        (await caches.match(request)) || (await caches.match(OFFLINE_PAGE)) ||
+        new Response('Offline', { status: 503 })
+      )
+    );
+    return;
+  }
+
+  // Hashed static assets - cache first
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;

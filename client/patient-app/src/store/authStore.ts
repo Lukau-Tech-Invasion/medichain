@@ -267,6 +267,9 @@ export const usePatientAuthStore = create<AuthState>()(
         if (get().isAuthenticated && getApiClient().getAccessToken()) return true;
         set({ isLoading: true });
         if (await getApiClient().restoreSession()) {
+          // Logout or another sign-in may have won while refresh was pending.
+          if (getPatientAuth()?.address !== storedAuth.address ||
+              !getApiClient().getAccessToken()) return false;
           set({
             patient: get().patient ?? {
               walletAddress: storedAuth.address,

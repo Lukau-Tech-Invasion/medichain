@@ -1269,9 +1269,10 @@ export async function downloadMedicalRecord(
  * handler resolves to the stored JSON record.
  */
 export async function downloadRecordContent(
-  contentHash: string
+  contentHash: string,
+  patientId?: string,
 ): Promise<{ blob: Blob; contentType: string }> {
-  return getApiClient().getBlob(`/api/records/${encodeURIComponent(contentHash)}/download`);
+  return getApiClient().getBlob(`/api/records/${encodeURIComponent(contentHash)}/download`, { patientId });
 }
 
 /**
@@ -3754,6 +3755,11 @@ export async function getMedicalId(patientId: string): Promise<MedicalIdCard> {
   return getApiClient().get(`/api/medical-id/${patientId}`);
 }
 
+/** Fetch the patient's QR image using the authenticated API client. */
+export async function getMedicalIdQr(patientId: string): Promise<{ qr_image_base64: string | null }> {
+  return getApiClient().get(`/api/medical-id/${encodeURIComponent(patientId)}/qr`);
+}
+
 // ============================================================================
 // Insurance
 // ============================================================================
@@ -5013,6 +5019,30 @@ export async function getSessionAssurance(): Promise<{
   step_up_ttl_secs: number;
 }> {
   return getApiClient().get('/api/auth/assurance');
+}
+
+/** Server-issued, single-use challenge bound to this login session (ADR-0008). */
+export interface SignatureStepUpChallenge {
+  challenge_id: string;
+  nonce: string;
+  message: string;
+}
+
+/** Request a fresh wallet challenge; returns the exact bytes the wallet signs. */
+export async function requestSignatureStepUp(): Promise<{ challenge: SignatureStepUpChallenge }> {
+  return getApiClient().post('/api/auth/step-up/challenge', {});
+}
+
+/** Verify an interactive wallet proof; elevation remains server-side on the session. */
+export async function verifySignatureStepUp(
+  challenge: SignatureStepUpChallenge, signature: string,
+): Promise<{ success: boolean }> {
+  return getApiClient().post('/api/auth/step-up/verify', {
+    challenge_id: challenge.challenge_id,
+    nonce: challenge.nonce,
+    signature,
+    authenticator: 'polkadot_extension',
+  });
 }
 
 // ============================================================================

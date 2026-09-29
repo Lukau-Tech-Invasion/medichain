@@ -1,3 +1,4 @@
+import PharmacistDashboardPage from './PharmacistDashboardPage';
 import React, { useState } from 'react';
 import {
   createEPrescription,
@@ -162,6 +163,9 @@ export default function EPrescribePage() {
     }));
   };
 
+  // Pharmacists review and dispense existing prescriptions in their own workspace.
+  if (user?.role === 'Pharmacist') return <PharmacistDashboardPage />;
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
@@ -209,7 +213,7 @@ export default function EPrescribePage() {
         </div>
       )}
       {mayPrescribe && <RefillRequestQueue />}
-      <form onSubmit={handleSubmit} className="space-y-6">
+      {mayPrescribe && <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
         <div className="bg-surface shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-content mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
@@ -379,7 +383,7 @@ export default function EPrescribePage() {
             {isSubmitting ? t('docEPrescribe.sending') : t('docEPrescribe.send')}
           </button>
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

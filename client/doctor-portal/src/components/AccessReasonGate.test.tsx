@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider, getApiClient } from '@medichain/shared';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
@@ -79,6 +80,21 @@ describe('AccessReasonGate', () => {
     expect(screen.getByText('chart contents')).toBeInTheDocument();
   });
 
+  it('restores the reason before a reopened chart sends its first read', async () => {
+    const first = renderGate('PAT-REOPEN');
+    fireEvent.click(screen.getByRole('button', { name: 'Treatment' }));
+    await screen.findByText('chart contents');
+    first.unmount();
+    const setContext = vi.spyOn(getApiClient(), 'setPatientAccessContext');
+    const firstRead = vi.fn();
+    function ReadingChart() {
+      useEffect(() => { firstRead(); }, []);
+      return <p>reopened chart</p>;
+    }
+    render(<I18nProvider><AccessReasonGate patientId="PAT-REOPEN"><ReadingChart /></AccessReasonGate></I18nProvider>);
+    expect(setContext).toHaveBeenCalledWith({ patientId: 'PAT-REOPEN', reason: 'treatment', contextId: 'ACX-1' });
+    expect(setContext.mock.invocationCallOrder[0]).toBeLessThan(firstRead.mock.invocationCallOrder[0]);
+  });
   it('offers break-glass when the server finds no care relationship', async () => {
     global.fetch = vi.fn().mockImplementation(() =>
       answer(403, { error: 'No care relationship', code: 'CARE_RELATIONSHIP_REQUIRED', break_glass_available: true }),
@@ -101,21 +117,20 @@ describe('AccessReasonGate', () => {
 });
 
 describe('DirectoryReasonGate', () => {
-  it('does not mount directory callers before a purpose is declared', () => {
+  it('opens portal navigation without a reason popup and keeps directory auditing', async () => {
     const setPurpose = vi.spyOn(getApiClient(), 'setDirectoryPurpose');
     const { unmount } = render(
       <I18nProvider><DirectoryReasonGate><p>directory callers</p></DirectoryReasonGate></I18nProvider>,
     );
-    expect(screen.queryByText('directory callers')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Treatment' }));
-    expect(screen.getByText('directory callers')).toBeInTheDocument();
-    expect(setPurpose).toHaveBeenCalledWith('treatment');
+    expect(await screen.findByText('directory callers')).toBeInTheDocument();
+    expect(screen.queryByTestId('access-reason-gate')).not.toBeInTheDocument();
+    expect(setPurpose).toHaveBeenCalledWith('Patient directory lookup');
     unmount();
     expect(setPurpose).toHaveBeenLastCalledWith(undefined);
     vi.restoreAllMocks();
   });
 
-  it('sends the declared purpose with a directory request', async () => {
+  it('sends an honest workflow label with a directory request', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
@@ -124,10 +139,11 @@ describe('DirectoryReasonGate', () => {
     const { unmount } = render(
       <I18nProvider><DirectoryReasonGate><p>directory callers</p></DirectoryReasonGate></I18nProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Referral' }));
+    await screen.findByText('directory callers');
     await getApiClient().get('/api/patients?q=Smith');
     const options = vi.mocked(global.fetch).mock.calls[0][1] as RequestInit;
-    expect((options.headers as Record<string, string>)['X-Access-Reason']).toBe('referral');
+    expect((options.headers as Record<string, string>)['X-Access-Reason']).toBe('Patient directory lookup');
     unmount();
   });
 });
+

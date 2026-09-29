@@ -104,6 +104,10 @@ function EmergencyAccessPage() {
                 >
                   {t('docEmergencyAccess.endAccess')}
                 </button>
+                {isParamedic && <button type="button" onClick={() => navigate('/ems-handoff')}
+                  className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg font-medium">
+                  Start ambulance handover
+                </button>}
                 {!isParamedic && <button
                   type="button"
                   onClick={() => navigate(`/patients/${currentEmergency.patientId}`)}

@@ -50,6 +50,61 @@ describe('authentication state invariant', () => {
 
   // --- the states that must remain impossible -----------------------------
 
+  it('restores through one shared cookie request for concurrent callers', async () => {
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const first = api.restoreSession();
+    const second = api.restoreSession();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith('/api/auth/jwt/refresh', expect.objectContaining({
+      credentials: 'include', method: 'POST',
+    }));
+    finish(new Response(JSON.stringify({ access_token: 'restored' }), { status: 200 }));
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(api.getAccessToken()).toBe('restored');
+  });
+
+  it('refuses malformed refresh responses without falling back to wallet identity', async () => {
+    api.setUserId(WALLET);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ access_token: {} }), { status: 200 }));
+    expect(await api.restoreSession()).toBe(false);
+    expect(api.getAccessToken()).toBeUndefined();
+    expect(api.getSessionHeaders()).toEqual({});
+  });
+
+  it('does not restore a token after logout during cookie refresh', async () => {
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const restoring = api.restoreSession();
+    await api.endSession();
+    finish(new Response(JSON.stringify({ access_token: 'late-token' }), { status: 200 }));
+    expect(await restoring).toBe(false);
+    expect(api.getAccessToken()).toBeUndefined();
+    expect(api.getSessionHeaders(WALLET)).toEqual({});
+  });
+
+  it('clears local credentials before the logout request completes', async () => {
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    api.setTokens('access');
+    const ending = api.endSession();
+    expect(api.getAccessToken()).toBeUndefined();
+    api.setTokens('new-login');
+    finish(new Response(null, { status: 200 }));
+    expect(await ending).toBe(true);
+    expect(api.getAccessToken()).toBe('new-login');
+  });
+
+  it('does not overwrite a newer login with an older refresh response', async () => {
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const restoring = api.restoreSession();
+    api.setTokens('new-login');
+    finish(new Response(JSON.stringify({ access_token: 'old-login' }), { status: 200 }));
+    expect(await restoring).toBe(false);
+    expect(api.getAccessToken()).toBe('new-login');
+  });
+
   it('emits no identity when a session ends, even with a wallet still set', () => {
     // This is the shape of the defect: a "signed in" client with no token. If
     // headers still carried an identity here, the legacy fallback would make an

@@ -16,7 +16,6 @@ import {
   Pill,
   Wifi,
   WifiOff,
-  LogOut,
 } from 'lucide-react';
 
 interface PatientData {
@@ -54,7 +53,7 @@ interface RecentActivity {
 export function DashboardPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { patient, isAuthenticated, logout } = usePatientAuthStore();
+  const { patient, isAuthenticated } = usePatientAuthStore();
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -148,11 +147,6 @@ export function DashboardPage() {
     }
   }, [patient, t]);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   const formatBloodType = (bt: string | undefined): string => {
     if (!bt) return 'Unknown';
     const map: Record<string, string> = {
@@ -229,13 +223,7 @@ export function DashboardPage() {
               </span>
             )}
           </button>
-          <button 
-            onClick={handleLogout}
-            className="p-2 text-content-muted hover:bg-critical-subtle hover:text-critical-subtle-fg rounded-xl transition-colors"
-            title={t('dashboard.disconnectWallet')}
-          >
-            <LogOut className="w-6 h-6" />
-          </button>
+
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { PatientNavigation } from './PatientNavigation';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
   LayoutDashboard,
@@ -39,6 +40,7 @@ import { useToastActions } from './Toast';
 
 interface LayoutProps {
   variant?: 'doctor' | 'patient';
+  onLogout?: () => void;
 }
 
 interface NavItem {
@@ -59,7 +61,7 @@ interface NavSection {
  * 
  * @param variant - 'doctor' for healthcare provider portal, 'patient' for patient portal
  */
-export function Layout({ variant = 'doctor' }: LayoutProps) {
+export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -158,7 +160,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   // Comprehensive patient navigation organized by sections
   const patientNavSections: NavSection[] = [
     {
-      label: 'Main',
+      label: 'My essentials',
       items: [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/profile', label: 'My Profile', icon: User },
@@ -167,10 +169,10 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       ],
     },
     {
-      label: 'Health',
+      label: 'My health',
       items: [
         { path: '/medications', label: 'Medications', icon: Pill },
-        { path: '/reminders', label: 'Med Reminders', icon: Bell },
+        { path: '/reminders', label: 'Medication reminders', icon: Bell },
         { path: '/vitals', label: 'Vital Signs', icon: Activity },
         { path: '/lab-results', label: 'Lab Results', icon: FlaskConical },
         { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
@@ -181,7 +183,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       ],
     },
     {
-      label: 'Care',
+      label: 'My care team',
       items: [
         { path: '/appointments', label: 'Appointments', icon: Calendar },
         { path: '/telehealth', label: 'Telehealth', icon: Video },
@@ -190,7 +192,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       ],
     },
     {
-      label: 'Account',
+      label: 'Privacy and account',
       items: [
         { path: '/consent', label: 'Access Control', icon: Shield },
         { path: '/access-history', label: 'Who Viewed My Records', icon: Eye },
@@ -226,7 +228,8 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   const brandColor = variant === 'doctor' ? 'primary' : 'health';
 
   const handleLogout = () => {
-    localStorage.clear();
+    if (onLogout) onLogout();
+    else localStorage.clear();
     navigate('/login');
   };
 
@@ -305,59 +308,18 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                 );
               })}
               {variant === 'patient' && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-expanded={patientDesktopMenuOpen}
-                    aria-controls="patient-desktop-navigation"
-                    onClick={() => setPatientDesktopMenuOpen((open) => !open)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-content-muted hover:bg-surface-sunken transition-colors"
-                  >
-                    <Menu className="w-5 h-5" />
-                    <span className="text-sm">More</span>
-                  </button>
-                  {patientDesktopMenuOpen && (
-                    <div
-                      id="patient-desktop-navigation"
-                      className="absolute right-0 top-full mt-2 z-50 grid w-[44rem] grid-cols-2 gap-x-6 gap-y-4 rounded-xl border border-border bg-surface p-5 shadow-lg"
-                    >
-                      {patientNavSections.map((section) => (
-                        <section key={section.label} aria-label={section.label}>
-                          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-muted">
-                            {section.label}
-                          </h2>
-                          <div className="space-y-1">
-                            {section.items.map((item) => {
-                              const Icon = item.icon;
-                              const isActive = location.pathname === item.path;
-                              return (
-                                <Link
-                                  key={item.path}
-                                  to={item.path}
-                                  onClick={() => setPatientDesktopMenuOpen(false)}
-                                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                                    isActive
-                                      ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                                      : 'text-content-muted hover:bg-surface-sunken'
-                                  }`}
-                                >
-                                  <Icon className="w-4 h-4" />
-                                  <span>{item.label}</span>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <button type="button" onClick={() => setPatientDesktopMenuOpen(true)}
+                  aria-haspopup="dialog" aria-expanded={patientDesktopMenuOpen}
+                  className="flex min-h-[44px] items-center gap-2 px-3 rounded-xl text-content hover:bg-surface-sunken">
+                  <Menu className="w-5 h-5" /><span>All pages</span>
+                </button>
               )}
             </div>
 
             {/* Right Actions */}
             <div className="flex items-center gap-3">
               <button 
+                aria-label="Notifications"
                 onClick={() => navigate('/notifications')}
                 className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
@@ -367,59 +329,34 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                 {!isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-red-400 rounded-full" />}
               </button>
 
-              <button
+              {variant !== 'patient' && <button
+                aria-label="Sign out"
                 onClick={handleLogout}
                 className="hidden sm:flex items-center gap-2 px-4 py-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
               >
                 <LogOut className="w-5 h-5" />
-              </button>
+              </button>}
 
               {/* Mobile Menu Button */}
               <button
+                aria-label="Open navigation"
+                aria-haspopup={variant === 'patient' ? 'dialog' : undefined}
+                aria-expanded={mobileMenuOpen}
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="lg:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
+                className="lg:hidden min-h-[44px] flex items-center gap-2 p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                {variant === 'patient' && <span>Menu</span>}
               </button>
             </div>
           </div>
         </div>
 
         {/* Mobile Navigation */}
-        {mobileMenuOpen && (
+        {mobileMenuOpen && variant === 'doctor' && (
           <div className="lg:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
             <div className="px-4 py-2">
-              {variant === 'patient' ? (
-                // Sectioned navigation for patient
-                patientNavSections.map((section) => (
-                  <div key={section.label} className="mb-4">
-                    <p className="text-xs font-semibold text-content-muted uppercase tracking-wider px-4 py-2">
-                      {section.label}
-                    </p>
-                    <div className="space-y-1">
-                      {section.items.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = location.pathname === item.path;
-                        return (
-                          <Link
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setMobileMenuOpen(false)}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                              isActive
-                                ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                                : 'text-content-muted hover:bg-surface-sunken'
-                            }`}
-                          >
-                            <Icon className="w-5 h-5" />
-                            <span>{item.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              ) : (
+              {(
                 // Simple navigation for doctor
                 <div className="space-y-1">
                   {doctorNavItems.map((item) => {
@@ -444,6 +381,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                 </div>
               )}
               <button
+                aria-label="Sign out"
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors mt-4"
               >
@@ -454,6 +392,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
           </div>
         )}
       </nav>
+
+      {variant === 'patient' && (mobileMenuOpen || patientDesktopMenuOpen) && (
+        <PatientNavigation sections={patientNavSections} onClose={() => {
+          setMobileMenuOpen(false);
+          setPatientDesktopMenuOpen(false);
+        }} onLogout={handleLogout} />
+      )}
 
       {/* Main Content
           The boundary sits inside the layout, not around it, so a page that

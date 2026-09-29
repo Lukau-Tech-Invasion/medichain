@@ -1,3 +1,4 @@
+import { PatientRecordDocuments } from '../components/PatientRecordDocuments';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -242,7 +243,8 @@ function PatientDetailPage() {
   const vitalOrDash = (key: string, suffix = ''): string => {
     const value = latestVitals?.[key];
     if (value === null || value === undefined || value === '') return '—';
-    return `${value}${suffix}`;
+    const display = key === 'temperature_celsius' && typeof value === 'number' ? value.toFixed(1) : value;
+    return `${display}${suffix}`;
   };
 
   // Recording and ending a guardianship both run through
@@ -803,10 +805,7 @@ function PatientDetailPage() {
             <FileText className="text-content-muted" size={20} />
             <h3 className="font-semibold text-content">{t('docPatientDetail.medicalRecords')}</h3>
           </div>
-          <p className="text-content-muted text-center py-8">
-            {t('docPatientDetail.recordsLine1')}<br />
-            {t('docPatientDetail.recordsLine2')}
-          </p>
+          {patientId && <PatientRecordDocuments key={patientId} patientId={patientId} />}
         </div>
       )}
 
@@ -870,13 +869,6 @@ function PatientDetailPage() {
                               version: entry.version,
                               date: formatTimestamp(entry.created_at),
                             })}
-                          </p>
-                          <p className="text-xs text-content-muted break-all">
-                            {/* A hash without `chain_finalized` is a
-                                placeholder, not an anchoring. */}
-                            {entry.chain_finalized && entry.chain_tx_hash
-                              ? t('docPatientDetail.capsuleAnchored', { hash: entry.chain_tx_hash })
-                              : t('docPatientDetail.capsuleNotAnchored')}
                           </p>
                           {entry.revoked_at && (
                             <p className="text-xs text-content-muted mt-1">

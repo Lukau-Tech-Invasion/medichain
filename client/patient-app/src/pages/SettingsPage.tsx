@@ -1,4 +1,4 @@
-import { ChainNetworkLabel } from '@medichain/shared';
+import { applyTextSize } from '../hooks/useTextSize';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -162,6 +162,11 @@ export function SettingsPage() {
   useEffect(() => {
     if (!isLoading) setSaveSucceeded(false);
   }, [notifications, privacy, appSettings, isLoading]);
+
+  // Preview the preference immediately; Save persists it for the next sign-in.
+  useEffect(() => {
+    if (!isLoading) applyTextSize(appSettings.fontSize);
+  }, [appSettings.fontSize, isLoading]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -363,7 +368,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -833,7 +838,6 @@ export function SettingsPage() {
       <div className="text-center text-xs text-content-muted space-y-1">
         <p>MediChain Patient App v1.0.0</p>
         <p>{t('common.copyright')}</p>
-        <ChainNetworkLabel />
       </div>
 
       {/* Logout Confirmation Modal */}

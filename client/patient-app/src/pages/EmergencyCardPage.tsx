@@ -11,7 +11,6 @@ import {
   normalizePhone,
   EmptyState,
 } from '@medichain/shared';
-import { CapsuleVerify } from '../components/CapsuleVerify';
 import type { EmergencyCapsuleAccess } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -360,7 +359,7 @@ export function EmergencyCardPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="text-center">
         <h1 className="text-2xl font-bold text-content">{t('emergency.cardTitle')}</h1>
@@ -673,13 +672,6 @@ export function EmergencyCardPage() {
           })()}
         </div>
       </div>
-
-      {/* Check the card against the blockchain (WP8) */}
-      {patientId && (
-        <div className="bg-surface rounded-xl shadow p-4 mb-4">
-          <CapsuleVerify patientId={patientId} />
-        </div>
-      )}
 
       {/* Who has opened this card */}
       <div className="bg-surface rounded-xl shadow p-4 mb-4">

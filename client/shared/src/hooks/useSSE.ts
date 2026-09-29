@@ -43,7 +43,7 @@ export function useSSE(): UseSSEReturn {
     // the login page produced a 401 in the console and then retried it every
     // five seconds forever. Wait for an identity instead of guessing one; the
     // watcher in the effect below connects as soon as sign-in provides it.
-    if (!userId) {
+    if (!userId || document.visibilityState === 'hidden' || !document.hasFocus()) {
       connectedUserRef.current = null;
       setIsConnected(false);
       setError(null);
@@ -65,6 +65,7 @@ export function useSSE(): UseSSEReturn {
         signal: controller.signal,
       });
 
+      if (controller.signal.aborted || abortControllerRef.current !== controller) return;
       if (!response.ok) {
         // A rejected credential is not a transient fault, so retrying it on a
         // timer only produces a repeating 401 against a protected endpoint.
@@ -97,6 +98,7 @@ export function useSSE(): UseSSEReturn {
       // stream: it breaks when the reader reports `done`.
       for (;;) {
         const { value, done } = await reader.read();
+        if (controller.signal.aborted || abortControllerRef.current !== controller) return;
         if (done) {
           debugLog('useSSE', 'SSE stream ended');
           // Clear the connected identity so the watcher re-opens the stream.
@@ -129,6 +131,7 @@ export function useSSE(): UseSSEReturn {
         }
       }
     } catch (err) {
+      if (abortControllerRef.current !== controller) return;
       // An abort is this hook's own teardown, not a failure: reconnecting after
       // one would fight the unmount that caused it. Narrowed rather than read
       // off `any`, because a thrown non-Error (a string, a rejected fetch
@@ -166,7 +169,24 @@ export function useSSE(): UseSSEReturn {
     // connect on sign-in (which is what makes the deferred first attempt
     // recover), and tear the stream down on sign-out or account switch so one
     // user's events can never arrive on another user's session.
+    // HTTP/1.1 tabs share a small connection pool. Only the focused page
+    // holds a live stream; background pages retain ordinary request access.
+    const syncActivity = () => {
+      if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+        connectedUserRef.current = null;
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        setIsConnected(false);
+        return;
+      }
+      if (!connectedUserRef.current) void connect();
+    };
+    document.addEventListener('visibilitychange', syncActivity);
+    window.addEventListener('focus', syncActivity);
+    window.addEventListener('blur', syncActivity);
     const watcher = setInterval(() => {
+      if (document.visibilityState === 'hidden' || !document.hasFocus()) return;
       const currentUser = getApiClient().getUserId() ?? null;
       if (currentUser === connectedUserRef.current) return;
 
@@ -182,6 +202,9 @@ export function useSSE(): UseSSEReturn {
 
     return () => {
       clearInterval(watcher);
+      document.removeEventListener('visibilitychange', syncActivity);
+      window.removeEventListener('focus', syncActivity);
+      window.removeEventListener('blur', syncActivity);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -193,3 +216,4 @@ export function useSSE(): UseSSEReturn {
 
   return { events, isConnected, error, clearEvents };
 }
+

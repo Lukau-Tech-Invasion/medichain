@@ -1,5 +1,37 @@
 use super::*;
 
+/// Preserve the declared access purpose when converting a document audit to storage.
+/// Returns the same audit event with its normalised reason and document resource type.
+fn document_audit(entry: AccessLogEntry, request: &HttpRequest) -> crate::repositories::traits::AccessLogEntity {
+    let mut audit: crate::repositories::traits::AccessLogEntity = entry.into();
+    let reason = request.headers()
+        .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
+        .and_then(|value| value.to_str().ok());
+    audit.access_reason = Some(crate::middleware::phi_access_audit::normalise_access_reason(reason));
+    audit.resource_type = "medical_document".to_string();
+    audit
+}
+
+#[cfg(test)]
+mod document_reason_tests {
+    use super::*;
+
+    #[test]
+    fn document_audit_keeps_the_declared_reason() {
+        let request = actix_web::test::TestRequest::default()
+            .insert_header(("x-access-reason", "treatment")).to_http_request();
+        let entry = AccessLogEntry {
+            access_id: "audit-test".into(), patient_id: "PAT-TEST".into(),
+            accessor_id: "doctor-test".into(), accessor_role: "Doctor".into(),
+            access_type: "download_record".into(), location: None,
+            timestamp: Utc::now(), emergency: false,
+        };
+        let audit = document_audit(entry, &request);
+        assert_eq!(audit.access_reason.as_deref(), Some("Treatment"));
+        assert_eq!(audit.resource_type, "medical_document");
+    }
+}
+
 // ============================================================================
 // IPFS Medical Record Endpoints
 // ============================================================================
@@ -362,7 +394,7 @@ pub async fn download_medical_record(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
         return response;
     }
 
@@ -1564,6 +1596,21 @@ pub async fn download_medical_record_by_hash(
     // Resolve it from its real home instead. Authorization above has already
     // run, so this is reached only by someone entitled to the record.
     if let Some(submission_id) = content_hash.strip_prefix("lab-") {
+        let audit = AccessLogEntry {
+            access_id: secure_tokens::generate_access_id(),
+            patient_id: entity.patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "download_record".to_string(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
+        };
+        if let Err(response) = crate::support::require_durable_audit(
+            &data, document_audit(audit, &http_req),
+        ).await {
+            return response;
+        }
         return download_lab_result(&data, submission_id).await;
     }
 
@@ -1607,7 +1654,7 @@ pub async fn download_medical_record_by_hash(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
         return response;
     }
 
@@ -1873,7 +1920,7 @@ pub async fn list_patient_records(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
         return response;
     }
 
