@@ -213,8 +213,8 @@ function DashboardPage() {
     /**
      * Read the dashboard through the shared client, not a bare `fetch`.
      *
-     * Two things were wrong with the hand-rolled request. It sent only the
-     * legacy `X-User-Id` session headers, so it never carried the bearer token
+     * Two things were wrong with the hand-rolled request. It sent only a
+     * hand-built identity header, so it never carried the bearer token
      * the rest of the app uses and never took the client's refresh-once-on-401
      * path. And its 401 branch called `restoreSession()` and, when that failed,
      * `logout()`. At that time restore could not recover tokens after reload,

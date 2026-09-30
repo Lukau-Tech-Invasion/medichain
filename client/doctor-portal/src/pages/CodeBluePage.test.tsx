@@ -31,7 +31,6 @@ beforeEach(() => {
   // chooses a patient has to be signed in too.
   useAuthStore.setState({
     user: {
-      walletAddress: '5Test',
       username: 'Dr Test',
       role: 'Doctor',
       userId: 'doc-1',

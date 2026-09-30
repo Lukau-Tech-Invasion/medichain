@@ -59,7 +59,7 @@ fn grant_and_audit(
     let grant = BreakGlassGrantEntity {
         id: format!("BG-{}", uuid::Uuid::new_v4()),
         patient_id: patient_id.to_string(),
-        clinician_id: caller.wallet_address.clone(),
+        clinician_id: caller.id.clone(),
         reason: reason.clone(),
         starts_at: now,
         expires_at: now + chrono::Duration::minutes(BREAK_GLASS_MINUTES),
@@ -67,7 +67,7 @@ fn grant_and_audit(
     };
     let audit = crate::repositories::traits::AccessLogEntity {
         id: crate::middleware::secure_tokens::generate_access_id(),
-        accessor_id: caller.wallet_address.clone(),
+        accessor_id: caller.id.clone(),
         accessor_role: caller.role.to_string(),
         patient_id: Some(patient_id.to_string()),
         resource_type: "patient_chart".to_string(),
@@ -226,16 +226,16 @@ mod tests {
         test::call_service(&app, request.to_request()).await
     }
 
-    fn vitals(wallet: &str) -> test::TestRequest {
+    fn vitals(user_id: &str) -> test::TestRequest {
         test::TestRequest::get()
             .uri(&format!("/api/clinical/patient/{PATIENT_ID}/vitals"))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
     }
 
-    fn break_the_glass(wallet: &str, reason: &str) -> test::TestRequest {
+    fn break_the_glass(user_id: &str, reason: &str) -> test::TestRequest {
         test::TestRequest::post()
             .uri(&format!("/api/patients/{PATIENT_ID}/break-glass"))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(serde_json::json!({ "reason": reason }))
     }
 
@@ -305,7 +305,7 @@ mod tests {
         call(&data, vitals(STRANGER)).await;
         let request = test::TestRequest::get()
             .uri(&format!("/api/access-logs/{PATIENT_ID}"))
-            .insert_header(("x-user-id", PATIENT));
+            .insert_header(crate::test_fixtures::as_user(PATIENT));
         let response = call(&data, request).await;
         assert_eq!(response.status(), 200);
         let body: serde_json::Value = test::read_body_json(response).await;
@@ -332,7 +332,7 @@ mod tests {
         );
         let unknown = test::TestRequest::post()
             .uri("/api/patients/PAT-NOBODY/break-glass")
-            .insert_header(("x-user-id", STRANGER))
+            .insert_header(crate::test_fixtures::as_user(STRANGER))
             .set_json(serde_json::json!({ "reason": "Unconscious in resus" }));
         assert_eq!(call(&data, unknown).await.status(), 404);
     }

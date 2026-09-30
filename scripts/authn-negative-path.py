@@ -4,9 +4,11 @@
 Control under test: invalid, expired and revoked credentials are rejected
 everywhere.
 
-Synthetic data only, isolated environment only. Tokens are minted locally
-against the environment's own dev secret; nothing here touches a real
-credential, and the transcript prints no secret material.
+Synthetic data only, isolated environment only. The control token comes from a
+real sign-in (`POST /api/auth/login`) when --login-id and --password are given;
+the tokens that must be refused are minted locally against the environment's own
+dev secret. Nothing here touches a real credential, and the transcript prints no
+secret material.
 
 WHY A VALID-CREDENTIAL CASE IS INCLUDED
 ---------------------------------------
@@ -16,7 +18,10 @@ control that makes the other cases mean something.
 
 Usage:
   python scripts/authn-negative-path.py --base http://127.0.0.1:8091 \
-      --wallet <registered-synthetic-wallet> [--posture demo|signatures]
+      --login-id <fixture login id> --password <its password> [--posture demo|production]
+  python scripts/authn-negative-path.py --user-id <registered users.id> ...
+      (mints the control token locally; only meaningful where a minted token
+       carries a live session)
 """
 import argparse
 import json
@@ -26,6 +31,10 @@ import urllib.error
 import urllib.request
 
 import jwt as pyjwt
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from auth_proof import derive_auth_proof  # noqa: E402
 
 # Matches api/src/security/jwt.rs: JWT_SECRET -> SESSION_SECRET -> dev default.
 DEV_SECRET = "medichain-dev-secret-change-in-production"
@@ -33,12 +42,12 @@ TYP_ACCESS = "access"
 TYP_REFRESH = "refresh"
 
 
-def mint(secret, wallet, role="Doctor", typ=TYP_ACCESS, ttl=3600, mfa=True):
-    """Mint a token matching the server's Claims struct."""
+def mint(secret, user_id, role="Doctor", typ=TYP_ACCESS, ttl=3600, mfa=True):
+    """Mint a token matching the server's Claims struct (`sub` is `users.id`)."""
     now = int(time.time())
     return pyjwt.encode(
         {
-            "sub": wallet,
+            "sub": user_id,
             "role": role,
             "context": "professional",
             "patient_profile_id": None,
@@ -53,6 +62,21 @@ def mint(secret, wallet, role="Doctor", typ=TYP_ACCESS, ttl=3600, mfa=True):
         secret,
         algorithm="HS256",
     )
+
+
+def sign_in(base, login_id, password):
+    """`POST /api/auth/login`; return (access_token, user_id), or exit on refusal."""
+    body = json.dumps({"identifier": login_id, "auth_proof": derive_auth_proof(password, login_id)}).encode()
+    req = urllib.request.Request(
+        base + "/api/auth/login", data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            parsed = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"sign-in for {login_id!r} was refused ({exc.code}); cannot establish the control case")
+    return parsed["access_token"], parsed["user"]["user_id"]
 
 
 def request(base, path, headers):
@@ -144,10 +168,12 @@ def summarize(body):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8091")
-    ap.add_argument("--wallet", required=True, help="a REGISTERED synthetic wallet")
-    ap.add_argument("--unregistered", default="5UNREGISTEREDsyntheticWalletNeverSeenBefore11111")
+    ap.add_argument("--login-id", help="a fixture login id; the control token comes from a real sign-in")
+    ap.add_argument("--password", help="that fixture's password")
+    ap.add_argument("--user-id", help="a REGISTERED synthetic users.id, when not signing in")
+    ap.add_argument("--unregistered", default="00000000-0000-4000-8000-000000000000")
     ap.add_argument("--path", default="/api/access-logs")
-    ap.add_argument("--posture", default="demo", choices=["demo", "signatures"])
+    ap.add_argument("--posture", default="demo", choices=["demo", "production"])
     ap.add_argument(
         "--expect-deny-code",
         default="UNAUTHORIZED,USER_NOT_FOUND,FORBIDDEN",
@@ -155,7 +181,7 @@ def main():
         "carrying any OTHER code (e.g. ENCRYPTION_REQUIRED from the TLS policy, or "
         "NOT_FOUND from a mistyped path) is reported as WRONGWY rather than as a pass, "
         "because the request never reached the control under test. This must be a SET, "
-        "not one code: refusing an unregistered wallet legitimately yields USER_NOT_FOUND, "
+        "not one code: refusing an unregistered user legitimately yields USER_NOT_FOUND, "
         "and treating that as suspicious would make the harness cry wolf on correct "
         "behaviour — the mirror of the bug it exists to prevent. Empty string disables "
         "the attribution check.",
@@ -169,9 +195,14 @@ def main():
     )
     args = ap.parse_args()
 
-    w = args.wallet
     secret = args.secret
-    valid = mint(secret, w)
+    if args.login_id and args.password:
+        valid, w = sign_in(args.base, args.login_id, args.password)
+    elif args.user_id:
+        w = args.user_id
+        valid = mint(secret, w)
+    else:
+        ap.error("give --login-id and --password, or --user-id")
     expired = mint(secret, w, ttl=-7200)              # 2h in the past, beyond any leeway
     wrong_secret = mint("a-different-secret-entirely", w)
     refresh = mint(secret, w, typ=TYP_REFRESH, ttl=7 * 24 * 3600)
@@ -186,9 +217,11 @@ def main():
         ("5  EXPIRED access token",                {"Authorization": f"Bearer {expired}"}, "deny"),
         ("6  refresh token used as access token",  {"Authorization": f"Bearer {refresh}"}, "deny"),
         ("7  valid access token  [CONTROL]",       {"Authorization": f"Bearer {valid}"}, "allow"),
-        ("8  EXPIRED token + matching X-User-Id",  {"Authorization": f"Bearer {expired}", "X-User-Id": w}, "observe"),
-        ("9  unregistered wallet in X-User-Id",    {"X-User-Id": args.unregistered}, "deny"),
-        ("10 registered wallet, header only",      {"X-User-Id": w}, "observe"),
+        # The legacy identity header authenticates nobody, with or without a token.
+        # The next three lines are negative assertions (identity-header-negative-assertion).
+        ("8  EXPIRED token + matching X-User-Id",  {"Authorization": f"Bearer {expired}", "X-User-Id": w}, "deny"),  # identity-header-negative-assertion
+        ("9  unregistered user in X-User-Id",      {"X-User-Id": args.unregistered}, "deny"),  # identity-header-negative-assertion
+        ("10 registered user, header only",        {"X-User-Id": w}, "deny"),  # identity-header-negative-assertion
     ]
 
     # Outside demo mode the encryption policy rejects plaintext HTTP with 403
@@ -197,7 +230,7 @@ def main():
     # slot 7 would fail, which is exactly how that was caught. Production deploys
     # behind nginx, which terminates TLS and sets this header, so adding it
     # reproduces the real request shape rather than weakening the test.
-    if args.posture == "signatures":
+    if args.posture == "production":
         for _, headers, _ in cases:
             headers["X-Forwarded-Proto"] = "https"
 

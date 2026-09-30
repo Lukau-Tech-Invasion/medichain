@@ -196,10 +196,10 @@ pub async fn create_note_template(
     }
     let now = chrono::Utc::now();
     let template_id = format!("TPL-USR-{}", uuid::Uuid::new_v4().simple());
-    let template = stored_template(&req, &template_id, &user.wallet_address, now);
+    let template = stored_template(&req, &template_id, &user.id, now);
     let record = crate::repositories::traits::JsonRecordEntity {
         id: template_id.clone(),
-        owner_id: user.wallet_address.clone(),
+        owner_id: user.id.clone(),
         data: template.clone(),
         created_at: now,
         updated_at: now,
@@ -224,8 +224,7 @@ fn may_deactivate(
     user: &crate::User,
     record: &crate::repositories::traits::JsonRecordEntity,
 ) -> bool {
-    user.role.is_admin()
-        || (user.role.can_edit_medical_records() && record.owner_id == user.wallet_address)
+    user.role.is_admin() || (user.role.can_edit_medical_records() && record.owner_id == user.id)
 }
 
 /// Hide a clinician-authored template from every clinician. Not a deletion.
@@ -274,7 +273,7 @@ pub async fn deactivate_note_template(
     let mut retired = record.clone();
     retired.data["status"] = serde_json::json!("deactivated");
     retired.data["is_active"] = serde_json::json!(false);
-    retired.data["deactivated_by"] = serde_json::json!(user.wallet_address);
+    retired.data["deactivated_by"] = serde_json::json!(user.id);
     retired.data["deactivated_at"] = serde_json::json!(now.to_rfc3339());
     retired.data["updated_at"] = serde_json::json!(now.to_rfc3339());
     retired.updated_at = now;
@@ -304,12 +303,12 @@ mod tests {
     use super::*;
     use actix_web::test;
 
-    fn register(state: &AppState, wallet: &str, role: crate::Role) {
+    fn register(state: &AppState, user_id: &str, role: crate::Role) {
         state.users.write().unwrap().insert(
-            wallet.to_string(),
+            user_id.to_string(),
             crate::User {
-                wallet_address: wallet.to_string(),
-                username: Some(wallet.to_string()),
+                id: user_id.to_string(),
+                username: Some(user_id.to_string()),
                 name: "Test Clinician".to_string(),
                 role,
                 created_at: chrono::Utc::now(),
@@ -370,7 +369,7 @@ mod tests {
                 $app,
                 test::TestRequest::post()
                     .uri("/api/templates/notes")
-                    .insert_header(("x-user-id", $who))
+                    .insert_header(crate::test_fixtures::as_user($who))
                     .set_json(body())
                     .to_request(),
             )
@@ -394,7 +393,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/templates/notes")
-                .insert_header(("x-user-id", "nurse_b"))
+                .insert_header(crate::test_fixtures::as_user("nurse_b"))
                 .to_request(),
         )
         .await;
@@ -412,7 +411,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/templates/notes/use")
-                .insert_header(("x-user-id", "nurse_b"))
+                .insert_header(crate::test_fixtures::as_user("nurse_b"))
                 .set_json(serde_json::json!({ "template_id": id, "variables": { "PEF": "410" } }))
                 .to_request(),
         )
@@ -435,7 +434,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/templates/notes")
-                .insert_header(("x-user-id", "pharmacist"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist"))
                 .set_json(body())
                 .to_request(),
         )
@@ -453,7 +452,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/templates/notes")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .set_json(empty)
                 .to_request(),
         )
@@ -471,7 +470,7 @@ mod tests {
         let deactivate = |who: &'static str| {
             test::TestRequest::post()
                 .uri(&format!("/api/templates/notes/{id}/deactivate"))
-                .insert_header(("x-user-id", who))
+                .insert_header(crate::test_fixtures::as_user(who))
                 .to_request()
         };
 
@@ -489,7 +488,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/templates/notes")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -502,7 +501,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/templates/notes/use")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .set_json(serde_json::json!({ "template_id": id }))
                 .to_request(),
         )
@@ -518,7 +517,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/templates/notes/TPL-SOAP-ROUTINE/deactivate")
-                .insert_header(("x-user-id", "admin"))
+                .insert_header(crate::test_fixtures::as_user("admin"))
                 .to_request(),
         )
         .await;

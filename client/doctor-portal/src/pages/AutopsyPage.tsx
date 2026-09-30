@@ -135,7 +135,7 @@ const AutopsyPage: React.FC = () => {
   // exists "to replace browser alert() calls"; these three pages were missed.
   const { showSuccess } = useToastActions();
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);

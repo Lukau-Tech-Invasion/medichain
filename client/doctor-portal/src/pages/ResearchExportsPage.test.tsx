@@ -30,8 +30,8 @@ function run(overrides: Record<string, unknown>) {
   };
 }
 
-function renderAs(wallet: string) {
-  vi.mocked(useAuthStore).mockReturnValue({ user: { walletAddress: wallet } } as unknown as ReturnType<typeof useAuthStore>);
+function renderAs(userId: string) {
+  vi.mocked(useAuthStore).mockReturnValue({ user: { userId } } as unknown as ReturnType<typeof useAuthStore>);
   render(<I18nProvider><ResearchExportsPage /></I18nProvider>);
 }
 

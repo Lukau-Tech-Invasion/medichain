@@ -45,6 +45,7 @@ impl AccessType {
 }
 
 /// Details carried from a request into the grant it becomes on approval.
+#[derive(Clone)]
 pub struct RequestingProvider {
     pub provider_id: String,
     pub provider_name: String,
@@ -418,7 +419,7 @@ mod tests {
 
     fn provider() -> RequestingProvider {
         RequestingProvider {
-            provider_id: "5DoctorWallet".into(),
+            provider_id: "5DoctorUser".into(),
             provider_name: "Dr Synthetic".into(),
             provider_role: "Doctor".into(),
             organization: "Synthetic General Hospital".into(),
@@ -569,7 +570,7 @@ mod tests {
         let svc = service();
         let now = Utc::now();
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
 
@@ -587,16 +588,16 @@ mod tests {
             .await
             .unwrap();
         assert!(svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5OtherWallet", now)
+            .provider_has_active_grant("PAT-1", "5OtherUser", now)
             .await
             .unwrap());
         svc.revoke_grant(&grant.id, now).await.unwrap();
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
 
@@ -613,7 +614,7 @@ mod tests {
         .await
         .unwrap();
         assert!(!svc
-            .provider_has_active_grant("PAT-2", "5DoctorWallet", now + Duration::hours(2))
+            .provider_has_active_grant("PAT-2", "5DoctorUser", now + Duration::hours(2))
             .await
             .unwrap());
     }

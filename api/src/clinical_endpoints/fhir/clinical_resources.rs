@@ -240,7 +240,7 @@ pub async fn fhir_get_encounters(
                 "issue": [{
                     "severity": "error",
                     "code": "security",
-                    "diagnostics": "Missing X-User-Id header"
+                    "diagnostics": "Authentication required"
                 }]
             }));
         }
@@ -394,7 +394,7 @@ pub async fn fhir_get_diagnostic_reports(
                 "issue": [{
                     "severity": "error",
                     "code": "security",
-                    "diagnostics": "Missing X-User-Id header"
+                    "diagnostics": "Authentication required"
                 }]
             }));
         }

@@ -4,7 +4,7 @@ import { clickable, getProviders } from '@medichain/shared';
 import { Search, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
 
 export interface StaffMember {
-  wallet_address: string;
+  user_id: string;
   name: string;
   role: string;
   username?: string;
@@ -22,7 +22,7 @@ interface StaffSelectProps {
   id?: string;
   /** Filter by role: 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist', 'Admin' */
   roleFilter?: string;
-  /** If true, returns the staff name instead of wallet address */
+  /** If true, returns the staff name instead of the user id */
   returnName?: boolean;
 }
 
@@ -97,13 +97,13 @@ export default function StaffSelect({
     (s.username?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  // Get selected staff details for display (check by wallet address or name)
+  // Get selected staff details for display (check by user id or name)
   const selectedStaff = staff.find(s => 
-    s.wallet_address === value || s.name === value
+    s.user_id === value || s.name === value
   );
 
   const handleSelect = (member: StaffMember) => {
-    const returnValue = returnName ? member.name : member.wallet_address;
+    const returnValue = returnName ? member.name : member.user_id;
     onChange(returnValue, member);
     setSearchTerm('');
     setIsOpen(false);
@@ -238,13 +238,13 @@ export default function StaffSelect({
             ) : (
               filteredStaff.map((member) => (
                 <button
-                  key={member.wallet_address}
+                  key={member.user_id}
                   type="button"
                   onClick={() => handleSelect(member)}
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
                     hover:bg-surface-sunken transition-colors
-                    ${value === member.wallet_address || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
+                    ${value === member.user_id || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
                   `}
                 >
                   <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">

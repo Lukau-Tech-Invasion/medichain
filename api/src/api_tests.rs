@@ -16,7 +16,7 @@ mod tests {
 
         // Setup a mock doctor
         let doctor = User {
-            wallet_address: "doctor_wallet".to_string(),
+            id: "doctor_user".to_string(),
             username: Some("dr_smith".to_string()),
             name: "Dr. Smith".to_string(),
             role: Role::Doctor,
@@ -34,7 +34,7 @@ mod tests {
 
         {
             let mut users = state.users.write().unwrap();
-            users.insert("doctor_wallet".to_string(), doctor);
+            users.insert("doctor_user".to_string(), doctor);
         }
 
         web::Data::new(state)
@@ -84,13 +84,13 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri("/api/auth/me")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
 
         assert!(resp.status().is_success());
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["wallet_address"], "doctor_wallet");
+        assert_eq!(body["user_id"], "doctor_user");
         assert_eq!(body["role"], "Doctor");
     }
 
@@ -141,7 +141,7 @@ mod tests {
         // Register patient
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(&registration_payload)
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -160,7 +160,7 @@ mod tests {
         // Retrieve patient
         let req = test::TestRequest::get()
             .uri(&format!("/api/patients/{}", patient_id))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
 
@@ -186,7 +186,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -199,7 +199,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!("/api/patients/{patient_id}"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .to_request(),
         )
         .await;
@@ -214,14 +214,14 @@ mod tests {
     #[actix_web::test]
     async fn an_untyped_registration_by_a_patient_is_forbidden() {
         let app_state = setup_app_state().await;
-        let mut patient = app_state.users.read().unwrap()["doctor_wallet"].clone();
-        patient.wallet_address = "patient_wallet".to_string();
+        let mut patient = app_state.users.read().unwrap()["doctor_user"].clone();
+        patient.id = "patient_user".to_string();
         patient.role = Role::Patient;
         app_state
             .users
             .write()
             .unwrap()
-            .insert("patient_wallet".to_string(), patient);
+            .insert("patient_user".to_string(), patient);
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -232,7 +232,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(("x-user-id", "patient_wallet"))
+                .insert_header(crate::test_fixtures::as_user("patient_user"))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -246,12 +246,12 @@ mod tests {
     async fn an_untyped_registration_with_unavailable_storage_returns_503() {
         let seeded = setup_app_state().await;
         let mut state = AppState::new();
-        let doctor = seeded.users.read().unwrap()["doctor_wallet"].clone();
+        let doctor = seeded.users.read().unwrap()["doctor_user"].clone();
         state
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), doctor);
+            .insert("doctor_user".to_string(), doctor);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(250))
             .connect_lazy_with(
@@ -272,7 +272,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -304,7 +304,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -317,7 +317,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients?q=Untyped")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .insert_header(("x-access-reason", "Treatment"))
                 .to_request(),
         )
@@ -345,7 +345,7 @@ mod tests {
             .collect();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].aggregate_type, "organisation");
-        assert_eq!(events[0].payload["actor_id"], "doctor_wallet");
+        assert_eq!(events[0].payload["actor_id"], "doctor_user");
         assert_eq!(events[0].payload["purpose"], "Treatment");
         assert_eq!(events[0].payload["result_count"], 1);
         assert!(events[0].payload.get("patient_id").is_none());
@@ -362,21 +362,21 @@ mod tests {
     #[actix_web::test]
     async fn patient_role_cannot_search_the_directory() {
         let state = setup_app_state().await;
-        let mut patient = state.users.read().unwrap()["doctor_wallet"].clone();
-        patient.wallet_address = "patient_wallet".to_string();
+        let mut patient = state.users.read().unwrap()["doctor_user"].clone();
+        patient.id = "patient_user".to_string();
         patient.role = Role::Patient;
         state
             .users
             .write()
             .unwrap()
-            .insert("patient_wallet".to_string(), patient);
+            .insert("patient_user".to_string(), patient);
         let app =
             test::init_service(App::new().app_data(state.clone()).service(list_patients)).await;
         let response = test::call_service(
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(("x-user-id", "patient_wallet"))
+                .insert_header(crate::test_fixtures::as_user("patient_user"))
                 .insert_header(("x-access-reason", "Treatment"))
                 .to_request(),
         )
@@ -395,7 +395,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .to_request(),
         )
         .await;
@@ -406,7 +406,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .insert_header(("x-access-reason", "Not stated"))
                 .to_request(),
         )
@@ -420,12 +420,12 @@ mod tests {
     async fn directory_audit_storage_failure_returns_503() {
         let seeded = setup_app_state().await;
         let mut state = AppState::new();
-        let doctor = seeded.users.read().unwrap()["doctor_wallet"].clone();
+        let doctor = seeded.users.read().unwrap()["doctor_user"].clone();
         state
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), doctor);
+            .insert("doctor_user".to_string(), doctor);
         state.db_pool = Some(
             sqlx::postgres::PgPoolOptions::new()
                 .acquire_timeout(std::time::Duration::from_millis(250))
@@ -447,7 +447,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .insert_header(("x-access-reason", "Treatment"))
                 .to_request(),
         )
@@ -507,7 +507,7 @@ mod tests {
             async move {
                 let req = test::TestRequest::post()
                     .uri("/api/register")
-                    .insert_header(("x-user-id", "doctor_wallet"))
+                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
                     .set_json(registration_payload(i))
                     .to_request();
                 test::call_service(app, req).await
@@ -569,7 +569,7 @@ mod tests {
         // the read path (RwLock readers) under contention.
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(registration_payload(9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -588,7 +588,7 @@ mod tests {
             async move {
                 let req = test::TestRequest::get()
                     .uri(&format!("/api/patients/{}", patient_id))
-                    .insert_header(("x-user-id", "doctor_wallet"))
+                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
                     .to_request();
                 test::call_service(app, req).await
             }
@@ -623,14 +623,14 @@ mod tests {
     #[actix_rt::test]
     async fn paramedic_cannot_open_patient_profile() {
         let app_state = setup_app_state().await;
-        let mut paramedic = app_state.users.read().unwrap()["doctor_wallet"].clone();
-        paramedic.wallet_address = "paramedic_wallet".to_string();
+        let mut paramedic = app_state.users.read().unwrap()["doctor_user"].clone();
+        paramedic.id = "paramedic_user".to_string();
         paramedic.role = Role::Paramedic;
         app_state
             .users
             .write()
             .unwrap()
-            .insert(paramedic.wallet_address.clone(), paramedic);
+            .insert(paramedic.id.clone(), paramedic);
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -639,67 +639,10 @@ mod tests {
         .await;
         let request = test::TestRequest::get()
             .uri("/api/patients/PAT-EXISTING")
-            .insert_header(("x-user-id", "paramedic_wallet"))
+            .insert_header(crate::test_fixtures::as_user("paramedic_user"))
             .to_request();
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
-    }
-
-    /// The wallet is a column on the patient row, not part of the encrypted
-    /// profile, and the read served only the profile -- so a wallet bound at
-    /// registration read back as absent. A patient without one must read back
-    /// as `null`, not as a missing key a client mistakes for the same thing.
-    #[actix_rt::test]
-    async fn a_wallet_bound_at_registration_is_returned_by_the_patient_read() {
-        const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let app_state = setup_app_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state)
-                .service(register_patient)
-                .service(get_patient_by_id),
-        )
-        .await;
-
-        let mut with_wallet = registration_payload(7001);
-        with_wallet["wallet_address"] = json!(WALLET);
-        let mut ids = Vec::new();
-        for payload in [with_wallet, registration_payload(7002)] {
-            let req = test::TestRequest::post()
-                .uri("/api/register")
-                .insert_header(("x-user-id", "doctor_wallet"))
-                .set_json(payload)
-                .to_request();
-            let resp = test::call_service(&app, req).await;
-            assert!(
-                resp.status().is_success(),
-                "registration failed: {}",
-                resp.status()
-            );
-            let created: serde_json::Value = test::read_body_json(resp).await;
-            ids.push(
-                created["patient_id"]
-                    .as_str()
-                    .expect("patient_id")
-                    .to_string(),
-            );
-        }
-
-        let mut wallets = Vec::new();
-        for id in &ids {
-            let req = test::TestRequest::get()
-                .uri(&format!("/api/patients/{id}"))
-                .insert_header(("x-user-id", "doctor_wallet"))
-                .to_request();
-            let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
-            assert!(
-                body.as_object()
-                    .is_some_and(|o| o.contains_key("wallet_address")),
-                "the read must state the wallet, even when there is none: {body}"
-            );
-            wallets.push(body["wallet_address"].clone());
-        }
-        assert_eq!(wallets, vec![json!(WALLET), serde_json::Value::Null]);
     }
 
     #[actix_rt::test]
@@ -719,7 +662,7 @@ mod tests {
 
         let save_request = test::TestRequest::post()
             .uri("/api/settings")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(&expected)
             .to_request();
         let save_response = test::call_service(&app, save_request).await;
@@ -727,7 +670,7 @@ mod tests {
 
         let get_request = test::TestRequest::get()
             .uri("/api/settings")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let get_response = test::call_service(&app, get_request).await;
         assert!(get_response.status().is_success());
@@ -741,7 +684,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(app_state).service(save_settings)).await;
         let request = test::TestRequest::post()
             .uri("/api/settings")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(json!(["not", "an", "object"]))
             .to_request();
 
@@ -792,7 +735,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -805,7 +748,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/fhir/r4/Patient/{patient_id}"))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -843,7 +786,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -856,7 +799,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/fhir/r4/Condition?patient={patient_id}"))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -881,7 +824,7 @@ mod tests {
             .uri(&format!(
                 "/api/fhir/r4/MedicationStatement?patient={patient_id}"
             ))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -895,7 +838,7 @@ mod tests {
             .uri(&format!(
                 "/api/fhir/r4/AllergyIntolerance?patient={patient_id}"
             ))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -922,7 +865,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -935,7 +878,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/medical-id/{patient_id}"))
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());

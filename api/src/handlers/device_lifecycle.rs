@@ -367,9 +367,9 @@ mod device_listing_access_tests {
 
     fn state_with(users: &[(Role, &str)]) -> web::Data<AppState> {
         let state = AppState::new();
-        for (role, wallet) in users {
+        for (role, user_id) in users {
             let user = User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test".to_string(),
                 role: role.clone(),
@@ -388,12 +388,12 @@ mod device_listing_access_tests {
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.to_string(), user);
+                .insert(user_id.to_string(), user);
         }
         web::Data::new(state)
     }
 
-    async fn get(data: web::Data<AppState>, wallet: &str, path: &str) -> (u16, String) {
+    async fn get(data: web::Data<AppState>, user_id: &str, path: &str) -> (u16, String) {
         let app = test::init_service(
             App::new()
                 .app_data(data)
@@ -403,7 +403,7 @@ mod device_listing_access_tests {
         .await;
         let req = test::TestRequest::get()
             .uri(path)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let response = test::call_service(&app, req).await;
         let status = response.status().as_u16();

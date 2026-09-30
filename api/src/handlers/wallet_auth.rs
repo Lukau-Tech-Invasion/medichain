@@ -117,7 +117,7 @@ pub async fn bootstrap_admin(
 
     // Create first admin
     let admin = User {
-        wallet_address: body.wallet_address.clone(),
+        id: uuid::Uuid::new_v4().to_string(),
         username: body.username.clone(),
         name: body.name.clone(),
         role: Role::Admin,
@@ -133,7 +133,14 @@ pub async fn bootstrap_admin(
         last_login: None,
     };
 
-    if let Err(e) = data.persist_then_cache_user(admin.clone()).await {
+    let provisioned = match data.persist_then_cache_user(admin.clone()).await {
+        Ok(()) => {
+            data.record_legacy_wallet(&body.wallet_address, &admin.id)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+    if let Err(e) = provisioned {
         log::error!("Failed to persist bootstrap administrator: {}", e);
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             error: "Administrator account could not be persisted".to_string(),
@@ -150,7 +157,7 @@ pub async fn bootstrap_admin(
     HttpResponse::Created().json(BootstrapAdminResponse {
         success: true,
         admin: WalletUserInfo {
-            wallet_address: body.wallet_address.clone(),
+            user_id: admin.id.clone(),
             name: body.name.clone(),
             role: "Admin".to_string(),
             username: body.username.clone(),
@@ -208,13 +215,22 @@ pub async fn wallet_register(
     }
 
     // Check if wallet already registered
-    {
-        let users = data.users.read().unwrap();
-        if users.contains_key(&body.wallet_address) {
-            return HttpResponse::Conflict().json(ErrorResponse {
-                error: "Wallet address already registered".to_string(),
-                code: "WALLET_ALREADY_REGISTERED".to_string(),
-            });
+    if let Some(pool) = data.db_pool.as_ref() {
+        match crate::actor_directory::resolve(pool, &body.wallet_address).await {
+            Ok(None) => {}
+            Ok(Some(_)) => {
+                return HttpResponse::Conflict().json(ErrorResponse {
+                    error: "Wallet address already registered".to_string(),
+                    code: "WALLET_ALREADY_REGISTERED".to_string(),
+                });
+            }
+            Err(e) => {
+                log::error!("Wallet lookup failed: {e}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "User storage is unavailable".to_string(),
+                    code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+                });
+            }
         }
     }
 
@@ -250,7 +266,7 @@ pub async fn wallet_register(
 
     // Create new user
     let user = User {
-        wallet_address: body.wallet_address.clone(),
+        id: uuid::Uuid::new_v4().to_string(),
         username: body.username.clone(),
         name: body.name.clone(),
         role: role.clone(),
@@ -269,7 +285,15 @@ pub async fn wallet_register(
         last_login: None,
     };
 
-    if let Err(e) = data.persist_then_cache_user(user).await {
+    let new_user_id = user.id.clone();
+    let provisioned = match data.persist_then_cache_user(user).await {
+        Ok(()) => {
+            data.record_legacy_wallet(&body.wallet_address, &new_user_id)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+    if let Err(e) = provisioned {
         log::error!("Failed to persist new user: {e}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             error: "User registration could not be persisted".to_string(),
@@ -287,11 +311,11 @@ pub async fn wallet_register(
 
     HttpResponse::Created().json(WalletRegisterResponse {
         success: true,
-        wallet_address: body.wallet_address.clone(),
+        user_id: new_user_id,
         role: role.to_string(),
         status: REGISTERED_USER_STATUS.to_string(),
         activation_required: true,
-        message: "User registered. An Admin must set status to \"active\" via PUT /api/users/{wallet_address} before the account can sign in."
+        message: "User registered. An Admin must set status to \"active\" via PUT /api/users/{user_id} before the account can sign in."
             .to_string(),
     })
 }

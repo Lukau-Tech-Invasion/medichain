@@ -23,10 +23,9 @@ vi.mock('../store', () => ({
 
 describe('SettingsPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: 'user-id-mock',
     username: 'Dr. Smith',
     role: 'Doctor',
-    userId: '5GrwvaEF...mock',
     createdAt: '2026-01-01T00:00:00Z',
   };
 
@@ -45,7 +44,7 @@ describe('SettingsPage', () => {
     vi.mocked(saveUserSettings).mockResolvedValue({
       success: true,
       message: 'saved',
-      user_id: mockUser.walletAddress,
+      user_id: mockUser.userId,
     });
 
     global.fetch = vi.fn().mockResolvedValue({

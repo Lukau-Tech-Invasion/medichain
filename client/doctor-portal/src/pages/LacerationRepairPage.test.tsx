@@ -28,7 +28,6 @@ describe('LacerationRepairPage', () => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: {
-        walletAddress: '5DoctorTest',
         userId: '5DoctorTest',
         username: 'Dr Test',
         role: 'Doctor',

@@ -46,7 +46,7 @@ const mockPatientId = 'HEALTH123';
 const storeState = {
   patient: {
     healthId: mockPatientId,
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
   },
 };
 

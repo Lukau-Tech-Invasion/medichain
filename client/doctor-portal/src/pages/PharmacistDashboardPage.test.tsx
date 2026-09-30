@@ -16,7 +16,7 @@ global.fetch = mockFetch;
 
 describe('PharmacistDashboardPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Pharmacist',
     fullName: 'Pharmacist Phil',
   };
@@ -72,7 +72,7 @@ describe('PharmacistDashboardPage', () => {
 });
 
 describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
-  const mockUser = { walletAddress: '5Ew3MyB1...mock', role: 'Pharmacist' };
+  const mockUser = { userId: '5Ew3MyB1...mock', role: 'Pharmacist' };
 
   /** One prescription per lifecycle state the queue can contain. */
   const queue = {
@@ -185,7 +185,7 @@ describe('PharmacistDashboardPage secondary verification actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: pharmacistId, role: 'Pharmacist' },
+      user: { userId: pharmacistId, role: 'Pharmacist' },
       isAuthenticated: true,
     });
   });
@@ -298,7 +298,7 @@ describe('PharmacistDashboardPage dispense correction history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: 'pharmacist-one', role: 'Pharmacist' },
+      user: { userId: 'pharmacist-one', role: 'Pharmacist' },
       isAuthenticated: true,
     });
     mockFetch.mockImplementation((request: RequestInfo | URL, init?: RequestInit) => {

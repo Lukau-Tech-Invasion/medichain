@@ -68,7 +68,7 @@ pub async fn add_vital_signs(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -307,7 +307,7 @@ pub async fn get_patient_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -365,7 +365,7 @@ pub async fn get_vitals_flowsheet(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -423,7 +423,7 @@ pub async fn get_patient_latest_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -541,7 +541,7 @@ mod cds_wiring_tests {
 
     fn test_doctor() -> User {
         User {
-            wallet_address: "doctor_wallet".to_string(),
+            id: "doctor_user".to_string(),
             username: None,
             name: "Dr. Test".to_string(),
             role: Role::Doctor,
@@ -577,7 +577,7 @@ mod cds_wiring_tests {
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), test_doctor());
+            .insert("doctor_user".to_string(), test_doctor());
         let app_state = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -590,7 +590,7 @@ mod cds_wiring_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/vitals")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({
                     "patient_id": patient_id,
                     "systolic_bp": 80,
@@ -632,7 +632,7 @@ mod cds_wiring_tests {
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), test_doctor());
+            .insert("doctor_user".to_string(), test_doctor());
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -642,7 +642,7 @@ mod cds_wiring_tests {
         let post = |glucose: f64| {
             test::TestRequest::post()
                 .uri("/api/clinical/vitals")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({ "patient_id": patient_id, "blood_glucose": glucose }))
                 .to_request()
         };
@@ -688,7 +688,7 @@ mod cds_wiring_tests {
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), test_doctor());
+            .insert("doctor_user".to_string(), test_doctor());
 
         let app_state = web::Data::new(state);
         let app = test::init_service(
@@ -700,7 +700,7 @@ mod cds_wiring_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/clinical/vitals")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(serde_json::json!({
                 "patient_id": patient_id,
                 "heart_rate": 80,

@@ -1,7 +1,7 @@
 //! What a patient search matches — one definition for both storage backends.
 //!
 //! The search used to match identifiers with `ILIKE '%query%'`, including the
-//! keyed national-ID *hash* and the wallet address. Neither is text a person
+//! keyed national-ID *hash*, which is not text a person
 //! types: a hex digest contains "ed", "ab" or "abebe" by chance, so searching a
 //! short name returned unrelated patients alongside the right one — in the
 //! picker a clinician uses to choose whose record to write into. The memory
@@ -9,7 +9,7 @@
 //! IDs), so the two backends disagreed about who a query found.
 //!
 //! A query now matches a patient when it is exactly one of their identifiers
-//! (record ID or health ID, ignoring case; wallet address; or a national ID,
+//! (record ID or health ID, ignoring case; or a national ID,
 //! compared through its keyed hash), or when every name token in it is one of
 //! the patient's name tokens (ADR-0009).
 
@@ -41,7 +41,6 @@ impl PatientSearchCriteria {
         patient.is_active
             && (patient.id.eq_ignore_ascii_case(&self.identifier)
                 || patient.health_id.eq_ignore_ascii_case(&self.identifier)
-                || patient.wallet_address.as_deref() == Some(self.identifier.as_str())
                 || patient.national_id_hash == self.national_id_hash
                 || self.matches_name(patient))
     }
@@ -83,7 +82,6 @@ mod tests {
             dnr_verified_at: None,
             dnr_document_ref: None,
             primary_provider_id: None,
-            wallet_address: Some(format!("5Wallet{id}")),
             created_at: now,
             updated_at: now,
             registered_by: None,
@@ -101,7 +99,7 @@ mod tests {
         // Hex letters, so a substring match on the digest used to hit.
         let digest_fragment = &ama.national_id_hash[..4];
 
-        for query in [digest_fragment, "Ed", "PAT-00", "HID", "5Wallet"] {
+        for query in [digest_fragment, "Ed", "PAT-00", "HID"] {
             assert!(
                 !PatientSearchCriteria::new(query).matches(&ama),
                 "{query:?} matched"
@@ -117,7 +115,6 @@ mod tests {
             "PAT-001",
             "pat-001",
             "HID-PAT-001",
-            "5WalletPAT-001",
             "NID-PAT-001",
             "Ama",
             " ama  MENSAH ",

@@ -117,7 +117,7 @@ const AMAPage: React.FC = () => {
 
   useEffect(() => {
     const fetchAMARecords = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setError(t('docAMA.errorAuth'));
         setLoading(false);
         return;
@@ -211,7 +211,7 @@ const AMAPage: React.FC = () => {
       const newRecord = {
         patient_id: patientId,
         discharge_datetime: new Date().toISOString(),
-        attending_physician_id: user?.walletAddress || '',
+        attending_physician_id: user?.userId || '',
         reason_for_leaving: patientStatement,
         risks_explained: riskDisclosures.map(({ category, risk, acknowledged }) => ({ category, risk, acknowledged })),
         specific_risks_discussed: riskDisclosures.filter(risk => risk.acknowledged).map(risk => risk.risk).join('\n'),

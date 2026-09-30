@@ -17,14 +17,24 @@ param(
 # ============================================
 $API_BASE = $ApiBase
 
-# Demo User Wallet Addresses (from database)
-$USERS = @{
-    Admin      = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-    Doctor     = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-    Nurse      = "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"
-    LabTech    = "5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc"
-    Pharmacist = "5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW"
-    Patient    = "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z"
+# Accounts: the seeded fixtures (scripts/seed-browser-test-fixtures.ts), each
+# signed in through POST /api/auth/login. $USERS maps a role to that account's
+# user id (`users.id`) and $TOKENS maps the user id to its bearer token, so
+# `-UserId $USERS.Doctor` on a call means "as the doctor".
+. "$PSScriptRoot/lib/MediChainAuth.ps1"
+$SESSIONS = @{
+    Admin      = Connect-FixtureRole -ApiBase $API_BASE -Role Admin
+    Doctor     = Connect-FixtureRole -ApiBase $API_BASE -Role Doctor
+    Nurse      = Connect-FixtureRole -ApiBase $API_BASE -Role Nurse
+    LabTech    = Connect-FixtureRole -ApiBase $API_BASE -Role LabTechnician
+    Pharmacist = Connect-FixtureRole -ApiBase $API_BASE -Role Pharmacist
+    Patient    = Connect-FixtureRole -ApiBase $API_BASE -Role Patient
+}
+$USERS = @{}
+$TOKENS = @{}
+foreach ($role in $SESSIONS.Keys) {
+    $USERS[$role] = $SESSIONS[$role].UserId
+    $TOKENS[$SESSIONS[$role].UserId] = $SESSIONS[$role].Token
 }
 
 # Test results storage
@@ -78,7 +88,7 @@ function Test-Endpoint {
     
     $headers = @{
         "Content-Type" = "application/json"
-        "X-User-Id"    = $UserId
+        "Authorization" = "Bearer $($TOKENS[$UserId])"
         "Accept"       = "application/json"
     }
     
@@ -219,9 +229,8 @@ Test-Endpoint -Name "Demo Endpoint" -Category "Health" -Method "GET" -Endpoint "
 Write-Host "[2/20] Testing Authentication Endpoints..." -ForegroundColor Yellow
 
 Test-Endpoint -Name "Auth Me" -Category "Auth" -Method "GET" -Endpoint "/api/auth/me" -Description "Get current user info"
-Test-Endpoint -Name "Auth Wallet Lookup" -Category "Auth" -Method "GET" -Endpoint "/api/auth/wallet/$($USERS.Doctor)" -Description "Lookup user by wallet"
-Test-Endpoint -Name "Auth Login GET" -Category "Auth" -Method "GET" -Endpoint "/api/auth/login/$($USERS.Doctor)" -Description "GET login endpoint"
-Test-Endpoint -Name "Demo Login" -Category "Auth" -Method "POST" -Endpoint "/api/auth/demo-login" -Body @{ wallet_address = $USERS.Doctor } -Description "Demo login"
+Test-Endpoint -Name "Credential Login" -Category "Auth" -Method "POST" -Endpoint "/api/auth/login" -Body @{ identifier = $SESSIONS.Doctor.LoginId; auth_proof = (Get-AuthProof -LoginId $SESSIONS.Doctor.LoginId -Password (Read-FixtureManifest).staff.Where({ $_.role -eq "Doctor" })[0].password) } -Description "Sign in with a password proof"
+Test-Endpoint -Name "Wrong Proof Refused" -Category "Auth" -Method "POST" -Endpoint "/api/auth/login" -Body @{ identifier = $SESSIONS.Doctor.LoginId; auth_proof = (Get-AuthProof -LoginId $SESSIONS.Doctor.LoginId -Password "Not-The-Password!2026") } -ExpectedStatus 401 -Description "A wrong proof is refused"
 
 # ============================================
 # 3. USER MANAGEMENT ENDPOINTS

@@ -9,7 +9,7 @@ import { signIn, settle } from './support';
  * the user's settings blob and nothing else: no secret, no paired
  * authenticator, and the server's `user_mfa` state untouched. The screen
  * reported two-factor as on while `mfa_enabled()` returned false for that
- * wallet — a security control that claims to be enabled when it is not, which
+ * account — a security control that claims to be enabled when it is not, which
  * is worse than one plainly absent.
  *
  * It is not cosmetic either. `require_privileged_assurance` gates

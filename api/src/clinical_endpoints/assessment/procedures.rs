@@ -433,7 +433,7 @@ pub async fn create_laceration(
         // whatever the caller claimed -- or an empty string when they claimed
         // nothing. The same reasoning as `create_radiology_order`'s
         // `require_actor_is_caller`.
-        performed_by: current_user.wallet_address.clone(),
+        performed_by: current_user.id.clone(),
         performed_at: body
             .get("performed_at")
             .and_then(|v| v.as_str())
@@ -823,10 +823,10 @@ mod laceration_round_trip_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -845,7 +845,7 @@ mod laceration_round_trip_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
@@ -871,7 +871,7 @@ mod laceration_round_trip_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         body: serde_json::Value,
     ) -> (u16, u16, String) {
         let app = test::init_service(
@@ -884,14 +884,14 @@ mod laceration_round_trip_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/clinical/laceration")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri("/api/clinical/laceration-repairs")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();
@@ -972,10 +972,10 @@ mod procedure_worklist_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -994,7 +994,7 @@ mod procedure_worklist_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
@@ -1055,7 +1055,6 @@ mod procedure_worklist_tests {
             dnr_verified_at: None,
             dnr_document_ref: None,
             primary_provider_id: None,
-            wallet_address: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             registered_by: None,
@@ -1070,7 +1069,7 @@ mod procedure_worklist_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         post_uri: &str,
         list_uri: &str,
         body: serde_json::Value,
@@ -1088,14 +1087,14 @@ mod procedure_worklist_tests {
 
         let req = test::TestRequest::post()
             .uri(post_uri)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri(list_uri)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();

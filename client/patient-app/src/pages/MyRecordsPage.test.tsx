@@ -30,7 +30,7 @@ describe('MyRecordsPage (Patient)', () => {
     vi.clearAllMocks();
     usePatientAuthStore.setState({
       patient: {
-        walletAddress: '5TestPatientWallet',
+        userId: 'test-patient-user-id',
         healthId: mockPatientId,
         fullName: 'Test Patient',
         firstName: 'Test',

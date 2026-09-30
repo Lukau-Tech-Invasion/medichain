@@ -168,7 +168,7 @@ const SpecimenPage: React.FC = () => {
   };
 
   const recordCollection = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     // Was a banner naming two fields at once. The message now sits on the
     // control that needs fixing (WCAG 3.3.1).
     if (!validate(form)) {
@@ -201,7 +201,7 @@ const SpecimenPage: React.FC = () => {
 
   useEffect(() => {
     const fetchSpecimens = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setError(t('docSpecimen.notAuthenticated'));
         setLoading(false);
         return;

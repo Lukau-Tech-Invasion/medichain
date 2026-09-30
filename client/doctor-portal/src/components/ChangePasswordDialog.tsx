@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import {
-  rotateCredentials,
-  rotateStaffPassword,
-  staffLogin,
-  deriveCredential,
+  changePassword,
+  deriveAuthProof,
   getApiErrorMessage,
+  MIN_PASSWORD_LENGTH,
+  rememberLoginId,
   useTranslation,
 } from '@medichain/shared';
 import { X, Loader2 } from 'lucide-react';
@@ -12,28 +12,25 @@ import { X, Loader2 } from 'lucide-react';
 /**
  * Change the password behind an employee identifier.
  *
- * # Why this asks for the current password, and cannot offer a reset
+ * # What travels
  *
- * The password has two one-way branches: an auth proof the server keeps a
- * verifier for, and a keystore key that opens the clinician's signing key. The
- * server holds the verifier and an opaque blob, so it can check a password and
- * can never open the keystore. That is what stops a stolen database from being
- * able to sign as a doctor.
+ * The password never leaves the browser. Both the current and the new password
+ * are stretched locally into proofs (`deriveAuthProof`) and only the proofs are
+ * sent to `POST /api/auth/credentials/change`. The server checks the current
+ * proof against its Argon2id verifier, stores a verifier for the new one, and
+ * ends every other session.
  *
- * The same property means only this browser can re-encrypt the keystore. So
- * the change happens here: fetch the current keystore, open it with the old
- * password, reseal it under the new one, and send the server proof of the old
- * password beside the new verifier and blob.
+ * # Forgotten passwords
  *
- * A clinician who has forgotten their password cannot use this, and is
- * re-enrolled by an administrator against a fresh keypair. There is no reset,
- * because a server able to reset would be a server able to forge.
+ * This needs the CURRENT password. Someone who has forgotten theirs asks an
+ * administrator for a credential reset: a one-time code they redeem at
+ * /activate to choose a new password.
  */
 export default function ChangePasswordDialog({
   loginId,
   onClose,
 }: {
-  /** The clinician's employee identifier; it is part of the key derivation. */
+  /** The clinician's employee identifier; it is part of the proof derivation. */
   loginId: string;
   onClose: () => void;
 }) {
@@ -54,41 +51,38 @@ export default function ChangePasswordDialog({
       setError(t('docSettings.pwIdentifierRequired'));
       return;
     }
-    if (next.length < 12) {
-      // Long rather than complex: this password is the only thing standing
-      // between an attacker and a key that signs clinical records, and it is
-      // typed once a shift rather than constantly.
-      setError(t('docSettings.pwTooShort'));
+    if (next.length < MIN_PASSWORD_LENGTH) {
+      // Long rather than complex: this password is typed once a shift rather
+      // than constantly, and length is what resists guessing.
+      setError(t('docSettings.pwTooShort', { min: MIN_PASSWORD_LENGTH }));
       return;
     }
     if (next !== confirm) {
       setError(t('docSettings.pwMismatch'));
       return;
     }
+    if (next === current) {
+      setError(t('docSettings.pwSame'));
+      return;
+    }
 
     setBusy(true);
     try {
-      // The keystore is not kept after sign-in — the session holds an opened
-      // signer, not the encrypted blob — so fetch the current one. This also
-      // re-verifies the current password server-side before anything changes.
-      const derived = await deriveCredential(current, identifier.trim());
-      const session = await staffLogin({
-        identifier: identifier.trim(),
-        auth_proof: derived.authProof,
-      });
-
-      const body = await rotateStaffPassword(
-        identifier.trim(),
-        current,
-        next,
-        session.encrypted_keystore
-      );
-      await rotateCredentials(body);
+      const id = identifier.trim();
+      const [currentProof, newProof] = await Promise.all([
+        deriveAuthProof(current, id),
+        deriveAuthProof(next, id),
+      ]);
+      await changePassword({ current_auth_proof: currentProof, new_auth_proof: newProof });
+      rememberLoginId(id);
       setDone(true);
     } catch (err) {
       setError(getApiErrorMessage(err, t('docSettings.pwFailed')));
     } finally {
       setBusy(false);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
     }
   };
 
@@ -181,7 +175,7 @@ export default function ChangePasswordDialog({
                 className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
               />
               <p className="mt-1 text-xs text-content-muted">
-                {t('docSettings.pwHint')}
+                {t('docSettings.pwHint', { min: MIN_PASSWORD_LENGTH })}
               </p>
             </div>
 

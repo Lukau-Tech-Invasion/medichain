@@ -167,10 +167,10 @@ function getApiErrorInfo(error: ApiClientError): ErrorInfo {
         retryable: false
       };
 
-    case 'INVALID_ADDRESS':
+    case 'INVALID_CREDENTIALS':
       return {
-        title: 'Invalid Wallet Address',
-        message: 'The wallet address format is invalid. Please check and try again.',
+        title: 'Sign-in Failed',
+        message: 'The username or password is not correct. Please check and try again.',
         action: 'none',
         retryable: false
       };

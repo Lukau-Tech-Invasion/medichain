@@ -382,10 +382,10 @@ export interface UpdateUserProfileRequest {
  * Update a user's profile (Admin or self)
  */
 export async function updateUserProfile(
-  walletAddress: string,
+  userId: string,
   data: UpdateUserProfileRequest
-): Promise<{ success: boolean; wallet_address: string; message: string }> {
-  return getApiClient().put(`/api/users/${walletAddress}`, data);
+): Promise<{ success: boolean; user_id: string; message: string }> {
+  return getApiClient().put(`/api/users/${userId}`, data);
 }
 
 export async function assignRole(data: AssignRoleRequest): Promise<AssignRoleResponse> {
@@ -397,15 +397,10 @@ export async function revokeRole(data: RevokeRoleRequest): Promise<RevokeRoleRes
 }
 
 // ============================================================================
-// Wallet Authentication
+// Sign-in and credentials
 // ============================================================================
 
-import type {
-  WalletRegisterRequest,
-  WalletRegisterResponse,
-  CurrentUser,
-  Role,
-} from '../types';
+import type { CurrentUser, Role } from '../types';
 
 /** A seeded demo account the sign-in screen offers as a one-click login. */
 export interface DemoCredential {
@@ -425,40 +420,119 @@ export async function getDemoCredentials(): Promise<{ success: boolean; credenti
   return getApiClient().get('/api/auth/demo-credentials');
 }
 
-/**
- * Register a new user with wallet address (Admin only)
- */
-export async function walletRegister(data: WalletRegisterRequest): Promise<WalletRegisterResponse> {
-  return getApiClient().post('/api/auth/register', data);
-}
-
-/** Request an opaque, single-use wallet-signing challenge. */
-export async function requestWalletChallenge(walletAddress: string): Promise<WalletChallenge> {
-  return getApiClient().post('/api/auth/challenge', { wallet_address: walletAddress });
-}
-
-/**
- * Sign in with an employee identifier and a password-derived proof.
- *
- * Returns the caller's encrypted keystore, not a session: the client still has
- * to open it and sign the auth challenge before it holds any authority. See
- * `auth/credentials.ts` for why the proof, not the password, is what travels.
- */
-export async function staffLogin(body: {
-  identifier: string;
-  auth_proof: string;
-}): Promise<{
-  success: boolean;
-  wallet_address: string;
-  encrypted_keystore: string;
+/** The account a sign-in or activation answered for. */
+export interface SignedInUser {
+  user_id: string;
   name: string;
   role: Role;
-}> {
-  return getApiClient().post('/api/auth/staff/login', body);
+  /** Set for a patient account: the record the account is linked to. */
+  linked_patient_id?: string | null;
 }
 
 /**
- * Fetch the signed-in user's own identity in full: wallet, role, department,
+ * The body `POST /api/auth/login` and `POST /api/auth/credentials/redeem`
+ * answer with. The refresh token is not read from it: it travels as an
+ * HttpOnly cookie the browser holds.
+ */
+export interface LoginResponse {
+  success: boolean;
+  /** Absent when `mfa_required` and no code was supplied. */
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  /** The account has an authenticator enrolled. */
+  mfa: boolean;
+  /** A one-time code is still needed before a session is issued. */
+  mfa_required: boolean;
+  user?: SignedInUser;
+}
+
+/**
+ * Sign in with a login id (Employee ID for staff, username for patients) and a
+ * password proof from `deriveAuthProof`. The password itself never travels.
+ * `totp_code` is sent on the second attempt when the first answered
+ * `mfa_required`.
+ */
+export async function login(body: {
+  identifier: string;
+  auth_proof: string;
+  totp_code?: string;
+}): Promise<LoginResponse> {
+  return getApiClient().post('/api/auth/login', body);
+}
+
+/**
+ * Turn a one-time activation or reset code into a password (and, for a
+ * patient, a username). Answers like `login`, so the caller is signed in.
+ *
+ * `auth_proof` is derived for the login id the account will sign in with: the
+ * chosen `username` when there is one, otherwise `identifier`.
+ */
+export async function redeemCredential(body: {
+  identifier: string;
+  code: string;
+  auth_proof: string;
+  username?: string;
+}): Promise<LoginResponse> {
+  return getApiClient().post('/api/auth/credentials/redeem', body);
+}
+
+/** Change the signed-in person's password. Other sessions are ended. */
+export async function changePassword(body: {
+  current_auth_proof: string;
+  new_auth_proof: string;
+}): Promise<{ success: boolean; message?: string }> {
+  return getApiClient().post('/api/auth/credentials/change', body);
+}
+
+/**
+ * Create a staff account (Admin; needs a step-up). The account stays
+ * `pending` until an administrator activates it, and the one-time credential
+ * code is shown once: nothing can show it again.
+ */
+export async function registerStaff(body: {
+  name: string;
+  role: string;
+  login_id: string;
+  email?: string;
+}): Promise<{
+  success: boolean;
+  user_id: string;
+  status: string;
+  activation_required: boolean;
+  credential_code: string;
+  credential_expires_at: string;
+}> {
+  return getApiClient().post('/api/auth/register', body);
+}
+
+/** A one-time code an administrator hands over; shown once, never stored. */
+export interface CredentialGrant {
+  credential_code: string;
+  expires_at: string;
+}
+
+/** Issue a fresh credential code for a user who cannot sign in (Admin; step-up). */
+export async function resetUserCredential(userId: string): Promise<CredentialGrant> {
+  return getApiClient().post(`/api/admin/users/${encodeURIComponent(userId)}/credential-reset`, {});
+}
+
+/** Remove a user's authenticator, for someone who lost their device (Admin; step-up). */
+export async function resetUserMfa(userId: string): Promise<{ success: boolean }> {
+  return getApiClient().post(`/api/admin/users/${encodeURIComponent(userId)}/mfa-reset`, {});
+}
+
+/** Issue a new activation code for a registered patient who has not activated yet. */
+export async function reissuePatientActivationCode(patientId: string): Promise<{
+  success: boolean;
+  activation_code: string;
+  activation_expires_at: string;
+}> {
+  return getApiClient().post(`/api/patients/${encodeURIComponent(patientId)}/activation-code`, {});
+}
+
+/**
+ * Fetch the signed-in user's own identity in full: user id, role, department,
  * specialty, licence, and the server's view of what their role permits.
  *
  * This is the authoritative provider context. Screens read from it instead of
@@ -466,27 +540,6 @@ export async function staffLogin(body: {
  */
 export async function getCurrentUser(): Promise<CurrentUser> {
   return getApiClient().get('/api/auth/me');
-}
-
-/**
- * Change the password behind an employee identifier.
- *
- * A rotation, not a reset. The caller derives both values from the old
- * password locally, opens its own keystore, re-encrypts the keypair under the
- * new password, and sends proof it knew the old one. The server never sees
- * either password and never holds the key — which is the same property that
- * makes a forgotten password unrecoverable here, by design.
- *
- * `rotateStaffPassword` in `auth/credentials.ts` does the derivation; call
- * that rather than assembling this body by hand.
- */
-export async function rotateCredentials(body: {
-  loginId: string;
-  currentAuthProof: string;
-  newAuthProof: string;
-  newEncryptedKeystore: string;
-}): Promise<{ success: boolean; message: string }> {
-  return getApiClient().post('/api/auth/staff/rotate-credentials', body);
 }
 
 /** Set the signed-in clinician's profile picture, or clear it with `null`. */
@@ -498,9 +551,9 @@ export async function setMyAvatar(
 
 /** One clinician's profile picture, or `null` when they have not set one. */
 export async function getUserAvatar(
-  walletAddress: string
+  userId: string
 ): Promise<{ success: boolean; avatar: string | null }> {
-  return getApiClient().get(`/api/users/${encodeURIComponent(walletAddress)}/avatar`);
+  return getApiClient().get(`/api/users/${encodeURIComponent(userId)}/avatar`);
 }
 
 // ============================================================================
@@ -683,43 +736,6 @@ export async function clearScanHistory(): Promise<{
   return getApiClient().post('/api/barcode/history/clear', {});
 }
 
-// ============================================================================
-// JWT authentication (Phase 9.4)
-// ============================================================================
-
-export interface JwtIssueRequest {
-  wallet_address: string;
-  challenge_id: string;
-  nonce: string;
-  /** Hex sr25519 signature over the issued login challenge message. */
-  signature: string;
-}
-
-export interface WalletChallenge {
-  success: boolean;
-  challenge: {
-    challenge_id: string;
-    nonce: string;
-    message: string;
-    expires_in_secs: number;
-  };
-}
-
-export interface JwtIssueResponse {
-  success: boolean;
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-  mfa: boolean;
-  mfa_required: boolean;
-}
-
-/** Issue JWT access + refresh tokens after a verified wallet signature challenge. */
-export async function issueJwt(data: JwtIssueRequest): Promise<JwtIssueResponse> {
-  return getApiClient().post('/api/auth/jwt', data);
-}
-
 /** Request a context- and device-bound emergency summary grant. */
 export async function grantBoundEmergencyAccess(
   data: GrantBoundEmergencyAccessRequest
@@ -736,7 +752,7 @@ export type IdentityContextType = 'patient' | 'professional';
 export interface IdentityContext {
   id: string;
   person_id: string;
-  wallet_address: string;
+  user_id: string;
   context_type: IdentityContextType;
   patient_profile_id?: string;
   organization_id?: string;
@@ -998,7 +1014,7 @@ export async function revokePatientAccessGrant(grantId: string): Promise<{ grant
 /** A recorded guardian relationship, as the server stores it. */
 export interface GuardianRelationship {
   id: string;
-  guardian_wallet: string;
+  guardian_user_id: string;
   ward_patient_id: string;
   relationship_type: string;
   permissions: string[];
@@ -1041,7 +1057,7 @@ export async function getMyWards(): Promise<{
  * the caller must be MFA-enrolled and stepped up.
  */
 export async function verifyGuardian(data: {
-  guardian_wallet: string;
+  guardian_user_id: string;
   ward_patient_id: string;
   relationship_type: string;
   permissions: string[];
@@ -2440,7 +2456,7 @@ export async function createAppointment(data: unknown): Promise<AppointmentCreat
 
 /** A clinician a patient can choose to book with. */
 export interface BookableProvider {
-  wallet_address: string;
+  user_id: string;
   name: string;
   role: string;
   username?: string;
@@ -5040,28 +5056,57 @@ export async function getSessionAssurance(): Promise<{
   return getApiClient().get('/api/auth/assurance');
 }
 
-/** Server-issued, single-use challenge bound to this login session (ADR-0008). */
-export interface SignatureStepUpChallenge {
+/**
+ * Which factor completes a transaction authorization: the current TOTP code, or
+ * the account password when no authenticator is enrolled.
+ */
+export type RequiredFactor = 'totp' | 'password';
+
+/** What a Class C authorization is bound to: the exact request it will permit. */
+export interface TransactionIntentRequest {
+  action: string;
+  method: string;
+  path: string;
+  /** SHA-256 hex of the exact body bytes to be sent. Omit for a request with no body. */
+  body_digest?: string;
+  resource_id?: string;
+  expected_state?: string;
+  idempotency_key?: string;
+}
+
+/** A server-issued, single-use challenge bound to this session and one request. */
+export interface TransactionChallenge {
   challenge_id: string;
-  nonce: string;
-  message: string;
+  expires_in_secs: number;
+  required_factor: RequiredFactor;
 }
 
-/** Request a fresh wallet challenge; returns the exact bytes the wallet signs. */
-export async function requestSignatureStepUp(): Promise<{ challenge: SignatureStepUpChallenge }> {
-  return getApiClient().post('/api/auth/step-up/challenge', {});
+/**
+ * Begin a Class C authorization for one exact mutation (ADR-0008).
+ *
+ * The server may answer with the challenge at the top level or under
+ * `challenge`; both are accepted so the client does not depend on the wrapper.
+ */
+export async function requestTransactionChallenge(
+  intent: TransactionIntentRequest
+): Promise<TransactionChallenge> {
+  const body = await getApiClient().post<TransactionChallenge & { challenge?: TransactionChallenge }>(
+    '/api/auth/transaction/challenge',
+    intent
+  );
+  return body.challenge ?? body;
 }
 
-/** Verify an interactive wallet proof; elevation remains server-side on the session. */
-export async function verifySignatureStepUp(
-  challenge: SignatureStepUpChallenge, signature: string,
-): Promise<{ success: boolean }> {
-  return getApiClient().post('/api/auth/step-up/verify', {
-    challenge_id: challenge.challenge_id,
-    nonce: challenge.nonce,
-    signature,
-    authenticator: 'polkadot_extension',
-  });
+/**
+ * Complete a Class C challenge with a current TOTP code, or the password proof
+ * when `required_factor` is `password`. Send exactly one of `code` / `auth_proof`.
+ */
+export async function verifyTransactionChallenge(body: {
+  challenge_id: string;
+  code?: string;
+  auth_proof?: string;
+}): Promise<{ success: boolean; authorization_id?: string }> {
+  return getApiClient().post('/api/auth/transaction/verify', body);
 }
 
 // ============================================================================

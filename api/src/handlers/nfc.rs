@@ -70,7 +70,7 @@ pub async fn generate_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -213,7 +213,7 @@ pub async fn verify_my_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -251,7 +251,7 @@ pub async fn verify_my_nfc_card(
 
     // The card_hash is a valid registered card, but does it belong to the
     // patient holding the phone? Reject silently-wrong or cloned cards.
-    // The card names the patient RECORD; the caller is a wallet. Compared
+    // The card names the patient RECORD; the caller is a user id. Compared
     // directly, every patient was told their own card belonged to someone else.
     if !crate::support::caller_owns_patient_record(&data, &current_user_id, &card.patient_id) {
         return HttpResponse::Ok().json(VerifyMyCardResponse {
@@ -298,7 +298,7 @@ pub async fn get_card_info(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -357,7 +357,7 @@ pub async fn suspend_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -443,7 +443,7 @@ pub async fn list_nfc_cards(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }

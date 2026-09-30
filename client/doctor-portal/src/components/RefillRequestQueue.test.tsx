@@ -81,7 +81,7 @@ describe('RefillRequestQueue', () => {
 
     expect(await screen.findByText(/Signed and sent to the pharmacy/i)).toBeInTheDocument();
     expect(shared.signEPrescription).toHaveBeenCalledWith('RX-NEW', {
-      signature_method: 'wallet',
+      signature_method: 'password',
       attestation: PRESCRIBER_ATTESTATION,
     });
     expect(shared.transmitEPrescription).toHaveBeenCalledWith('RX-NEW');

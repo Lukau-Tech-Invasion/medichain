@@ -7,6 +7,7 @@ import { ToastProvider } from './components/Toast';
 
 // Critical-path pages stay eager so the first paint needs no extra round-trip.
 import { LoginPage } from './pages/LoginPage';
+import { ActivatePage } from './pages/ActivatePage';
 import { DashboardPage } from './pages/DashboardPage';
 
 // Everything else is route-split so a page's code only loads when visited.
@@ -110,6 +111,7 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivatePage />} />
 
       {/* Protected routes with layout. The Suspense boundary around Layout
           catches the lazy children it renders through its <Outlet/>. */}

@@ -385,7 +385,7 @@ pub fn generate_qr_image(data: &QRCodeData) -> Result<String, String> {
 ///
 /// It was neither, until 2026-09-11: a pair of `RwLock<HashMap>` with nothing
 /// behind them, so every card issued was gone when the process stopped, while
-/// the physical card in the patient's wallet kept working right up to the tap
+/// the physical card in the patient's user id kept working right up to the tap
 /// that answered `CARD_NOT_FOUND`.
 pub struct CardRegistry {
     cards: RwLock<HashMap<String, NFCCard>>,

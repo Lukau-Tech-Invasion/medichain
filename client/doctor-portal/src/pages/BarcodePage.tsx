@@ -132,7 +132,7 @@ const BarcodePage: React.FC = () => {
   /** Re-read this clinician's scan list from the server. */
   const loadScanHistory = async () => {
     const user = useAuthStore.getState().user;
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     try {
       const history = await getMyBarcodeScans();
       setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
@@ -191,7 +191,7 @@ const BarcodePage: React.FC = () => {
   useEffect(() => {
     // Fetch scan history from API - start with empty state
     const fetchScanHistory = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setLoading(false);
         return;
       }
@@ -230,7 +230,7 @@ const BarcodePage: React.FC = () => {
   };
 
   const submitScan = async (barcode: string) => {
-    if (!user?.walletAddress) {
+    if (!user?.userId) {
       console.error('User not authenticated');
       return;
     }

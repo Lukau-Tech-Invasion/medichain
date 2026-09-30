@@ -230,7 +230,7 @@ const ImagingPage: React.FC = () => {
           study_type: studyTypes[modality], body_part: bodyPart,
           laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
           indication, priority: priority[0].toUpperCase() + priority.slice(1),
-          ordering_provider: user.walletAddress,
+          ordering_provider: user.userId,
           order_time: Math.floor(Date.now() / 1000), contrast,
           allergies_reviewed: Boolean(allergies.trim()),
           creatinine_checked: contrast ? creatinine !== undefined : null,

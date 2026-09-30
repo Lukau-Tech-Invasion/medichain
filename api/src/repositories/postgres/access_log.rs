@@ -62,17 +62,17 @@ impl AccessLogRepository for PgAccessLogRepository {
 
     async fn get_by_accessor(
         &self,
-        accessor_id: &str,
+        accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
         let mut count_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT COUNT(*) FROM access_logs WHERE accessor_id = ");
-        count_qb.push_bind(accessor_id);
+            QueryBuilder::new("SELECT COUNT(*) FROM access_logs WHERE accessor_id = ANY(");
+        count_qb.push_bind(accessor_ids).push(")");
         let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
 
         let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM access_logs WHERE accessor_id = ");
-        qb.push_bind(accessor_id);
+            QueryBuilder::new("SELECT * FROM access_logs WHERE accessor_id = ANY(");
+        qb.push_bind(accessor_ids).push(")");
         qb.push(" ORDER BY accessed_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");

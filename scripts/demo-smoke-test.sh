@@ -53,12 +53,12 @@ check "proxied API health"                     200 "$(code /health)"
 # Same origin as the portals, so apiUrl() -> window.location.origin works.
 check "API refuses an unauthenticated read"    401 "$(code /api/patients)"
 # Asserts REFUSED, not a specific code. A forged `0xPROV`-prefixed id used to
-# return 200 with real PHI (HZ-024); it now fails the provider check and returns
-# 403, while an unknown id on other routes returns 401. Both are correct
+# return 200 with real PHI (HZ-024); a string that is not a token the API issued
+# now authenticates nobody. Some routes answer 401 and some 403, both are correct
 # refusals, and pinning one code would fail the suite for a handler that refuses
 # in the other legitimate way.
-FORGED=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -H 'X-User-Id: 0xPROVforged' "$BASE/api/sync/download/PAT-1")
-check "API refuses a forged identity (got $FORGED)" refused \
+FORGED=$(curl -s -o /dev/null -m 15 -w '%{http_code}' -H 'Authorization: Bearer 0xPROVforged' "$BASE/api/sync/download/PAT-1")
+check "API refuses a forged credential (got $FORGED)" refused \
   "$([ "$FORGED" = "401" ] || [ "$FORGED" = "403" ] && echo refused || echo "ALLOWED:$FORGED")"
 
 printf '\n\033[1m== Failure behaviour ==\033[0m\n'

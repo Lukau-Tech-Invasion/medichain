@@ -138,18 +138,6 @@ export const dateOfBirthSchema = pastDateSchema.refine(value => {
   return years <= 130;
 }, 'Check the year — that date gives an age over 130');
 
-/**
- * SS58 wallet address.
- *
- * Length and alphabet only. A checksum check belongs with the crypto module
- * that owns the encoding, not duplicated here — see `@medichain/shared`'s
- * wallet utilities.
- */
-export const walletAddressSchema = z
-  .string()
-  .min(1, 'Enter a wallet address')
-  .regex(/^[1-9A-HJ-NP-Za-km-z]{47,48}$/, 'A wallet address is 47-48 characters, no 0/O/I/l');
-
 /** MediChain patient record id. */
 export const patientIdSchema = z
   .string()
@@ -213,7 +201,6 @@ export const requiredText = (fieldLabel: string, max = 200) =>
  */
 export const patientRegistrationSchema = z.object({
   fullName: requiredText('the patient’s full name'),
-  walletAddress: walletAddressSchema,
   dateOfBirth: dateOfBirthSchema,
   nationalId: requiredText('a national ID number', 64),
   gender: z.string(),
@@ -768,7 +755,7 @@ export const cdsRuleSchema = z.object({
 
 /** Creating a staff account. */
 export const newUserSchema = z.object({
-  walletAddress: requiredText('a wallet address', 128),
+  loginId: requiredText('an Employee ID', 64),
   name: requiredText('the full name', 200),
   email: emailSchema,
 });

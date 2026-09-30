@@ -180,7 +180,7 @@ function RunCard({ run, released, onReleased, onChanged }: RunCardProps) {
   const { user } = useAuthStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const mine = user?.walletAddress === run.proposed_by;
+  const mine = user?.userId === run.proposed_by;
 
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true);

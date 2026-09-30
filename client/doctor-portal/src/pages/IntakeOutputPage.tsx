@@ -184,7 +184,7 @@ const IntakeOutputPage: React.FC = () => {
 
   useEffect(() => {
     const fetchIntakeOutput = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setLoading(false);
         return;
       }
@@ -213,7 +213,7 @@ const IntakeOutputPage: React.FC = () => {
 
   // Fetch detailed I/O for selected patient/date
   useEffect(() => {
-    if (!selectedPatient || !user?.walletAddress) return;
+    if (!selectedPatient || !user?.userId) return;
     const fetchDetailedIO = async () => {
       const shift = 'day'; // Default shift
       try {

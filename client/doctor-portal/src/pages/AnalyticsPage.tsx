@@ -204,7 +204,7 @@ const AnalyticsPage: React.FC = () => {
     const fetchAnalytics = async () => {
       // Skip the fetch rather than skip the hook: a non-administrator would
       // otherwise spend a request to be told 403 on a screen they cannot see.
-      if (!user?.walletAddress || !isAdministrator) {
+      if (!user?.userId || !isAdministrator) {
         setLoading(false);
         return;
       }

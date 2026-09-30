@@ -182,7 +182,7 @@ fn refill_audit(
 ) -> crate::repositories::traits::AccessLogEntity {
     let mut audit = prescription_audit(
         prescription,
-        &caller.wallet_address,
+        &caller.id,
         &caller.role.to_string(),
         action.as_str(),
     );
@@ -224,7 +224,7 @@ fn new_request_entity(
         patient_id: prescription.patient_id.clone(),
         prescriber_id: prescription.prescriber_id.clone(),
         medication_name: prescription.medication.name.clone(),
-        requested_by: caller.wallet_address.clone(),
+        requested_by: caller.id.clone(),
         status: RefillRequestStatus::Requested.as_str().to_string(),
         patient_note: note,
         decided_by: None,
@@ -258,11 +258,7 @@ pub async fn create_refill_request(
     };
     // Patients only, and only for themselves. A guardian's path arrives with
     // the care-relationship model (WP9).
-    if !crate::support::caller_owns_patient_record(
-        &data,
-        &caller.wallet_address,
-        &prescription.patient_id,
-    ) {
+    if !crate::support::caller_owns_patient_record(&data, &caller.id, &prescription.patient_id) {
         return refill_error(
             HttpResponse::Forbidden(),
             "You can only request refills of your own prescriptions.",
@@ -320,8 +316,7 @@ pub async fn list_patient_refill_requests(
         Err(response) => return response,
     };
     let patient_id = path.into_inner();
-    let is_own =
-        crate::support::caller_owns_patient_record(&data, &caller.wallet_address, &patient_id);
+    let is_own = crate::support::caller_owns_patient_record(&data, &caller.id, &patient_id);
     if !is_own && !caller.role.is_healthcare_provider() {
         return refill_error(HttpResponse::Forbidden(), "Access denied", "FORBIDDEN");
     }
@@ -370,7 +365,7 @@ pub async fn refill_request_queue(
     match data
         .repositories
         .refill_requests
-        .list_open_by_prescriber(&caller.wallet_address)
+        .list_open_by_prescriber(&caller.id)
         .await
     {
         Ok(rows) => {
@@ -419,7 +414,7 @@ async fn load_open_request(
 fn refill_prescription(original: &EPrescription, approver: &crate::User) -> EPrescription {
     let mut refill = original.clone();
     refill.prescription_id = format!("RX-{}", uuid::Uuid::new_v4());
-    refill.prescriber_id = approver.wallet_address.clone();
+    refill.prescriber_id = approver.id.clone();
     refill.prescriber_name = approver.name.clone();
     refill.prescriber_npi = approver
         .license_number
@@ -462,7 +457,7 @@ fn build_approval(
         closure: RefillClosure {
             request_id: request.id.clone(),
             status: RefillRequestStatus::Approved,
-            decided_by: approver.wallet_address.clone(),
+            decided_by: approver.id.clone(),
             decided_at: chrono::Utc::now(),
             denial_reason: None,
             new_prescription_id: Some(new_id.clone()),
@@ -589,7 +584,7 @@ pub async fn deny_refill_request(
     let closure = RefillClosure {
         request_id: request.id.clone(),
         status: RefillRequestStatus::Denied,
-        decided_by: doctor.wallet_address.clone(),
+        decided_by: doctor.id.clone(),
         decided_at: chrono::Utc::now(),
         denial_reason: Some(reason.clone()),
         new_prescription_id: None,
@@ -630,11 +625,7 @@ pub async fn cancel_refill_request(
         Ok(request) => request,
         Err(response) => return response,
     };
-    if !crate::support::caller_owns_patient_record(
-        &data,
-        &caller.wallet_address,
-        &request.patient_id,
-    ) {
+    if !crate::support::caller_owns_patient_record(&data, &caller.id, &request.patient_id) {
         return refill_error(
             HttpResponse::Forbidden(),
             "You can only cancel your own refill requests.",
@@ -644,7 +635,7 @@ pub async fn cancel_refill_request(
     let closure = RefillClosure {
         request_id: request.id.clone(),
         status: RefillRequestStatus::Cancelled,
-        decided_by: caller.wallet_address.clone(),
+        decided_by: caller.id.clone(),
         decided_at: chrono::Utc::now(),
         denial_reason: None,
         new_prescription_id: None,
@@ -673,15 +664,15 @@ mod tests {
     use actix_web::{test, App};
 
     const PATIENT_ID: &str = "PAT-RF";
-    const PATIENT_WALLET: &str = "patient_rf";
+    const PATIENT_USER: &str = "patient_rf";
     const PRESCRIBER: &str = "doctor_rf";
     const OTHER_DOCTOR: &str = "doctor_other";
     const NURSE: &str = "nurse_rf";
     const STRANGER: &str = "patient_stranger";
 
     /// A user with `role`; patients are linked to `linked`.
-    fn user(wallet: &str, role: crate::Role, linked: Option<&str>) -> crate::User {
-        let mut user = crate::test_fixtures::staff(wallet, role);
+    fn user(user_id: &str, role: crate::Role, linked: Option<&str>) -> crate::User {
+        let mut user = crate::test_fixtures::staff(user_id, role);
         user.linked_patient_id = linked.map(str::to_string);
         user
     }
@@ -737,13 +728,13 @@ mod tests {
         {
             let mut users = state.users.write().unwrap();
             for u in [
-                user(PATIENT_WALLET, crate::Role::Patient, Some(PATIENT_ID)),
+                user(PATIENT_USER, crate::Role::Patient, Some(PATIENT_ID)),
                 user(STRANGER, crate::Role::Patient, Some("PAT-OTHER")),
                 user(PRESCRIBER, crate::Role::Doctor, None),
                 user(OTHER_DOCTOR, crate::Role::Doctor, None),
                 user(NURSE, crate::Role::Nurse, None),
             ] {
-                users.insert(u.wallet_address.clone(), u);
+                users.insert(u.id.clone(), u);
             }
         }
         let id = rx.prescription_id.clone();
@@ -756,11 +747,11 @@ mod tests {
         web::Data::new(state)
     }
 
-    /// Send one request as `wallet` to an app with every refill route.
+    /// Send one request as `user id` to an app with every refill route.
     async fn call(
         state: &web::Data<AppState>,
         request: test::TestRequest,
-        wallet: &str,
+        user_id: &str,
     ) -> (u16, serde_json::Value) {
         let app = test::init_service(
             App::new()
@@ -775,7 +766,9 @@ mod tests {
         .await;
         let response = test::call_service(
             &app,
-            request.insert_header(("x-user-id", wallet)).to_request(),
+            request
+                .insert_header(crate::test_fixtures::as_user(user_id))
+                .to_request(),
         )
         .await;
         let status = response.status().as_u16();
@@ -790,7 +783,7 @@ mod tests {
     async fn request_refill(
         state: &web::Data<AppState>,
         rx_id: &str,
-        wallet: &str,
+        user_id: &str,
     ) -> (u16, serde_json::Value) {
         let uri = format!("/api/e-prescriptions/{rx_id}/refill-requests");
         call(
@@ -798,7 +791,7 @@ mod tests {
             test::TestRequest::post()
                 .uri(&uri)
                 .set_json(serde_json::json!({ "note": "Running out Friday" })),
-            wallet,
+            user_id,
         )
         .await
     }
@@ -828,7 +821,7 @@ mod tests {
     #[actix_web::test]
     async fn a_patient_requests_a_refill_and_it_is_audited() {
         let state = state_with(prescription("RX-A", 2)).await;
-        let (status, body) = request_refill(&state, "RX-A", PATIENT_WALLET).await;
+        let (status, body) = request_refill(&state, "RX-A", PATIENT_USER).await;
         assert_eq!(status, 201, "{body}");
         assert_eq!(body["request"]["status"], "requested");
         assert_eq!(body["request"]["medication_name"], "Amlodipine");
@@ -839,8 +832,8 @@ mod tests {
     #[actix_web::test]
     async fn a_second_open_request_is_refused() {
         let state = state_with(prescription("RX-B", 2)).await;
-        assert_eq!(request_refill(&state, "RX-B", PATIENT_WALLET).await.0, 201);
-        let (status, body) = request_refill(&state, "RX-B", PATIENT_WALLET).await;
+        assert_eq!(request_refill(&state, "RX-B", PATIENT_USER).await.0, 201);
+        let (status, body) = request_refill(&state, "RX-B", PATIENT_USER).await;
         assert_eq!(status, 409);
         assert_eq!(body["error"]["code"], "REFILL_ALREADY_REQUESTED");
     }
@@ -857,11 +850,11 @@ mod tests {
     #[actix_web::test]
     async fn no_refills_left_or_an_inactive_prescription_is_unprocessable() {
         let state = state_with(prescription("RX-D", 0)).await;
-        assert_eq!(request_refill(&state, "RX-D", PATIENT_WALLET).await.0, 422);
+        assert_eq!(request_refill(&state, "RX-D", PATIENT_USER).await.0, 422);
         let mut draft = prescription("RX-E", 3);
         draft.status = PrescriptionStatus::Draft;
         let state = state_with(draft).await;
-        let (status, body) = request_refill(&state, "RX-E", PATIENT_WALLET).await;
+        let (status, body) = request_refill(&state, "RX-E", PATIENT_USER).await;
         assert_eq!(status, 422);
         assert_eq!(body["error"]["code"], "REFILL_NOT_AVAILABLE");
     }
@@ -873,13 +866,13 @@ mod tests {
         let request = test::TestRequest::post()
             .uri("/api/e-prescriptions/RX-F/refill-requests")
             .set_json(serde_json::json!({ "note": note }));
-        assert_eq!(call(&state, request, PATIENT_WALLET).await.0, 400);
+        assert_eq!(call(&state, request, PATIENT_USER).await.0, 400);
     }
 
     #[actix_web::test]
     async fn approval_decrements_the_original_and_creates_a_linked_unsigned_prescription() {
         let state = state_with(prescription("RX-G", 2)).await;
-        let (_, created) = request_refill(&state, "RX-G", PATIENT_WALLET).await;
+        let (_, created) = request_refill(&state, "RX-G", PATIENT_USER).await;
         let uri = format!(
             "/api/refill-requests/{}/approve",
             created["request"]["id"].as_str().unwrap()
@@ -899,7 +892,7 @@ mod tests {
     #[actix_web::test]
     async fn only_a_doctor_can_decide() {
         let state = state_with(prescription("RX-H", 2)).await;
-        let (_, created) = request_refill(&state, "RX-H", PATIENT_WALLET).await;
+        let (_, created) = request_refill(&state, "RX-H", PATIENT_USER).await;
         let uri = format!(
             "/api/refill-requests/{}/approve",
             created["request"]["id"].as_str().unwrap()
@@ -908,7 +901,7 @@ mod tests {
         assert_eq!(status, 403);
         assert_eq!(body["error"]["code"], "PRESCRIBER_REQUIRED");
         assert_eq!(
-            call(&state, test::TestRequest::post().uri(&uri), PATIENT_WALLET)
+            call(&state, test::TestRequest::post().uri(&uri), PATIENT_USER)
                 .await
                 .0,
             403
@@ -919,7 +912,7 @@ mod tests {
     #[actix_web::test]
     async fn a_denial_needs_a_real_reason_and_the_patient_can_read_it() {
         let state = state_with(prescription("RX-I", 2)).await;
-        let (_, created) = request_refill(&state, "RX-I", PATIENT_WALLET).await;
+        let (_, created) = request_refill(&state, "RX-I", PATIENT_USER).await;
         let uri = format!(
             "/api/refill-requests/{}/deny",
             created["request"]["id"].as_str().unwrap()
@@ -935,7 +928,7 @@ mod tests {
         assert_eq!(call(&state, real, PRESCRIBER).await.0, 200);
         let list =
             test::TestRequest::get().uri(&format!("/api/patients/{PATIENT_ID}/refill-requests"));
-        let (_, body) = call(&state, list, PATIENT_WALLET).await;
+        let (_, body) = call(&state, list, PATIENT_USER).await;
         assert_eq!(body["requests"][0]["status"], "denied");
         assert_eq!(body["requests"][0]["denial_reason"], reason);
         assert_eq!(stored_rx(&state, "RX-I").await.refills_remaining, 2);
@@ -944,7 +937,7 @@ mod tests {
     #[actix_web::test]
     async fn a_patient_cancels_their_own_open_request_only() {
         let state = state_with(prescription("RX-J", 2)).await;
-        let (_, created) = request_refill(&state, "RX-J", PATIENT_WALLET).await;
+        let (_, created) = request_refill(&state, "RX-J", PATIENT_USER).await;
         let uri = format!(
             "/api/refill-requests/{}/cancel",
             created["request"]["id"].as_str().unwrap()
@@ -956,23 +949,22 @@ mod tests {
             403
         );
         assert_eq!(
-            call(&state, test::TestRequest::post().uri(&uri), PATIENT_WALLET)
+            call(&state, test::TestRequest::post().uri(&uri), PATIENT_USER)
                 .await
                 .0,
             200
         );
-        let (status, body) =
-            call(&state, test::TestRequest::post().uri(&uri), PATIENT_WALLET).await;
+        let (status, body) = call(&state, test::TestRequest::post().uri(&uri), PATIENT_USER).await;
         assert_eq!(status, 409);
         assert_eq!(body["error"]["code"], "REFILL_ALREADY_CLOSED");
         // A new request is possible once the old one is closed.
-        assert_eq!(request_refill(&state, "RX-J", PATIENT_WALLET).await.0, 201);
+        assert_eq!(request_refill(&state, "RX-J", PATIENT_USER).await.0, 201);
     }
 
     #[actix_web::test]
     async fn the_queue_shows_a_doctor_only_open_requests_on_their_own_prescriptions() {
         let state = state_with(prescription("RX-K", 2)).await;
-        request_refill(&state, "RX-K", PATIENT_WALLET).await;
+        request_refill(&state, "RX-K", PATIENT_USER).await;
         let queue = || test::TestRequest::get().uri("/api/refill-requests/queue");
         let (_, own) = call(&state, queue(), PRESCRIBER).await;
         assert_eq!(own["requests"].as_array().unwrap().len(), 1);
@@ -1024,8 +1016,8 @@ mod tests {
     async fn a_storage_failure_is_a_503_with_a_safe_message_never_an_empty_list() {
         let mut state = AppState::new();
         state.users.write().unwrap().insert(
-            PATIENT_WALLET.into(),
-            user(PATIENT_WALLET, crate::Role::Patient, Some(PATIENT_ID)),
+            PATIENT_USER.into(),
+            user(PATIENT_USER, crate::Role::Patient, Some(PATIENT_ID)),
         );
         state.repositories.refill_requests = std::sync::Arc::new(FailingStore);
         let rx = prescription("RX-L", 2);
@@ -1036,7 +1028,7 @@ mod tests {
             .await
             .unwrap();
         let state = web::Data::new(state);
-        let (status, body) = request_refill(&state, "RX-L", PATIENT_WALLET).await;
+        let (status, body) = request_refill(&state, "RX-L", PATIENT_USER).await;
         assert_eq!(status, 503);
         assert_eq!(body["error"]["code"], "REFILL_REQUESTS_UNAVAILABLE");
         assert!(
@@ -1045,6 +1037,6 @@ mod tests {
         );
         let list =
             test::TestRequest::get().uri(&format!("/api/patients/{PATIENT_ID}/refill-requests"));
-        assert_eq!(call(&state, list, PATIENT_WALLET).await.0, 503);
+        assert_eq!(call(&state, list, PATIENT_USER).await.0, 503);
     }
 }

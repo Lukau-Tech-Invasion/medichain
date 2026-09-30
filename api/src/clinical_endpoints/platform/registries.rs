@@ -7,8 +7,8 @@ use super::*;
 /// Gate for the deployment-wide clinical registries below.
 ///
 /// Every handler in this file previously guarded with
-/// `if http_req.headers().get("X-User-Id").is_none() { 401 }` and then called
-/// `list_all()`. `X-User-Id` is caller-supplied, so that check was satisfied by
+/// a check that some identity header was present and then called
+/// `list_all()`. The header was caller-supplied, so that check was satisfied by
 /// any string: an unauthenticated caller could read every pathology report,
 /// critical-value notification, blood-bank record and specimen chain of custody
 /// in the deployment. This is the "authentication mistaken for authorization"
@@ -264,7 +264,7 @@ pub async fn list_my_immunizations(
     let patient_id = current_user
         .linked_patient_id
         .clone()
-        .unwrap_or(current_user.wallet_address);
+        .unwrap_or(current_user.id);
     match data
         .repositories
         .immunization_records
@@ -560,7 +560,7 @@ pub async fn list_peds_for_patient(
 /// makes two things worth pinning down, and neither is visible by reading the
 /// handler:
 ///
-///   1. The nurse files against a `PAT-` id and the patient asks with a wallet
+///   1. The nurse files against a `PAT-` id and the patient asks with a user id
 ///      address. `linked_patient_id` bridges them. If that resolution breaks, a
 ///      patient is told they have had no vaccinations — the answer that gets
 ///      one repeated.
@@ -573,9 +573,9 @@ mod patient_immunization_card_tests {
 
     fn state_with_users(users: &[(Role, &str, Option<&str>)]) -> web::Data<AppState> {
         let state = AppState::new();
-        for (role, wallet, linked) in users {
+        for (role, user_id, linked) in users {
             let user = User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test".to_string(),
                 role: role.clone(),
@@ -594,7 +594,7 @@ mod patient_immunization_card_tests {
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.to_string(), user);
+                .insert(user_id.to_string(), user);
         }
         web::Data::new(state)
     }
@@ -639,7 +639,7 @@ mod patient_immunization_card_tests {
         for (patient_id, vaccine) in doses {
             let req = test::TestRequest::post()
                 .uri("/api/surgical/immunization")
-                .insert_header(("X-User-Id", nurse.to_string()))
+                .insert_header(crate::test_fixtures::as_user(nurse))
                 .set_json(dose(patient_id, vaccine))
                 .to_request();
             let resp = test::call_service(&app, req).await;
@@ -652,7 +652,7 @@ mod patient_immunization_card_tests {
 
         let req = test::TestRequest::get()
             .uri("/api/clinical/immunizations")
-            .insert_header(("X-User-Id", reader.to_string()))
+            .insert_header(crate::test_fixtures::as_user(reader))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let status = resp.status().as_u16();
@@ -730,7 +730,7 @@ mod patient_immunization_card_tests {
     }
 
     /// A clinician's own card, not the deployment register. The staff account
-    /// has no `linked_patient_id`, so the scope falls back to their wallet —
+    /// has no `linked_patient_id`, so the scope falls back to their user id —
     /// which matches no record, rather than matching everything.
     #[actix_rt::test]
     async fn an_unlinked_staff_caller_gets_their_own_empty_card() {
@@ -747,7 +747,7 @@ mod patient_immunization_card_tests {
         );
     }
 
-    /// An unregistered wallet is not a caller. `require_registered_caller`
+    /// An unregistered user id is not a caller. `require_registered_caller`
     /// resolves against the user store, so a forged header is refused before
     /// any scoping decision is made.
     #[actix_rt::test]
@@ -761,7 +761,7 @@ mod patient_immunization_card_tests {
         .await;
         let req = test::TestRequest::get()
             .uri("/api/clinical/immunizations")
-            .insert_header(("X-User-Id", "5NobodyAtAll"))
+            .insert_header(crate::test_fixtures::as_user("5NobodyAtAll"))
             .to_request();
         let status = test::call_service(&app, req).await.status().as_u16();
         assert!(status == 401 || status == 403, "got {status}");

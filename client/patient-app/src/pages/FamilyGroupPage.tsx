@@ -41,7 +41,7 @@ export function FamilyGroupPage() {
   const [loading, setLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [addMemberGroupId, setAddMemberGroupId] = useState<string | null>(null);
-  const [newMemberWalletAddress, setNewMemberWalletAddress] = useState('');
+  const [newMemberUserId, setNewMemberUserId] = useState('');
   const [newMemberRelationship, setNewMemberRelationship] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
@@ -139,12 +139,12 @@ export function FamilyGroupPage() {
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patient?.walletAddress || !newGroupName.trim()) return;
+    if (!patient?.userId || !newGroupName.trim()) return;
     setIsCreating(true);
     try {
       await createFamilyGroup({
         group_name: newGroupName.trim(),
-        primary_contact_id: patient.walletAddress,
+        primary_contact_id: patient.userId,
       });
       setNewGroupName('');
       showSuccess(t('family.groupCreated'));
@@ -159,18 +159,18 @@ export function FamilyGroupPage() {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addMemberGroupId || !newMemberWalletAddress.trim()) return;
+    if (!addMemberGroupId || !newMemberUserId.trim()) return;
     setIsAddingMember(true);
     try {
       await addFamilyMember(addMemberGroupId, {
-        // Family access is authorized against wallet identities. A Health ID
+        // Family access is authorized against account ids (`user_id`). A Health ID
         // would persist here but never match the caller identity used by the
         // appointment and removal authorization checks.
-        patient_id: newMemberWalletAddress.trim(),
+        patient_id: newMemberUserId.trim(),
         relationship: newMemberRelationship.trim() || undefined,
         access_level: 'ViewOnly',
       });
-      setNewMemberWalletAddress('');
+      setNewMemberUserId('');
       setNewMemberRelationship('');
       setAddMemberGroupId(null);
       showSuccess(t('family.memberAdded'));
@@ -296,6 +296,15 @@ export function FamilyGroupPage() {
         <p className="text-content-muted">{t('family.subtitle')}</p>
       </div>
 
+      {/* The id a family member types to add this person. Shown so a patient
+          can hand it over; it is an identifier, not a credential. */}
+      {patient?.userId && (
+        <p className="text-sm text-content-muted">
+          {t('family.yourAccountId')}{' '}
+          <span className="font-mono text-content select-all break-all">{patient.userId}</span>
+        </p>
+      )}
+
       {/* Create Group Form */}
       <div className="patient-card">
         <h2 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
@@ -377,8 +386,8 @@ export function FamilyGroupPage() {
                               <span className="text-xs text-content-muted">({m.relationship})</span>
                             )}
                             {m.patient_id !== group.primary_account_id &&
-                              (group.primary_account_id === patient?.walletAddress ||
-                                m.patient_id === patient?.walletAddress) && (
+                              (group.primary_account_id === patient?.userId ||
+                                m.patient_id === patient?.userId) && (
                                 <button
                                   type="button"
                                   onClick={() => void handleRemoveMember(group.group_id, m.patient_id)}
@@ -408,12 +417,12 @@ export function FamilyGroupPage() {
                   ) : (
                     <form onSubmit={handleAddMember} className="space-y-2 bg-surface-sunken rounded-lg p-3">
                       <p className="text-sm font-medium text-content-secondary">{t('family.addMemberTo', { group: group.group_name })}</p>
-                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.memberWalletAddress')}</label>
+                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.memberUserId')}</label>
                       <input
                         id={`member-id-${group.group_id}`}
-                        value={newMemberWalletAddress}
-                        onChange={e => setNewMemberWalletAddress(e.target.value)}
-                        placeholder={t('family.memberWalletPlaceholder')}
+                        value={newMemberUserId}
+                        onChange={e => setNewMemberUserId(e.target.value)}
+                        placeholder={t('family.memberUserIdPlaceholder')}
                         className="w-full border border-border-interactive rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                         required
                       />
@@ -428,7 +437,7 @@ export function FamilyGroupPage() {
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          disabled={isAddingMember || !newMemberWalletAddress.trim()}
+                          disabled={isAddingMember || !newMemberUserId.trim()}
                           className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
@@ -436,7 +445,7 @@ export function FamilyGroupPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setAddMemberGroupId(null); setNewMemberWalletAddress(''); setNewMemberRelationship(''); }}
+                          onClick={() => { setAddMemberGroupId(null); setNewMemberUserId(''); setNewMemberRelationship(''); }}
                           className="flex-1 border border-border py-2 rounded-lg text-sm text-content-muted hover:bg-surface-sunken"
                         >
                           {t('common.cancel')}

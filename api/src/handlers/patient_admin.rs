@@ -53,24 +53,10 @@ impl Cursorable for RosterRow {
     }
 }
 
-/// A readable patient as served: the decrypted profile plus the columns the
-/// row stores beside it in clear.
-///
-/// `wallet_address` is a column on the patient row, not part of the encrypted
-/// profile, so serialising `PatientProfile` alone left it out: a patient whose
-/// wallet was bound at registration read back as having none. The row is the
-/// one source of truth for it, so it is added here rather than copied into
-/// the blob, where the two could drift.
-fn readable_patient_json(
-    profile: &PatientProfile,
-    entity: &crate::repositories::traits::PatientEntity,
-) -> serde_json::Value {
+/// A readable patient as served: the decrypted profile, marked as readable.
+fn readable_patient_json(profile: &PatientProfile) -> serde_json::Value {
     let mut value = serde_json::to_value(profile).unwrap_or(serde_json::Value::Null);
     if let Some(object) = value.as_object_mut() {
-        object.insert(
-            "wallet_address".to_string(),
-            serde_json::json!(entity.wallet_address),
-        );
         object.insert(
             "content_available".to_string(),
             serde_json::Value::Bool(true),
@@ -113,9 +99,7 @@ async fn audit_directory_search(
     purpose: &str,
     result_count: u64,
 ) -> Result<(), String> {
-    let facility = data
-        .identity_contexts
-        .facility_for_wallet(&actor.wallet_address);
+    let facility = data.identity_contexts.facility_for_user(&actor.id);
     data.audit_outbox
         .record_durable(
             data.db_pool.as_ref(),
@@ -123,7 +107,7 @@ async fn audit_directory_search(
             "organisation".to_string(),
             facility.clone().unwrap_or_else(|| "unassigned".to_string()),
             serde_json::json!({
-                "actor_id": actor.wallet_address,
+                "actor_id": actor.id,
                 "actor_role": actor.role.to_string(),
                 "facility": facility,
                 "purpose": purpose,
@@ -244,7 +228,7 @@ pub async fn list_patients(
                     value: directory_patient_json(
                         &profile,
                         entity.registered_by.as_deref().and_then(|registrar| {
-                            data.identity_contexts.facility_for_wallet(registrar)
+                            data.identity_contexts.facility_for_user(registrar)
                         }),
                     ),
                 });
@@ -301,7 +285,7 @@ pub async fn get_patient_by_id(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -318,9 +302,8 @@ pub async fn get_patient_by_id(
     };
 
     // Patients can only view their own records
-    // Check by linked_patient_id for wallet-linked users, or by wallet_address for legacy patients
-    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id)
-        || current_user.wallet_address == patient_id;
+    // A patient's own record is the one their account is linked to.
+    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id);
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Patients can only view their own records".to_string(),
@@ -337,7 +320,7 @@ pub async fn get_patient_by_id(
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile, &entity)),
+            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile)),
             // The row exists; its PHI just cannot be decrypted with the keys
             // this process holds. Reporting that as `PATIENT_NOT_FOUND` told
             // the caller the patient was never registered, which is false and
@@ -406,7 +389,7 @@ pub async fn update_patient(
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error:
-                    "Missing X-User-Id header. Only doctors and nurses can update patient records."
+                    "Authentication required. Only doctors and nurses can update patient records."
                         .to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -520,7 +503,6 @@ pub async fn update_patient(
     let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
     updated_entity.health_id = entity.health_id.clone();
     updated_entity.gender = entity.gender.clone();
-    updated_entity.wallet_address = entity.wallet_address.clone();
     updated_entity.is_verified = entity.is_verified;
     updated_entity.registered_by = entity.registered_by.clone();
     updated_entity.primary_provider_id = entity.primary_provider_id.clone();

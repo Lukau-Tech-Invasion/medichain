@@ -1,62 +1,34 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation, LanguageSwitcher } from '@medichain/shared';
-import { Heart, Shield, Wallet } from 'lucide-react';
+import { Heart, Shield, User, KeyRound } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
-/**
- * Demo patient accounts with actual wallet addresses from the database
- * These were pre-registered accounts for testing and demos
- */
 /*
- * The five hardcoded "Quick Login - Demo Patients" identities were removed
- * on 2026-08-26.
- *
- * They could not work and never had. Each called `login(walletAddress)` with
- * no signer, against an invented SS58 address present in no wallet extension
- * and in no database, so the flow died at `signMessage`. The label under them
- * read "Click any patient to instantly login with their wallet", which
- * promised the opposite of what happened.
- *
- * The clinician portal reached the same conclusion earlier and answered it
- * properly (2e389f7, 91b171f): patient accounts left that sign-in and quick
- * login was rebuilt on the real credential path behind a demo-gated resolver.
- * A patient authenticates by proving control of a key, and there is no
- * shortcut past that which is not a bypass.
- *
- * Deterministic test identities remain available through "Create Demo Wallet"
- * below, which generates a real keypair and runs the genuine
- * challenge/signature flow. It is gated on IS_DEVELOPMENT, which now fails
- * closed, and scripts/check-quick-login-identities.py fails the build if a
- * hardcoded identity list reappears on a sign-in path.
+ * There are no hardcoded demo patients on this page. A patient authenticates
+ * with a username and password they chose themselves when they redeemed the
+ * activation code from registration (see `ActivatePage`); there is no shortcut
+ * past that which is not a bypass. `scripts/check-quick-login-identities.py`
+ * fails the build if a hardcoded identity list reappears on a sign-in path.
  */
 
 /**
  * Patient Login Page
- * 
- * Wallet-based authentication for patients to access their medical records.
- * Supports wallet connection and demo wallet generation.
- * 
+ *
+ * Username and password sign-in for patients to access their medical records.
+ * A patient with an authenticator app is asked for its code after the
+ * password; a patient who has not activated yet follows the activation link.
+ *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const {
-    login,
-    loginWithRecoveryPhrase,
-    isAuthenticated,
-    isLoading,
-    error,
-    clearError
-  } = usePatientAuthStore();
-  
-  const [walletAddress, setWalletAddress] = useState('');
-  // The twelve words issued at registration. A patient who has just been
-  // registered at a clinic has these and nothing else -- no browser
-  // extension, no imported key.
-  const [recoveryPhrase, setRecoveryPhrase] = useState('');
-  const [showPhraseForm, setShowPhraseForm] = useState(false);
+  const { login, isAuthenticated, isLoading, error, mfaRequired, clearError } = usePatientAuthStore();
+
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [localError, setLocalError] = useState('');
 
   // Redirect if already authenticated
@@ -66,24 +38,26 @@ export function LoginPage() {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleWalletLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
     setLocalError('');
 
-    if (!walletAddress.trim()) {
-      setLocalError(t('auth.errEnterWallet'));
+    if (!username.trim() || !password) {
+      setLocalError(t('auth.errEnterCredentials'));
+      return;
+    }
+    if (mfaRequired && !totpCode.trim()) {
+      setLocalError(t('auth.errEnterCode'));
       return;
     }
 
-    // Basic validation - should start with 5 and be 48 chars
-    if (!walletAddress.startsWith('5') || walletAddress.length !== 48) {
-      setLocalError(t('auth.errInvalidWallet'));
-      return;
-    }
-
-    const success = await login(walletAddress);
-    if (success) {
+    const result = await login(username.trim(), password, mfaRequired ? totpCode.trim() : undefined);
+    setTotpCode('');
+    // Keep the password only while the account waits for its code (the second
+    // submit needs it again); a failed password is retyped, never left in state.
+    if (result !== 'mfa_required') setPassword('');
+    if (result === true) {
       navigate('/dashboard');
     }
   };
@@ -122,37 +96,80 @@ export function LoginPage() {
 
           {/* Login card */}
           <div className="bg-surface rounded-2xl shadow-card p-8">
-            <form onSubmit={handleWalletLogin} className="space-y-6">
+            <form onSubmit={handleLogin} className="space-y-6">
               {/* Error message */}
               {displayError && (
-                <div className="bg-critical-subtle border border-critical-subtle-fg/20 text-critical-subtle-fg px-4 py-3 rounded-xl text-sm animate-fade-in">
+                <div role="alert" className="bg-critical-subtle border border-critical-subtle-fg/20 text-critical-subtle-fg px-4 py-3 rounded-xl text-sm animate-fade-in">
                   {displayError}
                 </div>
               )}
 
-              {/* Wallet Address input */}
+              {/* Username */}
               <div>
-                <label htmlFor="walletAddress" className="block text-sm font-medium text-content-secondary mb-2">
-                  {t('auth.walletAddressLabel')}
+                <label htmlFor="username" className="block text-sm font-medium text-content-secondary mb-2">
+                  {t('auth.usernameLabel')}
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Wallet className="h-5 w-5 text-content-muted" />
+                    <User className="h-5 w-5 text-content-muted" />
                   </div>
                   <input
                     type="text"
-                    id="walletAddress"
-                    value={walletAddress}
-                    onChange={(e) => setWalletAddress(e.target.value)}
-                    placeholder={t('auth.walletPlaceholder')}
-                    className="block w-full pl-12 pr-4 py-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors font-mono text-sm"
+                    id="username"
+                    name="username"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="block w-full pl-12 pr-4 py-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors text-sm"
                     disabled={isLoading}
                   />
                 </div>
-                <p className="mt-1 text-xs text-content-muted">
-                  {t('auth.walletHint')}
-                </p>
               </div>
+
+              {/* Password */}
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-content-secondary mb-2">
+                  {t('auth.passwordLabel')}
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <KeyRound className="h-5 w-5 text-content-muted" />
+                  </div>
+                  <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="block w-full pl-12 pr-4 py-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors text-sm"
+                    disabled={isLoading}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-content-muted">{t('auth.forgotPasswordHint')}</p>
+              </div>
+
+              {/* Authenticator code, once the account has asked for it */}
+              {mfaRequired && (
+                <div>
+                  <label htmlFor="totp-code" className="block text-sm font-medium text-content-secondary mb-2">
+                    {t('auth.totpLabel')}
+                  </label>
+                  <input
+                    type="text"
+                    id="totp-code"
+                    name="totp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    className="block w-full px-4 py-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors text-sm"
+                    disabled={isLoading}
+                  />
+                  <p className="mt-1 text-xs text-content-muted">{t('auth.totpHint')}</p>
+                </div>
+              )}
 
               {/* Submit button */}
               <button
@@ -166,16 +183,10 @@ export function LoginPage() {
                     {t('auth.connecting')}
                   </>
                 ) : (
-                  <>
-                    <Wallet className="w-5 h-5" />
-                    {t('auth.connectWallet')}
-                  </>
+                  t('auth.signIn')
                 )}
               </button>
             </form>
-
-            {/* Quick-login demo patients removed 2026-08-26 — see the block comment
-                at the top of this file. */}
 
             {/* Divider */}
             <div className="relative my-6">
@@ -187,64 +198,14 @@ export function LoginPage() {
               </div>
             </div>
 
-            {/* Sign in with the recovery phrase issued at registration.
-                The wallet form above needs a browser extension holding the
-                key; a patient handed twelve words at a reception desk has
-                neither, and had no way in at all. The phrase is turned into a
-                key in this tab and never sent anywhere. */}
-            {!showPhraseForm ? (
-              <button
-                type="button"
-                onClick={() => { setShowPhraseForm(true); setLocalError(''); }}
-                className="w-full rounded-xl border border-border-interactive px-4 py-3 text-sm font-medium text-content hover:bg-surface-sunken"
-              >
-                {t('auth.useRecoveryPhrase')}
-              </button>
-            ) : (
-              <form
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  setLocalError('');
-                  if (recoveryPhrase.trim().split(/\s+/).length !== 12) {
-                    setLocalError(t('auth.phraseNeedsTwelveWords'));
-                    return;
-                  }
-                  await loginWithRecoveryPhrase(recoveryPhrase);
-                }}
-                className="space-y-3"
-              >
-                <label htmlFor="recovery-phrase" className="block text-sm font-medium text-content-secondary">
-                  {t('auth.recoveryPhraseLabel')}
-                </label>
-                <textarea
-                  id="recovery-phrase"
-                  rows={3}
-                  value={recoveryPhrase}
-                  onChange={(e) => setRecoveryPhrase(e.target.value)}
-                  placeholder={t('auth.recoveryPhrasePlaceholder')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="w-full rounded-xl border border-border-interactive bg-surface px-4 py-3 font-mono text-sm text-content"
-                />
-                <p className="text-xs text-content-muted">{t('auth.recoveryPhraseHint')}</p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setShowPhraseForm(false); setRecoveryPhrase(''); }}
-                    className="flex-1 rounded-xl border border-border px-4 py-3 text-sm text-content"
-                  >
-                    {t('common.cancel')}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="flex-1 rounded-xl bg-brand px-4 py-3 text-sm font-medium text-brand-fg disabled:bg-disabled disabled:text-disabled-fg"
-                  >
-                    {isLoading ? t('auth.connecting') : t('auth.signIn')}
-                  </button>
-                </div>
-              </form>
-            )}
+            {/* A patient who has just been registered holds an activation code
+                and no password yet. */}
+            <Link
+              to="/activate"
+              className="block w-full rounded-xl border border-border-interactive px-4 py-3 text-center text-sm font-medium text-content hover:bg-surface-sunken"
+            >
+              {t('auth.activateLink')}
+            </Link>
 
             {/* NFC card verification is self-scoped and requires an authenticated
                 patient. QR verification is a provider emergency-access action.

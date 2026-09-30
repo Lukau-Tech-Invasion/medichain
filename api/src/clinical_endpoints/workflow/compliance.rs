@@ -13,7 +13,7 @@ pub async fn get_consent_types(
     http_req: HttpRequest,
 ) -> impl Responder {
     let _current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -275,7 +275,7 @@ pub async fn sign_consent(
     body: web::Json<SignConsentRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -563,7 +563,7 @@ pub async fn revoke_consent(
     match data
         .repositories
         .consent_records
-        .revoke(&consent_id, &caller.wallet_address, body.reason.as_deref())
+        .revoke(&consent_id, &caller.id, body.reason.as_deref())
         .await
     {
         Ok(revoked) => HttpResponse::Ok().json(serde_json::json!({
@@ -597,7 +597,7 @@ pub async fn get_patient_consents(
 ) -> impl Responder {
     let patient_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -784,7 +784,7 @@ pub async fn scan_barcode(
         "barcode_value": barcode_value,
         "entity_type": entity_type,
         "location": location,
-        "scanned_by": current_user.wallet_address,
+        "scanned_by": current_user.id,
         "scanned_by_name": current_user.name,
         "scanned_by_role": current_user.role.to_string(),
         "scanned_at": scanned_at.timestamp(),
@@ -797,7 +797,7 @@ pub async fn scan_barcode(
     let save_history = data
         .repositories
         .scanner_settings
-        .get_by_owner(&current_user.wallet_address)
+        .get_by_owner(&current_user.id)
         .await
         .ok()
         .and_then(|rows| rows.into_iter().next())
@@ -816,7 +816,7 @@ pub async fn scan_barcode(
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
-                owner_id: current_user.wallet_address.clone(),
+                owner_id: current_user.id.clone(),
                 data: scan.clone(),
                 created_at: scanned_at,
                 updated_at: scanned_at,
@@ -904,7 +904,7 @@ pub async fn get_barcode_scan_history(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1005,7 +1005,7 @@ pub async fn get_scanner_settings(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1049,7 +1049,7 @@ pub async fn update_scanner_settings(
     req: web::Json<ScannerSettings>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let settings = req.into_inner();
@@ -1118,7 +1118,7 @@ pub async fn clear_scan_history(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let now = chrono::Utc::now();
@@ -1653,9 +1653,9 @@ mod consent_endpoint_regression_tests {
     use super::*;
     use actix_web::test;
 
-    fn active_patient_user(wallet: &str, patient_id: &str) -> User {
+    fn active_patient_user(user_id: &str, patient_id: &str) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Consent Test Patient".to_string(),
             role: Role::Patient,
@@ -1677,12 +1677,12 @@ mod consent_endpoint_regression_tests {
         for expected in [0usize, 1, 3] {
             let state = AppState::new();
             let patient_id = format!("PAT-CONSENT-{expected}");
-            let wallet = format!("wallet-consent-{expected}");
+            let user_id = format!("user-consent-{expected}");
             state
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.clone(), active_patient_user(&wallet, &patient_id));
+                .insert(user_id.clone(), active_patient_user(&user_id, &patient_id));
             for index in 0..expected {
                 let record = ConsentRecordEntity {
                     id: format!("CONS-{expected}-{index}"),
@@ -1705,7 +1705,7 @@ mod consent_endpoint_regression_tests {
             .await;
             let request = test::TestRequest::get()
                 .uri(&format!("/api/consent/patient/{patient_id}"))
-                .insert_header(("X-User-Id", wallet))
+                .insert_header(crate::test_fixtures::as_user(user_id))
                 .to_request();
             let response: serde_json::Value = test::call_and_read_body_json(&app, request).await;
             assert_eq!(response["total"].as_u64(), Some(expected as u64));

@@ -17,7 +17,7 @@ pub async fn submit_lab_results(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -265,7 +265,7 @@ pub async fn get_pending_lab_results(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -331,7 +331,7 @@ pub async fn get_all_lab_submissions(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -420,7 +420,7 @@ pub async fn get_lab_submission(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -594,7 +594,7 @@ pub async fn review_lab_results_impl(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -908,7 +908,7 @@ pub async fn get_patient_lab_submissions(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -972,11 +972,11 @@ mod maker_checker_tests {
     use super::*;
     use actix_web::{test, App};
 
-    fn user(wallet: &str, role: Role) -> User {
+    fn user(user_id: &str, role: Role) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
-            name: format!("Test {wallet}"),
+            name: format!("Test {user_id}"),
             role,
             created_at: Utc::now(),
             created_by: None,
@@ -1021,11 +1021,7 @@ mod maker_checker_tests {
     async fn state_with(submission: &LabResultSubmission, users: &[User]) -> crate::AppState {
         let state = crate::AppState::new();
         for u in users {
-            state
-                .users
-                .write()
-                .unwrap()
-                .insert(u.wallet_address.clone(), u.clone());
+            state.users.write().unwrap().insert(u.id.clone(), u.clone());
         }
         let now = Utc::now();
         state
@@ -1084,7 +1080,7 @@ mod maker_checker_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/lab/review")
-            .insert_header(("x-user-id", "doctor_a"))
+            .insert_header(crate::test_fixtures::as_user("doctor_a"))
             .set_json(review_request("LAB-SELF-1", "approve"))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1118,7 +1114,7 @@ mod maker_checker_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/lab/review")
-            .insert_header(("x-user-id", "doctor_b"))
+            .insert_header(crate::test_fixtures::as_user("doctor_b"))
             .set_json(review_request("LAB-OK-1", "approve"))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1174,7 +1170,7 @@ mod maker_checker_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/lab/review")
-                .insert_header(("x-user-id", "doctor_b"))
+                .insert_header(crate::test_fixtures::as_user("doctor_b"))
                 .set_json(review_request("LAB-RACE-1", "approve"))
                 .to_request(),
         )
@@ -1185,7 +1181,7 @@ mod maker_checker_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/lab/review")
-                .insert_header(("x-user-id", "doctor_c"))
+                .insert_header(crate::test_fixtures::as_user("doctor_c"))
                 .set_json(review_request("LAB-RACE-1", "reject"))
                 .to_request(),
         )
@@ -1221,7 +1217,7 @@ mod maker_checker_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/lab/review")
-                .insert_header(("x-user-id", "pharm_a"))
+                .insert_header(crate::test_fixtures::as_user("pharm_a"))
                 .set_json(review_request("LAB-ROLE-1", "approve"))
                 .to_request(),
         )

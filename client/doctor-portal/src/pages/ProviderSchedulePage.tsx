@@ -92,7 +92,7 @@ const ProviderSchedulePage: React.FC = () => {
   const { showSuccess, showError } = useToastActions();
 
   const isAdmin = user?.role === 'Admin';
-  const [providerId, setProviderId] = useState(user?.walletAddress ?? '');
+  const [providerId, setProviderId] = useState(user?.userId ?? '');
   const [week, setWeek] = useState<Record<number, DayRow>>(emptyWeek);
   const [blocked, setBlocked] = useState<BlockedRow[]>([]);
   const [slotMinutes, setSlotMinutes] = useState('');

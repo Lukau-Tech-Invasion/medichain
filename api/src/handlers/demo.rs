@@ -13,7 +13,7 @@ pub struct DemoLoginRequest {
 #[derive(Debug, Serialize)]
 pub struct DemoLoginResponse {
     pub success: bool,
-    pub wallet_address: String,
+    pub user_id: String,
     pub role: String,
     pub name: String,
     pub message: String,
@@ -93,14 +93,14 @@ pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
             users
                 .values()
                 .filter(|user| user.role != crate::Role::Patient)
-                .map(|user| (user.wallet_address.clone(), user.role.to_string()))
+                .map(|user| (user.id.clone(), user.role.to_string()))
                 .collect()
         })
         .unwrap_or_default();
     for (wallet, role) in staff {
         let person_id = match sqlx::query_scalar::<_, String>(
-            "INSERT INTO persons (id, wallet_address, status) VALUES ($1, $2, 'active') \
-             ON CONFLICT (wallet_address) DO UPDATE SET status = 'active' RETURNING id",
+            "INSERT INTO persons (id, user_id, status) VALUES ($1, $2::text::uuid, 'active') \
+             ON CONFLICT (user_id) DO UPDATE SET status = 'active' RETURNING id",
         )
         .bind(format!("demo-person-{wallet}"))
         .bind(&wallet)
@@ -196,28 +196,14 @@ pub async fn demo_login(
         .clone()
         .unwrap_or_else(|| format!("Demo {}", role));
 
-    // Check if wallet already exists
-    {
-        let users = data.users.read().unwrap();
-        if let Some(existing) = users.get(&body.wallet_address) {
-            return HttpResponse::Ok().json(DemoLoginResponse {
-                success: true,
-                wallet_address: existing.wallet_address.clone(),
-                role: existing.role.to_string(),
-                name: existing.name.clone(),
-                message: "User already exists - logged in".to_string(),
-            });
-        }
-    }
-
     // Create demo user
     let user = User {
-        wallet_address: body.wallet_address.clone(),
+        id: uuid::Uuid::new_v4().to_string(),
         username: Some(format!("demo_{}", role.to_string().to_lowercase())),
         name: name.clone(),
         role: role.clone(),
         created_at: Utc::now(),
-        created_by: Some("DEMO_SYSTEM".to_string()),
+        created_by: None,
         linked_patient_id: None,
         email: None,
         phone: None,
@@ -228,21 +214,19 @@ pub async fn demo_login(
         last_login: None,
     };
 
-    data.users
-        .write()
-        .unwrap()
-        .insert(body.wallet_address.clone(), user);
+    let user_id = user.id.clone();
+    data.users.write().unwrap().insert(user_id.clone(), user);
 
     log::info!(
-        "[DEMO] Auto-registered demo user: wallet={}, role={}, name={}",
-        body.wallet_address,
+        "[DEMO] Auto-registered demo user: id={}, role={}, name={}",
+        user_id,
         role,
         name
     );
 
     HttpResponse::Created().json(DemoLoginResponse {
         success: true,
-        wallet_address: body.wallet_address.clone(),
+        user_id,
         role: role.to_string(),
         name,
         message: "Demo user created and logged in".to_string(),
@@ -555,7 +539,7 @@ async fn load_demo_seed_status(pool: &sqlx::PgPool) -> Result<DemoSeedStatus, sq
            EXISTS (SELECT 1 FROM emergency_capsules
                    WHERE patient_id = $1 AND revoked_at IS NULL) AS emergency_capsule,
            EXISTS (SELECT 1 FROM emergency_access_grants g
-                   JOIN persons person ON person.wallet_address = g.requesting_person_id
+                   JOIN persons person ON person.user_id::text = g.requesting_person_id
                    JOIN professional_identities p
                         ON p.person_id = person.id AND p.status = 'active'
                    WHERE g.patient_id = $1 AND p.profession = 'Paramedic') AS paramedic_emergency_access,

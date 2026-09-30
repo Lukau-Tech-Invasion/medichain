@@ -6,12 +6,41 @@
 
 use crate::AppState;
 
-/// A registered, active user with `role`, keyed by `wallet`.
-pub fn staff(wallet: &str, role: crate::Role) -> crate::User {
+/// The header a signed-in caller sends: a real access token whose `sub` is
+/// `user_id`, signed with the server's key. Handlers read the caller from the
+/// verified token only, so a test that wants to be `user_id` has to carry one.
+///
+/// In-memory tests may use any string as an id; PostgreSQL tests use a real
+/// `users.id` UUID.
+pub fn as_user(user_id: impl AsRef<str>) -> (&'static str, String) {
+    let token = crate::security::jwt::issue_access_token(user_id.as_ref(), "Test", false, None)
+        .expect("test access token");
+    ("Authorization", format!("Bearer {token}"))
+}
+
+/// A real `users` row for a PostgreSQL test, returned as the text id every
+/// actor column, session and token carries. Session, MFA and grant tables
+/// reference `users(id)`, so a test that writes to them needs a user first.
+pub async fn insert_pg_user(pool: &sqlx::PgPool, role: &str) -> String {
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id, role, name, status, is_active)
+         VALUES ($1, $2, 'Test User', 'active', true)",
+    )
+    .bind(id)
+    .bind(role)
+    .execute(pool)
+    .await
+    .expect("insert test user");
+    id.to_string()
+}
+
+/// A registered, active user with `role`, keyed by `id`.
+pub fn staff(id: &str, role: crate::Role) -> crate::User {
     crate::User {
-        wallet_address: wallet.to_string(),
-        username: Some(wallet.to_string()),
-        name: format!("Test {wallet}"),
+        id: id.to_string(),
+        username: Some(id.to_string()),
+        name: format!("Test {id}"),
         role,
         created_at: chrono::Utc::now(),
         created_by: None,
@@ -27,12 +56,12 @@ pub fn staff(wallet: &str, role: crate::Role) -> crate::User {
 }
 
 /// Put a user in the session cache the handlers resolve callers from.
-pub fn register(state: &AppState, wallet: &str, role: crate::Role) {
+pub fn register(state: &AppState, id: &str, role: crate::Role) {
     state
         .users
         .write()
         .unwrap()
-        .insert(wallet.to_string(), staff(wallet, role));
+        .insert(id.to_string(), staff(id, role));
 }
 
 /// A minimal, complete patient profile.

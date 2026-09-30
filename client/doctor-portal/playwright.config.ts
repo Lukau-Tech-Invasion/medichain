@@ -5,8 +5,8 @@ const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
 
 export default defineConfig({
   testDir: './e2e',
-  // Authentication intentionally honours a durable per-wallet rolling
-  // challenge budget. The shared harness may pause before reusing a fixture.
+  // Sign-in is a real password check (Argon2id on the server), so each test's
+  // sign-in costs time on purpose; the budget below allows for it.
   timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

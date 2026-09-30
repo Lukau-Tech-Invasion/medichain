@@ -151,8 +151,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Run API server in foreground.
-# Demo experience: password-less local run. The API is SECURE BY DEFAULT
-# (signature verification ON), so explicitly opt into demo mode here so the
-# dev environment stays usable without wallet signatures. Never set
-# IS_DEMO=true in production.
-RUST_LOG=info IS_DEMO=true ./target/release/medichain-api
+# Signing in needs PostgreSQL (it creates a session row), so DATABASE_URL is
+# required. Demo mode is opt-in and must never be set in production.
+: "${DATABASE_URL:?set DATABASE_URL to a PostgreSQL database; signing in needs one}"
+RUST_LOG=info IS_DEMO=true MEDICHAIN_STORAGE=postgres ./target/release/medichain-api

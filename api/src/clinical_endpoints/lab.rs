@@ -98,7 +98,7 @@ pub async fn create_specimen(
     let submission = LabSubmissionEntity {
         id: submission_id.clone(),
         patient_id: record.patient_id.clone(),
-        ordering_provider_id: current_user.wallet_address.clone(),
+        ordering_provider_id: current_user.id.clone(),
         order_date: now,
         priority: record
             .priority
@@ -129,7 +129,7 @@ pub async fn create_specimen(
         specimen_type: record.specimen_type.clone(),
         collection_site: record.collection_site.clone(),
         collection_method: None,
-        collector_id: current_user.wallet_address.clone(),
+        collector_id: current_user.id.clone(),
         collected_at: now,
         received_at: None,
         received_by: None,
@@ -141,7 +141,7 @@ pub async fn create_specimen(
         storage_location: None,
         chain_of_custody: Some(serde_json::json!([{
             "action": "collected",
-            "by": current_user.wallet_address,
+            "by": current_user.id,
             "at": now.to_rfc3339(),
             "checklist": record.checklist,
         }])),
@@ -289,7 +289,7 @@ mod specimen_list_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/specimen")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(serde_json::json!({
                     "patient_id": "PAT-SPECIMEN-1",
                     "specimen_type": "blood",
@@ -306,7 +306,7 @@ mod specimen_list_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/clinical/specimens")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .to_request(),
         )
         .await;
@@ -515,7 +515,7 @@ pub async fn create_chain_of_custody(
             .collected_by
             .clone()
             .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| current_user.wallet_address.clone()),
+            .unwrap_or_else(|| current_user.id.clone()),
         collection_witnessed_by: None,
         collection_method: None,
         packaging_description: body.container_type.clone().filter(|c| !c.is_empty()),
@@ -526,7 +526,7 @@ pub async fn create_chain_of_custody(
             .current_custodian
             .clone()
             .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| current_user.wallet_address.clone()),
+            .unwrap_or_else(|| current_user.id.clone()),
         transfers: serde_json::json!(body.transfers),
         law_enforcement_agency: body.investigating_agency.clone().filter(|a| !a.is_empty()),
         law_enforcement_officer: None,
@@ -789,7 +789,7 @@ pub async fn create_lab_calibration(
     let calibration_id = format!("CAL-{}", uuid::Uuid::new_v4().simple());
     let entity = crate::repositories::JsonRecordEntity {
         id: calibration_id.clone(),
-        owner_id: current_user.wallet_address.clone(),
+        owner_id: current_user.id.clone(),
         data: serde_json::json!({
             "calibration_id": calibration_id,
             "instrument": body.instrument.trim(),
@@ -798,7 +798,7 @@ pub async fn create_lab_calibration(
             "expiry_date": expiry_date.format("%Y-%m-%d").to_string(),
             "result": body.result,
             "comments": body.comments.and_then(|comment| (!comment.trim().is_empty()).then_some(comment)),
-            "performed_by": current_user.wallet_address,
+            "performed_by": current_user.id,
             "performed_at": now.to_rfc3339(),
             "date": now.date_naive().format("%Y-%m-%d").to_string(),
             "time": now.format("%H:%M").to_string(),
@@ -858,7 +858,7 @@ mod calibration_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/lab-calibrations")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(request("2099-12-31"))
                 .to_request(),
         )
@@ -892,7 +892,7 @@ mod calibration_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/lab-calibrations")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(request("2000-01-01"))
                 .to_request(),
         )
@@ -903,7 +903,7 @@ mod calibration_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/lab-calibrations")
-                .insert_header(("x-user-id", "pharmacist"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist"))
                 .set_json(request("2099-12-31"))
                 .to_request(),
         )
@@ -1012,7 +1012,7 @@ pub async fn create_lab_qc(
         passed,
         deviation_percent: deviation,
         corrective_action: body.corrective_action.clone(),
-        performed_by: current_user.wallet_address.clone(),
+        performed_by: current_user.id.clone(),
         reviewed_by: None,
         performed_at: now,
         reviewed_at: None,
@@ -1042,7 +1042,7 @@ pub async fn create_lab_qc(
             "violated_rules": run.violated_rules,
             "corrective_action": body.corrective_action,
             "comments": body.comments,
-            "performed_by": current_user.wallet_address,
+            "performed_by": current_user.id,
             "performed_at": now.to_rfc3339(),
         }),
     };
@@ -1286,7 +1286,7 @@ pub async fn create_critical_value(
         // The reporter is the authenticated caller. A client-asserted name on a
         // notification that carries a legal duty to communicate is not evidence
         // of who communicated it.
-        reported_by: current_user.wallet_address.clone(),
+        reported_by: current_user.id.clone(),
         created_at: now,
         data: serde_json::json!({
             "notification_id": notification_id,
@@ -1300,7 +1300,7 @@ pub async fn create_critical_value(
             "classified_by": if classification.is_some() { "facility_call_list" } else { "laboratory" },
             "ordering_provider": body.ordering_provider,
             "notification_status": body.notification_status.clone().unwrap_or_else(|| "pending".to_string()),
-            "reported_by": current_user.wallet_address,
+            "reported_by": current_user.id,
             "reported_at": now.to_rfc3339(),
         }),
     };
@@ -1488,7 +1488,7 @@ pub async fn create_specimen_rejection(
             .map(str::trim)
             .filter(|n| !n.is_empty())
             .map(str::to_string),
-        rejected_by: current_user.wallet_address.clone(),
+        rejected_by: current_user.id.clone(),
         rejected_at: now,
         recollection_required: request.recollection_required,
         recollection_scheduled: None,
@@ -1628,7 +1628,7 @@ async fn audit_recollection(
             AccessLogEntry {
                 access_id: crate::middleware::secure_tokens::generate_access_id(),
                 patient_id: patient_id.to_string(),
-                accessor_id: user.wallet_address.clone(),
+                accessor_id: user.id.clone(),
                 accessor_role: user.role.to_string(),
                 access_type: action.to_string(),
                 location: None,
@@ -1699,7 +1699,7 @@ pub async fn request_specimen_recollection(
         original_specimen_id: rejection.specimen_id.clone(),
         patient_id: rejection.patient_id.clone(),
         ordering_provider_id: ordering_provider,
-        requested_by: current_user.wallet_address.clone(),
+        requested_by: current_user.id.clone(),
         reason: body.reason.trim().to_string(),
         status: "requested".to_string(),
         requested_at: now,
@@ -2035,7 +2035,7 @@ pub async fn notify_rejection_ordering_provider(
         AccessLogEntry {
             access_id: crate::middleware::secure_tokens::generate_access_id(),
             patient_id: rejection.patient_id.clone(),
-            accessor_id: current_user.wallet_address.clone(),
+            accessor_id: current_user.id.clone(),
             accessor_role: current_user.role.to_string(),
             access_type: "specimen_rejection_notified".to_string(),
             location: None,
@@ -2168,11 +2168,11 @@ mod rejection_notification_tests {
     use super::*;
     use actix_web::{test, App};
 
-    fn user(wallet: &str, role: crate::Role) -> crate::User {
+    fn user(user_id: &str, role: crate::Role) -> crate::User {
         crate::User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
-            name: format!("Test {wallet}"),
+            name: format!("Test {user_id}"),
             role,
             created_at: Utc::now(),
             created_by: None,
@@ -2287,7 +2287,7 @@ mod rejection_notification_tests {
             .uri(&format!(
                 "/api/clinical/specimen-rejection/{rejection_id}/notify"
             ))
-            .insert_header(("x-user-id", actor))
+            .insert_header(crate::test_fixtures::as_user(actor))
     }
 
     /// The whole point: the lab tells whoever ordered the specimen, and the
@@ -2437,7 +2437,7 @@ mod rejection_notification_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/specimen-rejection")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(serde_json::json!({
                     "specimen_id": "SPC-N1",
                     "rejection_reason": "Clotted",
@@ -2479,7 +2479,7 @@ mod rejection_notification_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/specimen-rejection")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(serde_json::json!({
                     "specimen_id": "SPC-N1",
                     "rejection_reason": "Clotted",
@@ -2640,7 +2640,7 @@ async fn close_critical_value(
     let audit = AccessLogEntry {
         access_id: uuid::Uuid::new_v4().to_string(),
         patient_id: entity.patient_id.clone(),
-        accessor_id: user.wallet_address.clone(),
+        accessor_id: user.id.clone(),
         accessor_role: user.role.to_string(),
         access_type: audit_action.to_string(),
         location: None,
@@ -2708,7 +2708,7 @@ pub async fn acknowledge_critical_value(
         doc.insert("time_to_acknowledge".into(), minutes.into());
     }
     let closure = CriticalValueClosure {
-        closed_by: user.wallet_address.clone(),
+        closed_by: user.id.clone(),
         action_taken: format!(
             "acknowledged: read back {}",
             if verified {
@@ -2775,7 +2775,7 @@ pub async fn cancel_critical_value(
         doc.insert("cancel_reason".into(), reason.clone().into());
     }
     let closure = CriticalValueClosure {
-        closed_by: user.wallet_address.clone(),
+        closed_by: user.id.clone(),
         action_taken: format!("cancelled: {reason}"),
         notified_provider_id: None,
         notification_method: None,
@@ -2832,7 +2832,7 @@ mod critical_value_workflow_tests {
                 $app,
                 test::TestRequest::post()
                     .uri("/api/clinical/critical-value")
-                    .insert_header(("x-user-id", "lab_tech"))
+                    .insert_header(crate::test_fixtures::as_user("lab_tech"))
                     .set_json(report($analyte, $value))
                     .to_request(),
             )
@@ -2849,7 +2849,7 @@ mod critical_value_workflow_tests {
                 $app,
                 test::TestRequest::get()
                     .uri(&format!("/api/clinical/critical-value/{}", $id))
-                    .insert_header(("x-user-id", "doctor"))
+                    .insert_header(crate::test_fixtures::as_user("doctor"))
                     .to_request(),
             )
             .await;
@@ -2882,7 +2882,7 @@ mod critical_value_workflow_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/critical-value")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(report("Potassium", 4.1))
                 .to_request(),
         )
@@ -2900,7 +2900,7 @@ mod critical_value_workflow_tests {
         let ack = |readback: &str| {
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/critical-value/{id}/acknowledge"))
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(serde_json::json!({
                     "notifiedProvider": "Dr Mensah", "notificationMethod": "phone",
                     "readBackValue": readback, "acknowledgmentNotes": "Repeat K ordered"
@@ -2929,7 +2929,7 @@ mod critical_value_workflow_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/critical-value/{id}/acknowledge"))
-                .insert_header(("x-user-id", "doctor"))
+                .insert_header(crate::test_fixtures::as_user("doctor"))
                 .set_json(serde_json::json!({
                     "notifiedProvider": "Dr Mensah", "notificationMethod": "phone",
                     "readBackValue": "sodium 128"
@@ -2950,7 +2950,7 @@ mod critical_value_workflow_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/critical-value/{id}/acknowledge"))
-                .insert_header(("x-user-id", "pharmacist"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist"))
                 .set_json(serde_json::json!({
                     "notifiedProvider": "x", "notificationMethod": "phone", "readBackValue": "1.7"
                 }))
@@ -2962,7 +2962,7 @@ mod critical_value_workflow_tests {
         let cancel = |reason: &str| {
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/critical-value/{id}/cancel"))
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(serde_json::json!({ "reason": reason }))
                 .to_request()
         };
@@ -3102,7 +3102,7 @@ pub async fn transfer_chain_of_custody(
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(&record.current_custodian_id)
         .to_string();
-    let entry = custody_transfer_entry(&req, &from, &user.wallet_address, now);
+    let entry = custody_transfer_entry(&req, &from, &user.id, now);
     let mut document = record.data.clone();
     if let Some(doc) = document.as_object_mut() {
         doc.insert("current_custodian".into(), req.transferred_to.trim().into());
@@ -3146,7 +3146,7 @@ pub async fn transfer_chain_of_custody(
         let audit = AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id,
-            accessor_id: user.wallet_address.clone(),
+            accessor_id: user.id.clone(),
             accessor_role: user.role.to_string(),
             access_type: "custody_transferred".to_string(),
             location: None,
@@ -3219,7 +3219,7 @@ mod custody_transfer_tests {
                 &app,
                 test::TestRequest::post()
                     .uri(&format!("/api/clinical/chain-of-custody/{id}/transfers"))
-                    .insert_header(("x-user-id", "lab_tech"))
+                    .insert_header(crate::test_fixtures::as_user("lab_tech"))
                     .set_json(hand_over(to, true))
                     .to_request(),
             )
@@ -3256,7 +3256,7 @@ mod custody_transfer_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/chain-of-custody/{id}/transfers"))
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(hand_over("Courier A", false))
                 .to_request(),
         )
@@ -3284,7 +3284,7 @@ mod custody_transfer_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/chain-of-custody/{id}/transfers"))
-                .insert_header(("x-user-id", "pharmacist"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist"))
                 .set_json(hand_over("Courier A", true))
                 .to_request(),
         )
@@ -3327,7 +3327,7 @@ mod lab_qc_verdict_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/lab-qc")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(run(6.4, 0.2))
                 .to_request(),
         )
@@ -3359,7 +3359,7 @@ mod lab_qc_verdict_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/lab-qc")
-                .insert_header(("x-user-id", "lab_tech"))
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
                 .set_json(run(5.0, 0.0))
                 .to_request(),
         )

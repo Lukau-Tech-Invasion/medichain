@@ -18,11 +18,11 @@ export type Role =
   | 'Patient';
 
 /**
- * User authenticated via wallet
+ * A signed-in account
  */
 export interface User {
-  /** SS58 encoded wallet address (primary identifier) */
-  wallet_address: string;
+  /** The account's id (UUID); the only identifier of a user */
+  user_id: string;
   /** Optional display username */
   username?: string;
   /** Full name of the user */
@@ -31,7 +31,7 @@ export interface User {
   role: Role;
   /** When the user was created (ISO 8601) */
   created_at: string;
-  /** Wallet address of admin who created this user */
+  /** `user_id` of the admin who created this user */
   created_by?: string;
   /** Patient ID if this user is linked to a patient record */
   linked_patient_id?: string;
@@ -52,10 +52,10 @@ export interface User {
 }
 
 /**
- * User info returned from wallet auth endpoints
+ * User info returned from the auth endpoints
  */
-export interface WalletUserInfo {
-  wallet_address: string;
+export interface UserInfo {
+  user_id: string;
   name: string;
   username?: string;
   role: Role;
@@ -96,34 +96,8 @@ export interface UserPermissions {
  * The single source for the frontend's provider context. Anything a form might
  * otherwise ask a signed-in clinician to type belongs here.
  */
-export interface CurrentUser extends WalletUserInfo {
+export interface CurrentUser extends UserInfo {
   permissions: UserPermissions;
-}
-
-/**
- * Request to register a new user with wallet
- */
-export interface WalletRegisterRequest {
-  wallet_address: string;
-  name: string;
-  username?: string;
-  role: string;
-  linked_patient_id?: string;
-  email?: string;
-  phone?: string;
-  department?: string;
-  specialty?: string;
-  license_number?: string;
-}
-
-/**
- * Response from wallet registration
- */
-export interface WalletRegisterResponse {
-  success: boolean;
-  wallet_address: string;
-  role: string;
-  message: string;
 }
 
 // ============================================================================
@@ -323,10 +297,10 @@ export interface EmergencyInfo {
 export interface PatientProfile {
   patient_id: string;
   /**
-   * The wallet bound to this patient, from the row rather than the encrypted
-   * profile. `null` when none was bound at registration.
+   * The account (`user_id`) linked to this patient, from the row rather than
+   * the encrypted profile. `null` until the patient has activated their account.
    */
-  wallet_address?: string | null;
+  user_id?: string | null;
   full_name: string;
   date_of_birth: string;
   /** Returned by the API for neonatal records, where the date alone is not enough. */
@@ -359,7 +333,6 @@ export interface PatientProfile {
 
 export interface RegisterPatientRequest {
   full_name: string;
-  wallet_address?: string;
   date_of_birth: string;
   national_id: string;
   /** Absent when not stated; never `''`, which the server stores as a stated blank. */
@@ -385,6 +358,15 @@ export interface RegisterPatientResponse {
   patient_id: string;
   nfc_tag_id: string;
   message: string;
+  /** The patient's account, created unactivated. */
+  user_id?: string;
+  /**
+   * One-time activation code (XXXX-XXXX-XXXX). Returned once, at registration:
+   * the server keeps only a hash, so it cannot be shown again.
+   */
+  activation_code: string;
+  /** When the code stops working (ISO 8601). */
+  activation_expires_at: string;
 }
 
 // ============================================================================
@@ -519,11 +501,11 @@ export interface AccessLogEntry {
   patient_id: string;
   accessor_id: string;
   /**
-   * The accessor's display name, when the server could resolve their wallet.
+   * The accessor's display name, when the server could resolve their `user_id`.
    *
-   * Null for an accessor who is not a known user. A patient cannot resolve a
-   * wallet themselves — the provider directory is staff-only — so without this
-   * their own access log reads as a list of SS58 addresses.
+   * Null for an accessor who is not a known user. A patient cannot resolve an
+   * id themselves — the provider directory is staff-only — so without this
+   * their own access log reads as a list of UUIDs.
    */
   accessor_name?: string | null;
   accessor_role: string;
@@ -615,7 +597,7 @@ export interface ApiError {
 // ============================================================================
 
 export interface AssignRoleRequest {
-  wallet_address: string;
+  user_id: string;
   name: string;
   username?: string;
   role: string;
@@ -623,18 +605,18 @@ export interface AssignRoleRequest {
 
 export interface AssignRoleResponse {
   success: boolean;
-  wallet_address: string;
+  user_id: string;
   role: string;
   message: string;
 }
 
 export interface RevokeRoleRequest {
-  wallet_address: string;
+  user_id: string;
 }
 
 export interface RevokeRoleResponse {
   success: boolean;
-  wallet_address: string;
+  user_id: string;
   message: string;
 }
 

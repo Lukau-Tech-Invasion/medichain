@@ -26,7 +26,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
 
 describe('PatientDetailPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -199,7 +199,7 @@ describe('PatientDetailPage', () => {
     vi.mocked(shared.updatePatient).mockResolvedValue({
       success: true,
       patient_id: 'PAT-001',
-      updated_by: mockUser.walletAddress,
+      updated_by: mockUser.userId,
       message: 'Patient record updated successfully',
     });
 
@@ -381,7 +381,7 @@ describe('PatientDetailPage', () => {
       success: true,
       count: 1,
       relationships: [{
-        id: 'GR-1', guardian_wallet: '5Guardian', ward_patient_id: 'PAT-001',
+        id: 'GR-1', guardian_user_id: '5Guardian', ward_patient_id: 'PAT-001',
         relationship_type: 'parent_or_guardian', permissions: ['view_records'],
         verified_by: '5Admin', verified_at: '2026-09-01T00:00:00Z', active: true,
         expires_at: '2027-01-01T00:00:00Z',

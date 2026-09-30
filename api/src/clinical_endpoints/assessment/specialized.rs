@@ -249,7 +249,7 @@ pub async fn create_burn(
         patient_id: body.patient_id.clone(),
         // The assessing clinician is whoever authenticated. A body-supplied
         // `assessed_by` lets one clinician file under another's name.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .assessment_datetime
             .as_deref()
@@ -1293,7 +1293,7 @@ pub async fn create_mci(
         incident_type: &incident_type,
         activation_level: &activation_level,
         commander: body.incident.incident_commander.as_deref(),
-        created_by: &current_user.wallet_address,
+        created_by: &current_user.id,
         now,
     };
 
@@ -1453,7 +1453,7 @@ mod paramedic_mci_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/mci")
-                .insert_header(("X-User-Id", "5PatientMci"))
+                .insert_header(crate::test_fixtures::as_user("5PatientMci"))
                 .set_json(&body)
                 .to_request(),
         )
@@ -1463,7 +1463,7 @@ mod paramedic_mci_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/mci")
-                .insert_header(("X-User-Id", "5MedicMci"))
+                .insert_header(crate::test_fixtures::as_user("5MedicMci"))
                 .set_json(body)
                 .to_request(),
         )
@@ -1478,7 +1478,7 @@ mod paramedic_mci_tests {
             &app,
             test::TestRequest::get()
                 .uri(&path)
-                .insert_header(("X-User-Id", "5MedicMci"))
+                .insert_header(crate::test_fixtures::as_user("5MedicMci"))
                 .to_request(),
         )
         .await;
@@ -1487,7 +1487,7 @@ mod paramedic_mci_tests {
             &app,
             test::TestRequest::get()
                 .uri(&path)
-                .insert_header(("X-User-Id", "5PatientMci"))
+                .insert_header(crate::test_fixtures::as_user("5PatientMci"))
                 .to_request(),
         )
         .await;

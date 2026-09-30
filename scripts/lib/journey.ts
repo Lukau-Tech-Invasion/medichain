@@ -36,12 +36,7 @@
  * non-local endpoint.
  */
 
-import {
-  deriveCredential,
-  openKeystore,
-  signerFromSecret,
-  secretFromMnemonic,
-} from '../../client/shared/src/auth/credentials';
+import { deriveAuthProof } from './auth';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,11 +48,37 @@ const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 export type Json = Record<string, any>;
 
+/**
+ * One fixture account, exactly as `seed-browser-test-fixtures.ts` writes it.
+ *
+ * `password` is absent for an administrator supplied through the environment;
+ * `passwordFor` then answers `MEDICHAIN_ADMIN_PASSWORD`.
+ */
+export interface FixtureAccount {
+  role: string;
+  user_id: string;
+  login_id: string;
+  password?: string;
+}
+
+/** A patient fixture: an account bound to a record and a health-ID card. */
+export interface PatientFixture extends FixtureAccount {
+  linked_patient_id: string;
+  nfc_tag_id: string;
+}
+
 export interface Manifest {
-  administrator_wallet: string;
-  staff: Array<{ role: string; login_id: string; wallet: string }>;
-  patient: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
-  patient_b: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
+  administrator_user_id: string;
+  staff: FixtureAccount[];
+  patient: PatientFixture;
+  patient_b: PatientFixture;
+}
+
+const passwords = new Map<string, string>();
+
+/** The password a fixture signs in with: the manifest's, else the fixture default. */
+export function passwordFor(loginId: string): string {
+  return passwords.get(loginId) ?? process.env.MEDICHAIN_ADMIN_PASSWORD ?? PASSWORD;
 }
 
 export function loadManifest(): Manifest {
@@ -68,9 +89,13 @@ export function loadManifest(): Manifest {
         `and is only ever pointed at a local endpoint.`
     );
   }
-  return JSON.parse(
+  const manifest = JSON.parse(
     readFileSync(join(REPO_ROOT, '.browser-test', 'fixtures.json'), 'utf8')
   ) as Manifest;
+  for (const account of [...manifest.staff, manifest.patient, manifest.patient_b]) {
+    if (account.password) passwords.set(account.login_id, account.password);
+  }
+  return manifest;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +169,12 @@ export async function http(
 export interface Session {
   label: string;
   role: string;
-  wallet: string;
+  /** `users.id`, the JWT `sub`, and the value every actor column holds. */
   userId: string;
   token: string;
   /**
-   * The employee identifier this session was established with.
+   * The login id (staff employee id, patient username) this session was
+   * established with.
    *
    * Carried so a journey can sign the SAME account in again — a role change is
    * only visible on a new JWT, and the administrator journey previously
@@ -160,98 +186,75 @@ export interface Session {
 }
 
 /**
- * Thrown when the per-wallet challenge limiter refuses a sign-in.
+ * Thrown when a per-IP rate limit refuses a sign-in.
  *
  * Distinguished from every other sign-in failure on purpose: the limiter is a
- * control doing its job (five challenges per wallet per minute), and reporting
- * that as a journey failure teaches a reader to ignore a red result caused by
- * security working.
+ * control doing its job, and reporting that as a journey failure teaches a
+ * reader to ignore a red result caused by security working. A locked account
+ * (`429 ACCOUNT_LOCKED`) is deliberately NOT this: a fixture that is locked out
+ * is a real failure of the run that locked it.
  */
-export class ChallengeRateLimited extends Error {
+export class SignInRateLimited extends Error {
   constructor(loginId: string) {
-    super(`challenge rate limited for ${loginId}`);
-    this.name = 'ChallengeRateLimited';
+    super(`sign-in rate limited for ${loginId}`);
+    this.name = 'SignInRateLimited';
   }
 }
 
-/** The whole sign-in, exactly as the portal performs it. */
-export async function signIn(loginId: string, label: string): Promise<Session> {
-  const { authProof, keystoreKey } = await deriveCredential(PASSWORD, loginId);
-
-  const login = await http('POST', '/auth/staff/login', {
-    body: { identifier: loginId, auth_proof: authProof },
-  });
-  if (login.status !== 200) {
-    throw new Error(`staff login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
-  }
-
-  const opened = await openKeystore(login.json.encrypted_keystore as string, keystoreKey);
-  const signer = await signerFromSecret(opened.miniSecret, opened.address);
-
-  const challenge = await http('POST', '/auth/challenge', {
-    body: { wallet_address: login.json.wallet_address },
-  });
-  if (challenge.status === 429) throw new ChallengeRateLimited(loginId);
-  if (challenge.status !== 200) throw new Error(`challenge failed for ${loginId}: ${challenge.status}`);
-
-  const c = challenge.json.challenge as Json;
-  const signature = await signer.sign(c.message as string);
-
-  const jwt = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: login.json.wallet_address,
-      challenge_id: c.challenge_id,
-      nonce: c.nonce,
-      signature,
-    },
-  });
-  if (jwt.status !== 200 || !jwt.json.access_token) {
-    throw new Error(`jwt failed for ${loginId}: ${jwt.status} ${JSON.stringify(jwt.json)}`);
-  }
-
+/** Where a sign-in body's fields live; both `login` and `redeem` answer the same shape. */
+function sessionFromLogin(
+  login: { status: number; json: Json },
+  label: string,
+  loginId: string,
+  role?: string
+): Session {
+  const user = (login.json.user ?? {}) as Json;
   return {
     label,
-    role: String(login.json.role),
-    wallet: String(login.json.wallet_address),
-    userId: String(login.json.wallet_address),
-    token: String(jwt.json.access_token),
+    role: String(role ?? user.role),
+    userId: String(user.user_id),
+    token: String(login.json.access_token),
     loginId,
   };
 }
 
-/** Sign in as a patient, who holds a wallet rather than an employee credential. */
-export async function signInPatient(
-  mnemonic: string,
-  wallet: string,
-  label: string
+/**
+ * The whole sign-in, exactly as the portals perform it:
+ * `POST /api/auth/login { identifier, auth_proof }`.
+ *
+ * Staff sign in with their employee id and patients with their chosen username;
+ * both are the `identifier`, and both derive the proof under it.
+ */
+export async function loginWithPassword(
+  loginId: string,
+  password: string,
+  label: string,
+  role?: string
 ): Promise<Session> {
-  const secret = await secretFromMnemonic(mnemonic);
-  const signer = await signerFromSecret(secret, wallet);
-
-  const challenge = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
-  if (challenge.status === 429) throw new ChallengeRateLimited(wallet);
-  if (challenge.status !== 200) {
-    throw new Error(`patient challenge failed: ${challenge.status} ${JSON.stringify(challenge.json)}`);
-  }
-  const c = challenge.json.challenge as Json;
-  const signature = await signer.sign(c.message as string);
-
-  const jwt = await http('POST', '/auth/jwt', {
-    body: { wallet_address: wallet, challenge_id: c.challenge_id, nonce: c.nonce, signature },
+  const authProof = await deriveAuthProof(password, loginId);
+  const login = await http('POST', '/auth/login', {
+    body: { identifier: loginId, auth_proof: authProof },
   });
-  if (jwt.status !== 200 || !jwt.json.access_token) {
-    throw new Error(`patient jwt failed: ${jwt.status} ${JSON.stringify(jwt.json)}`);
+  if (login.status === 429 && login.json?.error?.code !== 'ACCOUNT_LOCKED' && login.json?.code !== 'ACCOUNT_LOCKED') {
+    throw new SignInRateLimited(loginId);
   }
+  if (login.status !== 200 || !login.json.access_token) {
+    throw new Error(`login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
+  }
+  return sessionFromLogin(login, label, loginId, role);
+}
 
-  // A patient signs in with a wallet, not an employee identifier.
-  return {
-    label,
-    role: 'Patient',
-    wallet,
-    userId: wallet,
-    token: String(jwt.json.access_token),
-    loginId: wallet,
-  };
+/** Sign in as a staff fixture (see `loginWithPassword`). */
+export async function signIn(loginId: string, label: string): Promise<Session> {
+  return loginWithPassword(loginId, passwordFor(loginId), label);
+}
+
+/**
+ * Sign in as a patient fixture, with the username and password the seeder chose
+ * when it redeemed the activation code.
+ */
+export async function signInPatient(fixture: PatientFixture, label: string): Promise<Session> {
+  return loginWithPassword(fixture.login_id, passwordFor(fixture.login_id), label, 'Patient');
 }
 
 // ---------------------------------------------------------------------------

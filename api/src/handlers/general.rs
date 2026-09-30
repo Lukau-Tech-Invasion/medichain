@@ -518,8 +518,7 @@ pub async fn register_patient(
     // PHI encrypted at rest; full profile in encrypted blob for lossless reads. On
     // PostgreSQL both rows commit in one transaction so neither is orphaned on failure.
     {
-        let mut entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
-        entity.wallet_address = patient_wallet.map(str::to_string);
+        let entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
         if let Err(e) = data
             .repositories
             .create_patient_with_nfc(entity, nfc_tag.into())
@@ -536,8 +535,9 @@ pub async fn register_patient(
 
     // Create an account only when a real patient-owned wallet was supplied.
     if let Some(wallet_address) = patient_wallet {
+        let patient_user_id = Uuid::new_v4().to_string();
         let patient_user = User {
-            wallet_address: wallet_address.to_string(),
+            id: patient_user_id.clone(),
             username: Some(req.full_name.to_lowercase().replace(' ', ".")),
             name: req.full_name.clone(),
             role: Role::Patient,
@@ -552,7 +552,14 @@ pub async fn register_patient(
             status: "active".to_string(),
             last_login: None,
         };
-        if let Err(e) = data.persist_then_cache_user(patient_user).await {
+        let provisioned = match data.persist_then_cache_user(patient_user).await {
+            Ok(()) => {
+                data.record_legacy_wallet(wallet_address, &patient_user_id)
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+        if let Err(e) = provisioned {
             log::error!(
                 "Failed to persist auto-created patient user {}: {}",
                 patient_id,

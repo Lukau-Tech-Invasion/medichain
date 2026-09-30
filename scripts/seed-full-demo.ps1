@@ -8,12 +8,14 @@
 # 8090, not 8080 — 8080 is the IPFS gateway published by docker-compose.
 $API_BASE = if ($env:API_BASE) { $env:API_BASE } else { "http://localhost:8090" }
 
-# Demo user wallet addresses (from demo_users.json)
-$DOCTOR_ID = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"      # Dr. Thandi Mbeki
-$NURSE_ID = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"       # Nurse Nomvula Nkosi
-$LAB_TECH_ID = "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"    # Lab Tech Bongani Dlamini
-$PHARMACIST_ID = "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy"  # Pharmacist Zanele Khumalo
-$ADMIN_ID = "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY"       # Admin Sipho Mthembu
+# Staff accounts: the seeded fixtures (scripts/seed-browser-test-fixtures.ts).
+# Each signs in with POST /api/auth/login; there is no identity header.
+. "$PSScriptRoot/lib/MediChainAuth.ps1"
+$doctorSession = Connect-FixtureRole -ApiBase $API_BASE -Role Doctor
+$nurseSession = Connect-FixtureRole -ApiBase $API_BASE -Role Nurse
+$labSession = Connect-FixtureRole -ApiBase $API_BASE -Role LabTechnician
+$pharmacistSession = Connect-FixtureRole -ApiBase $API_BASE -Role Pharmacist
+$DOCTOR_ID = $doctorSession.UserId
 
 # Demo patient IDs (from database)
 $PATIENTS = @{
@@ -44,22 +46,22 @@ catch {
 
 $headers = @{
     "Content-Type" = "application/json"
-    "X-User-Id"    = $DOCTOR_ID
+    "Authorization" = "Bearer $($doctorSession.Token)"
 }
 
 $nurseHeaders = @{
     "Content-Type" = "application/json"
-    "X-User-Id"    = $NURSE_ID
+    "Authorization" = "Bearer $($nurseSession.Token)"
 }
 
 $labHeaders = @{
     "Content-Type" = "application/json"
-    "X-User-Id"    = $LAB_TECH_ID
+    "Authorization" = "Bearer $($labSession.Token)"
 }
 
 $pharmacistHeaders = @{
     "Content-Type" = "application/json"
-    "X-User-Id"    = $PHARMACIST_ID
+    "Authorization" = "Bearer $($pharmacistSession.Token)"
 }
 
 $successCount = 0

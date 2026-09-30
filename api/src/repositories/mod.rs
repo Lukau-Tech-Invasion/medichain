@@ -286,7 +286,7 @@ pub struct RepositoryContainer {
     pub pharmacy_decisions: Arc<dyn JsonRecordRepository>,
     /// One clinician's barcode scanner preferences.
     pub scanner_settings: Arc<dyn JsonRecordRepository>,
-    /// Staff profile pictures, keyed by wallet.
+    /// Staff profile pictures, keyed by user id.
     pub user_avatars: Arc<dyn JsonRecordRepository>,
     /// When each user last read their notifications. One row per user.
     pub notification_reads: Arc<dyn JsonRecordRepository>,
@@ -1009,7 +1009,7 @@ impl RepositoryContainer {
              blood_type, phone_encrypted, email_encrypted, address_encrypted, \
              emergency_contact_name_encrypted, emergency_contact_phone_encrypted, \
              emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, \
-             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, \
+             registered_by, is_verified, is_active, profile_extras_encrypted, \
              name_search_tokens, key_version) ",
         );
         patient_q.push_values([&patient], |mut b, p| {
@@ -1031,7 +1031,6 @@ impl RepositoryContainer {
                 .push_bind(p.organ_donor)
                 .push_bind(p.dnr_status)
                 .push_bind(&p.primary_provider_id)
-                .push_bind(&p.wallet_address)
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)

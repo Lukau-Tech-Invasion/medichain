@@ -43,7 +43,7 @@ fn context_for(
     AccessContextEntity {
         id: format!("ACX-{}", uuid::Uuid::new_v4()),
         patient_id: patient_id.to_string(),
-        clinician_id: caller.wallet_address.clone(),
+        clinician_id: caller.id.clone(),
         reason,
         authority_type: authority.authority_type().unwrap_or_default().to_string(),
         authority_id: authority.authority_id(),
@@ -167,16 +167,16 @@ mod tests {
 
     async fn state() -> web::Data<AppState> {
         let state = AppState::new();
-        for wallet in [TREATING, COLLEAGUE, STRANGER] {
-            crate::test_fixtures::register(&state, wallet, crate::Role::Doctor);
+        for user_id in [TREATING, COLLEAGUE, STRANGER] {
+            crate::test_fixtures::register(&state, user_id, crate::Role::Doctor);
         }
         crate::test_fixtures::seed_patient(&state, PATIENT_ID).await;
-        for wallet in [TREATING, COLLEAGUE] {
+        for user_id in [TREATING, COLLEAGUE] {
             crate::care_access::record_encounter(
                 &state,
                 PATIENT_ID,
-                wallet,
-                &format!("APT-{wallet}"),
+                user_id,
+                &format!("APT-{user_id}"),
                 chrono::Utc::now(),
             )
             .await;
@@ -200,25 +200,25 @@ mod tests {
         test::call_service(&app, request.to_request()).await
     }
 
-    fn open(wallet: &str, reason: &str) -> test::TestRequest {
+    fn open(user_id: &str, reason: &str) -> test::TestRequest {
         test::TestRequest::post()
             .uri(&format!("/api/patients/{PATIENT_ID}/access-context"))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(serde_json::json!({ "reason": reason }))
     }
 
-    async fn context_id(data: &web::Data<AppState>, wallet: &str) -> String {
-        let response = call(data, open(wallet, "treatment")).await;
+    async fn context_id(data: &web::Data<AppState>, user_id: &str) -> String {
+        let response = call(data, open(user_id, "treatment")).await;
         assert_eq!(response.status(), 201);
         let body: serde_json::Value = test::read_body_json(response).await;
         assert_eq!(body["authority_type"], "care_relationship");
         body["access_context_id"].as_str().unwrap().to_string()
     }
 
-    fn read_citing(wallet: &str, context: &str, header_reason: &str) -> test::TestRequest {
+    fn read_citing(user_id: &str, context: &str, header_reason: &str) -> test::TestRequest {
         test::TestRequest::get()
             .uri(&format!("/api/clinical/patient/{PATIENT_ID}/vitals"))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .insert_header((ACCESS_CONTEXT_HEADER, context))
             .insert_header((ACCESS_REASON_HEADER, header_reason))
     }

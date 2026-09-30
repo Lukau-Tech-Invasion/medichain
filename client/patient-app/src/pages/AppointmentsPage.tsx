@@ -504,7 +504,7 @@ export function AppointmentsPage() {
             >
               <option value="">{t('appointments.bookSelectProvider')}</option>
               {providers.map((provider, index) => (
-                <option key={`${provider.wallet_address}-${index}`} value={provider.wallet_address}>
+                <option key={`${provider.user_id}-${index}`} value={provider.user_id}>
                   {provider.specialty
                     ? `${provider.name} - ${provider.specialty}`
                     : provider.name}

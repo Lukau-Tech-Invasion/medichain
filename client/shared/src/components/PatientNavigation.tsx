@@ -48,7 +48,7 @@ export function PatientNavigation({ sections, onClose, onLogout }: {
           <div className="flex items-center justify-between gap-3">
             <h2 id="patient-menu-title" className="text-xl font-semibold">All pages</h2>
             <button autoFocus type="button" onClick={onClose} aria-label="Close navigation"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl hover:bg-surface-sunken focus-visible:outline focus-visible:outline-2 focus-visible:outline-health-600">
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl hover:bg-surface-sunken focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
               <X className="h-6 w-6" />
             </button>
           </div>
@@ -56,7 +56,7 @@ export function PatientNavigation({ sections, onClose, onLogout }: {
           <div className="relative mt-1">
             <Search aria-hidden="true" className="absolute left-3 top-3 h-5 w-5 text-content-muted" />
             <input id="patient-menu-search" type="search" value={query} onChange={e => setQuery(e.target.value)}
-              placeholder="Try records, language or family" className="min-h-[44px] w-full rounded-lg border border-border-interactive bg-surface pl-10 pr-3 text-base text-content focus:outline-health-600" />
+              placeholder="Try records, language or family" className="min-h-[44px] w-full rounded-lg border border-border-interactive bg-surface pl-10 pr-3 text-base text-content focus:outline-brand" />
           </div>
         </header>
         <nav aria-label="All patient pages" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
@@ -65,7 +65,7 @@ export function PatientNavigation({ sections, onClose, onLogout }: {
               <h3 className="mb-2 px-3 text-sm font-semibold text-content-muted">{section.label}</h3>
               {section.items.map(({ path, label, icon: Icon }) => (
                 <Link key={path} to={path} onClick={onClose} aria-current={pathname === path ? 'page' : undefined}
-                  className={`flex min-h-[48px] items-center gap-3 rounded-xl px-3 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-health-600 ${pathname === path ? 'bg-health-50 text-health-700 font-semibold' : 'text-content hover:bg-surface-sunken'}`}>
+                  className={`flex min-h-[48px] items-center gap-3 rounded-xl px-3 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${pathname === path ? 'bg-brand-subtle text-brand-subtle-fg font-semibold' : 'text-content hover:bg-surface-sunken'}`}>
                   <Icon className="h-5 w-5 shrink-0" /><span>{label}</span>
                 </Link>
               ))}

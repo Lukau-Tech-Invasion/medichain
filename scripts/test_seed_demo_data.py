@@ -23,9 +23,16 @@ class DemoSeedTests(unittest.TestCase):
     def test_demo_staff_covers_each_supported_staff_role(self) -> None:
         roles = {role for role, _ in seed_demo_data.DEMO_STAFF}
         self.assertEqual(roles, {"Admin", "Doctor", "Nurse", "LabTechnician", "Pharmacist", "Paramedic"})
-        wallets = [seed_demo_data.demo_wallet(index) for index in range(1, len(seed_demo_data.DEMO_STAFF) + 1)]
-        self.assertEqual(len(wallets), len(set(wallets)))
-        self.assertTrue(all(wallet.startswith("5") and 45 <= len(wallet) <= 50 for wallet in wallets))
+        logins = [seed_demo_data.demo_login_id(index) for index in range(1, len(seed_demo_data.DEMO_STAFF) + 1)]
+        self.assertEqual(len(logins), len(set(logins)))
+        self.assertTrue(all(login.startswith("demo.") for login in logins))
+
+    def test_a_request_carries_the_actors_bearer_token_and_no_identity_header(self) -> None:
+        seed_demo_data.SESSIONS[2] = {"token": "tok-2", "user_id": "u-2"}
+        self.assertEqual(seed_demo_data.bearer_for(2), {"Authorization": "Bearer tok-2"})
+        self.assertEqual(seed_demo_data.bearer_for(seed_demo_data.ANONYMOUS), {})
+        self.assertEqual(seed_demo_data.bearer_for(None), {"Authorization": "Bearer tok-2"})
+        seed_demo_data.SESSIONS.clear()
 
     def test_primary_fixture_has_the_required_safe_clinical_shape(self) -> None:
         fixture = seed_demo_data.patient_payload(1, seed_demo_data.PATIENT_NAMES[0])

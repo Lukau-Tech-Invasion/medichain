@@ -26,7 +26,7 @@ const LEGACY_FACILITY_ID: &str = "legacy-facility";
 pub struct LoginContext {
     pub id: String,
     pub person_id: String,
-    pub wallet_address: String,
+    pub user_id: String,
     pub context_type: ContextType,
     pub patient_profile_id: Option<String>,
     pub organization_id: Option<String>,
@@ -48,7 +48,7 @@ impl LoginContext {
 /// repository work can replace this implementation without changing token or
 /// handler contracts.
 pub struct IdentityContextStore {
-    people_by_wallet: RwLock<HashMap<String, String>>,
+    people_by_user: RwLock<HashMap<String, String>>,
     patient_profiles: RwLock<HashMap<String, String>>,
     professional_assignments: RwLock<HashMap<String, ProfessionalAssignment>>,
     contexts: RwLock<HashMap<String, LoginContext>>,
@@ -67,7 +67,7 @@ struct ProfessionalAssignment {
 impl IdentityContextStore {
     pub fn new() -> Self {
         Self {
-            people_by_wallet: RwLock::new(HashMap::new()),
+            people_by_user: RwLock::new(HashMap::new()),
             patient_profiles: RwLock::new(HashMap::new()),
             professional_assignments: RwLock::new(HashMap::new()),
             contexts: RwLock::new(HashMap::new()),
@@ -79,20 +79,20 @@ impl IdentityContextStore {
     /// legacy organisation explicit and easy to replace in Phase 2.
     pub fn register_legacy_user(
         &self,
-        wallet_address: &str,
+        user_id: &str,
         linked_patient_id: Option<&str>,
         role: &str,
     ) -> String {
-        let person_id = self.person_id_for(wallet_address);
+        let person_id = self.person_id_for(user_id);
         if let Some(patient_id) = linked_patient_id {
             if let Ok(mut profiles) = self.patient_profiles.write() {
-                profiles.insert(wallet_address.to_string(), patient_id.to_string());
+                profiles.insert(user_id.to_string(), patient_id.to_string());
             }
         }
         if role != "Patient" {
             if let Ok(mut assignments) = self.professional_assignments.write() {
                 assignments
-                    .entry(wallet_address.to_string())
+                    .entry(user_id.to_string())
                     .or_insert_with(|| ProfessionalAssignment {
                         id: format!("legacy-assignment-{}", Uuid::new_v4()),
                         organization_id: "legacy-organization".to_string(),
@@ -113,16 +113,16 @@ impl IdentityContextStore {
     /// placeholder while a newly seeded demo is running.
     pub fn assign_professional_facility(
         &self,
-        wallet_address: &str,
+        user_id: &str,
         organization_id: &str,
         facility_id: &str,
         facility_name: &str,
         role: &str,
     ) {
-        self.person_id_for(wallet_address);
+        self.person_id_for(user_id);
         if let Ok(mut assignments) = self.professional_assignments.write() {
             assignments.insert(
-                wallet_address.to_string(),
+                user_id.to_string(),
                 ProfessionalAssignment {
                     id: format!("assignment-{}", Uuid::new_v4()),
                     organization_id: organization_id.to_string(),
@@ -135,7 +135,7 @@ impl IdentityContextStore {
         }
     }
 
-    /// Issue a patient context for `wallet_address`. `target_patient_id`
+    /// Issue a patient context for `user_id`. `target_patient_id`
     /// selects which medical identity to enter: `None` looks up the caller's
     /// own linked patient profile (unchanged, back-compatible behavior);
     /// `Some(id)` enters that identity directly — the "choose profile" flow
@@ -145,7 +145,7 @@ impl IdentityContextStore {
     /// *before* calling this; it trusts the id it's given.
     pub fn issue_patient_context(
         &self,
-        wallet_address: &str,
+        user_id: &str,
         target_patient_id: Option<&str>,
     ) -> Result<LoginContext, &'static str> {
         let patient_profile_id = match target_patient_id {
@@ -154,13 +154,13 @@ impl IdentityContextStore {
                 .patient_profiles
                 .read()
                 .ok()
-                .and_then(|profiles| profiles.get(wallet_address).cloned())
+                .and_then(|profiles| profiles.get(user_id).cloned())
                 .ok_or("No patient profile is linked to this identity")?,
         };
         self.store_context(LoginContext {
             id: Uuid::new_v4().to_string(),
-            person_id: self.person_id_for(wallet_address),
-            wallet_address: wallet_address.to_string(),
+            person_id: self.person_id_for(user_id),
+            user_id: user_id.to_string(),
             context_type: ContextType::Patient,
             patient_profile_id: Some(patient_profile_id),
             organization_id: None,
@@ -172,18 +172,18 @@ impl IdentityContextStore {
         })
     }
 
-    pub fn issue_work_context(&self, wallet_address: &str) -> Result<LoginContext, &'static str> {
+    pub fn issue_work_context(&self, user_id: &str) -> Result<LoginContext, &'static str> {
         let assignment = self
             .professional_assignments
             .read()
             .ok()
-            .and_then(|assignments| assignments.get(wallet_address).cloned())
+            .and_then(|assignments| assignments.get(user_id).cloned())
             .filter(|assignment| assignment.active)
             .ok_or("No active professional assignment exists for this identity")?;
         self.store_context(LoginContext {
             id: Uuid::new_v4().to_string(),
-            person_id: self.person_id_for(wallet_address),
-            wallet_address: wallet_address.to_string(),
+            person_id: self.person_id_for(user_id),
+            user_id: user_id.to_string(),
             context_type: ContextType::Professional,
             patient_profile_id: None,
             organization_id: Some(assignment.organization_id),
@@ -200,16 +200,16 @@ impl IdentityContextStore {
     /// Used to tell a patient *where* the person who read their record works.
     ///
     /// # Parameters
-    /// * `wallet_address` - the clinician's authenticated wallet.
+    /// * `user_id` - the clinician's authenticated wallet.
     ///
     /// # Returns
     /// The facility name, or `None` when the caller has no active assignment
     /// with a known facility name (never a guessed or default facility).
-    pub fn facility_for_wallet(&self, wallet_address: &str) -> Option<String> {
+    pub fn facility_for_user(&self, user_id: &str) -> Option<String> {
         self.professional_assignments
             .read()
             .ok()?
-            .get(wallet_address)
+            .get(user_id)
             .filter(|assignment| assignment.active)
             // The legacy bridge fills every assignment with this placeholder;
             // telling a patient "legacy-facility" read their record is noise.
@@ -217,27 +217,25 @@ impl IdentityContextStore {
             .and_then(|assignment| assignment.facility_name.clone())
     }
 
-    pub fn active_context(&self, context_id: &str, wallet_address: &str) -> Option<LoginContext> {
+    pub fn active_context(&self, context_id: &str, user_id: &str) -> Option<LoginContext> {
         self.contexts
             .read()
             .ok()?
             .get(context_id)
-            .filter(|context| {
-                context.wallet_address == wallet_address && context.active(Utc::now())
-            })
+            .filter(|context| context.user_id == user_id && context.active(Utc::now()))
             .cloned()
     }
 
-    fn person_id_for(&self, wallet_address: &str) -> String {
-        self.people_by_wallet
+    fn person_id_for(&self, user_id: &str) -> String {
+        self.people_by_user
             .write()
             .map(|mut people| {
                 people
-                    .entry(wallet_address.to_string())
+                    .entry(user_id.to_string())
                     .or_insert_with(|| Uuid::new_v4().to_string())
                     .clone()
             })
-            .unwrap_or_else(|_| format!("unavailable-{}", wallet_address))
+            .unwrap_or_else(|_| format!("unavailable-{}", user_id))
     }
 
     fn store_context(&self, context: LoginContext) -> Result<LoginContext, &'static str> {
@@ -275,7 +273,7 @@ mod tests {
     #[test]
     fn target_patient_id_switches_into_a_wards_identity() {
         let store = IdentityContextStore::new();
-        let wallet = "5GuardianWallet";
+        let wallet = "5GuardianUser";
         store.register_legacy_user(wallet, None, "Patient");
         let context = store
             .issue_patient_context(wallet, Some("PAT-ward-123"))
@@ -296,7 +294,7 @@ mod tests {
             "Paramedic",
         );
         assert_eq!(
-            store.facility_for_wallet(wallet).as_deref(),
+            store.facility_for_user(wallet).as_deref(),
             Some("MediChain Johannesburg Demonstration Clinic")
         );
         assert_eq!(

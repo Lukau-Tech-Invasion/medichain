@@ -43,17 +43,9 @@ const fr_FR: TranslationRecord = {
   },
   auth: {
     welcomeTitle: 'Bienvenue sur MediChain',
-    welcomeSubtitle: 'Connectez votre portefeuille pour accéder à vos dossiers médicaux',
-    walletAddressLabel: 'Adresse du portefeuille',
-    walletHint: 'Votre adresse de portefeuille Substrate (format SS58)',
-    connectWallet: 'Connecter le portefeuille',
     connecting: 'Connexion...',
-    quickLoginDemo: 'Connexion rapide - Patients de démonstration',
-    quickLoginHint: 'Cliquez sur un patient pour vous connecter instantanément',
     signInNfc: 'Se connecter avec une carte NFC',
     scanQr: 'Scanner le code QR',
-    errEnterWallet: 'Veuillez saisir votre adresse de portefeuille',
-    errInvalidWallet: 'Format d’adresse invalide. 48 caractères commençant par « 5 ».',
   },
   emergency: {
     title: "Carte médicale d'urgence",

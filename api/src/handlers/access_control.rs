@@ -156,7 +156,7 @@ pub async fn create_patient_access_request(
     }
     let patient_id = path.into_inner();
     let provider = RequestingProvider {
-        provider_id: user.wallet_address.clone(),
+        provider_id: user.id.clone(),
         provider_name: user.name.clone(),
         provider_role: user.role.to_string(),
         organization: user
@@ -210,7 +210,7 @@ pub async fn approve_access_request(
         Ok(None) => return not_found("Access request not found"),
         Err(_) => return unavailable(),
     };
-    if existing.provider_id == user.wallet_address {
+    if existing.provider_id == user.id {
         return forbidden("A requester may not approve their own access request");
     }
     let now = Utc::now();

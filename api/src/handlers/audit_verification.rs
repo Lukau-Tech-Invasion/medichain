@@ -436,7 +436,7 @@ fn seal_key_json(verifier: Option<&SealVerifier>) -> serde_json::Value {
 /// administrator.
 fn may_verify(data: &web::Data<AppState>, caller: &crate::User, patient_id: &str) -> bool {
     caller.role == crate::Role::Admin
-        || crate::support::caller_owns_patient_record(data, &caller.wallet_address, patient_id)
+        || crate::support::caller_owns_patient_record(data, &caller.id, patient_id)
 }
 
 /// The access-history answer: batch-proven on PostgreSQL, unbatched in memory.
@@ -555,7 +555,7 @@ mod memory_tests {
         .await;
         let request = test::TestRequest::get()
             .uri(&format!("/api/patients/{PATIENT_ID}/verify"))
-            .insert_header(("x-user-id", PATIENT))
+            .insert_header(crate::test_fixtures::as_user(PATIENT))
             .to_request();
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), 200);
@@ -635,7 +635,7 @@ mod pg_tests {
         .await;
         let request = test::TestRequest::get()
             .uri(&format!("/api/patients/{PATIENT_ID}/verify"))
-            .insert_header(("x-user-id", PATIENT))
+            .insert_header(crate::test_fixtures::as_user(PATIENT))
             .to_request();
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), 200);

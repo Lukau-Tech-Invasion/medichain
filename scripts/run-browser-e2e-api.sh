@@ -9,9 +9,9 @@
 # Assembling this environment by hand is what stopped anyone running them. Four
 # things are required and none are defaults:
 #
-#   1. PostgreSQL. Credential sign-in reads `users.credential_verifier` and
-#      `users.encrypted_keystore`; with no pool the endpoint answers
-#      CREDENTIAL_LOGIN_UNAVAILABLE and every test fails at the login screen.
+#   1. PostgreSQL. Signing in reads `users.credential_verifier` and creates a
+#      session row; with no pool the endpoint answers AUTH_STORAGE_REQUIRED and
+#      every test fails at the login screen.
 #   2. MEDICHAIN_DEV_MODE. Without it `GET /api/auth/demo-credentials` is a
 #      deliberate 403 and no demo buttons render, so `signIn()` waits for a
 #      button that will never exist.
@@ -28,10 +28,10 @@
 #
 # Not to be confused with its two siblings, which answer different questions:
 #
-#   run-synthetic-local.sh     in-memory, no database at all — the strongest
-#                              isolation, and useless for credential sign-in.
+#   run-synthetic-local.sh     a throwaway database of your choosing (DATABASE_URL
+#                              is required), port 8090, for `synthetic-e2e-test.sh`.
 #   run-synthetic-postgres.sh  the ISOLATED synthetic database on :55432, port
-#                              8091. That one is for `synthetic-e2e-test.sh`,
+#                              8091. That one is also for `synthetic-e2e-test.sh`,
 #                              which creates everything it needs.
 #
 # This one deliberately uses the developer's own dev database on :5432, because
@@ -69,7 +69,6 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgres://medichain:medichain_dev_2024@localhost:5432/medichain}"
 export MEDICHAIN_STORAGE=postgres
 export IS_DEMO=true
-export REQUIRE_SIGNATURES=false
 export MEDICHAIN_DEV_MODE=1
 # 5. Rate limits the browser suites can actually live inside.
 #

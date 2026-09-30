@@ -110,7 +110,7 @@ pub async fn collect_ama_signatures(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: discharge.patient_id.clone(),
-            accessor_id: current_user.wallet_address.clone(),
+            accessor_id: current_user.id.clone(),
             accessor_role: current_user.role.to_string(),
             access_type: "ama_signatures_collected".to_string(),
             location: None,
@@ -128,7 +128,7 @@ pub async fn collect_ama_signatures(
     discharge.ama_form_refused_reason = refused.clone();
     discharge.patient_signature = signature.clone();
     discharge.patient_signature_at = Some(now);
-    discharge.signatures_collected_by = Some(current_user.wallet_address.clone());
+    discharge.signatures_collected_by = Some(current_user.id.clone());
     if let Some(name) = body.witness_name.as_deref().map(str::trim) {
         if !name.is_empty() {
             discharge.witness_name = Some(name.to_string());
@@ -549,7 +549,7 @@ pub async fn create_hp(
     // id would let one submission overwrite another's record.
     let hp_id = format!("HP-{}", uuid::Uuid::new_v4().simple());
     hp.hp_id = Some(hp_id.clone());
-    hp.provider = current_user.wallet_address.clone();
+    hp.provider = current_user.id.clone();
     if hp.date_of_exam.is_none() {
         hp.date_of_exam = Some(now.to_rfc3339());
     }
@@ -580,7 +580,7 @@ pub async fn create_hp(
         assessment: hp.assessment.clone(),
         plan_content: hp.plan.clone(),
         exam_type: Some(hp.exam_type.clone()),
-        performed_by: current_user.wallet_address.clone(),
+        performed_by: current_user.id.clone(),
         performed_at: now,
         facility_id: None,
         is_active: true,
@@ -703,7 +703,7 @@ pub async fn update_hp_draft(
             code: "SIGNED_RECORD_IMMUTABLE".to_string(),
         });
     }
-    if entity.performed_by != current_user.wallet_address {
+    if entity.performed_by != current_user.id {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Only the clinician who started this draft can edit it".to_string(),
             code: "NOT_DRAFT_AUTHOR".to_string(),
@@ -804,7 +804,7 @@ pub async fn add_hp_addendum(
     let addendum = serde_json::json!({
         "addendum_id": addendum_id,
         "content": content,
-        "author_id": current_user.wallet_address,
+        "author_id": current_user.id,
         "created_at": chrono::Utc::now().to_rfc3339(),
     });
 
@@ -1037,7 +1037,7 @@ pub async fn respond_to_consult(
     // The responder is taken from the authenticated caller, never from the
     // body: a consultant's name on a clinical opinion is an attribution, and a
     // client-supplied one would let anyone sign as anyone.
-    entity.consulting_provider = current_user.wallet_address.clone();
+    entity.consulting_provider = current_user.id.clone();
     entity.status = Some("completed".to_string());
     entity.completed_at = Some(now);
     entity.updated_at = now;
@@ -1204,7 +1204,7 @@ pub async fn create_consult(
     // The requester is the authenticated caller, not a name the client asserts.
     // This used to say so and then prefer the client's value whenever one was
     // sent -- and the page always sent one, falling back to `USER-001`.
-    let requesting_provider = current_user.wallet_address.clone();
+    let requesting_provider = current_user.id.clone();
     let requested_at = body
         .requested_at
         .as_deref()
@@ -1452,7 +1452,7 @@ pub async fn create_progress_note(
         plan_content: Some(note.plan.join("\n")),
         cosigned_by: note.cosigned_by.clone(),
         cosigned_at: note.cosigned_by.as_ref().map(|_| now),
-        created_by: current_user.wallet_address.clone(),
+        created_by: current_user.id.clone(),
         status: if note.cosigned_by.is_some() {
             "final"
         } else {
@@ -1531,12 +1531,12 @@ mod consult_response_tests {
     use super::*;
     use actix_web::test;
 
-    pub(super) fn register(state: &AppState, wallet: &str, role: crate::Role) {
+    pub(super) fn register(state: &AppState, user_id: &str, role: crate::Role) {
         state.users.write().unwrap().insert(
-            wallet.to_string(),
+            user_id.to_string(),
             crate::User {
-                wallet_address: wallet.to_string(),
-                username: Some(wallet.to_string()),
+                id: user_id.to_string(),
+                username: Some(user_id.to_string()),
                 name: "Test Clinician".to_string(),
                 role,
                 created_at: chrono::Utc::now(),
@@ -1587,7 +1587,6 @@ mod consult_response_tests {
                 dnr_verified_at: None,
                 dnr_document_ref: None,
                 primary_provider_id: None,
-                wallet_address: None,
                 created_at: now,
                 updated_at: now,
                 registered_by: None,
@@ -1613,11 +1612,11 @@ mod consult_response_tests {
                 $app,
                 test::TestRequest::post()
                     .uri("/api/clinical/consult")
-                    .insert_header(("x-user-id", "doctor_wallet"))
+                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
                     .set_json(serde_json::json!({
                         "patient_id": $patient_id,
                         "consultation_type": "cardiology",
-                        "requesting_provider": "doctor_wallet",
+                        "requesting_provider": "doctor_user",
                         "reason_for_consultation": "Chest pain on exertion",
                         "status": "requested"
                     }))
@@ -1643,7 +1642,7 @@ mod consult_response_tests {
     #[actix_web::test]
     async fn responding_to_a_consult_persists_and_is_readable() {
         let state = crate::AppState::new();
-        register(&state, "doctor_wallet", crate::Role::Doctor);
+        register(&state, "doctor_user", crate::Role::Doctor);
         let app_state = web::Data::new(state);
 
         let app = test::init_service(
@@ -1662,7 +1661,7 @@ mod consult_response_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/consult/{consult_id}/response"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({
                     "assessment": "No acute ischaemia; troponin negative.",
                     "recommendations": "Outpatient stress test; aspirin 75mg daily.",
@@ -1678,7 +1677,7 @@ mod consult_response_tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!("/api/clinical/consult/{consult_id}"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .to_request(),
         )
         .await;
@@ -1692,7 +1691,7 @@ mod consult_response_tests {
             stored["examination_findings"],
             "No acute ischaemia; troponin negative."
         );
-        assert_eq!(stored["consulting_provider"], "doctor_wallet");
+        assert_eq!(stored["consulting_provider"], "doctor_user");
         assert!(stored["completed_at"].is_string());
     }
 
@@ -1702,7 +1701,7 @@ mod consult_response_tests {
     #[actix_web::test]
     async fn a_consult_is_requested_by_the_caller_whatever_the_body_says() {
         let state = crate::AppState::new();
-        register(&state, "doctor_wallet", crate::Role::Doctor);
+        register(&state, "doctor_user", crate::Role::Doctor);
         let app_state = web::Data::new(state);
         let app = test::init_service(
             actix_web::App::new()
@@ -1717,11 +1716,11 @@ mod consult_response_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/consult")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({
                     "patient_id": "PAT-CONSULT-ATTR",
                     "consultation_type": "cardiology",
-                    "requestedBy": "a_colleague_wallet",
+                    "requestedBy": "a_colleague_user",
                     "reason_for_consultation": "Chest pain on exertion",
                 }))
                 .to_request(),
@@ -1733,11 +1732,11 @@ mod consult_response_tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!("/api/clinical/consult/{consult_id}"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .to_request(),
         )
         .await;
-        assert_eq!(stored["requesting_provider"], "doctor_wallet");
+        assert_eq!(stored["requesting_provider"], "doctor_user");
     }
 
     /// An answered consult must not be silently overwritten: the requester may
@@ -1745,7 +1744,7 @@ mod consult_response_tests {
     #[actix_web::test]
     async fn a_second_response_is_refused() {
         let state = crate::AppState::new();
-        register(&state, "doctor_wallet", crate::Role::Doctor);
+        register(&state, "doctor_user", crate::Role::Doctor);
         let app_state = web::Data::new(state);
 
         let app = test::init_service(
@@ -1767,7 +1766,7 @@ mod consult_response_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/consult/{consult_id}/response"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(&body)
                 .to_request(),
         )
@@ -1778,7 +1777,7 @@ mod consult_response_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/consult/{consult_id}/response"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(&body)
                 .to_request(),
         )
@@ -1791,7 +1790,7 @@ mod consult_response_tests {
     #[actix_web::test]
     async fn an_empty_response_is_rejected() {
         let state = crate::AppState::new();
-        register(&state, "doctor_wallet", crate::Role::Doctor);
+        register(&state, "doctor_user", crate::Role::Doctor);
         let app_state = web::Data::new(state);
 
         let app = test::init_service(
@@ -1809,7 +1808,7 @@ mod consult_response_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/consult/{consult_id}/response"))
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({ "assessment": "   ", "recommendations": "" }))
                 .to_request(),
         )
@@ -1831,7 +1830,7 @@ mod hp_amendment_tests {
                 $app,
                 test::TestRequest::post()
                     .uri("/api/clinical/hp")
-                    .insert_header(("x-user-id", $author))
+                    .insert_header(crate::test_fixtures::as_user($author))
                     .set_json(serde_json::json!({
                         "patient_id": "PAT-HP-1",
                         "chief_complaint": "Shortness of breath",
@@ -1886,7 +1885,7 @@ mod hp_amendment_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/hp/{hp_id}"))
-                .insert_header(("x-user-id", "doctor_b"))
+                .insert_header(crate::test_fixtures::as_user("doctor_b"))
                 .set_json(draft_edit())
                 .to_request(),
         )
@@ -1897,7 +1896,7 @@ mod hp_amendment_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/hp/{hp_id}"))
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .set_json(draft_edit())
                 .to_request(),
         )
@@ -1923,7 +1922,7 @@ mod hp_amendment_tests {
             &app,
             test::TestRequest::put()
                 .uri(&format!("/api/clinical/hp/{hp_id}"))
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .set_json(draft_edit())
                 .to_request(),
         )
@@ -1943,7 +1942,7 @@ mod hp_amendment_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/hp/{hp_id}/addendum"))
-                .insert_header(("x-user-id", "pharmacist"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist"))
                 .set_json(serde_json::json!({ "content": "Dose adjusted" }))
                 .to_request(),
         )
@@ -1963,7 +1962,7 @@ mod hp_amendment_tests {
                 &app,
                 test::TestRequest::post()
                     .uri(&format!("/api/clinical/hp/{hp_id}/addendum"))
-                    .insert_header(("x-user-id", author))
+                    .insert_header(crate::test_fixtures::as_user(author))
                     .set_json(serde_json::json!({ "content": content }))
                     .to_request(),
             )

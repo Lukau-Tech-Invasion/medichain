@@ -81,7 +81,7 @@ interface ChainOfCustody {
 
 const ChainOfCustodyPage: React.FC = () => {
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
@@ -215,7 +215,7 @@ const ChainOfCustodyPage: React.FC = () => {
       specimenDescription: newCollection.specimenDescription,
       collectionDate: newCollection.collectionDate,
       collectionTime: newCollection.collectionTime,
-      collectedBy: user?.walletAddress || '',
+      collectedBy: user?.userId || '',
       collectionLocation: newCollection.collectionLocation,
       purpose: newCollection.purpose,
       caseNumber: newCollection.caseNumber,

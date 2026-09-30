@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { skipFirstVisitReload } from './support';
 
 test.describe('Login Flow', () => {
-  test('should login successfully with a demo doctor wallet', async ({ page }) => {
+  test('should login successfully with a demo doctor account', async ({ page }) => {
     // See `skipFirstVisitReload`: index.html reloads itself 100ms into a fresh
     // profile's first visit, which detaches whatever this test is mid-way
     // through doing.
@@ -48,11 +48,9 @@ test.describe('Login Flow', () => {
     await skipFirstVisitReload(page);
     await page.goto('/login');
 
-    // The form takes an employee identifier and a password. It used to take a
-    // raw wallet address in `input#walletAddress`, and this test kept filling a
-    // field that no longer exists -- timing out after 30s against a login
-    // screen that had been redesigned around not making a clinician type an
-    // SS58 address.
+    // The form takes an employee identifier and a password, the way a clinician
+    // signs in; an earlier version of this test filled a field that no longer
+    // existed and timed out after 30s against the redesigned screen.
     await page.locator('input#identifier').fill('no.such.person');
     await page.locator('input#password').fill('wrong-password-value');
     await page.click('button[type="submit"]');

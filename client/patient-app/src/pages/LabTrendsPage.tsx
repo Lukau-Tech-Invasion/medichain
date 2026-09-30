@@ -109,8 +109,8 @@ const LabTrendsPage: React.FC = () => {
     setLoading(true);
     
     // Try to load from API first
-    // The patient's record id, not their wallet address: results are filed
-    // under the record, so a wallet-keyed read found nothing for anybody.
+    // The patient's record id, not their user id: results are filed
+    // under the record, so a user-id-keyed read found nothing for anybody.
     if (patient?.healthId) {
       try {
         const response = await getLabTrends(patient.healthId) as { success?: boolean; trends?: unknown[] };

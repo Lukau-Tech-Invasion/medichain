@@ -8,7 +8,7 @@ function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}
   return {
     access_id: id,
     patient_id: 'PAT-001',
-    accessor_id: 'wallet-dlamini',
+    accessor_id: 'user-dlamini',
     accessor_name: 'Dr N. Dlamini',
     accessor_role: 'Doctor',
     access_type: 'view',
@@ -44,7 +44,7 @@ describe('groupAccessSessions', () => {
   it('never merges different people, reasons or an emergency read', () => {
     const sessions = groupAccessSessions([
       row('a', 0),
-      row('b', 1, { accessor_id: 'wallet-nurse', accessor_name: 'Nurse M. Khumalo', accessor_role: 'Nurse' }),
+      row('b', 1, { accessor_id: 'user-nurse', accessor_name: 'Nurse M. Khumalo', accessor_role: 'Nurse' }),
       row('c', 2, { access_reason: 'Referral' }),
       row('d', 3, { emergency: true, access_type: 'nfc_tap' }),
     ]);

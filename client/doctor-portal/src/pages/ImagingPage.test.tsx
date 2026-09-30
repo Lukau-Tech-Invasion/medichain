@@ -28,7 +28,7 @@ vi.mock('@medichain/shared', async importOriginal => {
 
 describe('ImagingPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -95,7 +95,7 @@ describe('ImagingPage', () => {
     await waitFor(() => expect(createRadiologyOrder).toHaveBeenCalledWith(expect.objectContaining({
       patient_id: 'PAT-001',
       indication: 'Persistent abdominal pain',
-      ordering_provider: mockUser.walletAddress,
+      ordering_provider: mockUser.userId,
     })));
     expect(vi.mocked(listRadiologyOrders).mock.calls.length).toBeGreaterThan(readsBeforeSubmit);
   });

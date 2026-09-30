@@ -22,7 +22,11 @@ pub async fn require_durable_audit(
     data: &web::Data<AppState>,
     entry: crate::repositories::traits::AccessLogEntity,
 ) -> Result<(), HttpResponse> {
-    let alert = access_alert_for(&entry);
+    let accessor_is_subject = entry
+        .patient_id
+        .as_deref()
+        .is_some_and(|patient_id| caller_owns_patient_record(data, &entry.accessor_id, patient_id));
+    let alert = access_alert_for(&entry, accessor_is_subject);
     if let Err(error) = data.repositories.access_logs.create(entry).await {
         log::error!("required audit persistence failed: {error}");
         return Err(HttpResponse::ServiceUnavailable().json(serde_json::json!({
@@ -72,6 +76,7 @@ pub async fn require_durable_audit(
 /// flag is set independently of what the action is called.
 fn access_alert_for(
     entry: &crate::repositories::traits::AccessLogEntity,
+    accessor_is_subject: bool,
 ) -> Option<(String, String, bool)> {
     let patient_id = entry.patient_id.clone()?;
     let action = entry.action.as_str();
@@ -91,11 +96,10 @@ fn access_alert_for(
     if !is_read {
         return None;
     }
-    // Reading your own record is not an access alert. The accessor is a wallet
-    // address and the subject is a `PAT-` id, so this is the same namespace
-    // bridge `notify_patient` documents -- compared here rather than there
-    // because only this caller knows who the accessor was.
-    if entry.accessor_id == patient_id {
+    // Reading your own record is not an access alert. The accessor is a user id
+    // and the subject a `PAT-` id, so the caller works out whether they are the
+    // same person (`caller_owns_patient_record`) and says so.
+    if accessor_is_subject {
         return None;
     }
     Some((
@@ -231,28 +235,16 @@ pub fn parse_role(s: &str) -> Result<Role, String> {
     }
 }
 
-/// Extract the authenticated wallet address from a request.
-///
-/// Resolution order (Phase 9.4, additive):
-/// 1. A valid `Authorization: Bearer <jwt>` access token — the wallet is taken
-///    from the verified `sub` claim (signature + expiry checked).
-/// 2. The legacy `X-User-Id` header carrying the raw SS58 wallet address.
-///
-/// Keeping the `X-User-Id` fallback means every existing handler gains JWT
-/// support without modification, and demo mode (no JWT) keeps working.
+/// The authenticated caller's `users.id`, from the verified access token's
+/// `sub` claim (signature, issuer, audience and expiry checked). There is no
+/// header fallback: a caller-supplied identity is never an identity.
 pub fn get_current_user_id(req: &HttpRequest) -> Option<String> {
-    if let Some(claims) = get_current_claims(req) {
-        return Some(claims.sub);
-    }
-    req.headers()
-        .get("X-User-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+    get_current_claims(req).map(|claims| claims.sub)
 }
 
 /// Extract and verify the JWT access-token claims from the `Authorization`
 /// header, if present and valid. Returns `None` for missing/invalid/expired
-/// tokens (callers then fall back to `X-User-Id`).
+/// tokens.
 pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Claims> {
     let header = req.headers().get("Authorization")?.to_str().ok()?;
     crate::security::jwt::bearer_access_subject(header)
@@ -260,45 +252,38 @@ pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Cla
 
 /// Whether the current request was made with an MFA-satisfied JWT (Phase 11.3).
 ///
-/// Get user by wallet address from app state.
+/// Get user by id from app state.
 ///
 /// RBAC invariant: a caller's ROLE is authoritative ONLY when read from this
-/// server-side user store, keyed by the wallet address that `get_current_user_id`
-/// resolved (a JWT `sub` claim or the signature-verified `X-User-Id`). Handlers
+/// server-side user store, keyed by the user id that `get_current_user_id`
+/// resolved (the verified JWT `sub` claim). Handlers
 /// MUST derive authorization from `get_user(...).role` and MUST NEVER trust a
 /// client-supplied role header (e.g. `X-User-Role`/`X-Provider-Role`), which is
 /// spoofable. No handler in this codebase derives authorization from such a header.
-pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User> {
+pub fn get_user(data: &web::Data<AppState>, user_id: &str) -> Option<User> {
     data.users
         .read()
         .ok()?
-        .get(wallet_address)
+        .get(user_id)
         .filter(|user| user.status == "active")
         .cloned()
 }
 
-/// Whether `caller_wallet` is the data subject of `patient_id` — the patient
+/// Whether `caller_id` is the data subject of `patient_id` — the patient
 /// looking at their own record.
 ///
 /// # Why this function exists
 ///
 /// Twenty-six handlers open-coded this as `current_user_id != patient_id`,
 /// which compares two **different identifier namespaces**: `current_user_id`
-/// is an SS58 wallet address (`5FLSigC9…60Z`) and `patient_id` is a patient
-/// record ID (`PAT-001-DEMO`). For a real patient account those are never
-/// equal, so the guard was structurally incapable of granting self-access and
-/// every one of those endpoints returned 403 to the patient whose data it was.
-/// The doc comments above them described the intended behaviour, which was the
-/// opposite of what the code did.
+/// is a user id (a UUID) and `patient_id` is a patient record ID
+/// (`PAT-001-DEMO`). For a real patient account those are never equal, so the
+/// guard was structurally incapable of granting self-access and every one of
+/// those endpoints returned 403 to the patient whose data it was.
 ///
-/// The link between the two namespaces is `User::linked_patient_id`, which is
-/// exactly what `/api/auth/wallet/{address}` returns to the client.
-///
-/// The `caller_wallet == patient_id` arm is deliberate and load-bearing: some
-/// fixtures (and the synthetic e2e harness) register a patient whose record ID
-/// *is* the wallet address, and those callers must keep working. Collapsing
-/// that case is also why the original bug went unnoticed for so long — with
-/// such a fixture the broken comparison accidentally succeeds.
+/// The link between the two namespaces is `User::linked_patient_id`. There is
+/// deliberately no `caller_id == patient_id` shortcut: a fixture in which the two
+/// coincide is exactly what hid the original bug.
 ///
 /// Fails closed: an unknown caller is not the data subject.
 ///
@@ -307,14 +292,10 @@ pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User
 /// guardian relationships; handlers needing that should call it instead.
 pub fn caller_owns_patient_record(
     data: &web::Data<AppState>,
-    caller_wallet: &str,
+    caller_id: &str,
     patient_id: &str,
 ) -> bool {
-    if caller_wallet == patient_id {
-        return true;
-    }
-    get_user(data, caller_wallet)
-        .is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
+    get_user(data, caller_id).is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
 }
 
 /// How a caller's access to a patient was granted.
@@ -377,7 +358,7 @@ pub async fn resolve_patient_access(
         .await
         .unwrap_or_default()
         .into_iter()
-        .find(|r| r.guardian_wallet == caller.wallet_address && r.grants(permission, now));
+        .find(|r| r.guardian_user_id == caller.id && r.grants(permission, now));
 
     match relationship {
         Some(r) => PatientAccessGrant::Guardian(Box::new(r)),
@@ -485,9 +466,8 @@ pub fn require_demo_mode() -> Result<(), HttpResponse> {
 /// Resolve the caller against the user store and return them.
 ///
 /// The minimum correct replacement for a bare `get_current_user_id(&req)` on a
-/// **patient-facing** endpoint. `X-User-Id` is caller-supplied and unverified,
-/// so presence alone lets an unregistered caller act as anyone; resolving it
-/// proves the account exists.
+/// **patient-facing** endpoint. A token proves who signed in, but the account
+/// may since have been suspended or removed; resolving it proves it still exists.
 ///
 /// Use this — not [`require_clinical_staff`] — where patients legitimately act
 /// for themselves (family groups, symptom checker, wearables, reminders, sync,
@@ -518,14 +498,14 @@ pub fn require_registered_caller(
 /// Resolve the caller and require that they are registered clinical staff.
 ///
 /// The pervasive weak pattern in this codebase is
-/// `get_current_user_id(&req)` (or a bare `X-User-Id` header check) followed by
-/// the clinical work. `X-User-Id` is **caller-supplied and unverified at that
-/// point**, so those handlers accept any string: an unregistered, unauthenticated
-/// caller satisfies them. An external review counted this as the principal route
-/// to a multi-hospital breach, and it is the same defect as HZ-024.
+/// `get_current_user_id(&req)` followed by the clinical work. An id alone says
+/// nothing about whether the account is still registered or what it may do, so
+/// those handlers accept any signed-in caller, a patient included. An external
+/// review counted this as the principal route to a multi-hospital breach, and it
+/// is the same defect as HZ-024.
 ///
 /// This helper is the minimum correct replacement — it *resolves* the identity
-/// against the user store and checks a clinical role, so a forged header is
+/// against the user store and checks a clinical role, so a removed account is
 /// rejected and a patient account cannot reach staff-only endpoints.
 ///
 /// It is deliberately **not** a full authorization decision: it says nothing
@@ -603,17 +583,15 @@ pub struct AttributedProvider {
 }
 
 impl AttributedProvider {
-    /// The wallet address the record should carry as its provider.
+    /// The user id the record should carry as its provider.
     pub fn provider_id(&self) -> &str {
-        &self.provider.wallet_address
+        &self.provider.id
     }
 
-    /// The wallet address that actually made the request. Always a real,
+    /// The user id that actually made the request. Always a real,
     /// authenticated identity — this is what belongs in an audit entry.
     pub fn actor_id(&self) -> &str {
-        self.filed_by
-            .as_ref()
-            .map_or(&self.provider.wallet_address, |u| &u.wallet_address)
+        self.filed_by.as_ref().map_or(&self.provider.id, |u| &u.id)
     }
 }
 
@@ -664,7 +642,7 @@ pub fn resolve_attributed_provider(
         });
     };
 
-    if requested == caller.wallet_address {
+    if requested == caller.id {
         return Ok(AttributedProvider {
             provider: caller,
             filed_by: None,
@@ -715,7 +693,7 @@ pub fn require_actor_is_caller(
     let caller = require_clinical_staff(data, req)?;
     let claimed = claimed.map(str::trim).filter(|s| !s.is_empty());
     if let Some(claimed) = claimed {
-        if claimed != caller.wallet_address {
+        if claimed != caller.id {
             return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
                 error: "This record must be filed under your own name".to_string(),
                 code: "ACTOR_MISMATCH".to_string(),
@@ -816,7 +794,7 @@ pub async fn ensure_not_restricted(
     }
 }
 
-/// Validate SS58 wallet address format (basic validation)
+/// Validate user id format (basic validation)
 pub fn is_valid_wallet_address(address: &str) -> bool {
     // SS58 addresses start with 5 and are typically 48 characters
     address.len() >= 45 && address.len() <= 50 && address.starts_with('5')
@@ -847,11 +825,11 @@ mod attributed_provider_tests {
     use super::*;
     use crate::{AppState, Role, User};
 
-    fn user(wallet: &str, role: Role) -> User {
+    fn user(user_id: &str, role: Role) -> User {
         User {
-            wallet_address: wallet.to_string(),
-            username: Some(wallet.to_string()),
-            name: format!("Test {wallet}"),
+            id: user_id.to_string(),
+            username: Some(user_id.to_string()),
+            name: format!("Test {user_id}"),
             role,
             created_at: chrono::Utc::now(),
             created_by: None,
@@ -883,9 +861,9 @@ mod attributed_provider_tests {
         web::Data::new(state)
     }
 
-    fn req_as(wallet: &str) -> HttpRequest {
+    fn req_as(user_id: &str) -> HttpRequest {
         actix_web::test::TestRequest::post()
-            .insert_header(("X-User-Id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_http_request()
     }
 
@@ -976,7 +954,7 @@ mod attributed_provider_tests {
     fn an_actor_claim_matching_the_caller_is_accepted() {
         let s = state();
         let u = require_actor_is_caller(&s, &req_as("doc-a"), Some("doc-a")).unwrap();
-        assert_eq!(u.wallet_address, "doc-a");
+        assert_eq!(u.id, "doc-a");
     }
 
     #[test]
@@ -1180,7 +1158,7 @@ mod access_alert_rule_tests {
             "qr_verification",
             "emergency",
         ] {
-            let alert = access_alert_for(&entry(action, false, "5Doctor"));
+            let alert = access_alert_for(&entry(action, false, "5Doctor"), false);
             assert!(alert.is_some(), "{action} should alert the patient");
         }
     }
@@ -1196,7 +1174,7 @@ mod access_alert_rule_tests {
             "lab_submission",
         ] {
             assert!(
-                access_alert_for(&entry(action, false, "5Doctor")).is_none(),
+                access_alert_for(&entry(action, false, "5Doctor"), false).is_none(),
                 "{action} is a write; alerting on it would drown the real ones"
             );
         }
@@ -1213,7 +1191,7 @@ mod access_alert_rule_tests {
             "create_trauma_assessment",
         ] {
             assert!(
-                access_alert_for(&entry(action, true, "5Doctor")).is_none(),
+                access_alert_for(&entry(action, true, "5Doctor"), false).is_none(),
                 "{action} documents care; it is not somebody viewing the record"
             );
         }
@@ -1221,8 +1199,9 @@ mod access_alert_rule_tests {
 
     #[test]
     fn break_glass_read_still_alerts_and_says_so() {
-        let (patient, role, emergency) = access_alert_for(&entry("nfc_tap", true, "5Paramedic"))
-            .expect("break-glass must alert");
+        let (patient, role, emergency) =
+            access_alert_for(&entry("nfc_tap", true, "5Paramedic"), false)
+                .expect("break-glass must alert");
         assert_eq!(patient, "PAT-1");
         assert_eq!(role, "Doctor");
         assert!(
@@ -1233,13 +1212,13 @@ mod access_alert_rule_tests {
 
     #[test]
     fn reading_your_own_record_is_not_an_access_alert() {
-        assert!(access_alert_for(&entry("view_medical_id", false, "PAT-1")).is_none());
+        assert!(access_alert_for(&entry("view_medical_id", false, "user-1"), true).is_none());
     }
 
     #[test]
     fn an_entry_with_no_patient_alerts_nobody() {
         let mut e = entry("download_record", false, "5Doctor");
         e.patient_id = None;
-        assert!(access_alert_for(&e).is_none());
+        assert!(access_alert_for(&e, false).is_none());
     }
 }

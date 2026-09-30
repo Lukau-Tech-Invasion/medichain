@@ -311,7 +311,7 @@ function DischargePage() {
         diet_instructions: formData.diet_instructions,
         warning_signs: formData.warning_signs.split('\n').filter(Boolean),
         emergency_contact_instructions: formData.emergency_instructions,
-        prepared_by: user.walletAddress,
+        prepared_by: user.userId,
       };
 
       let created: { summary_id?: string };

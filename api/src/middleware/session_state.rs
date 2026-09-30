@@ -61,16 +61,16 @@ async fn verify_session(pool: &PgPool, req: &ServiceRequest) -> SessionVerdict {
     // binding matters -- a token must not be able to name someone else's
     // session and inherit its state.
     let row: Result<Option<SessionRow>, _> =
-        sqlx::query_as("SELECT wallet_address, revoked_at FROM auth_login_sessions WHERE id = $1")
+        sqlx::query_as("SELECT user_id::text, revoked_at FROM auth_login_sessions WHERE id = $1")
             .bind(sid)
             .fetch_optional(pool)
             .await;
 
     match row {
-        Ok(Some((wallet, revoked_at))) => {
+        Ok(Some((session_user, revoked_at))) => {
             if revoked_at.is_some() {
                 SessionVerdict::Rejected("This session has ended; sign in again")
-            } else if wallet != claims.sub {
+            } else if session_user != claims.sub {
                 SessionVerdict::Rejected("Session is not valid")
             } else {
                 SessionVerdict::Active
@@ -156,9 +156,6 @@ mod tests {
     use super::*;
     use actix_web::{test as actix_test, web, App, HttpResponse};
 
-    const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-    const OTHER: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
-
     async fn protected() -> HttpResponse {
         HttpResponse::Ok().body("reached the handler")
     }
@@ -218,9 +215,10 @@ mod tests {
     #[tokio::test]
     async fn revoked_session_is_refused_on_a_real_request() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let sid = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let sid = open_session(&pool, &user).await;
         let token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&sid.to_string()),
@@ -251,24 +249,25 @@ mod tests {
     #[tokio::test]
     async fn logout_all_refuses_every_session_for_the_subject() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let phone = open_session(&pool, WALLET).await;
-        let desk = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let phone = open_session(&pool, &user).await;
+        let desk = open_session(&pool, &user).await;
         let phone_token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&phone.to_string()),
         )
         .unwrap();
         let desk_token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&desk.to_string()),
         )
         .unwrap();
 
-        crate::auth_sessions::revoke_all_for_wallet(&pool, WALLET, "logout_all")
+        crate::auth_sessions::revoke_all_for_user(&pool, &user, "logout_all")
             .await
             .expect("logout all");
 
@@ -285,10 +284,12 @@ mod tests {
     #[tokio::test]
     async fn a_token_cannot_borrow_another_subjects_session() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let victim_session = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let other = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let victim_session = open_session(&pool, &user).await;
 
         let forged = crate::security::jwt::issue_access_token(
-            OTHER,
+            &other,
             "Doctor",
             false,
             Some(&victim_session.to_string()),
@@ -308,8 +309,9 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_session_is_refused() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
         let token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&uuid::Uuid::new_v4().to_string()),
@@ -325,8 +327,9 @@ mod tests {
     #[tokio::test]
     async fn a_token_without_a_session_claim_is_left_alone() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
         let legacy =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+            crate::security::jwt::issue_access_token(&user, "Doctor", false, None).unwrap();
 
         assert_eq!(
             status_for(pool, &legacy).await,

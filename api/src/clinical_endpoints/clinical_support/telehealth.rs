@@ -267,7 +267,7 @@ pub async fn create_telehealth_session(
     req: web::Json<CreateTelehealthSessionRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -378,7 +378,7 @@ pub async fn get_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -403,7 +403,7 @@ pub async fn get_telehealth_session(
     // Only patient or provider can view session.
     //
     // `session.patient_id` is a `PAT-…` record id and `current_user_id` is an
-    // SS58 wallet: comparing them directly is never true for a real patient
+    // user id: comparing them directly is never true for a real patient
     // account, so the data subject was denied their own session.
     // `caller_owns_patient_record` bridges the two namespaces.
     let caller_is_patient =
@@ -431,7 +431,7 @@ pub async fn join_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -454,7 +454,7 @@ pub async fn join_telehealth_session(
     };
 
     let now = chrono::Utc::now().timestamp();
-    // Same namespace bridge as the view handler above: a wallet address is
+    // Same namespace bridge as the view handler above: a user id is
     // never equal to a `PAT-…` record id, so this used to tell the patient
     // "You are not part of this session" about their own consultation —
     // i.e. a patient could never join their own video call.
@@ -734,7 +734,7 @@ pub async fn telehealth_event(
 ) -> impl Responder {
     let session_id = path.into_inner();
     let actor = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     // Validate before broadcasting: an event that cannot be audited must not be
@@ -847,7 +847,7 @@ pub async fn telehealth_recording(
 ) -> impl Responder {
     let session_id = path.into_inner();
     let actor = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -988,7 +988,7 @@ pub async fn end_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1090,12 +1090,12 @@ pub async fn list_my_telehealth_sessions(
     };
 
     // A patient's sessions are stored against their patient id; a provider's
-    // against their wallet. The owner key differs by who is asking, which is
+    // against their user id. The owner key differs by who is asking, which is
     // why this is one endpoint and not two.
     let owner = caller
         .linked_patient_id
         .clone()
-        .unwrap_or_else(|| caller.wallet_address.clone());
+        .unwrap_or_else(|| caller.id.clone());
 
     // A read that fails says so. `unwrap_or_default()` here turned a database
     // outage into "no sessions", which a clinician would take as a free day.
@@ -1117,7 +1117,7 @@ pub async fn list_my_telehealth_sessions(
     };
 
     // A session is owned by the patient and names its clinician in
-    // `provider_id`. This used to look the clinician's wallet up as an OWNER a
+    // `provider_id`. This used to look the clinician's user id up as an OWNER a
     // second time, which can never match, so a doctor's list never showed a
     // session they had booked. Deduplicated by id: a clinician who is also the
     // owner must not see the session twice.
@@ -1125,7 +1125,7 @@ pub async fn list_my_telehealth_sessions(
         let as_provider = match data
             .repositories
             .telehealth_session_records
-            .get_by_data_field("provider_id", &caller.wallet_address)
+            .get_by_data_field("provider_id", &caller.id)
             .await
         {
             Ok(records) => records,
@@ -1167,7 +1167,7 @@ pub async fn get_patient_telehealth_sessions(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1442,7 +1442,7 @@ mod provider_session_list_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/telehealth/sessions")
-                .insert_header(("X-User-Id", "5DocTele"))
+                .insert_header(crate::test_fixtures::as_user("5DocTele"))
                 .set_json(serde_json::json!({
                     "patient_id": "PAT-TELE-1",
                     "session_type": "VideoVisit",
@@ -1460,7 +1460,7 @@ mod provider_session_list_tests {
         let list = |who: &'static str| {
             test::TestRequest::get()
                 .uri("/api/telehealth/sessions")
-                .insert_header(("X-User-Id", who))
+                .insert_header(crate::test_fixtures::as_user(who))
                 .to_request()
         };
         let mine: serde_json::Value = test::call_and_read_body_json(&app, list("5DocTele")).await;

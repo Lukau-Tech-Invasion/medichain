@@ -52,7 +52,7 @@ pub async fn create_insurance_claim(
     req: web::Json<CreateInsuranceClaimRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -196,7 +196,7 @@ pub async fn submit_insurance_claim(
     let claim_id = path.into_inner();
 
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -290,7 +290,7 @@ pub async fn get_insurance_claim(
     let claim_id = path.into_inner();
 
     let _current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -353,7 +353,7 @@ pub async fn get_patient_insurance_claims(
     // read their own record here. The staff gate rejected them with
     // INSUFFICIENT_ROLE before the self-or-provider check below could run.
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

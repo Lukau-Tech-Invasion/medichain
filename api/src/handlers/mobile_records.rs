@@ -271,9 +271,9 @@ mod mobile_device_listing_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn user(role: Role, wallet: &str, linked: Option<&str>) -> User {
+    fn user(role: Role, user_id: &str, linked: Option<&str>) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -295,13 +295,13 @@ mod mobile_device_listing_tests {
         {
             let mut table = state.users.write().unwrap();
             for entry in users {
-                table.insert(entry.wallet_address.clone(), entry);
+                table.insert(entry.id.clone(), entry);
             }
         }
         web::Data::new(state)
     }
 
-    async fn list(data: web::Data<AppState>, wallet: &str) -> (u16, String) {
+    async fn list(data: web::Data<AppState>, user_id: &str) -> (u16, String) {
         let app = test::init_service(
             App::new()
                 .app_data(data)
@@ -310,7 +310,7 @@ mod mobile_device_listing_tests {
         .await;
         let req = test::TestRequest::get()
             .uri("/api/mobile/devices")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let response = test::call_service(&app, req).await;
         let status = response.status().as_u16();
@@ -321,8 +321,8 @@ mod mobile_device_listing_tests {
     #[actix_web::test]
     async fn a_patient_sees_only_their_own_devices() {
         let data = state(vec![
-            user(Role::Patient, "wallet-a", Some("PAT-1")),
-            user(Role::Patient, "wallet-b", Some("PAT-2")),
+            user(Role::Patient, "user-a", Some("PAT-1")),
+            user(Role::Patient, "user-b", Some("PAT-2")),
         ]);
         let mine = data
             .mobile_records
@@ -345,12 +345,12 @@ mod mobile_device_listing_tests {
             .await
             .unwrap();
 
-        let (status, body) = list(data.clone(), "wallet-a").await;
+        let (status, body) = list(data.clone(), "user-a").await;
         assert_eq!(status, 200);
         assert!(body.contains(&mine.id));
         assert!(!body.contains(&theirs.id));
 
-        let (_, other) = list(data, "wallet-b").await;
+        let (_, other) = list(data, "user-b").await;
         assert!(other.contains(&theirs.id));
         assert!(!other.contains(&mine.id));
     }
@@ -360,7 +360,7 @@ mod mobile_device_listing_tests {
     /// disappears looks the same as one that was never there.
     #[actix_web::test]
     async fn a_revoked_device_is_still_listed() {
-        let data = state(vec![user(Role::Patient, "wallet-a", Some("PAT-1"))]);
+        let data = state(vec![user(Role::Patient, "user-a", Some("PAT-1"))]);
         let device = data
             .mobile_records
             .register_device_durable(
@@ -376,7 +376,7 @@ mod mobile_device_listing_tests {
             .await
             .unwrap();
 
-        let (status, body) = list(data, "wallet-a").await;
+        let (status, body) = list(data, "user-a").await;
         assert_eq!(status, 200);
         assert!(body.contains(&device.id));
         assert!(body.contains("revoked"));

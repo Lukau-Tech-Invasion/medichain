@@ -218,7 +218,7 @@ const LanguageSettingsPage: React.FC = () => {
     setSettingsError(null);
     try {
       // The server derives the subject from the authenticated token. Sending a
-      // wallet address or client timestamp here is both misleading and ignored.
+      // user id or client timestamp here is both misleading and ignored.
       await setLanguagePreference({
         language_code: selectedLanguage,
       });

@@ -255,7 +255,7 @@ function PatientDetailPage() {
   // it -- which is how delegated authority over a minor's records became
   // unmanageable in production while working perfectly in the demo.
   const stepUp = useStepUp();
-  const [newGuardianWallet, setNewGuardianWallet] = useState('');
+  const [newGuardianUserId, setNewGuardianUserId] = useState('');
   const [newGuardianType, setNewGuardianType] = useState('parent_or_guardian');
   const [newGuardianPermissions, setNewGuardianPermissions] = useState<string[]>([]);
   // The relationship whose permissions are being changed, and the set as edited.
@@ -389,8 +389,8 @@ function PatientDetailPage() {
   const recordGuardian = async () => {
     if (!patientId) return;
     setGuardianError(null);
-    if (!newGuardianWallet.trim()) {
-      setGuardianError(t('docPatientDetail.guardianWalletRequired'));
+    if (!newGuardianUserId.trim()) {
+      setGuardianError(t('docPatientDetail.guardianUserIdRequired'));
       return;
     }
     // Authority with no permissions is not authority. An empty set would record
@@ -403,13 +403,13 @@ function PatientDetailPage() {
       setGuardianBusy(true);
       await stepUp.run(() =>
         verifyGuardian({
-          guardian_wallet: newGuardianWallet.trim(),
+          guardian_user_id: newGuardianUserId.trim(),
           ward_patient_id: patientId,
           relationship_type: newGuardianType,
           permissions: newGuardianPermissions,
         })
       );
-      setNewGuardianWallet('');
+      setNewGuardianUserId('');
       setNewGuardianPermissions([]);
       await loadGuardians();
     } catch (err) {
@@ -959,7 +959,7 @@ function PatientDetailPage() {
                     className="flex items-start justify-between gap-3 border border-border rounded-lg p-3"
                   >
                     <div>
-                      <p className="font-medium text-content break-all">{relationship.guardian_wallet}</p>
+                      <p className="font-medium text-content break-all">{relationship.guardian_user_id}</p>
                       <p className="text-sm text-content-muted">
                         {relationship.relationship_type} — {relationship.permissions.join(', ')}
                       </p>
@@ -1043,14 +1043,14 @@ function PatientDetailPage() {
             <div className="border-t border-border pt-4 space-y-3">
               <h4 className="font-medium text-content">{t('docPatientDetail.guardianAddHeading')}</h4>
               <div>
-                <label htmlFor="guardian-wallet" className="block text-sm font-medium mb-1">
-                  {t('docPatientDetail.guardianWalletLabel')}
+                <label htmlFor="guardian-user-id" className="block text-sm font-medium mb-1">
+                  {t('docPatientDetail.guardianUserIdLabel')}
                 </label>
                 <input
-                  id="guardian-wallet"
+                  id="guardian-user-id"
                   type="text"
-                  value={newGuardianWallet}
-                  onChange={(e) => setNewGuardianWallet(e.target.value)}
+                  value={newGuardianUserId}
+                  onChange={(e) => setNewGuardianUserId(e.target.value)}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>

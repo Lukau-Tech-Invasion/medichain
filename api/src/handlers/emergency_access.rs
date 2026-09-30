@@ -79,7 +79,7 @@ pub async fn grant_bound_emergency_access(
     req: HttpRequest,
     body: web::Json<GrantBoundEmergencyAccessRequest>,
 ) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
+    let user_id = match get_current_user_id(&req) {
         Some(value) => value,
         None => {
             return emergency_error(
@@ -91,7 +91,7 @@ pub async fn grant_bound_emergency_access(
     };
     let context = match data
         .identity_contexts
-        .active_context(&body.work_context_id, &wallet)
+        .active_context(&body.work_context_id, &user_id)
     {
         Some(value) if value.context_type == ContextType::Professional => value,
         _ => {
@@ -183,7 +183,7 @@ pub async fn grant_bound_emergency_access(
         .issue_with_audit(
             crate::emergency_grants::EmergencyGrantBinding {
                 patient_id,
-                person_id: wallet,
+                person_id: user_id,
                 organization_id,
                 facility_id,
                 device_id: body.device_id.clone(),
@@ -380,7 +380,7 @@ pub async fn exchange_nfc_hash_for_token(
 
     let token = match crate::clinical_endpoints::emergency_access::issue_emergency_token(
         &body.patient_id,
-        &responder.wallet_address,
+        &responder.id,
         &body.device_id,
         &body.reason_code,
         crate::clinical_endpoints::emergency_access::NFC_EXCHANGE_TOKEN_TTL_SECS,
@@ -431,9 +431,9 @@ mod hz_001_exchange_tests {
 
     fn seed_responder_and_device(state: &AppState) -> String {
         state.users.write().unwrap().insert(
-            "responder-wallet".to_string(),
+            "responder-user".to_string(),
             User {
-                wallet_address: "responder-wallet".to_string(),
+                id: "responder-user".to_string(),
                 username: None,
                 name: "Responder".to_string(),
                 role: Role::Doctor,
@@ -477,7 +477,7 @@ mod hz_001_exchange_tests {
                 .users
                 .write()
                 .unwrap()
-                .get_mut("responder-wallet")
+                .get_mut("responder-user")
                 .unwrap()
                 .role = role;
             let app_state = web::Data::new(state);
@@ -488,7 +488,7 @@ mod hz_001_exchange_tests {
 
             let req = test::TestRequest::post()
                 .uri("/api/emergency/nfc-token")
-                .insert_header(("X-User-Id", "responder-wallet"))
+                .insert_header(crate::test_fixtures::as_user("responder-user"))
                 .set_json(serde_json::json!({
                     "patient_id": "PAT-EX-1",
                     "nfc_hash": "correct-hash",
@@ -522,7 +522,7 @@ mod hz_001_exchange_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/emergency/nfc-token")
-            .insert_header(("X-User-Id", "responder-wallet"))
+            .insert_header(crate::test_fixtures::as_user("responder-user"))
             .set_json(serde_json::json!({
                 "patient_id": "PAT-EX-2",
                 "nfc_hash": "wrong-hash",

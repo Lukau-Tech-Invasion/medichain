@@ -77,7 +77,7 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
     pub full_name: String,
-    /// Patient-owned SS58 account (removed with the wallets, Phase C).
+    /// Patient-owned SS58 account (removed with the user ids, Phase C).
     #[serde(default)]
     pub wallet_address: Option<String>,
     pub date_of_birth: String,

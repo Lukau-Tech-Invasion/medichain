@@ -18,6 +18,8 @@ mod triage;
 mod vital_signs;
 
 #[cfg(test)]
+mod actor_registry_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 // Phase 2: Clinical Documentation repositories

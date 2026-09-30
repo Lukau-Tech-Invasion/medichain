@@ -96,7 +96,7 @@ function LabReviewPage() {
     void load();
   }, [load]);
 
-  const myWallet = user?.walletAddress ?? '';
+  const myUserId = user?.userId ?? '';
 
   const decide = useCallback(
     async (submission: LabResultSubmission, action: 'approve' | 'reject') => {
@@ -211,7 +211,7 @@ function LabReviewPage() {
           {submissions.map((s) => {
             // The API refuses this and says why; disabling the control up front
             // turns a 403 into an explanation.
-            const isOwnSubmission = Boolean(myWallet) && s.submitted_by === myWallet;
+            const isOwnSubmission = Boolean(myUserId) && s.submitted_by === myUserId;
             const busy = busyId === s.id;
 
             return (

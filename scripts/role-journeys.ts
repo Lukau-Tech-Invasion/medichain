@@ -34,7 +34,7 @@
  * Synthetic fixtures only. `loadManifest()` refuses any non-local endpoint.
  */
 
-import { Journal, loadManifest, signIn, signInPatient, ChallengeRateLimited, type Session } from './lib/journey';
+import { Journal, loadManifest, signIn, signInPatient, SignInRateLimited, type Session } from './lib/journey';
 import { nurseJourney } from './journeys/nurse';
 import { doctorJourney } from './journeys/doctor';
 import { labTechJourney } from './journeys/labtech';
@@ -102,8 +102,8 @@ async function main(): Promise<void> {
       sessions[key] = await signIn(loginId, key);
       j.record(`${key} (${loginId}) signs in`, true);
     } catch (e) {
-      if (e instanceof ChallengeRateLimited) {
-        j.skip(`${key} (${loginId}) signs in`, 'challenge limiter — rerun in a minute');
+      if (e instanceof SignInRateLimited) {
+        j.skip(`${key} (${loginId}) signs in`, 'sign-in rate limit — rerun in a minute');
       } else {
         j.record(
           `${key} (${loginId}) signs in`,
@@ -115,18 +115,16 @@ async function main(): Promise<void> {
     }
   }
   try {
-    sessions.patient = await signInPatient(m.patient.mnemonic, m.patient.wallet, 'patient');
-    j.record('patient signs in with their wallet', true);
+    sessions.patient = await signInPatient(m.patient, 'patient');
+    j.record('patient signs in with their username and password', true);
   } catch (e) {
-    if (e instanceof ChallengeRateLimited) {
-      // The limiter is five challenges per wallet per minute, and re-running
-      // this harness inside a minute legitimately exhausts it. A control doing
-      // its job is a SKIP, not a failure — recording it red teaches a reader to
-      // ignore a red result caused by security working. The staff sign-ins
-      // above already did this; the patient's did not.
-      j.skip('patient signs in with their wallet', 'challenge limiter — rerun in a minute');
+    if (e instanceof SignInRateLimited) {
+      // A control doing its job is a SKIP, not a failure — recording it red
+      // teaches a reader to ignore a red result caused by security working. The
+      // staff sign-ins above already did this; the patient's must too.
+      j.skip('patient signs in with their username and password', 'sign-in rate limit — rerun in a minute');
     } else {
-      j.record('patient signs in with their wallet', false, String(e));
+      j.record('patient signs in with their username and password', false, String(e));
     }
   }
 

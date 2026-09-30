@@ -95,13 +95,9 @@ fn party_of(
     caller: &crate::User,
     session: &TelehealthSession,
 ) -> Option<RecordingParty> {
-    if caller.wallet_address == session.provider_id {
+    if caller.id == session.provider_id {
         Some(RecordingParty::Provider)
-    } else if crate::support::caller_owns_patient_record(
-        data,
-        &caller.wallet_address,
-        &session.patient_id,
-    ) {
+    } else if crate::support::caller_owns_patient_record(data, &caller.id, &session.patient_id) {
         Some(RecordingParty::Patient)
     } else {
         None
@@ -315,7 +311,7 @@ pub async fn set_recording_consent(
         return response;
     }
     let role = caller.role.to_string();
-    let accessor = (caller.wallet_address.as_str(), role.as_str());
+    let accessor = (caller.id.as_str(), role.as_str());
     let action = if body.consent {
         "recording_consent_given"
     } else {
@@ -631,7 +627,7 @@ pub async fn download_telehealth_recording(
     };
     let role = caller.role.to_string();
     let audit = recording_audit(
-        (&caller.wallet_address, &role),
+        (&caller.id, &role),
         &row.patient_id,
         &row.id,
         "telehealth_recording_viewed",
@@ -720,19 +716,19 @@ mod tests {
         test::call_service(&app, request.to_request()).await
     }
 
-    fn consent(session: &str, wallet: &str, consent: bool) -> test::TestRequest {
+    fn consent(session: &str, user_id: &str, consent: bool) -> test::TestRequest {
         test::TestRequest::post()
             .uri(&format!(
                 "/api/telehealth/sessions/{session}/recording-consent"
             ))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(serde_json::json!({ "consent": consent }))
     }
 
     fn start(session: &str) -> test::TestRequest {
         test::TestRequest::post()
             .uri(&format!("/api/telehealth/sessions/{session}/recording"))
-            .insert_header(("x-user-id", DOCTOR))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR))
             .set_json(serde_json::json!({ "action": "start", "consent": true }))
     }
 
@@ -747,13 +743,13 @@ mod tests {
     async fn status(
         state: &web::Data<crate::AppState>,
         session: &str,
-        wallet: &str,
+        user_id: &str,
     ) -> serde_json::Value {
         let request = test::TestRequest::get()
             .uri(&format!(
                 "/api/telehealth/sessions/{session}/recording-status"
             ))
-            .insert_header(("x-user-id", wallet));
+            .insert_header(crate::test_fixtures::as_user(user_id));
         test::read_body_json(call(state, request).await).await
     }
 
@@ -815,7 +811,7 @@ mod tests {
             .uri(&format!(
                 "/api/telehealth/sessions/{session}/recording-status"
             ))
-            .insert_header(("x-user-id", OTHER_DOCTOR));
+            .insert_header(crate::test_fixtures::as_user(OTHER_DOCTOR));
         assert_eq!(call(&state, request).await.status(), 403);
     }
 
@@ -842,12 +838,12 @@ mod tests {
         assert_eq!(response.status(), 201);
         let list = test::TestRequest::get()
             .uri(&format!("/api/telehealth/sessions/{session}/recordings"))
-            .insert_header(("x-user-id", PATIENT));
+            .insert_header(crate::test_fixtures::as_user(PATIENT));
         let listed: serde_json::Value = test::read_body_json(call(&state, list).await).await;
         let id = listed["recordings"][0]["id"].as_str().unwrap().to_string();
         let download = test::TestRequest::get()
             .uri(&format!("/api/telehealth/recordings/{id}"))
-            .insert_header(("x-user-id", PATIENT));
+            .insert_header(crate::test_fixtures::as_user(PATIENT));
         let response = call(&state, download).await;
         assert_eq!(response.status(), 200);
         assert_eq!(test::read_body(response).await.as_ref(), MP4);
@@ -867,7 +863,7 @@ mod tests {
         assert_eq!(viewed.count(), 1);
         let other = test::TestRequest::get()
             .uri(&format!("/api/telehealth/recordings/{id}"))
-            .insert_header(("x-user-id", OTHER_DOCTOR));
+            .insert_header(crate::test_fixtures::as_user(OTHER_DOCTOR));
         assert_eq!(call(&state, other).await.status(), 403);
     }
 

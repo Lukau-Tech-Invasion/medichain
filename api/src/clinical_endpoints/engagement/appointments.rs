@@ -103,7 +103,7 @@ pub async fn book_appointment(
     // User must be booking for themselves or be a healthcare provider/authorized relative.
     // Resolve the caller from the server-side account registry instead of trusting a
     // legacy ID prefix: production wallet addresses do not encode a user's role.
-    // `current_user_id` is an SS58 wallet and `patient_id` is a `PAT-…` record
+    // `current_user_id` is an user id and `patient_id` is a `PAT-…` record
     // ID, so the direct comparison this used to make was never true for a real
     // patient account: booking for yourself fell through to the provider and
     // family-access checks and returned 403. Patients could not book at all.
@@ -121,7 +121,7 @@ pub async fn book_appointment(
             let has_family_access = stored_groups.into_iter().any(|rec| {
                 if let Ok(g) = serde_json::from_value::<crate::clinical::FamilyGroup>(rec.data) {
                     g.members.iter().any(|m| {
-                        // Members are wallets; the appointment names a patient
+                        // Members are user ids; the appointment names a patient
                         // RECORD. Compared directly, the second test could never
                         // hold, so a family delegate could never book for anyone.
                         m.patient_id == current_user_id
@@ -348,7 +348,7 @@ pub async fn get_patient_appointments(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -393,7 +393,7 @@ pub async fn get_provider_appointments(
     let provider_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -439,7 +439,7 @@ pub async fn get_appointment(
     let appointment_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -488,7 +488,7 @@ pub async fn check_in_appointment(
     let appointment_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -515,7 +515,7 @@ pub async fn check_in_appointment(
     // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
     // WF-007).
     // Resolved through `linked_patient_id`, not compared directly: the caller id
-    // is a wallet address and `appointment.patient_id` is a `PAT-` id, so a
+    // is a user id and `appointment.patient_id` is a `PAT-` id, so a
     // bare `==` is false for every patient who has ever tried to check
     // themselves in. Clinical staff were unaffected, which is why the patient
     // half of this went unnoticed after WF-007 fixed the clinician half.
@@ -750,17 +750,14 @@ pub async fn transition_appointment(
         });
     };
 
-    let is_provider_of_record = caller.wallet_address == appointment.provider_id;
-    // `patient_id` is a record ID (`PAT-…`) and `wallet_address` is an SS58
+    let is_provider_of_record = caller.id == appointment.provider_id;
+    // `patient_id` is a record ID (`PAT-…`) and `user_id` is an SS58
     // account — comparing them directly can never be true, so the patient arm
     // below was unreachable and every patient got "you are not a party to this
     // appointment" on their own booking. `caller_owns_patient_record` is the
     // function that actually bridges the two namespaces.
-    let is_patient = crate::support::caller_owns_patient_record(
-        &data,
-        &caller.wallet_address,
-        &appointment.patient_id,
-    );
+    let is_patient =
+        crate::support::caller_owns_patient_record(&data, &caller.id, &appointment.patient_id);
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -834,7 +831,7 @@ pub async fn transition_appointment(
         return match data
             .repositories
             .appointments
-            .cancel(&appointment_id, &reason, &caller.wallet_address)
+            .cancel(&appointment_id, &reason, &caller.id)
             .await
         {
             Ok(_) => HttpResponse::Ok().json(serde_json::json!({

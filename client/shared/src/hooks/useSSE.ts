@@ -14,7 +14,7 @@ export interface UseSSEReturn {
  * useSSE Hook
  * 
  * Subscribes to Server-Sent Events from the backend.
- * Uses fetch + ReadableStream to support custom headers (X-User-Id).
+ * Uses fetch + ReadableStream so the bearer token can be sent as a header.
  */
 export function useSSE(): UseSSEReturn {
   const [events, setEvents] = useState<PushEvent[]>([]);
@@ -39,7 +39,7 @@ export function useSSE(): UseSSEReturn {
     }
 
     // `/api/events` is a protected stream. This used to send
-    // `X-User-Id: 'anonymous'` whenever no session existed, so simply loading
+    // an `anonymous` identity whenever no session existed, so simply loading
     // the login page produced a 401 in the console and then retried it every
     // five seconds forever. Wait for an identity instead of guessing one; the
     // watcher in the effect below connects as soon as sign-in provides it.
@@ -59,7 +59,7 @@ export function useSSE(): UseSSEReturn {
       debugLog('useSSE', `Connecting to SSE at ${baseUrl}/api/events ...`);
       const response = await fetch(`${baseUrl}/api/events`, {
         headers: {
-          ...apiClient.getSessionHeaders(userId),
+          ...apiClient.getSessionHeaders(),
           'Accept': 'text/event-stream',
         },
         signal: controller.signal,

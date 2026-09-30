@@ -27,7 +27,7 @@ describe('MessagesPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -47,7 +47,7 @@ describe('MessagesPage (Patient)', () => {
           sender_id: 'PROV1',
           sender_name: 'Dr. Smith',
           sender_role: 'Physician',
-          recipient_id: mockPatient.walletAddress,
+          recipient_id: mockPatient.userId,
           subject: 'Check-in',
           content: 'Hello, how are you?',
           priority: 'normal',

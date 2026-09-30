@@ -1,7 +1,7 @@
 /**
  * Family screen (Phase 8.3) — QR-based family account linking.
  *
- * The mobile app is patient-only (wallet self-login, no provider role), so QR
+ * The mobile app is patient-only (patient self-login, no provider role), so QR
  * scanning here is scoped to what a patient-only app actually needs: viewing/
  * sharing your OWN medical-id QR, and a family group's primary contact
  * scanning ANOTHER patient's own QR to add them to the group. This is
@@ -100,7 +100,7 @@ export function FamilyScreen() {
     setError(null);
     if (myQr) return;
     try {
-      const resp = await apiClient.get<MedicalIdQrResponse>(`/api/medical-id/${user.walletAddress}/qr`);
+      const resp = await apiClient.get<MedicalIdQrResponse>(`/api/medical-id/${user.userId}/qr`);
       setMyQr(resp);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load your QR code');
@@ -158,7 +158,7 @@ export function FamilyScreen() {
     try {
       await apiClient.post('/api/family/groups', {
         group_name: newGroupName.trim(),
-        primary_contact_id: user.walletAddress,
+        primary_contact_id: user.userId,
       });
       setNewGroupName('');
       setPane('list');
@@ -306,10 +306,10 @@ export function FamilyScreen() {
           <Text style={styles.cardTitle}>{group.family_name}</Text>
           {group.members.map(m => (
             <Text key={m.patient_id} style={styles.memberRow}>
-              • {m.patient_id === user?.walletAddress ? 'You' : m.patient_id} ({m.relationship})
+              • {m.patient_id === user?.userId ? 'You' : m.patient_id} ({m.relationship})
             </Text>
           ))}
-          {group.primary_account_id === user?.walletAddress ? (
+          {group.primary_account_id === user?.userId ? (
             <TouchableOpacity style={styles.secondary} onPress={() => openScanner(group.family_id)}>
               <Text style={styles.secondaryText}>Scan to add family member</Text>
             </TouchableOpacity>

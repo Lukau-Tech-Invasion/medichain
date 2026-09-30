@@ -74,7 +74,7 @@ pub async fn upload_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -267,7 +267,7 @@ pub async fn download_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -1481,7 +1481,7 @@ pub async fn download_medical_record_by_hash(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
         }
@@ -1628,12 +1628,12 @@ mod structured_document_download_tests {
     use crate::{repositories::traits::GcsAssessmentEntity, Role, User};
     use actix_web::{body::to_bytes, test, web, App};
 
-    fn state_with_linked_patient(wallet: &str, linked_patient_id: &str) -> web::Data<AppState> {
+    fn state_with_linked_patient(user_id: &str, linked_patient_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         state.users.write().unwrap().insert(
-            wallet.to_string(),
+            user_id.to_string(),
             User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test patient".to_string(),
                 role: Role::Patient,
@@ -1683,7 +1683,7 @@ mod structured_document_download_tests {
         .await;
         let request = test::TestRequest::get()
             .uri("/api/records/gcs-GCS-1/download")
-            .insert_header(("X-User-Id", "5Patient"))
+            .insert_header(crate::test_fixtures::as_user("5Patient"))
             .to_request();
         let response = test::call_service(&app, request).await;
 
@@ -1725,7 +1725,7 @@ mod structured_document_download_tests {
         .await;
         let request = test::TestRequest::get()
             .uri("/api/records/gcs-GCS-2/download")
-            .insert_header(("X-User-Id", "5OtherPatient"))
+            .insert_header(crate::test_fixtures::as_user("5OtherPatient"))
             .to_request();
 
         assert_eq!(
@@ -1776,7 +1776,7 @@ mod structured_document_download_tests {
         ] {
             let request = test::TestRequest::get()
                 .uri(&format!("/api/records/{hash}/download"))
-                .insert_header(("X-User-Id", "5Patient"))
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
                 .to_request();
             let response = test::call_service(&app, request).await;
             assert_eq!(response.status(), actix_web::http::StatusCode::OK, "{hash}");
@@ -1806,7 +1806,7 @@ pub async fn list_patient_records(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }

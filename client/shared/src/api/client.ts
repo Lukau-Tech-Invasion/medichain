@@ -3,7 +3,7 @@
  * 
  * Typed HTTP client for interacting with the MediChain REST API.
  * Features:
- * - Wallet-based authentication via X-User-Id header
+ * - Bearer-token authentication (JWT access token, HttpOnly refresh cookie)
  * - Automatic retry with exponential backoff
  * - Request timeout handling
  * - Connection health monitoring
@@ -13,29 +13,8 @@
  */
 
 import type { ApiError } from '../types';
-import { 
-  API_CONFIG, 
-  debugLog, 
-  sleep, 
-  calculateBackoff,
-  isValidWalletAddress,
-  getConnectedWalletAddress 
-} from '../config';
+import { API_CONFIG, debugLog, sleep, calculateBackoff } from '../config';
 import { OfflineQueue } from '../utils/offlineQueue';
-
-/**
- * SHA-256 hex digest of `text`, empty-string input hashing to the digest of
- * an empty body. Used to bind a request's signature to its exact body
- * (Horizon HZ-007) — same `crypto.subtle.digest` pattern already used in
- * `wallet/service.ts`'s `blake2Hash`.
- */
-async function sha256Hex(text: string | ArrayBuffer): Promise<string> {
-  const data = typeof text === 'string' ? new TextEncoder().encode(text) : new Uint8Array(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -216,16 +195,14 @@ export class ApiClient {
   private connectionListeners: ((connected: boolean) => void)[] = [];
   private isConnected: boolean = true;
   private lastHealthCheck: number = 0;
-  private signatureProvider: ((message: string) => Promise<string>) | null = null;
   private offlineQueue: OfflineQueue;
   // JWT auth (Phase 9.4): when set, requests send `Authorization: Bearer <access>`
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
   /**
    * True once a JWT session existed and then ended (logout, or a refresh that
-   * failed). Latched rather than derived, because "no token right now" cannot
-   * distinguish a demo client that never signed in from a session that was
-   * revoked a moment ago -- and those two must not get the same identity.
+   * failed). Latched so that a revoked session is never silently refreshed back
+   * to life by a request that was already in flight.
    */
   private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
@@ -251,44 +228,23 @@ export class ApiClient {
   }
 
   /**
-   * Set the user ID (wallet address) for authenticated requests
+   * Record which user (`user_id`, a UUID) this client is signed in as.
+   *
+   * This is display and routing state only -- for example so the event stream
+   * can tell whose events to show. It is never sent as a credential: the API
+   * derives identity from the verified bearer token alone.
    */
   setUserId(userId: string | undefined): void {
-    if (userId && !isValidWalletAddress(userId)) {
-      debugLog('ApiClient', `Warning: Invalid wallet address format: ${userId?.substring(0, 10)}...`);
-    }
     this.userId = userId;
     debugLog('ApiClient', `User ID ${userId ? 'set' : 'cleared'}`);
-  }
-
-  /**
-   * Set a provider function that can sign messages
-   */
-  setSignatureProvider(provider: ((message: string) => Promise<string>) | null): void {
-    this.signatureProvider = provider;
-  }
-
-  /**
-   * The signer currently attached, if any.
-   *
-   * Sign-in needs to know whether this client can prove control of a key before
-   * it claims a session: an identity with no signer cannot obtain a JWT, because
-   * the server verifies a real signature over a single-use challenge in every
-   * mode. Reading it back from here keeps one copy of that state rather than a
-   * second one in the store that could disagree.
-   */
-  getSignatureProvider(): ((message: string) => Promise<string>) | null {
-    return this.signatureProvider;
   }
 
   /**
    * Set JWT access + refresh tokens (Phase 9.4).
    *
    * Once set, requests carry `Authorization: Bearer <access>` and a 401 triggers
-   * a one-time refresh + retry. The shared client does not also send the raw
-   * wallet header: the API derives identity from the verified JWT subject.
-   * Header-only identity remains a demo-only compatibility path when no token
-   * has been established.
+   * a one-time refresh + retry. The API derives identity from the verified JWT
+   * subject; nothing else on the request names a user.
    */
   setTokens(accessToken: string | undefined, _refreshToken?: string): void {
     this.sessionGeneration += 1;
@@ -341,11 +297,8 @@ export class ApiClient {
   /**
    * Clear stored JWT tokens, on logout or on a refresh that failed.
    *
-   * This also latches `sessionEnded`, which is what stops the client silently
-   * reverting to the legacy identity header afterwards. Without that latch, an
-   * expired or *revoked* session degraded into wallet-header identity on the
-   * next request and kept working -- which would make session revocation
-   * unenforceable for any client still holding a signer.
+   * This also latches `sessionEnded`, which stops a request already in flight
+   * from refreshing a session the person has just ended.
    */
   clearTokens(): void {
     this.sessionGeneration += 1;
@@ -369,13 +322,6 @@ export class ApiClient {
   }
 
   /**
-   * Return the normal identity headers for a direct browser request.
-   *
-   * A verified JWT is always preferred. The optional legacy wallet address is
-   * used only when no session token exists, which keeps local demo flows
-   * working while direct pages are migrated away from `X-User-Id`.
-   */
-  /**
    * Headers for a mutation made with a raw `fetch` rather than through this
    * client's own `post`/`put`/`patch`/`delete`.
    *
@@ -393,28 +339,17 @@ export class ApiClient {
    * request with a stable key is a different problem, handled inside
    * `request()`.
    */
-  getMutationHeaders(legacyUserId?: string): Record<string, string> {
+  getMutationHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      ...this.getSessionHeaders(legacyUserId),
+      ...this.getSessionHeaders(),
       'Idempotency-Key': createOperationKey(),
     };
   }
 
-  getSessionHeaders(legacyUserId?: string): Record<string, string> {
-    if (this.accessToken) {
-      return { Authorization: `Bearer ${this.accessToken}` };
-    }
-
-    // A session that existed and ended must not silently become a weaker
-    // identity. Only a client that never held one -- the demo path -- may
-    // fall back to the legacy header.
-    if (this.sessionEnded) {
-      return {};
-    }
-
-    const userId = legacyUserId ?? this.userId;
-    return userId ? { 'X-User-Id': userId } : {};
+  /** The `Authorization` header for the current session, or none when signed out. */
+  getSessionHeaders(): Record<string, string> {
+    return this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {};
   }
 
   /**
@@ -687,8 +622,7 @@ export class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
 
     try {
-      // A binary upload is sent as its bytes, not JSON-encoded, and its
-      // signature hashes those same bytes (the server hashes the raw body).
+      // A binary upload is sent as its bytes, not JSON-encoded.
       const binary = body instanceof ArrayBuffer ? body : null;
       const payload: BodyInit | undefined = binary ?? (body ? JSON.stringify(body) : undefined);
       // Build headers fresh each attempt so a refreshed Bearer token is picked up.
@@ -699,37 +633,8 @@ export class ApiClient {
           ...extraHeaders,
         };
 
-        // `getSessionHeaders()` is the single owner of the Bearer-vs-legacy
-        // decision. This used to re-derive the same rule inline and re-assign
-        // the header, which is how two copies of one authentication policy
-        // start to drift apart.
-        const identity = this.getSessionHeaders();
-        Object.assign(headers, identity);
-
-        // Sign only when the legacy identity header is what actually went out.
-        // The signature binds a wallet address, so signing a request that does
-        // not carry that address proves nothing -- and keying off the emitted
-        // header rather than off `this.userId` means the value signed and the
-        // value sent cannot diverge.
-        const legacyIdentity = identity['X-User-Id'];
-        if (legacyIdentity) {
-          if (this.signatureProvider) {
-            const timestamp = Math.floor(Date.now() / 1000).toString();
-            // Bind the signature to this exact method, path, and body
-            // (Horizon HZ-007) — must match exactly what the server's
-            // `SignatureAuthMiddleware` observes and what is actually sent
-            // below (`body ? JSON.stringify(body) : undefined`).
-            const bodyHash = await sha256Hex(binary ?? (body ? JSON.stringify(body) : ''));
-            const message = `${timestamp}:${legacyIdentity}:${method}:${path}:${bodyHash}`;
-            try {
-              const signature = await this.signatureProvider(message);
-              headers['X-Signature'] = signature;
-              headers['X-Timestamp'] = timestamp;
-            } catch (e) {
-              debugLog('ApiClient', 'Failed to sign request:', e);
-            }
-          }
-        }
+        // `getSessionHeaders()` is the single owner of the identity header.
+        Object.assign(headers, this.getSessionHeaders());
         return headers;
       };
 
@@ -750,7 +655,8 @@ export class ApiClient {
       if (
         response.status === 401 &&
         this.accessToken &&
-        path !== '/api/auth/jwt/refresh'
+        path !== '/api/auth/jwt/refresh' &&
+        path !== '/api/auth/login'
       ) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
@@ -1067,29 +973,11 @@ let defaultClient: ApiClient | null = null;
 
 /**
  * Get the default API client instance
- * Auto-initializes with stored userId if available
  */
 export function getApiClient(): ApiClient {
   if (!defaultClient) {
-    // Auto-initialize with default config and stored wallet address
-    const storedWallet = getConnectedWalletAddress();
-    defaultClient = new ApiClient({
-      baseUrl: API_CONFIG.BASE_URL,
-      userId: storedWallet || undefined,
-    });
-    debugLog('ApiClient', `Auto-initialized with default config${storedWallet ? ` and userId: ${storedWallet.substring(0, 12)}...` : ''}`);
+    defaultClient = new ApiClient({ baseUrl: API_CONFIG.BASE_URL });
+    debugLog('ApiClient', 'Auto-initialized with default config');
   }
   return defaultClient;
 }
-
-/**
- * Sync the API client userId with the stored wallet address
- * Call this after login/logout to ensure the client has the correct userId
- */
-export function syncApiClientUserId(): void {
-  const client = getApiClient();
-  const storedWallet = getConnectedWalletAddress();
-  client.setUserId(storedWallet || undefined);
-  debugLog('ApiClient', `Synced userId: ${storedWallet ? storedWallet.substring(0, 12) + '...' : '(none)'}`);
-}
-

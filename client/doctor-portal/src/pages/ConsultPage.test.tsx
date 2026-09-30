@@ -19,7 +19,7 @@ global.fetch = mockFetch;
 
 describe('ConsultPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Specialist',
   };
 

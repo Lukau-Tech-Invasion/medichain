@@ -193,7 +193,7 @@ pub async fn administer_medication(
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let body = req.into_inner();
@@ -329,7 +329,7 @@ pub async fn create_io(
         crate::clinical_endpoints::FluidEvent {
             patient_id: &entry.patient_id,
             shift: &shift,
-            recorded_by: &caller.wallet_address,
+            recorded_by: &caller.id,
             category: &entry.category,
             direction: Some(&entry.direction),
             label: Some(&entry.category),
@@ -517,7 +517,7 @@ pub async fn create_care_plan(
         start_date: now.date_naive(),
         target_end_date: None,
         actual_end_date: None,
-        created_by: caller.wallet_address.clone(),
+        created_by: caller.id.clone(),
         updated_by: None,
         created_at: now,
         updated_at: now,
@@ -671,7 +671,7 @@ pub async fn create_wound(
         dressing_type: None,
         notes: assessment.notes.clone(),
         photo_taken: Some(false),
-        assessed_by: caller.wallet_address.clone(),
+        assessed_by: caller.id.clone(),
         assessed_at: now,
         created_at: now,
         updated_at: now,
@@ -918,7 +918,7 @@ pub async fn create_iv_site(
                 .map(|score| crate::clinical_scoring::vip_action(score).to_string()),
             site_discontinued: Some(!site.is_active),
             discontinuation_reason: site.discontinued_reason.clone(),
-            assessed_by: caller.wallet_address.clone(),
+            assessed_by: caller.id.clone(),
             assessed_at: now,
             created_at: now,
             updated_at: now,
@@ -1146,7 +1146,7 @@ pub async fn create_shift_handoff(
             id: id.clone(),
             patient_id: patient.patient_id.clone(),
             outgoing_provider_id: if handoff.outgoing_nurse.trim().is_empty() {
-                caller.wallet_address.clone()
+                caller.id.clone()
             } else {
                 handoff.outgoing_nurse.clone()
             },
@@ -1402,7 +1402,7 @@ pub async fn create_incident(
     let entity = IncidentReportEntity {
         id: id.clone(),
         patient_id,
-        reporter_id: caller.wallet_address.clone(),
+        reporter_id: caller.id.clone(),
         incident_datetime: incident_at,
         discovery_datetime: now,
         incident_type: canonical_term(&report.incident_type),
@@ -1611,7 +1611,7 @@ pub async fn create_fall_risk(
         // The assessing clinician is whoever authenticated, not whoever the body
         // names. A body-supplied `assessed_by` lets one clinician file an
         // assessment under another's name.
-        assessed_by: current_user.wallet_address,
+        assessed_by: current_user.id,
         assessed_at: parse_ts(&body.assessed_at).unwrap_or(now),
         next_assessment_due: parse_ts(&body.next_assessment_due),
         created_at: now,

@@ -21,7 +21,7 @@ describe('LabTrendsPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -92,10 +92,10 @@ describe('LabTrendsPage (Patient)', () => {
     });
   });
 
-  it('asks for the patient record, not the wallet address', async () => {
+  it('asks for the patient record, not the account id', async () => {
     render(<LabTrendsPage />);
     await waitFor(() => expect(shared.getLabTrends).toHaveBeenCalledWith('HEALTH123'));
-    expect(shared.getLabTrends).not.toHaveBeenCalledWith(mockPatient.walletAddress);
+    expect(shared.getLabTrends).not.toHaveBeenCalledWith(mockPatient.userId);
   });
 
   it('does not invent a status, reference range, or percent change when the API omits them', async () => {

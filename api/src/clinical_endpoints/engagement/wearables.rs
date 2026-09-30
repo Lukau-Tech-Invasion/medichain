@@ -22,7 +22,7 @@ pub async fn register_wearable_device(
     req: web::Json<RegisterWearableRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -118,7 +118,7 @@ pub async fn get_wearable_devices(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -168,7 +168,7 @@ pub async fn disconnect_wearable_device(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let device_id = path.into_inner();
@@ -257,9 +257,9 @@ pub async fn get_supported_wearables(
     http_req: HttpRequest,
 ) -> impl Responder {
     // Only authenticated users can see supported wearables
-    if http_req.headers().get("X-User-Id").is_none() {
+    if crate::support::get_current_user_id(&http_req).is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Missing X-User-Id header".to_string(),
+            error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
     }
@@ -318,7 +318,7 @@ pub async fn submit_wearable_reading(
     req: web::Json<SubmitWearableReadingRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -645,7 +645,7 @@ pub async fn list_wearable_alert_rules(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -679,7 +679,7 @@ pub async fn get_wearable_readings(
 ) -> impl Responder {
     let device_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -792,7 +792,7 @@ pub async fn create_wearable_alert_rule(
     req: web::Json<CreateAlertRuleRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -875,7 +875,7 @@ pub async fn get_wearable_alerts(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

@@ -37,6 +37,7 @@ mod models;
 mod repositories;
 mod services;
 
+mod actor_directory;
 mod attachment_scan;
 mod audit_batching;
 mod audit_merkle;

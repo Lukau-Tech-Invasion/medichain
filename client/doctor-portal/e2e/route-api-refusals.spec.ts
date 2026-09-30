@@ -35,8 +35,7 @@ async function reachableRoutes(page: Page): Promise<string[]> {
 function normalise(path: string): string {
   return path
     .replace(/PAT-[0-9a-z-]+/gi, '{patient}')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '{uuid}')
-    .replace(/5[1-9A-HJ-NP-Za-km-z]{46,47}/g, '{wallet}');
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '{uuid}');
 }
 
 for (const role of ROLES) {

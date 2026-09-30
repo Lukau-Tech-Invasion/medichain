@@ -29,8 +29,8 @@ FN_SIG = re.compile(r'\bpub\s+(?:async\s+)?fn\s+(\w+)')
 # Any of these in a handler's signature or body counts as an auth decision.
 AUTH_MARKERS = [
     # Authentication helpers / extractors
-    'get_current_user_id', 'get_user(', 'require_x_user_id_header',
-    'require_auth', 'require_known_user', 'AuthorizedUser', 'X-User-Id',
+    'get_current_user_id', 'get_user(',
+    'require_auth', 'require_known_user', 'AuthorizedUser',
     # Authorization helpers / role + ownership checks
     'require_admin', 'require_provider', 'require_demo_mode',
     'require_emergency_list_access', 'require_card_access',
@@ -58,8 +58,10 @@ PUBLIC_ROUTES = {
     '/api/drugs': 'public drug reference data, not patient-specific',
     '/api/interactions': 'public drug-interaction reference, not patient-specific',
     '/api/wearables/supported': 'static list of supported device types',
-    '/api/auth/challenge': 'issues the challenge that begins authentication',
+    '/api/auth/login': 'presents the credential; verifying it IS the authentication',
+    '/api/auth/credentials/redeem': 'a one-time code is the credential and is validated in the handler',
     '/api/auth/jwt/refresh': 'refresh flow validates the refresh token itself',
+    '/api/auth/refresh': 'refresh flow validates the refresh token itself',
     '/api/auth/session': 'session-token creation validates its own inputs',
     '/api/auth/verify': 'verifies a presented token; that IS the check',
     '/api/auth/bootstrap': 'first-admin bootstrap, gated by MEDICHAIN_BOOTSTRAP_KEY',
@@ -93,8 +95,8 @@ DELEGATED_AUTH = {
     # rather than the user store, which this scan cannot follow — they are
     # false positives of the tier classifier, NOT unprotected handlers:
     #   grant_bound_emergency_access requires an ACTIVE PROFESSIONAL identity
-    #     context bound to the caller's wallet (data.identity_contexts
-    #     .active_context(work_context_id, wallet), ContextType::Professional).
+    #     context bound to the caller (data.identity_contexts
+    #     .active_context(work_context_id, user_id), ContextType::Professional).
     #   get_emergency_grant performs a resource-ownership check
     #     (grant.requesting_person_id == user_id) and 403s on mismatch.
     # Deliberately NOT wrapped in require_registered_caller: emergency access is
@@ -125,13 +127,14 @@ def body_after(text: str, start: int) -> str:
 # Tiered classification.
 #
 # The original gate asked one question — "does this handler mention any auth
-# marker?" — and `X-User-Id` was one of the markers. So a handler that merely
-# READ the header passed, including handlers that then ran an unscoped
-# `list_all()`. It reported "408 scanned, 0 unclassified, PASS" over exactly the
-# endpoints an external review then walked straight through with a forged
-# identity. A green result that does not distinguish "saw a header" from
-# "authorized this caller for this resource" is worse than no gate, because
-# release decisions get made on it.
+# marker?" — and a caller-supplied identity header was one of the markers. So a
+# handler that merely READ it passed, including handlers that then ran an
+# unscoped `list_all()`. It reported "408 scanned, 0 unclassified, PASS" over
+# exactly the endpoints an external review then walked straight through with a
+# forged identity. A green result that does not distinguish "saw an identity"
+# from "authorized this caller for this resource" is worse than no gate, because
+# release decisions get made on it. The header is gone (ADR-0010); the tiers stay
+# because reading the caller's id is still weaker than resolving the account.
 #
 # Tiers are ordered; a handler is classified at the highest tier it evidences.
 # --------------------------------------------------------------------------
@@ -139,22 +142,21 @@ T_NONE, T_PRESENCE, T_KNOWN, T_ROLE, T_RESOURCE = 0, 1, 2, 3, 4
 
 TIER_NAMES = {
     T_NONE: 'no auth decision',
-    T_PRESENCE: 'identity PRESENCE only (header read, caller never verified)',
+    T_PRESENCE: 'caller id PRESENCE only (id read, account never resolved)',
     T_KNOWN: 'registered identity resolved',
     T_ROLE: 'role authorization',
     T_RESOURCE: 'resource/patient scope authorization',
 }
 
-# Reads the header but proves nothing about who the caller is.
-PRESENCE_MARKERS = ['X-User-Id', 'get_current_user_id', 'require_x_user_id_header',
-                    'require_auth(']
+# Reads the caller's id but never resolves the account behind it.
+PRESENCE_MARKERS = ['get_current_user_id', 'require_auth(']
 # Resolves the caller against the user store — proves they are registered.
 KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser',
                  'require_registered_caller',
                  # Verified-JWT extractors (ADR-0008). `get_current_claims`
                  # checks the token signature and expiry and returns None
                  # otherwise, so branching on it resolves a real caller -- more
-                 # than `X-User-Id`, which is only a header and sits in
+                 # than reading the caller's id, which sits in
                  # PRESENCE_MARKERS for exactly that reason.
                  # `authenticated_session` additionally requires a live `sid`.
                  'get_current_claims', 'authenticated_session']
@@ -210,17 +212,19 @@ def classify(scope: str) -> int:
 
 # Routes that must never become reachable again.
 #
-# `GET /api/auth/wallet/{address}` returned name, role, username and
-# linked_patient_id for ANY wallet address with no authentication -- identity
-# enumeration plus a wallet-to-patient-record link. It was unregistered on
-# purpose, but its handler still exists, so re-adding one `.service(...)` line
-# would quietly restore the disclosure. Two clients kept calling it for months
-# after it was pulled, which is exactly how such a line gets added "to fix a
-# 404". Authentication should prove identity, not enumerate identities first.
+# The sign-in surface ADR-0010 deleted. Each of these let a caller establish an
+# identity without presenting a password proof (a signed challenge, a demo
+# shortcut, a signature-bound step-up). A handler may linger on disk after its
+# route is unregistered, so re-adding one `.service(...)` line would quietly
+# restore a way in. Signing in is POST /api/auth/login; nothing else.
 FORBIDDEN_ROUTES = {
-    '/api/auth/wallet/{address}':
-        'unauthenticated wallet-to-identity lookup; discloses name, role, '
-        'username and linked_patient_id for any address',
+    '/api/auth/challenge': 'challenge-signature sign-in, removed',
+    '/api/auth/jwt': 'signature exchange for a session, removed',
+    '/api/auth/staff/login': 'replaced by POST /api/auth/login',
+    '/api/auth/staff/rotate-credentials': 'replaced by POST /api/auth/credentials/change',
+    '/api/auth/demo-login': 'tokenless identity shortcut',
+    '/api/auth/step-up/challenge': 'signature step-up, replaced by TOTP/password step-up',
+    '/api/auth/step-up/verify': 'signature step-up, replaced by TOTP/password step-up',
 }
 
 
@@ -306,7 +310,7 @@ def main() -> int:
     elif len(weak) > prev:
         failed = True
         print(f'\nFAIL — presence-only handlers rose {prev} -> {len(weak)}. '
-              f'A new handler reads X-User-Id without verifying the caller.')
+              f'A new handler reads the caller id without resolving the account.')
         for method, route, fn, f in weak:
             print(f'  {method:6} {route:52} {fn}  ({f})')
     elif len(weak) < prev:
@@ -315,8 +319,8 @@ def main() -> int:
               f'ceiling tightened.')
 
     if weak:
-        print(f'\nNOTE: {len(weak)} handler(s) only check that X-User-Id is PRESENT. '
-              f'A forged header satisfies them. Run with --list-weak to enumerate.')
+        print(f'\nNOTE: {len(weak)} handler(s) only read the caller id and never resolve the account. '
+              f'Run with --list-weak to enumerate.')
     if bulk:
         # Not a finding. ADR-0006 makes each hospital its own deployment and
         # ADR-0007 records the consequence: a clinician worklist is *meant* to be

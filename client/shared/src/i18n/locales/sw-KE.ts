@@ -43,17 +43,9 @@ const sw_KE: TranslationRecord = {
   },
   auth: {
     welcomeTitle: 'Karibu MediChain',
-    welcomeSubtitle: 'Unganisha pochi yako ili kufikia rekodi zako za matibabu',
-    walletAddressLabel: 'Anwani ya pochi',
-    walletHint: 'Anwani yako ya pochi ya Substrate (muundo wa SS58)',
-    connectWallet: 'Unganisha pochi',
     connecting: 'Inaunganisha...',
-    quickLoginDemo: 'Kuingia haraka - Wagonjwa wa onyesho',
-    quickLoginHint: 'Bofya mgonjwa yeyote kuingia papo hapo',
     signInNfc: 'Ingia kwa kadi ya NFC',
     scanQr: 'Changanua msimbo wa QR',
-    errEnterWallet: 'Tafadhali weka anwani ya pochi yako',
-    errInvalidWallet: 'Muundo wa anwani si sahihi. Herufi 48 zinazoanza na "5".',
   },
   emergency: {
     title: 'Kadi ya Dharura ya Matibabu',

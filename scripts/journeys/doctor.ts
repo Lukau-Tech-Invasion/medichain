@@ -45,7 +45,6 @@ export async function doctorJourney(
     token: doctor.token,
     body: {
       full_name: fullName,
-      wallet_address: '',
       date_of_birth: '1984-04-12',
       national_id: `JH${stamp}`,
       gender: 'female',
@@ -265,7 +264,7 @@ export async function doctorJourney(
       end_time: null,
       frequency: null,
       instructions: 'Fasting sample',
-      ordering_provider: doctor.wallet,
+      ordering_provider: doctor.userId,
       order_time: now,
       verbal_order: false,
       read_back: null,
@@ -419,7 +418,7 @@ export async function doctorJourney(
   const apptId = String(appt.json.appointment_id ?? appt.json.id ?? '');
 
   if (apptOk && apptId) {
-    const mineList = await http('GET', `/appointments/provider/${doctor.wallet}`, {
+    const mineList = await http('GET', `/appointments/provider/${doctor.userId}`, {
       token: doctor.token,
     });
     const rows = rowsOf(mineList.json, 'appointments', 'items');
@@ -494,7 +493,7 @@ export async function doctorJourney(
       diet_instructions: 'Reduced refined carbohydrate',
       warning_signs: ['Vomiting', 'Drowsiness'],
       emergency_contact_instructions: 'Return to the emergency unit',
-      prepared_by: doctor.wallet,
+      prepared_by: doctor.userId,
     },
   });
   const dischargeOk = j.status('a discharge summary is prepared', discharge.status, [200, 201], discharge.json);
@@ -532,7 +531,7 @@ export async function doctorJourney(
     token: doctor.token,
     // `name` is required by the endpoint. Omitting it answers 400 before the
     // authorization check runs, which proves nothing about the control.
-    body: { wallet_address: colleague.wallet, name: 'Dr Browser Test Two', role: 'Nurse' },
+    body: { user_id: colleague.userId, name: 'Dr Browser Test Two', role: 'Nurse' },
   });
   j.status('a doctor cannot assign roles', roles.status, [401, 403], roles.json);
 

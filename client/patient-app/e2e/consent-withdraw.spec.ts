@@ -15,9 +15,9 @@ import { signInAsFixturePatient, settle } from './support';
  * consent is the signed legal basis, and revoking either leaves the other
  * standing.
  *
- * Runs as the seeded fixture patient rather than a demo wallet: the demo path
- * mints a keypair but no user record, so every consent endpoint answers 401 for
- * it and this test would have proved nothing about authorisation.
+ * Runs as the seeded fixture patient, a registered account bound to a health
+ * record, so the consent endpoints see a real caller and the test proves
+ * something about authorisation.
  */
 test('a patient signs a consent and can withdraw it', async ({ page }) => {
   test.setTimeout(180000);

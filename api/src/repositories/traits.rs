@@ -209,7 +209,6 @@ pub struct PatientEntity {
     pub dnr_document_ref: Option<String>,
 
     pub primary_provider_id: Option<String>,
-    pub wallet_address: Option<String>,
 
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -420,9 +419,6 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
 
     /// Get patient by national ID hash
     async fn get_by_national_id_hash(&self, hash: &str) -> RepositoryResult<PatientEntity>;
-
-    /// Get patient by wallet address
-    async fn get_by_wallet(&self, wallet: &str) -> RepositoryResult<PatientEntity>;
 
     /// Update patient
     async fn update(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity>;
@@ -663,10 +659,12 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
     /// Create access log entry
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity>;
 
-    /// Get logs by accessor
+    /// Get logs by accessor. `accessor_ids` is every key the person is known by
+    /// (`actor_directory::actor_keys_for`): rows written before the identity
+    /// migration are sealed and still carry the old wallet address.
     async fn get_by_accessor(
         &self,
-        accessor_id: &str,
+        accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
 
@@ -4743,7 +4741,7 @@ pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
     ///
     /// For the second party to a record: a telehealth session is owned by the
     /// patient and names its clinician in `provider_id`, and an owner lookup by
-    /// the clinician's wallet can never find it.
+    /// the clinician's user id can never find it.
     async fn get_by_data_field(
         &self,
         field: &str,
@@ -4959,7 +4957,7 @@ impl ChildAssentStatus {
 #[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
 pub struct GuardianRelationshipEntity {
     pub id: String,
-    pub guardian_wallet: String,
+    pub guardian_user_id: String,
     pub ward_patient_id: String,
     /// `GuardianRelationshipType::as_str()` value.
     pub relationship_type: String,
@@ -4983,7 +4981,7 @@ pub struct GuardianRelationshipEntity {
     /// Pointer (record id / IPFS hash) to the document — never its contents.
     pub authority_evidence_reference: Option<String>,
     pub authority_issuing_authority: Option<String>,
-    /// Role/title of the verifier; `verified_by` is only a wallet address.
+    /// Role/title of the verifier; `verified_by` is only a user id.
     pub authority_verified_by_role: Option<String>,
     pub authority_evidence_recorded_at: Option<DateTime<Utc>>,
     /// Periodic review date. Distinct from `expires_at` — an indefinite
@@ -5051,7 +5049,7 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
     /// profile-switcher list.
     async fn get_by_guardian(
         &self,
-        guardian_wallet: &str,
+        guardian_user_id: &str,
     ) -> RepositoryResult<Vec<GuardianRelationshipEntity>>;
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<Option<GuardianRelationshipEntity>>;
@@ -5590,7 +5588,7 @@ mod tests {
     fn grants_honours_the_deprecated_permission_through_the_entity() {
         let relationship = GuardianRelationshipEntity {
             id: "GR-1".into(),
-            guardian_wallet: "guardian".into(),
+            guardian_user_id: "guardian".into(),
             ward_patient_id: "ward".into(),
             relationship_type: GuardianRelationshipType::ParentOrGuardian
                 .as_str()

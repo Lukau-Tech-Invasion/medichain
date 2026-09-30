@@ -161,7 +161,7 @@ pub async fn create_pre_op(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
@@ -487,7 +487,7 @@ pub async fn create_operative_note(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -775,7 +775,7 @@ pub async fn create_post_op(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a

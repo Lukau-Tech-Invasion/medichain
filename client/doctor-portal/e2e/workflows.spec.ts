@@ -11,7 +11,8 @@ import { settle } from './support';
  * write that only its author can read back proves nothing.
  *
  * Staff sign in through the Quick Login buttons, the app's own demo path; the
- * patient reads through the patient app with the seeded fixture session.
+ * patient reads through the patient app, signed in with the username and
+ * password the seeder chose for the fixture patient.
  */
 
 type QuickRole = 'Doctor' | 'Nurse' | 'Lab Technician' | 'Pharmacist' | 'Administrator';
@@ -19,7 +20,7 @@ type QuickRole = 'Doctor' | 'Nurse' | 'Lab Technician' | 'Pharmacist' | 'Adminis
 const PATIENT_APP = process.env.PATIENT_APP_URL || 'http://127.0.0.1/patient';
 
 function fixtures(): {
-  patient: { wallet: string; linked_patient_id: string };
+  patient: { login_id: string; password: string; linked_patient_id: string };
 } {
   let dir = process.cwd();
   for (let i = 0; i < 6; i += 1) {
@@ -60,18 +61,17 @@ async function pickPatient(page: Page, selector: string, patientId: string) {
   await option.first().click();
 }
 
-/** The seeded patient, reading their own app. */
+/** The seeded patient, reading their own app: a real sign-in, as a patient does it. */
 async function patientPage(browser: Browser): Promise<Page> {
   const fx = fixtures().patient;
   const context = await browser.newContext();
-  await context.addInitScript(([auth]) => {
-    localStorage.setItem('medichain_patient_auth', JSON.stringify(auth));
-    localStorage.setItem(
-      'medichain_wallet',
-      JSON.stringify({ address: (auth as { address: string }).address, role: 'Patient' })
-    );
-  }, [{ address: fx.wallet, healthId: fx.linked_patient_id, name: 'Browser Test Patient' }]);
-  return context.newPage();
+  const page = await context.newPage();
+  await page.goto(`${PATIENT_APP}/login`);
+  await page.locator('input#username').fill(fx.login_id);
+  await page.locator('input#password').fill(fx.password);
+  await page.locator('button[type="submit"]').click();
+  await page.locator('main').first().waitFor({ state: 'visible', timeout: 30000 });
+  return page;
 }
 
 async function patientSees(browser: Browser, route: string, text: string | RegExp) {
@@ -203,10 +203,6 @@ test('a doctor registers a patient who can then be found', async ({ page }) => {
   await settle(page, '/register');
   await page.locator('#register-full-name').fill(name);
   await page.locator('#register-date-of-birth').fill('1990-04-12');
-  await page.getByRole('button', { name: /^generate$/i }).click();
-  // Registration refuses until the clinician confirms the patient has their
-  // recovery phrase: without it they could never sign in.
-  await page.getByRole('checkbox', { name: /the patient has this phrase/i }).check();
   await page.locator('#register-national-id').fill(`90041${String(Date.now()).slice(-8)}`);
   await page.locator('#register-blood-type').selectOption('A+');
   await page.locator('#register-emergency-contact-name').fill('Sipho Workflow');
@@ -214,6 +210,11 @@ test('a doctor registers a patient who can then be found', async ({ page }) => {
   await page.locator('#register-emergency-contact-relationship').fill('Brother');
   await page.getByRole('button', { name: /register patient/i }).click();
   await expect(page.getByText(/registered|success|created/i).first()).toBeVisible({ timeout: 30000 });
+  // The way in is handed over here, once: a one-time activation code in the
+  // XXXX-XXXX-XXXX shape.
+  await expect(page.getByText(/\b[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}\b/).first()).toBeVisible({
+    timeout: 30000,
+  });
 
   await settle(page, '/patients');
   await page.getByPlaceholder(/search/i).first().fill('Lerato');
@@ -264,6 +265,11 @@ test('an untyped patient registers with blood group Unknown, not a guess', async
   await page.locator('#register-emergency-contact-relationship').fill('Sister');
   await page.getByRole('button', { name: /register patient/i }).click();
   await expect(page.getByText(/registered|success|created/i).first()).toBeVisible({ timeout: 30000 });
+  // The way in is handed over here, once: a one-time activation code in the
+  // XXXX-XXXX-XXXX shape.
+  await expect(page.getByText(/\b[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}\b/).first()).toBeVisible({
+    timeout: 30000,
+  });
 
   await settle(page, '/patients');
   await page.getByPlaceholder(/search/i).first().fill('Untyped');

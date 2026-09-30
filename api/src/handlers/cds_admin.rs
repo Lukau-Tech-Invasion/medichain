@@ -601,7 +601,7 @@ mod cds_rule_tests {
                 &$app,
                 test::TestRequest::post()
                     .uri("/api/admin/cds/rules")
-                    .insert_header(("x-user-id", "admin_a"))
+                    .insert_header(crate::test_fixtures::as_user("admin_a"))
                     .set_json(rule_body())
                     .to_request(),
             )
@@ -647,7 +647,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/admin/cds/rules")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .set_json(rule_body())
                 .to_request(),
         )
@@ -658,7 +658,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/admin/cds/rules")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -685,7 +685,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/admin/cds/rules/{rule_id}/enablement"))
-                .insert_header(("x-user-id", "admin_a"))
+                .insert_header(crate::test_fixtures::as_user("admin_a"))
                 .set_json(serde_json::json!({ "isEnabled": true }))
                 .to_request(),
         )
@@ -705,7 +705,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/admin/cds/rules/{rule_id}/retire"))
-                .insert_header(("x-user-id", "admin_a"))
+                .insert_header(crate::test_fixtures::as_user("admin_a"))
                 .to_request(),
         )
         .await;
@@ -715,7 +715,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/admin/cds/rules")
-                .insert_header(("x-user-id", "admin_a"))
+                .insert_header(crate::test_fixtures::as_user("admin_a"))
                 .to_request(),
         )
         .await;
@@ -733,7 +733,7 @@ mod cds_rule_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/admin/cds/rules")
-                .insert_header(("x-user-id", "admin_a"))
+                .insert_header(crate::test_fixtures::as_user("admin_a"))
                 .set_json(body)
                 .to_request(),
         )

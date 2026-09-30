@@ -65,7 +65,7 @@ pub async fn create_medication_reminder(
     req: web::Json<CreateMedicationReminderRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -75,7 +75,7 @@ pub async fn create_medication_reminder(
     };
 
     // Patient can create for self, provider can create for any patient
-    // A wallet address is never equal to a `PAT-` id, so this comparison was
+    // A user id is never equal to a `PAT-` id, so this comparison was
     // `false` for every patient who has ever used it: nobody could set a
     // reminder for themselves, and the only screen that creates one is in the
     // patient app. `caller_owns_patient_record` resolves the caller's
@@ -157,7 +157,7 @@ pub async fn get_patient_reminders(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -229,7 +229,7 @@ pub async fn get_patient_adherence(
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let current_user = match require_known_user(&data, &current_user_id) {
@@ -298,7 +298,7 @@ pub async fn log_medication_adherence(
     req: web::Json<LogAdherenceRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -319,7 +319,7 @@ pub async fn log_medication_adherence(
 
     // Only the patient can log their own adherence.
     //
-    // Resolved through `linked_patient_id`. A bare `!=` between a wallet
+    // Resolved through `linked_patient_id`. A bare `!=` between a user id
     // address and a `PAT-` id is always true, so this refused every patient --
     // the third instance of that comparison in this file's neighbourhood, and
     // it was hidden behind a 400 because the page was sending a payload this
@@ -377,7 +377,7 @@ pub async fn log_medication_adherence(
         // The KIND of reporter, not their id.
         //
         // `adherence_logs.reported_by` has a CHECK constraint allowing exactly
-        // `patient`, `caregiver`, `system` and `provider`. The caller's wallet
+        // `patient`, `caregiver`, `system` and `provider`. The caller's user id
         // address was being written here, so PostgreSQL rejected every row --
         // first for being 48 characters in a VARCHAR(32), and then, once that
         // was noticed, for not being one of the four words. Who specifically
@@ -415,7 +415,7 @@ pub async fn delete_medication_reminder(
     let reminder_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -435,7 +435,7 @@ pub async fn delete_medication_reminder(
     };
 
     // `patient_id` identifies the clinical record, while `current_user_id` is
-    // the authenticated wallet. Compare record ownership through the canonical
+    // the authenticated user id. Compare record ownership through the canonical
     // bridge; a direct comparison denied every patient their own reminder.
     let owns_patient_record =
         crate::support::caller_owns_patient_record(&data, &current_user_id, &reminder.patient_id);

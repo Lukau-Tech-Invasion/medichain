@@ -371,7 +371,6 @@ fn create_test_patient(id: &str) -> PatientEntity {
         dnr_verified_at: None,
         dnr_document_ref: None,
         primary_provider_id: None,
-        wallet_address: Some(format!("0x{}", id)),
         created_at: Utc::now(),
         updated_at: Utc::now(),
         registered_by: None,
@@ -409,13 +408,6 @@ async fn test_pg_patient_repository() {
         .await
         .expect("Failed to get patient by ID");
     assert_eq!(fetched.health_id, health_id_for(&patient_id));
-
-    // Test Get by Wallet
-    let fetched_wallet = repo
-        .get_by_wallet(&format!("0x{}", patient_id))
-        .await
-        .expect("Failed to get by wallet");
-    assert_eq!(fetched_wallet.id, patient_id);
 
     // Test Update
     let mut updated_patient = fetched.clone();
@@ -752,11 +744,9 @@ async fn test_pg_sepsis_round_trip_survives_restart() {
 // See .horizon/evidence-private/HZ-H1-PERSISTENCE/inventory.md
 // =============================================================================
 
-/// A synthetic SS58-shaped wallet; the `valid_wallet` constraint requires
-/// >= 45 chars starting with '5'.
-fn synthetic_wallet(suffix: &str) -> String {
-    let base = "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw";
-    format!("{}{}", &base[..base.len() - suffix.len()], suffix)
+/// A fresh `users.id`. The suffix only keeps a test's intent readable.
+fn synthetic_wallet(_suffix: &str) -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// A fully-populated staff user — every optional field set, so anything that
@@ -764,12 +754,12 @@ fn synthetic_wallet(suffix: &str) -> String {
 /// `None`.
 fn complete_staff_user(wallet: &str) -> crate::User {
     crate::User {
-        wallet_address: wallet.to_string(),
+        id: wallet.to_string(),
         username: Some("dr_round_trip".to_string()),
         name: "Dr Round Trip".to_string(),
         role: crate::Role::Doctor,
         created_at: Utc::now(),
-        created_by: Some("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string()),
+        created_by: None,
         linked_patient_id: None,
         email: Some("round.trip@example.test".to_string()),
         phone: Some("+27115550000".to_string()),
@@ -823,7 +813,7 @@ async fn test_logical_user_round_trips_across_restart() {
         .expect("user was lost across the restart");
 
     // --- fields that MUST survive ---
-    assert_eq!(reloaded.wallet_address, original.wallet_address);
+    assert_eq!(reloaded.id, original.id);
     assert_eq!(reloaded.username, original.username);
     assert_eq!(reloaded.name, original.name);
     assert_eq!(reloaded.role, original.role, "role must survive");
@@ -867,7 +857,7 @@ async fn test_logical_user_round_trips_across_restart() {
     let plaintext: Option<String> = sqlx::query_scalar(
         "SELECT p.phone FROM user_profiles p
          INNER JOIN users u ON u.id = p.user_id
-         WHERE u.wallet_address = $1",
+         WHERE u.id = $1::text::uuid",
     )
     .bind(&wallet)
     .fetch_one(&pool)
@@ -882,7 +872,7 @@ async fn test_logical_user_round_trips_across_restart() {
     let sealed: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT p.contact_encrypted FROM user_profiles p
          INNER JOIN users u ON u.id = p.user_id
-         WHERE u.wallet_address = $1",
+         WHERE u.id = $1::text::uuid",
     )
     .bind(&wallet)
     .fetch_one(&pool)
@@ -917,7 +907,7 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
 
     // The stored row must record the suspension, not a boolean that loses it.
     let (stored_status, stored_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
             .bind(&wallet)
             .fetch_one(&pool)
             .await
@@ -953,7 +943,7 @@ async fn test_pending_account_is_not_promoted_by_restart() {
     state.persist_user(&pending).await.expect("persist failed");
 
     let (stored_status, stored_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
             .bind(&wallet)
             .fetch_one(&pool)
             .await
@@ -986,7 +976,7 @@ async fn test_deactivate_keeps_status_and_is_active_consistent() {
         .expect("deactivate failed");
 
     let (status, is_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
             .bind(&wallet)
             .fetch_one(&pool)
             .await
@@ -1014,7 +1004,7 @@ async fn test_unknown_status_coerces_to_inactive_not_active() {
         .expect("an unknown status must not fail the upsert");
 
     let (status, is_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
             .bind(&wallet)
             .fetch_one(&pool)
             .await
@@ -1040,9 +1030,10 @@ fn pg_patient_access(pool: &PgPool) -> crate::patient_access::PatientAccessServi
     ))
 }
 
-fn test_provider() -> crate::patient_access::RequestingProvider {
+/// A provider that exists: `patient_access_*.provider_id` references `users`.
+async fn test_provider_in(pool: &PgPool) -> crate::patient_access::RequestingProvider {
     crate::patient_access::RequestingProvider {
-        provider_id: "5DoctorWallet".to_string(),
+        provider_id: crate::test_fixtures::insert_pg_user(pool, "Doctor").await,
         provider_name: "Dr Synthetic".to_string(),
         provider_role: "Doctor".to_string(),
         organization: "Synthetic General Hospital".to_string(),
@@ -1077,7 +1068,7 @@ async fn test_pg_guardian_revocation_rolls_back_when_audit_outbox_insert_fails()
 
     let pool = get_test_pool().await;
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO guardian_relationships (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
+    sqlx::query("INSERT INTO guardian_relationships (id, guardian_user_id, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
         .bind(&relationship_id)
         .bind("guardian-audit")
         .bind("ward-audit")
@@ -1134,7 +1125,7 @@ async fn test_pg_guardian_creation_rolls_back_when_audit_outbox_insert_fails() {
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
     let relationship = GuardianRelationshipEntity {
         id: relationship_id.clone(),
-        guardian_wallet: "guardian-audit".into(),
+        guardian_user_id: "guardian-audit".into(),
         ward_patient_id: "ward-audit".into(),
         relationship_type: "parent_or_guardian".into(),
         permissions: vec!["view_records".into()],
@@ -1195,7 +1186,7 @@ async fn test_pg_guardian_permission_update_rolls_back_when_audit_outbox_insert_
 
     let pool = get_test_pool().await;
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO guardian_relationships (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
+    sqlx::query("INSERT INTO guardian_relationships (id, guardian_user_id, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
         .bind(&relationship_id).bind("guardian-audit").bind("ward-audit")
         .bind(vec!["view_records"]).bind("admin-audit").bind(Utc::now())
         .execute(&pool).await.expect("seed guardian relationship");
@@ -1469,9 +1460,9 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
 #[tokio::test]
 async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
     let pool = get_test_pool().await;
-    let wallet = format!("PAT-claim-{}", uuid::Uuid::new_v4());
+    let wallet = uuid::Uuid::new_v4().to_string();
     let patient_id = format!("claim-patient-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO users (wallet_address, role, name, username, email, is_active, status, created_at) VALUES ($1,'Patient',$2,$3,$4,TRUE,'active',NOW())")
+    sqlx::query("INSERT INTO users (id, role, name, username, email, is_active, status, created_at) VALUES ($1::text::uuid,'Patient',$2,$3,$4,TRUE,'active',NOW())")
         .bind(&wallet).bind("Claim Test").bind(&wallet).bind(format!("{wallet}@example.test"))
         .execute(&pool).await.expect("seed claim user");
     sqlx::query("CREATE FUNCTION reject_identity_claim_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
@@ -1494,7 +1485,7 @@ async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
     );
     drop(transaction);
     let linked: Option<String> =
-        sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE wallet_address = $1")
+        sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE id = $1::text::uuid")
             .bind(&wallet)
             .fetch_one(&pool)
             .await
@@ -1586,7 +1577,7 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
         "access_request_created".into(),
         "access_request".into(),
         request_id.clone(),
-        serde_json::json!({"provider_id": "5DoctorWallet"}),
+        serde_json::json!({"provider_id": "a-doctor"}),
         now,
     )
     .expect("valid audit event");
@@ -1608,7 +1599,7 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let result = pg_patient_access(&pool)
         .create_request_with_audit(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             event,
             now,
         )
@@ -1641,7 +1632,7 @@ async fn test_pg_access_approval_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1707,7 +1698,7 @@ async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1746,7 +1737,7 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1799,7 +1790,7 @@ async fn test_pg_access_denial_with_audit_commits_request_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1838,7 +1829,7 @@ async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1897,7 +1888,7 @@ async fn test_pg_access_revocation_with_audit_commits_grant_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1941,7 +1932,7 @@ async fn test_pg_patient_access_grant_survives_restart() {
     // Write through the first service instance.
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = writer
@@ -1989,7 +1980,7 @@ async fn test_pg_revocation_survives_restart() {
 
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = writer
@@ -2035,7 +2026,7 @@ async fn test_pg_approve_is_not_replayable() {
 
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     svc.approve_request(&request.id, AccessType::Limited, None, now)
@@ -2069,7 +2060,7 @@ async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
     let now = Utc::now();
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
 
@@ -2108,9 +2099,10 @@ async fn test_pg_concurrent_access_requests_create_exactly_one_pending_request()
     let now = Utc::now();
     let service = pg_patient_access(&pool);
 
+    let provider = test_provider_in(&pool).await;
     let (first, second) = tokio::join!(
-        service.create_request(patient_id.clone(), test_provider(), now),
-        service.create_request(patient_id.clone(), test_provider(), now)
+        service.create_request(patient_id.clone(), provider.clone(), now),
+        service.create_request(patient_id.clone(), provider, now)
     );
     assert_eq!(
         [first.is_ok(), second.is_ok()]
@@ -2143,7 +2135,7 @@ async fn test_pg_approval_and_denial_race_resolves_once() {
     let now = Utc::now();
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
 
@@ -2186,7 +2178,7 @@ async fn test_pg_denial_survives_restart() {
 
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     writer
@@ -2232,7 +2224,7 @@ async fn test_pg_expiry_is_applied_and_lapsed_grants_are_not_revocable() {
 
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = svc
@@ -3079,13 +3071,14 @@ async fn test_pg_telehealth_event_types_are_all_accepted_by_the_schema() {
 ///
 /// These tests run against a throwaway schema with migrations freshly applied,
 /// so nothing exists yet. `appointments.provider_id` references
-/// `users(wallet_address)` and `patient_id` references `patients(id)`.
+/// `users(id_text)` and `patient_id` references `patients(id)`.
+/// `provider` and `filed_by` are `users.id` UUIDs.
 async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, patient: &str) {
     for wallet in [provider, filed_by] {
         sqlx::query(
-            "INSERT INTO users (wallet_address, role, name, status)
-             VALUES ($1, 'Doctor', 'Test Provider', 'active')
-             ON CONFLICT (wallet_address) DO NOTHING",
+            "INSERT INTO users (id, role, name, status)
+             VALUES ($1::text::uuid, 'Doctor', 'Test Provider', 'active')
+             ON CONFLICT (id) DO NOTHING",
         )
         .bind(wallet)
         .execute(pool)
@@ -3126,11 +3119,10 @@ async fn test_pg_appointment_round_trip_survives_restart() {
     let id = format!("APT-{}", uuid::Uuid::new_v4());
     let now = Utc::now();
 
-    // A wallet address, not a uuid — the identifier the application actually
-    // uses for providers everywhere else.
-    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string();
+    // A user id: the identifier the application uses for providers everywhere.
+    let provider = uuid::Uuid::new_v4().to_string();
     // Distinct from `provider_id`: an administrator scheduling for a colleague.
-    let filed_by = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string();
+    let filed_by = uuid::Uuid::new_v4().to_string();
 
     let entity = AppointmentEntity {
         id: id.clone(),
@@ -3207,7 +3199,8 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
     use crate::repositories::traits::AppointmentRepository;
     let pool = get_test_pool().await;
     let repo = crate::repositories::postgres::PgAppointmentRepository::new(pool.clone());
-    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+    let provider_owned = uuid::Uuid::new_v4().to_string();
+    let provider = provider_owned.as_str();
     seed_appointment_fks(&pool, provider, provider, "PAT-APPT-STATUS").await;
 
     for status in [
@@ -3227,7 +3220,7 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
         let entity = crate::repositories::traits::AppointmentEntity {
             id: id.clone(),
             patient_id: "PAT-APPT-STATUS".into(),
-            provider_id: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            provider_id: provider.into(),
             appointment_type: "FollowUp".into(),
             scheduled_datetime: now,
             duration_minutes: 15,
@@ -3251,7 +3244,7 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
             cancellation_reason: None,
             cancelled_by: None,
             notes: None,
-            created_by: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            created_by: provider.into(),
             created_at: now,
             updated_at: now,
             data: serde_json::json!({}),
@@ -3895,10 +3888,7 @@ async fn test_pg_auth_challenge_expiry_is_enforced() {
 #[tokio::test]
 async fn test_pg_login_session_survives_refresh_rotation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-survives-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let first_jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
@@ -3977,10 +3967,7 @@ async fn test_pg_login_session_survives_refresh_rotation() {
 #[tokio::test]
 async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-logout-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
@@ -4049,9 +4036,8 @@ async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
 #[tokio::test]
 async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     let pool = get_test_pool().await;
-    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let wallet = format!("sid-logout-all-{stamp}");
-    let bystander = format!("sid-bystander-{stamp}");
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let bystander = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     let mut sids = Vec::new();
     for index in 0..3 {
@@ -4079,7 +4065,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     .await
     .expect("open bystander session");
 
-    let ended = crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all")
+    let ended = crate::auth_sessions::revoke_all_for_user(&pool, &wallet, "logout_all")
         .await
         .expect("logout all");
     assert_eq!(ended, 3, "every active login for the wallet ends");
@@ -4115,10 +4101,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
 #[tokio::test]
 async fn test_pg_independent_logins_get_distinct_sessions() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-distinct-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let phone_jti = uuid::Uuid::new_v4().to_string();
     let desk_jti = uuid::Uuid::new_v4().to_string();
     let phone = crate::auth_sessions::create(
@@ -4179,13 +4162,25 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
 
 use crate::transaction_authorization as txn;
 
-/// A real dev keypair and the SS58 address that owns it.
-fn txn_keypair() -> (sp_core::sr25519::Pair, String) {
+/// A real dev keypair and the user it belongs to: a `users` row, with the
+/// keypair's SS58 address recorded as that user's legacy wallet, which is how
+/// the wallet signature is resolved from the token subject.
+async fn txn_keypair(pool: &sqlx::PgPool) -> (sp_core::sr25519::Pair, String) {
     use sp_core::crypto::Ss58Codec;
     use sp_core::Pair as _;
     let pair = sp_core::sr25519::Pair::from_string("//Alice", None).expect("dev key");
-    let wallet = pair.public().to_ss58check();
-    (pair, wallet)
+    let user = crate::test_fixtures::insert_pg_user(pool, "Doctor").await;
+    // The schema's seed data already maps the dev key to its seeded admin; this
+    // test's user takes it over.
+    sqlx::query("DELETE FROM legacy_wallet_identities WHERE wallet_address = $1")
+        .bind(pair.public().to_ss58check())
+        .execute(pool)
+        .await
+        .expect("clear seeded mapping");
+    crate::actor_directory::record_legacy_wallet(pool, &pair.public().to_ss58check(), &user)
+        .await
+        .expect("record wallet");
+    (pair, user)
 }
 
 fn txn_sign(pair: &sp_core::sr25519::Pair, message: &str) -> String {
@@ -4241,7 +4236,7 @@ async fn txn_cleanup(pool: &sqlx::PgPool, sid: uuid::Uuid) {
 #[tokio::test]
 async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
     let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
+    let (pair, wallet) = txn_keypair(&pool).await;
     let sid = txn_session(&pool, &wallet).await;
     let intent = txn_intent();
 
@@ -4296,7 +4291,7 @@ async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
 #[tokio::test]
 async fn test_pg_transaction_authorization_refuses_a_changed_request() {
     let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
+    let (pair, wallet) = txn_keypair(&pool).await;
     let intent = txn_intent();
 
     // Each case gets its own session and challenge, so a refusal in one cannot
@@ -4389,7 +4384,7 @@ async fn test_pg_transaction_authorization_refuses_a_changed_request() {
 #[tokio::test]
 async fn test_pg_transaction_authorization_is_bound_to_its_session() {
     let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
+    let (pair, wallet) = txn_keypair(&pool).await;
     let intent = txn_intent();
 
     // Presented against a different session belonging to the same subject.
@@ -4456,7 +4451,7 @@ async fn test_pg_transaction_authorization_is_bound_to_its_session() {
 #[tokio::test]
 async fn test_pg_transaction_authorization_refuses_bad_proofs() {
     let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
+    let (pair, wallet) = txn_keypair(&pool).await;
     let intent = txn_intent();
 
     let sid = txn_session(&pool, &wallet).await;
@@ -4538,7 +4533,7 @@ async fn test_pg_transaction_authorization_refuses_bad_proofs() {
 #[tokio::test]
 async fn test_pg_interactive_intent_is_required_where_declared() {
     let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
+    let (pair, wallet) = txn_keypair(&pool).await;
     let intent = txn_intent();
 
     let sid = txn_session(&pool, &wallet).await;
@@ -4594,7 +4589,7 @@ async fn test_pg_interactive_intent_is_required_where_declared() {
 #[tokio::test]
 async fn test_pg_challenge_budget_is_bounded_per_session() {
     let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
+    let (_, wallet) = txn_keypair(&pool).await;
     let intent = txn_intent();
     let sid = txn_session(&pool, &wallet).await;
 
@@ -4617,7 +4612,7 @@ async fn test_pg_challenge_budget_is_bounded_per_session() {
 #[tokio::test]
 async fn test_pg_revoked_session_cannot_issue_challenges() {
     let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
+    let (_, wallet) = txn_keypair(&pool).await;
     let sid = txn_session(&pool, &wallet).await;
     crate::auth_sessions::revoke_session(&pool, sid, "logout")
         .await
@@ -4637,7 +4632,7 @@ async fn test_pg_revoked_session_cannot_issue_challenges() {
 #[tokio::test]
 async fn test_pg_step_up_survives_rotation_and_dies_with_the_session() {
     let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
+    let (_, wallet) = txn_keypair(&pool).await;
 
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
@@ -4711,7 +4706,7 @@ async fn test_pg_step_up_survives_rotation_and_dies_with_the_session() {
 #[tokio::test]
 async fn test_pg_rejected_authorizations_are_recorded_without_secrets() {
     let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
+    let (_, wallet) = txn_keypair(&pool).await;
     let sid = txn_session(&pool, &wallet).await;
 
     txn::record_security_event(
@@ -4764,10 +4759,7 @@ async fn test_pg_rejected_authorizations_are_recorded_without_secrets() {
 #[tokio::test]
 async fn test_pg_security_event_logging_is_itself_bounded() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "flood-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     for _ in 0..25 {
         txn::record_security_event(
@@ -4781,18 +4773,19 @@ async fn test_pg_security_event_logging_is_itself_bounded() {
         .await;
     }
 
-    let written: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM auth_security_events WHERE wallet_address = $1")
-            .bind(&wallet)
-            .fetch_one(&pool)
-            .await
-            .expect("count events");
+    let written: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_security_events WHERE user_id = $1::text::uuid",
+    )
+    .bind(&wallet)
+    .fetch_one(&pool)
+    .await
+    .expect("count events");
     assert!(
         written < 25,
         "logging must not become the resource-exhaustion vector it exists to detect (wrote {written})"
     );
 
-    sqlx::query("DELETE FROM auth_security_events WHERE wallet_address = $1")
+    sqlx::query("DELETE FROM auth_security_events WHERE user_id = $1::text::uuid")
         .bind(&wallet)
         .execute(&pool)
         .await
@@ -4810,10 +4803,7 @@ async fn test_pg_security_event_logging_is_itself_bounded() {
 #[tokio::test]
 async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "lock-proof-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
@@ -4831,7 +4821,7 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
         "SELECT s.id
          FROM auth_login_sessions AS s
          JOIN auth_sessions AS g ON g.login_session_id = s.id
-         WHERE g.wallet_address = $1
+         WHERE g.user_id = $1::text::uuid
          FOR UPDATE OF s",
     )
     .bind(&wallet)
@@ -4883,10 +4873,7 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "race-logout-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
@@ -4953,10 +4940,7 @@ async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "race-logout-all-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
@@ -4979,7 +4963,7 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
             &replacement_jti,
             Utc::now() + chrono::Duration::hours(1),
         ),
-        crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all"),
+        crate::auth_sessions::revoke_all_for_user(&pool, &wallet, "logout_all"),
     );
     let rotated = rotated.expect("rotation call");
     revoked.expect("bulk revocation call");
@@ -4992,7 +4976,7 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     );
     let live: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_sessions
-         WHERE wallet_address = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1::text::uuid AND revoked_at IS NULL",
     )
     .bind(&wallet)
     .fetch_one(&pool)
@@ -5003,12 +4987,12 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
         "no refresh generation may survive logout-all (rotation returned {rotated:?})"
     );
 
-    sqlx::query("DELETE FROM auth_sessions WHERE wallet_address = $1")
+    sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1::text::uuid")
         .bind(&wallet)
         .execute(&pool)
         .await
         .ok();
-    sqlx::query("DELETE FROM auth_login_sessions WHERE wallet_address = $1")
+    sqlx::query("DELETE FROM auth_login_sessions WHERE user_id = $1::text::uuid")
         .bind(&wallet)
         .execute(&pool)
         .await
@@ -5021,9 +5005,8 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
 #[tokio::test]
 async fn test_pg_session_is_bound_to_its_own_subject() {
     let pool = get_test_pool().await;
-    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let alice = format!("sid-alice-{stamp}");
-    let bob = format!("sid-bob-{stamp}");
+    let alice = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let bob = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     let alice_sid = crate::auth_sessions::create(
         &pool,
@@ -5036,7 +5019,7 @@ async fn test_pg_session_is_bound_to_its_own_subject() {
     .expect("alice login");
 
     let owner: String =
-        sqlx::query_scalar("SELECT wallet_address FROM auth_login_sessions WHERE id = $1")
+        sqlx::query_scalar("SELECT user_id::text FROM auth_login_sessions WHERE id = $1")
             .bind(alice_sid)
             .fetch_one(&pool)
             .await
@@ -5061,10 +5044,7 @@ async fn test_pg_session_is_bound_to_its_own_subject() {
 #[tokio::test]
 async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "refresh-race-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let previous_token = "refresh-token-under-test";
     let previous_jti = uuid::Uuid::new_v4().to_string();
     crate::auth_sessions::create(
@@ -5108,7 +5088,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     .collect();
     assert_eq!(winners.len(), 1, "exactly one rotation may win");
     let (total, active): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE wallet_address = $1",
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE user_id = $1::text::uuid",
     )
     .bind(&wallet)
     .fetch_one(&pool)
@@ -5402,10 +5382,7 @@ async fn test_pg_history_physical_update_if_unchanged_refuses_a_stale_copy() {
 #[tokio::test]
 async fn test_pg_refresh_token_reuse_revokes_the_login() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "refresh-reuse-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let first_jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
+import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw, Smartphone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import {
   assignRole,
   getUsers,
   revokeRole,
   updateUserProfile,
-  walletRegister,
+  registerStaff,
+  resetUserCredential,
+  resetUserMfa,
   useTranslation,
   useStepUp,
   StepUpDialog,
@@ -20,12 +22,15 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
+import { OneTimeCodePanel } from '../components/OneTimeCodePanel';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'paramedic' | 'lab-technician' | 'pharmacist' | 'patient';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 interface SystemUser {
   userId: string;
+  /** The Employee ID (or username) the person signs in with, when the API reports it. */
+  loginId?: string;
   name: string;
   email: string;
   phone: string;
@@ -93,9 +98,16 @@ const UserManagementPage: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  // A one-time credential code an administrator has just issued. Held only
+  // here, only until dismissed: the server keeps a hash and cannot show it again.
+  const [issuedCode, setIssuedCode] = useState<{
+    identifier: string;
+    code: string;
+    expiresAt: string;
+    kind: 'created' | 'reset';
+  } | null>(null);
   const [newUser, setNewUser] = useState({
-    walletAddress: '',
-    username: '',
+    loginId: '',
     name: '',
     email: '',
     phone: '',
@@ -138,8 +150,9 @@ const UserManagementPage: React.FC = () => {
       }
       
       // Map API response to SystemUser interface
-      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; userId?: string; wallet_address?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
-        userId: u.wallet_address || u.user_id || u.userId || '',
+      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
+        userId: u.user_id || '',
+        loginId: u.login_id || u.username,
         name: u.name || '',
         email: u.email || '',
         phone: u.phone || '',
@@ -188,26 +201,84 @@ const UserManagementPage: React.FC = () => {
       return;
     }
 
+    const loginId = newUser.loginId.trim();
     try {
-      const result = await walletRegister({
-        wallet_address: newUser.walletAddress.trim(),
-        name: newUser.name.trim(),
-        username: newUser.username.trim() || undefined,
-        role: newUser.role,
-        email: newUser.email.trim(),
-        // Omitted when empty rather than sent as '': a field left blank is
-        // absent, not a contact number that happens to be the empty string.
-        phone: newUser.phone.trim() || undefined,
-        department: newUser.department.trim() || undefined,
-        specialty: newUser.specialization.trim() || undefined,
-        license_number: newUser.licenseNumber.trim() || undefined,
+      // Creating an account is a privileged operation (Admin + step-up), so the
+      // whole sequence runs inside the held action: if a code is demanded, the
+      // dialog collects it and this runs again from the top.
+      await stepUp.run(async () => {
+        const created = await registerStaff({
+          name: newUser.name.trim(),
+          role: newUser.role,
+          login_id: loginId,
+          // Omitted when empty rather than sent as '': a field left blank is
+          // absent, not an address that happens to be the empty string.
+          ...(newUser.email.trim() ? { email: newUser.email.trim() } : {}),
+        });
+        const profile = {
+          phone: newUser.phone.trim() || undefined,
+          department: newUser.department.trim() || undefined,
+          specialty: newUser.specialization.trim() || undefined,
+          license_number: newUser.licenseNumber.trim() || undefined,
+        };
+        if (Object.values(profile).some((value) => value !== undefined)) {
+          await updateUserProfile(created.user_id, profile);
+        }
+        setIssuedCode({
+          identifier: loginId,
+          code: created.credential_code,
+          expiresAt: created.credential_expires_at,
+          kind: 'created',
+        });
+        await fetchUsers();
+        setNewUser({ loginId: '', name: '', email: '', phone: '', role: 'doctor', department: '', licenseNumber: '', specialization: '', emergencyContact: '', notes: '' });
+        setActiveTab('users');
+        showSuccess(t('docUserManagement.userCreatedSuccess', { id: created.user_id }));
       });
-      await fetchUsers();
-      setNewUser({ walletAddress: '', username: '', name: '', email: '', phone: '', role: 'doctor', department: '', licenseNumber: '', specialization: '', emergencyContact: '', notes: '' });
-      setActiveTab('users');
-      showSuccess(t('docUserManagement.userCreatedSuccess', { id: result.wallet_address }));
     } catch (err) {
       showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+    }
+  };
+
+  /**
+   * Issue a new credential code for someone who cannot sign in. Ends all of
+   * their sessions on the server; the code is shown once, here.
+   */
+  const handleResetCredential = async (target: SystemUser) => {
+    const confirmed = await confirmDialog({
+      message: t('docUserManagement.confirmResetCredential', { name: target.name }),
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await stepUp.run(async () => {
+        const grant = await resetUserCredential(target.userId);
+        setIssuedCode({
+          identifier: target.loginId || target.userId,
+          code: grant.credential_code,
+          expiresAt: grant.expires_at,
+          kind: 'reset',
+        });
+      });
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.resetFailed'));
+    }
+  };
+
+  /** Remove someone's authenticator so they can sign in with a password alone and enrol a new device. */
+  const handleResetMfa = async (target: SystemUser) => {
+    const confirmed = await confirmDialog({
+      message: t('docUserManagement.confirmResetMfa', { name: target.name }),
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await stepUp.run(async () => {
+        await resetUserMfa(target.userId);
+        showSuccess(t('docUserManagement.mfaResetSuccess', { name: target.name }));
+      });
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.resetFailed'));
     }
   };
 
@@ -231,7 +302,7 @@ const UserManagementPage: React.FC = () => {
       if (persistedRole !== selectedUser.role) {
         await stepUp.run(() =>
           assignRole({
-            wallet_address: selectedUser.userId,
+            user_id: selectedUser.userId,
             name: selectedUser.name,
             role: selectedUser.role,
           })
@@ -249,7 +320,7 @@ const UserManagementPage: React.FC = () => {
   const handleDeleteUser = async (userId: string) => {
     if (await confirmDialog({ message: t('docUserManagement.confirmDeleteUser'), destructive: true })) {
       try {
-        await stepUp.run(() => revokeRole({ wallet_address: userId }));
+        await stepUp.run(() => revokeRole({ user_id: userId }));
         await fetchUsers();
         showSuccess(t('docUserManagement.userDeletedSuccess'));
       } catch (err) {
@@ -361,6 +432,32 @@ const UserManagementPage: React.FC = () => {
         <h1 className="text-3xl font-bold mb-2">{t('docUserManagement.title')}</h1>
         <p className="text-white">{t('docUserManagement.subtitle')}</p>
       </div>
+
+      {/* A credential code just issued. Shown once: the server keeps only a hash,
+          so this panel is the only place it will ever appear. Hand it to its
+          owner (copy, or print a slip); they redeem it at /activate and choose
+          their own password, which nobody here ever sees. */}
+      {issuedCode && (
+        <div className="mb-6">
+          <OneTimeCodePanel
+            code={issuedCode.code}
+            expiresAt={issuedCode.expiresAt}
+            identifier={issuedCode.identifier}
+            identifierLabel={t('docUserManagement.employeeIdLabel')}
+            title={issuedCode.kind === 'created' ? t('docUserManagement.credentialCodeTitle') : t('docUserManagement.resetCodeTitle')}
+            body={t('docUserManagement.credentialCodeBody')}
+            printTitle={t('docUserManagement.credentialPrintTitle')}
+            printBody={t('docUserManagement.credentialPrintBody')}
+          />
+          <button
+            type="button"
+            onClick={() => setIssuedCode(null)}
+            className="mt-3 px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+          >
+            {t('docUserManagement.credentialCodeDone')}
+          </button>
+        </div>
+      )}
 
       {/* The page already tracked this; it just never showed it. A failed
           save left the screen unchanged, which reads as success. */}
@@ -518,6 +615,22 @@ const UserManagementPage: React.FC = () => {
                       <Shield className="w-5 h-5" />
                     </button>
                     <button
+                      onClick={() => handleResetCredential(systemUser)}
+                      className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
+                      title={t('docUserManagement.resetCredentialTitle')}
+                      aria-label={t('docUserManagement.resetCredentialTitle')}
+                    >
+                      <Key className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => handleResetMfa(systemUser)}
+                      className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
+                      title={t('docUserManagement.resetMfaTitle')}
+                      aria-label={t('docUserManagement.resetMfaTitle')}
+                    >
+                      <Smartphone className="w-5 h-5" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteUser(systemUser.userId)}
                       className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       title={t('docUserManagement.deleteUserTitle')}
@@ -528,7 +641,7 @@ const UserManagementPage: React.FC = () => {
                 </div>
 
                 {/* `grid-cols-4` was fixed at every breakpoint and the cells
-                    had no `min-w-0`. A wallet address is 48 unbreakable
+                    had no `min-w-0`. A user id is 36 unbreakable
                     characters, and a grid track cannot shrink below its
                     content's intrinsic width without `min-w-0` — so the first
                     column pushed past its share and the four values rendered
@@ -541,7 +654,7 @@ const UserManagementPage: React.FC = () => {
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
                     {/* Monospaced and selectable: this is an identifier someone
                         copies, and proportional type makes a transposed
-                        character in an SS58 address genuinely hard to spot. */}
+                        character in a UUID genuinely hard to spot. */}
                     <p
                       className="font-mono text-xs text-content break-all select-all"
                       title={systemUser.userId}
@@ -666,18 +779,22 @@ const UserManagementPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="new-user-wallet" className="block text-sm font-semibold text-content-secondary mb-2">
-                  Wallet address <span className="text-critical-subtle-fg">*</span>
+                <label htmlFor="new-user-login-id" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docUserManagement.employeeIdLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <input
-                  id="new-user-wallet"
+                  id="new-user-login-id"
                   type="text"
-                  value={newUser.walletAddress}
-                  onChange={(e) => setNewUser({ ...newUser, walletAddress: e.target.value })}
-                  placeholder="SS58 wallet address"
+                  value={newUser.loginId}
+                  onChange={(e) => { clearField('loginId'); setNewUser({ ...newUser, loginId: e.target.value }); }}
+                  onBlur={() => validateField('loginId', newUser)}
+                  placeholder={t('docUserManagement.employeeIdPlaceholder')}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  autoComplete="off"
                   required
                 />
+                {errors.loginId && <p className="mt-1 text-sm text-critical-subtle-fg">{errors.loginId}</p>}
+                <p className="mt-1 text-xs text-content-muted">{t('docUserManagement.employeeIdHint')}</p>
               </div>
               <div>
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-content-secondary mb-2">
@@ -692,16 +809,6 @@ const UserManagementPage: React.FC = () => {
                   error={errors.name}
                   required
                   placeholder={t('docUserManagement.fullNamePlaceholder')}
-                />
-              </div>
-              <div>
-                <label htmlFor="new-user-username" className="block text-sm font-semibold text-content-secondary mb-2">Username</label>
-                <input
-                  id="new-user-username"
-                  type="text"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
               <div>

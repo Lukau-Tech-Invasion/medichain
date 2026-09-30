@@ -209,7 +209,7 @@ export default function AppointmentSchedulerPage() {
     } finally {
       setLoading(false);
     }
-    // `provider.walletAddress` went with the hand-rolled session headers; the
+    // `provider.userId` went with the hand-rolled session headers; the
     // typed client reads the session itself.
   }, [provider.isAuthenticated, provider.providerId, t]);
 

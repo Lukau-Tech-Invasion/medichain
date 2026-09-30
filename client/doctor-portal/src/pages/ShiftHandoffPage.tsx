@@ -228,7 +228,7 @@ export default function ShiftHandoffPage() {
           // endpoint could answer -- so yesterday's handover, the one a
           // clinician starting a shift most needs, was never on it.
           const data = await getApiClient().get<HandoffList>(
-            `/api/clinical/shift-handoff/${user.walletAddress}?days=${HANDOFF_HISTORY_DAYS}`
+            `/api/clinical/shift-handoff/${user.userId}?days=${HANDOFF_HISTORY_DAYS}`
           );
           setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
         } catch (err) {

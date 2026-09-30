@@ -93,7 +93,7 @@ export async function patientJourney(
     token: patient.token,
     body: {
       patient_id: id,
-      provider_id: clinician.wallet,
+      provider_id: clinician.userId,
       appointment_type: 'consultation',
       preferred_date: inDays(14),
       preferred_time: '11:00',
@@ -120,7 +120,7 @@ export async function patientJourney(
     );
 
     // The clinician's diary is the other side of the same booking.
-    const diary = await http('GET', `/appointments/provider/${clinician.wallet}`, {
+    const diary = await http('GET', `/appointments/provider/${clinician.userId}`, {
       token: clinician.token,
     });
     const drows = rowsOf(diary.json, 'appointments', 'items');
@@ -155,7 +155,7 @@ export async function patientJourney(
   const send = await http('POST', '/messages/send', {
     token: patient.token,
     body: {
-      recipient_id: clinician.wallet,
+      recipient_id: clinician.userId,
       subject: 'Patient message',
       content,
       related_patient_id: id,
@@ -376,8 +376,8 @@ export async function patientJourney(
         j.record(
           'the log says the patient reported it, not who they are',
           JSON.stringify(logs ?? null).includes('"reported_by":"patient"'),
-          `reported_by is a category (patient/caregiver/system/provider); a wallet ` +
-            `address there is rejected by the database. Stored: ${JSON.stringify(logs).slice(0, 200)}`
+          `reported_by is a category (patient/caregiver/system/provider); a user ` +
+            `id there is rejected by the database. Stored: ${JSON.stringify(logs).slice(0, 200)}`
         );
       } else {
         j.skip('the dose stays marked when the screen is reopened', 'the adherence log was refused');
@@ -519,10 +519,10 @@ export async function patientJourney(
 /**
  * The patient checks themselves in for their own appointment.
  *
- * `POST /api/appointments/{id}/check-in` compared the caller's wallet address
+ * `POST /api/appointments/{id}/check-in` compared the caller's account id
  * to a `PAT-` id, so this was 403 for every patient who ever tried it. WF-007
  * fixed the clinician half of that guard and left the patient half comparing
- * two different namespaces -- the recurring wallet-vs-patient-id defect.
+ * two different namespaces -- the recurring account-id-vs-patient-id defect.
  *
  * Split out so `runPatientJourney` stays inside the 60-line branching budget.
  */
@@ -709,7 +709,7 @@ export async function runDischargeVisibilitySteps(
  * The route existed; whether the round trip worked had never been asserted, and
  * the two halves disagree about namespaces in exactly the place this codebase
  * keeps getting wrong: the nurse files against a `PAT-` id, the patient asks
- * with a wallet address, and `list_my_immunizations` bridges them through
+ * with an account id, and `list_my_immunizations` bridges them through
  * `linked_patient_id`. If that resolution ever breaks, a patient is told they
  * have had no vaccinations — which is the answer that gets one repeated.
  *
@@ -844,7 +844,7 @@ export async function runImagingVisibilitySteps(
       // The handler stamps this from the session and refuses a mismatch: an
       // imaging order is an accountable clinical act, so the ordering provider
       // is whoever placed it, not whoever the body names.
-      ordering_provider: clinician.wallet,
+      ordering_provider: clinician.userId,
       order_time: Math.floor(Date.now() / 1000),
       contrast: false,
       allergies_reviewed: true,
@@ -872,7 +872,7 @@ export async function runImagingVisibilitySteps(
       findings: 'Lungs clear. Heart size normal. No pleural effusion.',
       impression: [impression],
       critical_finding: false,
-      radiologist: clinician.wallet,
+      radiologist: clinician.userId,
       status: 'Final',
     },
   });
@@ -948,7 +948,7 @@ export async function runPathologyVisibilitySteps(
       patientName: 'Journey Patient',
       collectionDate: new Date().toISOString().slice(0, 10),
       collectionTime: '09:30',
-      clinician: clinician.wallet,
+      clinician: clinician.userId,
       specimenType: 'surgical',
       site,
       laterality: 'left',
@@ -957,7 +957,7 @@ export async function runPathologyVisibilitySteps(
       priority: 'routine',
       status: 'received',
       receivedDate: new Date().toISOString().slice(0, 10),
-      receivedBy: clinician.wallet,
+      receivedBy: clinician.userId,
       container: 'Formalin pot',
       fixative: '10% neutral buffered formalin',
     },
@@ -1120,7 +1120,7 @@ export async function runVisitNoteAndPrescriptionVisibilitySteps(
     // "Send Prescription" is create -> sign -> transmit in one action.
     await http('POST', `/e-prescriptions/${rxId}/sign`, {
       token: clinician.token,
-      body: { signature_method: 'wallet', attestation: 'Issued for a legitimate medical purpose.' },
+      body: { signature_method: 'password', attestation: 'Issued for a legitimate medical purpose.' },
     });
     await http('POST', `/e-prescriptions/${rxId}/transmit`, { token: clinician.token });
 
@@ -1176,7 +1176,7 @@ export async function runConsultVisibilitySteps(
     body: {
       patientId: id,
       specialty: 'Cardiology',
-      consultingProvider: clinician.wallet,
+      consultingProvider: clinician.userId,
       reason,
       clinicalQuestion: question,
       relevantHistory: 'Hypertension, ex-smoker.',
@@ -1363,7 +1363,7 @@ export async function runWardRecordVisibilitySteps(
       repair_method: 'simple interrupted sutures',
       suture_material: 'Nylon 4-0',
       suture_count: 6,
-      performed_by: clinician.wallet,
+      performed_by: clinician.userId,
       performed_at: new Date().toISOString(),
     },
   });
@@ -1393,7 +1393,7 @@ export async function runWardRecordVisibilitySteps(
       dateCreated: new Date().toISOString(),
       status: 'pending-signatures',
       riskLevel: 'high',
-      provider: clinician.wallet,
+      provider: clinician.userId,
       diagnosis: 'Community-acquired pneumonia',
       recommendedTreatment: 'Admission for intravenous antibiotics',
       patientStatement: statement,
@@ -1511,10 +1511,9 @@ async function readBackAsPatient(
  * consent is the signed legal basis, and revoking either leaves the other
  * standing.
  *
- * Covered here rather than in the browser suite because the patient
- * application's e2e harness signs in by creating a fresh demo wallet, and the
- * consent endpoints answer 401 for it — so a browser test would assert nothing
- * about authorisation. This runs as the real fixture patient.
+ * Covered here as well as in the browser suite because this reads the standing
+ * consents back through the API as the real fixture patient, which is the
+ * assertion that separates a withdrawal from a 200 that changed nothing.
  */
 export async function runConsentWithdrawalSteps(
   j: Journal,

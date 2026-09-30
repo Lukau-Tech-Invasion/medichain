@@ -230,7 +230,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setLoading(false);
         return;
       }

@@ -52,7 +52,7 @@ async function pick() {
 describe('PatientSelect access reason (WP10)', () => {
   beforeEach(() => {
     resetDeclaredAccessForTests();
-    vi.mocked(useAuthStore).mockReturnValue({ user: { walletAddress: 'doctor', role: 'Doctor' } } as never);
+    vi.mocked(useAuthStore).mockReturnValue({ user: { userId: 'doctor', role: 'Doctor' } } as never);
   });
 
   it('asks why before handing the patient to the page, then cites the context on reads', async () => {

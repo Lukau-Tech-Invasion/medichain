@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
 import {
   Shield,
@@ -23,13 +23,9 @@ import { FEATURES, getDemoCredentials, useTranslation, type DemoCredential as De
  * account*, and clicking one runs the ordinary employee-ID/password flow with
  * credentials the server hands back at runtime.
  *
- * The list used to be hardcoded here, with wallet addresses, and clicking an
- * entry called a wallet-lookup route that had been removed on purpose. Every
- * click reported "Wallet not registered" for accounts that were registered, and
- * even when that route existed the shortcut produced a session with no bearer
- * token behind it. There is no honest one-click session: `POST /api/auth/jwt`
- * verifies a real signature over a single-use challenge in every mode, so an
- * identity with no key cannot hold a session.
+ * The list used to be hardcoded here, and clicking an entry produced a session
+ * with no bearer token behind it. There is no honest one-click session: every
+ * session comes from `POST /api/auth/login` with a real credential.
  *
  * Resolving the list from `GET /api/auth/demo-credentials` also settles
  * production containment without relying on the frontend to hide anything. That
@@ -58,45 +54,37 @@ const ROLE_STYLES: Record<string, string> = {
 function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { loginWithCredentials, loginWithExtension, isLoading, error, clearError } =
-    useAuthStore();
+  const { loginWithCredentials, isLoading, error, mfaRequired, clearError } = useAuthStore();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
 
   /**
-   * Login using Polkadot extension
-   */
-  const handleExtensionLogin = async () => {
-    clearError();
-    const success = await loginWithExtension();
-    if (success) {
-      navigate('/dashboard');
-    }
-  };
-
-  /**
-   * The normal way in: employee identifier and password.
+   * The way in: Employee ID and password.
    *
-   * No wallet address is typed, seen, or remembered here — the account's key
-   * is fetched encrypted and opened in the browser. See
-   * `authStore.loginWithCredentials`.
+   * An account with an authenticator answers "code needed" on the first
+   * attempt; the code field then appears and the same form is submitted again
+   * with it. See `authStore.loginWithCredentials`.
    */
   const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
     if (!identifier.trim() || !password) return;
-    const success = await loginWithCredentials(identifier.trim(), password);
-    // Clear the password from component state either way; on failure the user
-    // retypes it rather than leaving it sitting in memory behind an error.
-    setPassword('');
-    if (success) {
+    const code = mfaRequired ? totpCode.trim() : undefined;
+    if (mfaRequired && !code) return;
+    const result = await loginWithCredentials(identifier.trim(), password, code);
+    setTotpCode('');
+    // Keep the password only while the account is waiting for its code: the
+    // second submit needs it again. Otherwise clear it from component state; on
+    // failure the user retypes it rather than leaving it sitting behind an error.
+    if (result !== 'mfa_required') setPassword('');
+    if (result === true) {
       navigate('/dashboard');
     }
   };
 
   /**
-   * Quick login with a demo user's wallet address
+   * Quick login with a demo user's seeded credentials
    */
   const [demoAccounts, setDemoAccounts] = useState<DemoCredential[]>([]);
 
@@ -126,9 +114,9 @@ function LoginPage() {
   /**
    * Run the real credential sign-in with a seeded fixture's credentials.
    *
-   * Deliberately `loginWithCredentials` and not a shortcut of its own: the
-   * keystore is unlocked, a signer derived, the challenge signed and a genuine
-   * session issued, exactly as when a clinician types the same values.
+   * Deliberately `loginWithCredentials` and not a shortcut of its own: a
+   * genuine session is issued, exactly as when a clinician types the same
+   * values.
    */
   const handleDemoUserLogin = async (account: DemoCredential) => {
     clearError();
@@ -150,9 +138,7 @@ function LoginPage() {
           <p className="text-white mt-1">{t('docLogin.portal')}</p>
         </div>
 
-        {/* Staff sign-in. No wallet address is entered here by design: a
-            clinician cannot be asked to type a 48-character SS58 string, and
-            one typed into a box could never sign a request anyway. */}
+        {/* Staff sign-in: Employee ID and password. */}
         <form onSubmit={handleCredentialLogin} className="p-8">
           <div className="mb-4">
             <label htmlFor="identifier" className="block text-sm font-medium text-content-secondary mb-2">
@@ -191,6 +177,28 @@ function LoginPage() {
             />
           </div>
 
+          {mfaRequired && (
+            <div className="mb-6">
+              <label htmlFor="totp-code" className="block text-sm font-medium text-content-secondary mb-2">
+                <ShieldCheck size={16} className="inline mr-2" aria-hidden="true" />
+                {t('docLogin.totpLabel')}
+              </label>
+              <input
+                id="totp-code"
+                name="totp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                className="w-full px-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
+                disabled={isLoading}
+                required
+              />
+              <p className="mt-1 text-xs text-content-muted">{t('docLogin.totpHint')}</p>
+            </div>
+          )}
+
           {error && (
             <div
               role="alert"
@@ -203,7 +211,7 @@ function LoginPage() {
 
           <button
             type="submit"
-            disabled={isLoading || !identifier.trim() || !password}
+            disabled={isLoading || !identifier.trim() || !password || (mfaRequired && !totpCode.trim())}
             className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
           >
             {isLoading ? (
@@ -216,28 +224,11 @@ function LoginPage() {
             )}
           </button>
 
-          {/* The extension route stays available for staff who already hold a
-              wallet, but it is no longer the primary path. */}
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            aria-expanded={showAdvanced}
-            className="w-full text-xs text-content-muted hover:text-content-secondary underline underline-offset-2"
-          >
-            {t('docLogin.otherSignInOptions')}
-          </button>
-
-          {showAdvanced && (
-            <button
-              type="button"
-              onClick={handleExtensionLogin}
-              disabled={isLoading}
-              className="mt-3 w-full py-3 bg-surface border-2 border-brand text-brand-subtle-fg font-semibold rounded-lg hover:bg-brand-subtle transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <Shield size={18} aria-hidden="true" />
-              {t('docLogin.loginExtension')}
-            </button>
-          )}
+          <p className="text-center text-sm text-content-muted">
+            <Link to="/activate" className="underline underline-offset-2 hover:text-content-secondary">
+              {t('docLogin.activateLink')}
+            </Link>
+          </p>
         </form>
 
         {/* Demo accounts. Two independent gates: the build must be a demo build

@@ -43,23 +43,18 @@ vi.mock('react-router-dom', async () => {
 });
 
 /**
- * These tests were rewritten when the wallet-address box was replaced by
- * employee-identifier sign-in. They previously asserted that the page asked for
- * a "Wallet Address" and offered "Connect Wallet" — the exact behaviour the
- * audit found unusable (docs/WORKFLOW_AUDIT.md, WF-002), so the assertions had
- * to invert rather than be relaxed.
+ * Sign-in is an Employee ID and a password, with an authenticator code when the
+ * account has one. There is no other way in, and no key, address or extension
+ * is involved (docs/WORKFLOW_AUDIT.md, WF-002).
  */
 describe('LoginPage', () => {
-  const mockLogin = vi.fn();
   const mockLoginWithCredentials = vi.fn();
-  const mockLoginWithExtension = vi.fn();
   const mockClearError = vi.fn();
 
   function mockStore(overrides: Record<string, unknown> = {}) {
     vi.mocked(useAuthStore).mockReturnValue({
-      login: mockLogin,
       loginWithCredentials: mockLoginWithCredentials,
-      loginWithExtension: mockLoginWithExtension,
+      mfaRequired: false,
       isLoading: false,
       error: null,
       clearError: mockClearError,
@@ -91,14 +86,36 @@ describe('LoginPage', () => {
   });
 
   /**
-   * The point of the whole change: a clinician must never be asked for an SS58
-   * address to sign in. If this ever fails, the defect has come back.
+   * The point of the whole change: a clinician is never asked for a key or an
+   * address to sign in, and there is no extension route. If this ever fails, the
+   * defect has come back.
    */
-  it('does not ask for a wallet address anywhere on the sign-in form', () => {
+  it('offers no address, key or extension sign-in', () => {
     renderPage();
 
-    expect(screen.queryByLabelText(/Wallet Address/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Connect Wallet/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/address/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Extension|Connect/i })).not.toBeInTheDocument();
+  });
+
+  it('links to account activation for a first sign-in', () => {
+    renderPage();
+
+    expect(screen.getByRole('link', { name: /activate/i })).toHaveAttribute('href', '/activate');
+  });
+
+  it('asks for the authenticator code once the account requires it, and sends it', async () => {
+    mockStore({ mfaRequired: true });
+    mockLoginWithCredentials.mockResolvedValue(true);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
+    fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => {
+      expect(mockLoginWithCredentials).toHaveBeenCalledWith('dr.mbeki', 'a-real-password', '123456');
+    });
   });
 
   it('signs in with the identifier and password, then goes to the dashboard', async () => {
@@ -114,7 +131,7 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
 
     await waitFor(() => {
-      expect(mockLoginWithCredentials).toHaveBeenCalledWith('dr.mbeki', 'a-real-password');
+      expect(mockLoginWithCredentials).toHaveBeenCalledWith('dr.mbeki', 'a-real-password', undefined);
       expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
     });
   });
@@ -148,27 +165,6 @@ describe('LoginPage', () => {
     renderPage();
 
     expect(screen.getByRole('button', { name: /Signing in/i })).toBeDisabled();
-  });
-
-  /**
-   * The extension route still exists for staff who already hold a wallet, but
-   * it is deliberately demoted behind a disclosure rather than being a primary
-   * button competing with the ordinary path.
-   */
-  it('keeps the extension login available but not primary', async () => {
-    renderPage();
-
-    expect(
-      screen.queryByRole('button', { name: /Login with Polkadot Extension/i })
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Other sign-in options/i }));
-
-    const extensionButton = await screen.findByRole('button', {
-      name: /Login with Polkadot Extension/i,
-    });
-    fireEvent.click(extensionButton);
-    expect(mockLoginWithExtension).toHaveBeenCalled();
   });
 
   /**

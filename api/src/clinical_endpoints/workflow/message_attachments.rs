@@ -118,7 +118,7 @@ async fn load_conversation(
     let candidate = field("related_patient_id").or_else(|| {
         [&sender_id, &recipient_id]
             .into_iter()
-            .filter_map(|wallet| crate::get_user(data, wallet))
+            .filter_map(|user_id| crate::get_user(data, user_id))
             .find(|user| user.role == crate::Role::Patient)
             .and_then(|user| user.linked_patient_id)
     });
@@ -148,7 +148,7 @@ fn attachment_audit(
 ) -> crate::repositories::traits::AccessLogEntity {
     crate::repositories::traits::AccessLogEntity {
         id: crate::middleware::secure_tokens::generate_access_id(),
-        accessor_id: caller.wallet_address.clone(),
+        accessor_id: caller.id.clone(),
         accessor_role: caller.role.to_string(),
         patient_id,
         resource_type: "message_attachment".to_string(),
@@ -172,7 +172,7 @@ async fn require_attachable(
     message_id: &str,
     conversation: &Conversation,
 ) -> Result<(), HttpResponse> {
-    if conversation.sender_id != caller.wallet_address {
+    if conversation.sender_id != caller.id {
         return Err(attachment_error(
             HttpResponse::Forbidden(),
             "Only the sender can attach files to a message.",
@@ -204,19 +204,13 @@ async fn store_attachment(
     file: ValidatedFile,
 ) -> Result<MessageAttachmentEntity, HttpResponse> {
     let patient = conversation.patient_id.as_deref();
-    let stored = store_encrypted(
-        data,
-        &file,
-        patient,
-        &caller.wallet_address,
-        "message_attachment",
-    )
-    .await
-    .map_err(|error| attachment_unavailable("encrypted upload", error))?;
+    let stored = store_encrypted(data, &file, patient, &caller.id, "message_attachment")
+        .await
+        .map_err(|error| attachment_unavailable("encrypted upload", error))?;
     Ok(MessageAttachmentEntity {
         id: format!("ATT-{}", uuid::Uuid::new_v4()),
         message_id: message_id.to_string(),
-        uploaded_by: caller.wallet_address.clone(),
+        uploaded_by: caller.id.clone(),
         patient_id: conversation.patient_id.clone(),
         filename: file.filename,
         content_type: file.content_type.to_string(),
@@ -317,9 +311,7 @@ pub async fn download_message_attachment(
         Ok(conversation) => conversation,
         Err(response) => return response,
     };
-    if caller.wallet_address != conversation.sender_id
-        && caller.wallet_address != conversation.recipient_id
-    {
+    if caller.id != conversation.sender_id && caller.id != conversation.recipient_id {
         return attachment_error(
             HttpResponse::Forbidden(),
             "Only the people in this conversation can open its attachments.",
@@ -421,11 +413,11 @@ mod handler_tests {
         web::Data::new(state)
     }
 
-    /// Send `request` as `wallet` to an app with both attachment routes.
+    /// Send `request` as `user id` to an app with both attachment routes.
     async fn call(
         state: &web::Data<AppState>,
         request: test::TestRequest,
-        wallet: &str,
+        user_id: &str,
     ) -> actix_web::dev::ServiceResponse {
         let app = test::init_service(
             App::new()
@@ -436,7 +428,9 @@ mod handler_tests {
         .await;
         test::call_service(
             &app,
-            request.insert_header(("x-user-id", wallet)).to_request(),
+            request
+                .insert_header(crate::test_fixtures::as_user(user_id))
+                .to_request(),
         )
         .await
     }

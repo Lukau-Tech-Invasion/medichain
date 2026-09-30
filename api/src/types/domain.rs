@@ -172,11 +172,13 @@ impl std::fmt::Display for Role {
     }
 }
 
-/// User account with role (wallet-based identity)
+/// User account with role.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    /// SS58 wallet address (primary identifier until Phase B)
-    pub wallet_address: String,
+    /// `users.id` as text: the only identifier of a user, the JWT `sub`, and the
+    /// value of every actor column (ADR-0010). On the wire it is `user_id`.
+    #[serde(rename = "user_id")]
+    pub id: String,
     /// Optional username for display
     pub username: Option<String>,
     /// Full name
@@ -185,7 +187,7 @@ pub struct User {
     pub role: Role,
     /// When the user was registered
     pub created_at: DateTime<Utc>,
-    /// Which admin registered this user (wallet address)
+    /// Which admin registered this user (their `users.id`)
     pub created_by: Option<String>,
     /// Optional linked patient ID (for patient users)
     pub linked_patient_id: Option<String>,
@@ -520,7 +522,7 @@ pub struct EmergencyInfo {
     pub emergency_contacts: Vec<EmergencyContact>,
     pub organ_donor: bool,
     pub dnr_status: bool,
-    /// Wallet/staff id of the provider who verified the DNR advance directive.
+    /// User id/staff id of the provider who verified the DNR advance directive.
     /// `None` means the DNR is recorded but UNVERIFIED — first responders must
     /// assume full resuscitation until the directive is confirmed.
     #[serde(default)]
@@ -589,7 +591,7 @@ pub struct PatientProfile {
 // serialized + encrypted into `profile_extras_encrypted` so reads round-trip
 // losslessly (incl. address/insurance/doctors/preferences/directives); typed
 // columns are populated for lookup/search. FK columns (registered_by,
-// primary_provider_id) stay NULL because user IDs here are wallet addresses, not
+// primary_provider_id) stay NULL because user IDs here are user ids, not
 // the `users(id)` UUIDs the schema's foreign keys expect.
 // ----------------------------------------------------------------------------
 
@@ -675,7 +677,6 @@ pub(crate) fn patient_profile_to_entity(
         dnr_verified_at: profile.emergency_info.dnr_verified_at,
         dnr_document_ref: profile.emergency_info.dnr_document_ref.clone(),
         primary_provider_id: None,
-        wallet_address: None,
         created_at: profile.created_at,
         updated_at: profile.last_updated,
         registered_by: None,

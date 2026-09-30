@@ -96,7 +96,7 @@ export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => 
  */
 const NoteTemplatesPage: React.FC = () => {
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
@@ -239,7 +239,7 @@ const NoteTemplatesPage: React.FC = () => {
 
   /** Its author or an administrator may retire a clinician-authored template. */
   const canDeactivate = (template: NoteTemplate) =>
-    !template.builtIn && (template.createdBy === user?.walletAddress || user?.role === 'Admin');
+    !template.builtIn && (template.createdBy === user?.userId || user?.role === 'Admin');
 
   const handleDeactivateTemplate = async (templateId: string) => {
     if (!(await confirmDialog({ message: t('docNoteTemplates.confirmDelete'), destructive: true }))) return;

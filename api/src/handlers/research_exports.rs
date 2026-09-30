@@ -74,7 +74,7 @@ fn governance_response(error: GovernanceError) -> HttpResponse {
 fn governance_audit(caller: &crate::User, run_id: &str, action: &str) -> AccessLogEntity {
     AccessLogEntity {
         id: secure_tokens::generate_access_id(),
-        accessor_id: caller.wallet_address.clone(),
+        accessor_id: caller.id.clone(),
         accessor_role: caller.role.to_string(),
         patient_id: None,
         resource_type: "research_export".to_string(),
@@ -182,9 +182,9 @@ pub async fn propose_research_export(
     };
     let run = JsonRecordEntity {
         id: run_id.clone(),
-        owner_id: caller.wallet_address.clone(),
+        owner_id: caller.id.clone(),
         data: serde_json::json!({
-            "id": run_id, "purpose": purpose, "proposed_by": caller.wallet_address,
+            "id": run_id, "purpose": purpose, "proposed_by": caller.id,
             "decision_id": decision.id, "consent_version": RESEARCH_CONSENT_VERSION,
             "required_approvals": REQUIRED_EXPORT_APPROVALS, "status": "proposed",
             "created_at": now,
@@ -265,7 +265,7 @@ pub async fn approve_research_export(
         Ok(run) => run,
         Err(response) => return response,
     };
-    if run.owner_id == caller.wallet_address {
+    if run.owner_id == caller.id {
         return export_error(
             HttpResponse::Forbidden(),
             "The proposer cannot approve their own export.",
@@ -278,7 +278,7 @@ pub async fn approve_research_export(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    let decision = match governance::approve(&data, &decision_id, &caller.wallet_address).await {
+    let decision = match governance::approve(&data, &decision_id, &caller.id).await {
         Ok(decision) => decision,
         Err(error) => return governance_response(error),
     };
@@ -473,7 +473,7 @@ async fn finish_export(
     let run_id = run.id.clone();
     let body = serde_json::to_vec(&records).unwrap_or_default();
     let summary = serde_json::json!({
-        "status": "executed", "executed_by": caller.wallet_address, "executed_at": Utc::now(),
+        "status": "executed", "executed_by": caller.id, "executed_at": Utc::now(),
         "included_count": records.len(), "withheld_count": withheld,
         "output_sha256": hex::encode(medichain_crypto::sha256(&body)),
     });
@@ -519,24 +519,20 @@ mod tests {
             conditions.iter().map(|c| c.to_string()).collect();
         let entity = crate::patient_profile_to_entity(&profile, &state.encryption_keyring);
         state.repositories.patients.create(entity).await.unwrap();
-        let mut user = crate::test_fixtures::staff(&format!("wallet_{id}"), crate::Role::Patient);
+        let mut user = crate::test_fixtures::staff(&format!("user_{id}"), crate::Role::Patient);
         user.linked_patient_id = Some(id.into());
-        state
-            .users
-            .write()
-            .unwrap()
-            .insert(user.wallet_address.clone(), user);
+        state.users.write().unwrap().insert(user.id.clone(), user);
     }
 
     async fn state() -> web::Data<AppState> {
         let state = AppState::new();
-        for (wallet, role) in [
+        for (user_id, role) in [
             (ADMIN_A, crate::Role::Admin),
             (ADMIN_B, crate::Role::Admin),
             (ADMIN_C, crate::Role::Admin),
             (DOCTOR, crate::Role::Doctor),
         ] {
-            crate::test_fixtures::register(&state, wallet, role);
+            crate::test_fixtures::register(&state, user_id, role);
         }
         web::Data::new(state)
     }
@@ -544,7 +540,7 @@ mod tests {
     async fn call(
         state: &web::Data<AppState>,
         request: test::TestRequest,
-        wallet: &str,
+        user_id: &str,
     ) -> (u16, serde_json::Value) {
         let app = test::init_service(
             App::new()
@@ -558,7 +554,9 @@ mod tests {
         .await;
         let response = test::call_service(
             &app,
-            request.insert_header(("x-user-id", wallet)).to_request(),
+            request
+                .insert_header(crate::test_fixtures::as_user(user_id))
+                .to_request(),
         )
         .await;
         let status = response.status().as_u16();
@@ -581,7 +579,7 @@ mod tests {
             test::TestRequest::post()
                 .uri("/api/consent/sign")
                 .set_json(body),
-            &format!("wallet_{id}"),
+            &format!("user_{id}"),
         )
         .await;
         assert_eq!(status, 201, "{response}");

@@ -16,7 +16,7 @@ use uuid::Uuid;
 /// Horizon HZ-014: the `users` table's schema-level `password_hash` column
 /// (a vestige of the original hackathon schema's "optional email
 /// authentication" design) is deliberately not modeled here — this codebase's
-/// real, sole auth mechanism is wallet + Sr25519 signature (see `CLAUDE.md`),
+/// real, sole auth mechanism is user id + Sr25519 signature (see `CLAUDE.md`),
 /// and no code anywhere reads or writes a password hash (confirmed by grep:
 /// `password_hash` appears nowhere in `api/src` outside this file before this
 /// change, and `AppState::persist_user`'s `INSERT INTO users` column list
@@ -25,7 +25,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUser {
     pub id: Uuid,
-    pub wallet_address: String,
     pub email: Option<String>,
     pub role: String,
     pub name: Option<String>,

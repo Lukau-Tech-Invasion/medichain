@@ -92,7 +92,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!selectedConversation || selectedConversation.unreadCount === 0 || !user) return;
     const unread = selectedConversation.messages.filter(
-      message => !message.read && message.recipient_id === user.walletAddress,
+      message => !message.read && message.recipient_id === user.userId,
     );
     if (unread.length === 0) return;
     const selectedConversationId = selectedConversation.id;
@@ -106,7 +106,7 @@ export default function MessagesPage() {
                 unreadCount: 0,
                 messages: candidate.messages.map(message => ({
                   ...message,
-                  read: message.recipient_id === user.walletAddress ? true : message.read,
+                  read: message.recipient_id === user.userId ? true : message.read,
                 })),
               }
             : candidate
@@ -297,7 +297,7 @@ export default function MessagesPage() {
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-sunken max-h-[520px]">
                 {selectedConversation.messages.map(message => (
-                  <MessageBubble key={message.message_id} message={message} currentUserId={user?.walletAddress ?? ''} />
+                  <MessageBubble key={message.message_id} message={message} currentUserId={user?.userId ?? ''} />
                 ))}
               </div>
               <form onSubmit={handleSend} className="border-t p-4 space-y-3">

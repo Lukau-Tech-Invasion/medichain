@@ -107,17 +107,17 @@ async fn clinician_authority(
     patient_id: &str,
     now: DateTime<Utc>,
 ) -> Result<ChartAuthority, AuthorityUnavailable> {
-    let wallet = caller.wallet_address.as_str();
-    if let Some(id) = patient_grant(data, patient_id, wallet, now).await? {
+    let user_id = caller.id.as_str();
+    if let Some(id) = patient_grant(data, patient_id, user_id, now).await? {
         return Ok(ChartAuthority::PatientGrant(id));
     }
     let store = &data.repositories.care_relationships;
-    let facility = data.identity_contexts.facility_for_wallet(wallet);
+    let facility = data.identity_contexts.facility_for_user(user_id);
     let unavailable = |error: crate::repositories::traits::RepositoryError| {
         AuthorityUnavailable(error.to_string())
     };
     if let Some(row) = store
-        .active_for(patient_id, wallet, facility.as_deref(), now)
+        .active_for(patient_id, user_id, facility.as_deref(), now)
         .await
         .map_err(unavailable)?
     {
@@ -128,7 +128,7 @@ async fn clinician_authority(
     }
     Ok(
         match store
-            .active_break_glass(patient_id, wallet, now)
+            .active_break_glass(patient_id, user_id, now)
             .await
             .map_err(unavailable)?
         {
@@ -184,7 +184,7 @@ pub async fn record_relationship(
         id: format!("CR-{}", uuid::Uuid::new_v4()),
         patient_id: patient_id.to_string(),
         clinician_id: Some(clinician_id.to_string()),
-        facility_id: data.identity_contexts.facility_for_wallet(clinician_id),
+        facility_id: data.identity_contexts.facility_for_user(clinician_id),
         source: source.to_string(),
         source_id: source_id.to_string(),
         starts_at: window.0,
@@ -263,19 +263,19 @@ mod tests {
 
     async fn state() -> web::Data<AppState> {
         let state = AppState::new();
-        for (wallet, role) in [
+        for (user_id, role) in [
             ("doctor_related", crate::Role::Doctor),
             ("doctor_stranger", crate::Role::Doctor),
             ("pharmacist_rule", crate::Role::Pharmacist),
         ] {
-            crate::test_fixtures::register(&state, wallet, role);
+            crate::test_fixtures::register(&state, user_id, role);
         }
         crate::test_fixtures::seed_patient(&state, PATIENT_ID).await;
         web::Data::new(state)
     }
 
-    fn user(data: &AppState, wallet: &str) -> crate::User {
-        data.users.read().unwrap().get(wallet).cloned().unwrap()
+    fn user(data: &AppState, user_id: &str) -> crate::User {
+        data.users.read().unwrap().get(user_id).cloned().unwrap()
     }
 
     #[actix_web::test]

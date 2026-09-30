@@ -11,7 +11,7 @@ pub async fn register_device(
     req: web::Json<DeviceRegistrationRequest>,
 ) -> impl Responder {
     let user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

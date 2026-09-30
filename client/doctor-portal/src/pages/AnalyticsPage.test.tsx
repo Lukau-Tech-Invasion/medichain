@@ -98,7 +98,7 @@ describe('AnalyticsPage', () => {
   // view of their own patients. The page enforces that, so the rendering tests
   // below have to sign in as one. The Doctor case is covered at the end.
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Admin',
   };
 
@@ -285,7 +285,7 @@ describe('AnalyticsPage', () => {
 
   it('tells a non-administrator the section is restricted rather than rendering it', async () => {
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '5GrwvaEF...mock', role: 'Doctor' },
+      user: { userId: '5GrwvaEF...mock', role: 'Doctor' },
       isAuthenticated: true,
     });
 

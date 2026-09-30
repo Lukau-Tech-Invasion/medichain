@@ -278,7 +278,7 @@ impl AppState {
                 for row in rows {
                     let db_user = &row.user;
                     let user = User {
-                        wallet_address: db_user.wallet_address.clone(),
+                        id: db_user.id.to_string(),
                         username: db_user.username.clone(),
                         name: db_user
                             .name
@@ -315,7 +315,7 @@ impl AppState {
                         status: db_user.status.clone(),
                         last_login: db_user.last_login_at,
                     };
-                    users.insert(db_user.wallet_address.clone(), user);
+                    users.insert(user.id.clone(), user);
                     count += 1;
                 }
 
@@ -345,13 +345,15 @@ impl AppState {
         let is_active = status == "active";
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-        let user_id: uuid::Uuid = sqlx::query_scalar(
+        let user_id = crate::actor_directory::parse_user_id(&user.id)
+            .ok_or_else(|| format!("user id {:?} is not a UUID", user.id))?;
+        sqlx::query(
             "INSERT INTO users (
-                wallet_address, role, name, username, email, linked_patient_id,
+                id, role, name, username, email, linked_patient_id,
                 is_active, status, last_login_at, created_by, created_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (wallet_address) DO UPDATE SET
+            ON CONFLICT (id) DO UPDATE SET
                 role = EXCLUDED.role,
                 name = EXCLUDED.name,
                 username = EXCLUDED.username,
@@ -360,10 +362,9 @@ impl AppState {
                 is_active = EXCLUDED.is_active,
                 status = EXCLUDED.status,
                 last_login_at = EXCLUDED.last_login_at,
-                updated_at = NOW()
-            RETURNING id",
+                updated_at = NOW()",
         )
-        .bind(&user.wallet_address)
+        .bind(user_id)
         .bind(&role)
         .bind(&user.name)
         .bind(&user.username)
@@ -374,7 +375,7 @@ impl AppState {
         .bind(user.last_login)
         .bind(&user.created_by)
         .bind(user.created_at)
-        .fetch_one(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -424,7 +425,7 @@ impl AppState {
     /// The card registry is a cache; `nfc_tags` is the record. Until this
     /// existed, `POST /api/nfc/generate` wrote only to the cache, so every card
     /// ever issued stopped working at the next restart while the plastic in the
-    /// patient's wallet carried on looking exactly as valid as before.
+    /// patient's user id carried on looking exactly as valid as before.
     ///
     /// `create` for a new card, `update` for a status change: the caller knows
     /// which, and an upsert here would let a suspend silently re-create a card
@@ -498,8 +499,19 @@ impl AppState {
         self.users
             .write()
             .map_err(|_| "User cache is unavailable".to_string())?
-            .insert(user.wallet_address.clone(), user);
+            .insert(user.id.clone(), user);
         Ok(())
+    }
+
+    /// Remember the user id a user signs in with (the user id flows phase C removes),
+    /// so the user id resolves to `user_id` at sign-in. No-op without a database.
+    pub async fn record_legacy_wallet(&self, wallet: &str, user_id: &str) -> Result<(), String> {
+        let Some(pool) = &self.db_pool else {
+            return Ok(());
+        };
+        crate::actor_directory::record_legacy_wallet(pool, wallet, user_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Bootstrap must inspect durable state, not only the active-user cache.
@@ -511,7 +523,9 @@ impl AppState {
                 .map(|users| !users.is_empty())
                 .map_err(|_| "User cache is unavailable".to_string());
         };
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users)")
+        // The migration's inactive "System" row is not a person who could bootstrap.
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1)")
+            .bind(crate::actor_directory::SYSTEM_USER_ID)
             .fetch_one(pool)
             .await
             .map_err(|e| e.to_string())
@@ -520,17 +534,19 @@ impl AppState {
     /// Soft-delete a user in the persistent `users` table (revoke access
     /// without destroying the audit record). No-op when no DB pool is
     /// configured. See `persist_user` for why this exists.
-    pub async fn deactivate_user_in_db(&self, wallet_address: &str) -> Result<(), String> {
+    pub async fn deactivate_user_in_db(&self, user_id: &str) -> Result<(), String> {
         let pool = match &self.db_pool {
             Some(p) => p,
             None => return Ok(()),
         };
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
 
         sqlx::query(
             "UPDATE users SET is_active = false, status = 'inactive', updated_at = NOW() \
-             WHERE wallet_address = $1",
+             WHERE id = $1",
         )
-        .bind(wallet_address)
+        .bind(user_uuid)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -539,15 +555,12 @@ impl AppState {
     }
 
     /// Durably deactivate an account before evicting its cached permissions.
-    pub async fn deactivate_then_evict_user(
-        &self,
-        wallet_address: &str,
-    ) -> Result<Option<User>, String> {
-        self.deactivate_user_in_db(wallet_address).await?;
+    pub async fn deactivate_then_evict_user(&self, user_id: &str) -> Result<Option<User>, String> {
+        self.deactivate_user_in_db(user_id).await?;
         self.users
             .write()
             .map_err(|_| "User cache is unavailable".to_string())
-            .map(|mut users| users.remove(wallet_address))
+            .map(|mut users| users.remove(user_id))
     }
 
     /// Load persisted MFA enrollments (decrypting secrets) and recent security
@@ -564,7 +577,7 @@ impl AppState {
 
         // MFA enrollments: decrypt each secret with the app encryption key.
         let rows: Vec<(String, Vec<u8>, bool, chrono::DateTime<Utc>)> = sqlx::query_as(
-            "SELECT wallet_address, secret_encrypted, enabled, created_at FROM user_mfa",
+            "SELECT user_id::text, secret_encrypted, enabled, created_at FROM user_mfa",
         )
         .fetch_all(pool)
         .await
@@ -572,7 +585,7 @@ impl AppState {
 
         let mut loaded = 0usize;
         if let Ok(mut map) = self.security.mfa.write() {
-            for (wallet, secret_encrypted, enabled, created_at) in rows {
+            for (user_id, secret_encrypted, enabled, created_at) in rows {
                 let secret_base32 =
                     match medichain_crypto::EncryptedData::from_bytes(&secret_encrypted)
                         .and_then(|ed| medichain_crypto::decrypt(&self.encryption_key, &ed))
@@ -582,7 +595,7 @@ impl AppState {
                             Err(_) => {
                                 log::warn!(
                                     "MFA secret for {} is not valid UTF-8; skipping",
-                                    wallet
+                                    user_id
                                 );
                                 continue;
                             }
@@ -593,7 +606,7 @@ impl AppState {
                         }
                     };
                 map.insert(
-                    wallet,
+                    user_id,
                     crate::security::mfa::MfaRecord {
                         secret_base32,
                         enabled,
@@ -610,7 +623,7 @@ impl AppState {
     /// No-op (Ok) on the memory backend.
     pub async fn persist_mfa_enrollment(
         &self,
-        wallet: &str,
+        user_id: &str,
         secret_base32: &str,
         enabled: bool,
     ) -> Result<(), String> {
@@ -620,11 +633,12 @@ impl AppState {
         let encrypted = medichain_crypto::encrypt(&self.encryption_key, secret_base32.as_bytes())
             .map_err(|e| format!("encrypt MFA secret: {}", e))?
             .to_bytes();
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
         sqlx::query(
-            "INSERT INTO user_mfa (wallet_address, secret_encrypted, enabled) VALUES ($1, $2, $3) \
-             ON CONFLICT (wallet_address) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled",
+            "INSERT INTO user_mfa (user_id, secret_encrypted, enabled) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled",
         )
-        .bind(wallet)
+        .bind(user_uuid)
         .bind(&encrypted)
         .bind(enabled)
         .execute(pool)
@@ -634,12 +648,14 @@ impl AppState {
     }
 
     /// Update the `enabled` flag of a persisted MFA enrollment. No-op on memory.
-    pub async fn update_mfa_enabled(&self, wallet: &str, enabled: bool) -> Result<(), String> {
+    pub async fn update_mfa_enabled(&self, user_id: &str, enabled: bool) -> Result<(), String> {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        let result = sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE wallet_address = $1")
-            .bind(wallet)
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        let result = sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE user_id = $1")
+            .bind(user_uuid)
             .bind(enabled)
             .execute(pool)
             .await
@@ -651,12 +667,14 @@ impl AppState {
     }
 
     /// Delete a persisted MFA enrollment. No-op on memory.
-    pub async fn delete_mfa_enrollment(&self, wallet: &str) -> Result<(), String> {
+    pub async fn delete_mfa_enrollment(&self, user_id: &str) -> Result<(), String> {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        let result = sqlx::query("DELETE FROM user_mfa WHERE wallet_address = $1")
-            .bind(wallet)
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        let result = sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
+            .bind(user_uuid)
             .execute(pool)
             .await
             .map_err(|e| format!("delete MFA enrollment: {}", e))?;

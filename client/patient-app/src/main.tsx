@@ -5,7 +5,7 @@ import App from './App';
 import { usePatientAuthStore } from './store/authStore';
 import './index.css';
 
-// Rebind the API singleton to the patient-specific stored wallet on every
+// Rebind the API singleton to the patient-specific stored session on every
 // reload. The doctor portal can be open on the same origin and has its own
 // independent session.
 usePatientAuthStore.getState().restoreSession();

@@ -21,7 +21,7 @@ global.fetch = mockFetch;
 
 describe('EPrescribePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 

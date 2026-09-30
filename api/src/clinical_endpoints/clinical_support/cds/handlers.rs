@@ -18,7 +18,7 @@ pub async fn get_cds_alert(
     let alert_id = path.into_inner();
 
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -84,7 +84,7 @@ pub async fn respond_to_cds_alert(
     let alert_id = path.into_inner();
 
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -204,7 +204,7 @@ pub async fn get_patient_cds_alerts(
     // care. The authorization decision belongs to that check, which denies
     // other patients. The write routes in this file keep the staff gate.
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

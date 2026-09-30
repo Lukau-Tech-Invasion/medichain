@@ -38,7 +38,7 @@ pub struct PushEvent {
 pub struct WsSessionManager {
     /// Broadcast channel used to fan-out events to all connected SSE clients.
     sender: broadcast::Sender<PushEvent>,
-    /// Tracks how many active SSE streams exist per wallet address.
+    /// Tracks how many active SSE streams exist per user id.
     subscribers: Arc<RwLock<HashMap<String, u32>>>,
 }
 
@@ -51,18 +51,18 @@ impl WsSessionManager {
         }
     }
 
-    /// Subscribe to the broadcast channel, recording the wallet address.
+    /// Subscribe to the broadcast channel, recording the user id.
     /// Returns a `Receiver` that the SSE stream will poll.
-    pub fn subscribe(&self, wallet_address: &str) -> broadcast::Receiver<PushEvent> {
+    pub fn subscribe(&self, user_id: &str) -> broadcast::Receiver<PushEvent> {
         let mut subs = self.subscribers.write().unwrap();
-        *subs.entry(wallet_address.to_string()).or_insert(0) += 1;
+        *subs.entry(user_id.to_string()).or_insert(0) += 1;
         self.sender.subscribe()
     }
 
-    /// Decrement the subscriber count for a wallet address when a connection closes.
-    pub fn unsubscribe(&self, wallet_address: &str) {
+    /// Decrement the subscriber count for a user id when a connection closes.
+    pub fn unsubscribe(&self, user_id: &str) {
         let mut subs = self.subscribers.write().unwrap();
-        if let Some(count) = subs.get_mut(wallet_address) {
+        if let Some(count) = subs.get_mut(user_id) {
             if *count > 0 {
                 *count -= 1;
             }
@@ -75,7 +75,7 @@ impl WsSessionManager {
         let _ = self.sender.send(event);
     }
 
-    /// Returns the number of wallet addresses with at least one active SSE stream.
+    /// Returns the number of user ids with at least one active SSE stream.
     pub fn subscriber_count(&self) -> usize {
         self.subscribers
             .read()
@@ -249,7 +249,7 @@ pub async fn sse_events(
         EventScope::AllEvents
     };
 
-    let receiver = data.ws_manager.subscribe(&caller.wallet_address);
+    let receiver = data.ws_manager.subscribe(&caller.user_id);
     let stream = SseStream::new(receiver, scope);
 
     HttpResponse::Ok()

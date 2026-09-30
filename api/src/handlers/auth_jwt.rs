@@ -113,8 +113,19 @@ pub async fn issue_jwt(
         }
     }
 
-    // The wallet must be a registered user.
-    let user = match get_user(&data, &body.wallet_address) {
+    // The wallet must belong to a registered user; the token carries that
+    // user's id, never the wallet.
+    let registered = match crate::actor_directory::resolve(pool, &body.wallet_address).await {
+        Ok(user_id) => user_id.and_then(|id| get_user(&data, &id.to_string())),
+        Err(error) => {
+            log::error!("Could not resolve wallet to a user: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Authentication is temporarily unavailable".to_string(),
+                code: "AUTH_STORAGE_REQUIRED".to_string(),
+            });
+        }
+    };
+    let user = match registered {
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -124,14 +135,7 @@ pub async fn issue_jwt(
         }
     };
 
-    issue_token_pair(
-        &data,
-        &http_req,
-        &body.wallet_address,
-        &user.role.to_string(),
-        None,
-    )
-    .await
+    issue_token_pair(&data, &http_req, &user.id, &user.role.to_string(), None).await
 }
 
 #[cfg(test)]
@@ -417,7 +421,7 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
     };
-    match crate::auth_sessions::revoke_all_for_wallet(pool, &claims.sub, "logout_all").await {
+    match crate::auth_sessions::revoke_all_for_user(pool, &claims.sub, "logout_all").await {
         Ok(ended) => HttpResponse::Ok()
             .insert_header((
                 actix_web::http::header::SET_COOKIE,
@@ -440,7 +444,7 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
 #[post("/api/auth/mfa/enroll")]
 pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -509,7 +513,7 @@ pub async fn mfa_verify(
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -585,7 +589,7 @@ pub async fn mfa_challenge(
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -640,7 +644,7 @@ pub async fn mfa_challenge(
 #[get("/api/auth/mfa/status")]
 pub async fn mfa_status(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let (enrolled, enabled) = data
@@ -668,7 +672,7 @@ pub async fn mfa_disable(
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
     let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -971,20 +975,19 @@ mod refresh_cookie_tests {
     use super::*;
     use actix_web::{test, App};
 
-    const WALLET: &str = "5RefreshCookieTestWallet";
-
     /// State on PostgreSQL with a registered doctor and one login session,
     /// returning the session's refresh token.
     async fn state_with_session() -> (web::Data<AppState>, String) {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
         let mut state = AppState::new();
         state.db_pool = Some(pool.clone());
-        crate::test_fixtures::register(&state, WALLET, crate::Role::Doctor);
-        let token = jwt::issue_refresh_token(WALLET, "Doctor").unwrap();
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        crate::test_fixtures::register(&state, &user, crate::Role::Doctor);
+        let token = jwt::issue_refresh_token(&user, "Doctor").unwrap();
         let claims = jwt::decode_token(&token).unwrap();
         crate::auth_sessions::create(
             &pool,
-            WALLET,
+            &user,
             &token,
             &claims.jti,
             chrono::Utc::now() + chrono::Duration::hours(1),

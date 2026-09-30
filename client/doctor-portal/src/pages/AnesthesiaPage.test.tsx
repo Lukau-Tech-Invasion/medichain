@@ -33,7 +33,7 @@ describe('AnesthesiaPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '5GrwvaEF...mock', role: 'Doctor' },
+      user: { userId: '5GrwvaEF...mock', role: 'Doctor' },
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
   });

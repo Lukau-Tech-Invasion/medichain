@@ -173,7 +173,7 @@ fn unit_audit(
 ) -> AccessLogEntity {
     AccessLogEntity {
         id: secure_tokens::generate_access_id(),
-        accessor_id: caller.wallet_address.clone(),
+        accessor_id: caller.id.clone(),
         accessor_role: caller.role.to_string(),
         patient_id: patient_id.map(str::to_string),
         resource_type: "blood_unit".to_string(),
@@ -263,7 +263,7 @@ fn received_unit(
         transfusion_id: None,
         issued_at: None,
         discard_reason: None,
-        received_by: caller.wallet_address.clone(),
+        received_by: caller.id.clone(),
         created_at: now,
         updated_at: now,
     })
@@ -558,7 +558,7 @@ mod tests {
     async fn call(
         state: &web::Data<AppState>,
         request: test::TestRequest,
-        wallet: &str,
+        user_id: &str,
     ) -> (u16, serde_json::Value) {
         let app = test::init_service(
             App::new()
@@ -573,7 +573,9 @@ mod tests {
         .await;
         let response = test::call_service(
             &app,
-            request.insert_header(("x-user-id", wallet)).to_request(),
+            request
+                .insert_header(crate::test_fixtures::as_user(user_id))
+                .to_request(),
         )
         .await;
         let status = response.status().as_u16();

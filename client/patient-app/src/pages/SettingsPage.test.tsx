@@ -28,7 +28,7 @@ vi.mock('@medichain/shared', async importOriginal => {
 });
 
 const patient = {
-  walletAddress: '5SettingsPatient',
+  userId: '5SettingsPatient',
   healthId: 'PAT-SETTINGS-1',
   fullName: 'Settings Patient',
   firstName: 'Settings',
@@ -53,7 +53,7 @@ describe('SettingsPage (Patient)', () => {
     vi.mocked(saveUserSettings).mockResolvedValue({
       success: true,
       message: 'saved',
-      user_id: patient.walletAddress,
+      user_id: patient.userId,
     });
     vi.mocked(updateMedicalIdPreferences).mockResolvedValue({
       success: true,

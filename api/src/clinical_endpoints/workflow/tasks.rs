@@ -304,7 +304,7 @@ mod notification_read_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/notifications")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -314,7 +314,7 @@ mod notification_read_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/notifications/read")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -324,7 +324,7 @@ mod notification_read_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/notifications")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;

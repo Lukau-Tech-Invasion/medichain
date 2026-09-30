@@ -148,7 +148,7 @@ const NursingCarePlanPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     // Was a banner naming both fields at once. A banner cannot say which
     // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
     // reported two problems when the nurse had one. `validate` puts the message

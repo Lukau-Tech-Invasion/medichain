@@ -43,17 +43,9 @@ const ha_NG: TranslationRecord = {
   },
   auth: {
     welcomeTitle: 'Barka da zuwa MediChain',
-    welcomeSubtitle: 'Haɗa walat ɗinka don samun damar shiga bayanan lafiyarka',
-    walletAddressLabel: 'Adireshin walat',
-    walletHint: 'Adireshin walat ɗinka na Substrate (tsarin SS58)',
-    connectWallet: 'Haɗa Walat',
     connecting: 'Ana haɗawa...',
-    quickLoginDemo: 'Shiga da sauri - marasa lafiya na misali',
-    quickLoginHint: 'Danna kowane mara lafiya don shiga nan take',
     signInNfc: 'Shiga da katin NFC',
     scanQr: 'Duba lambar QR',
-    errEnterWallet: 'Da fatan za a shigar da adireshin walat ɗinka',
-    errInvalidWallet: 'Tsarin adireshi ba daidai ba ne. Haruffa 48 da suka fara da "5".',
   },
   emergency: {
     title: 'Katin Lafiya na Gaggawa',

@@ -2,7 +2,7 @@
  * @medichain/shared - Shared components and utilities
  * 
  * National health ID system shared library.
- * All authentication is wallet-based using Substrate addresses (Phase C removes this).
+ * Sign-in is by login id and password; identity is `user_id`.
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -33,14 +33,12 @@ export {
 } from './i18n';
 export type { SupportedLocale, LocaleConfig } from './i18n';
 
-// Credential-backed access to the clinician's signing key (staff login).
-export * from './auth/credentials';
+// Password proof and session establishment (staff and patient sign-in).
+export * from './auth/proof';
+export * from './auth/loginId';
+export * from './auth/session';
 // The one place that decides whether the interface is dark.
 export * from './theme';
-
-// Wallet Types and Service (wallet identity; removed in Phase C)
-export * from './wallet/types';
-export * from './wallet/service';
 
 // Types (canonical Role definition is here)
 export * from './types';

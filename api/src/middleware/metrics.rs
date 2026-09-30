@@ -192,7 +192,7 @@ pub async fn metrics_endpoint(
     // rates, latency by route — which is reconnaissance for an attacker and was
     // previously readable by anyone. Production must use `METRICS_TOKEN`:
     // `/api/metrics` is deliberately bypassed by request-signature middleware
-    // for Prometheus, so a known legacy `X-User-Id` is not cryptographic proof.
+    // for Prometheus, so a session token is not what authorises it there.
     // Demo retains the registered-identity fallback for local diagnostics only.
     let token = std::env::var("METRICS_TOKEN").ok();
     let authorized =
@@ -211,7 +211,7 @@ pub async fn metrics_endpoint(
                 .unwrap_or(false),
             // RESOLVE the caller, don't just observe a header. A first cut of this
             // used `get_current_user_id(...).is_some()`, which is satisfied by
-            // `X-User-Id: anything` — the precise "authentication mistaken for
+            // an arbitrary identity string — the precise "authentication mistaken for
             // authorization" defect this whole pass exists to remove. The suite's
             // forged-identity assertion caught it.
             MetricsAuthorizationMode::DemoRegisteredIdentity => {

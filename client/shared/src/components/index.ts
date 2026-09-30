@@ -14,6 +14,8 @@ export type { EmptyStateProps } from './EmptyState';
 export { copyTextToClipboard } from '../utils/clipboard';
 export * from './Toast';
 export { StepUpDialog } from './StepUpDialog';
+export { ActivationForm } from './ActivationForm';
+export type { ActivationValues } from './ActivationForm';
 export { DialogHost, confirmDialog, promptDialog } from './Dialog';
 export type { ConfirmDialogOptions, PromptDialogOptions } from './Dialog';
 export {

@@ -1,8 +1,8 @@
 /**
  * Auth context for the MediChain mobile app (Phase 8.3).
  *
- * - Wallet login → fetches the account + issues a JWT (mirrors the web flow).
- * - Persists session + tokens in the device secure store (Keychain/Keystore).
+ * - Username + password login → a JWT session (mirrors the web flow).
+ * - Persists session + tokens in the device secure store (Keychain, encrypted preferences).
  * - Biometric (fingerprint/face) gate on app open / resume for ePHI access,
  *   satisfying the Zero-Trust posture from Phase 11.3 on the mobile surface.
  *
@@ -12,10 +12,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { apiClient } from '../api/client';
+import { apiClient, MfaRequiredError } from '../api/client';
 
 export interface MobileUser {
-  walletAddress: string;
+  userId: string;
   name: string;
   role: string;
   healthId?: string;
@@ -26,7 +26,9 @@ interface AuthState {
   loading: boolean;
   unlocked: boolean;
   error: string | null;
-  login: (walletAddress: string) => Promise<boolean>;
+  /** Resolves false on failure; `mfaRequired` is then true when a code is needed. */
+  login: (username: string, password: string, totpCode?: string) => Promise<boolean>;
+  mfaRequired: boolean;
   logout: () => Promise<void>;
   unlockWithBiometrics: () => Promise<boolean>;
 }
@@ -39,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mfaRequired, setMfaRequired] = useState(false);
 
   // Restore a persisted session on startup.
   useEffect(() => {
@@ -48,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (raw) {
           const parsed = JSON.parse(raw) as { user: MobileUser; tokens?: { accessToken: string; refreshToken: string } };
           setUser(parsed.user);
-          apiClient.setUserId(parsed.user.walletAddress);
+          apiClient.setUserId(parsed.user.userId);
           apiClient.setTokens(parsed.tokens);
           apiClient.initOfflineQueue();
         }
@@ -60,31 +63,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const login = useCallback(async (walletAddress: string): Promise<boolean> => {
+  const login = useCallback(async (username: string, password: string, totpCode?: string): Promise<boolean> => {
     setError(null);
     setLoading(true);
     try {
-      const account = (await apiClient.walletLookup(walletAddress)) as Record<string, string>;
-      apiClient.setUserId(walletAddress);
-      let tokens;
-      try {
-        tokens = await apiClient.issueJwt(walletAddress);
-      } catch {
-        tokens = undefined; // fall back to X-User-Id auth
-      }
+      const { tokens, account } = await apiClient.login(username, password, totpCode);
       const u: MobileUser = {
-        walletAddress,
+        userId: account.user_id,
         name: account.name ?? 'Patient',
         role: account.role ?? 'Patient',
-        healthId: account.healthId,
+        healthId: account.linked_patient_id ?? undefined,
       };
       setUser(u);
       setUnlocked(true);
+      setMfaRequired(false);
       apiClient.initOfflineQueue();
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify({ user: u, tokens }));
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Login failed');
+      if (e instanceof MfaRequiredError) {
+        // Not a failure: the account is asking for its authenticator code.
+        setMfaRequired(true);
+      } else {
+        setError(e instanceof Error ? e.message : 'Login failed');
+      }
       return false;
     } finally {
       setLoading(false);
@@ -115,8 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, unlocked, error, login, logout, unlockWithBiometrics }),
-    [user, loading, unlocked, error, login, logout, unlockWithBiometrics]
+    () => ({ user, loading, unlocked, error, mfaRequired, login, logout, unlockWithBiometrics }),
+    [user, loading, unlocked, error, mfaRequired, login, logout, unlockWithBiometrics]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

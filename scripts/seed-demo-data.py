@@ -1,8 +1,13 @@
 """Create the deterministic MediChain demonstration patient directory.
 
-Requires an API started with IS_DEMO=true and an existing clinician supplied as
-DEMO_SEED_USER. It never starts the API, invents credentials, or writes to a
-database directly. The API accepts the stable fixture keys only in demo mode.
+Requires an API started with IS_DEMO=true on PostgreSQL and an existing
+administrator, supplied as DEMO_SEED_LOGIN_ID and DEMO_SEED_PASSWORD. The demo
+accounts it creates share DEMO_ACCOUNT_PASSWORD, which the caller must choose: it
+never starts the API, invents credentials, or writes to a database directly. Each
+account is registered by the administrator, activated, and given its password by
+redeeming the one-time credential code, exactly as a deployment does it; the seed
+then acts as those accounts with their bearer tokens. The API accepts the stable
+fixture keys only in demo mode.
 """
 
 from __future__ import annotations
@@ -12,12 +17,24 @@ import os
 import sys
 import time
 import uuid
+from pathlib import Path
 from datetime import date
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from auth_proof import derive_auth_proof  # noqa: E402
+
 API_BASE = os.environ.get("API_BASE", "http://localhost:8090").rstrip("/")
-ACTOR = os.environ.get("DEMO_SEED_USER")
+SEED_LOGIN_ID = os.environ.get("DEMO_SEED_LOGIN_ID")
+SEED_PASSWORD = os.environ.get("DEMO_SEED_PASSWORD")
+DEMO_PASSWORD = os.environ.get("DEMO_ACCOUNT_PASSWORD")
+# Marks a request that must carry no credential (the sign-in itself).
+ANONYMOUS = "anonymous"
+# The account a call without an explicit actor runs as: the demo doctor.
+DEFAULT_ACTOR = 2
+# Signed-in demo accounts by fixture index: {"token": ..., "user_id": ...}.
+SESSIONS: dict[int, dict[str, str]] = {}
 # The API rate-limits each client (240 requests a minute by default) and the
 # seed can still burst past it. A 429 is waited out, never worked around.
 RATE_LIMIT_MAX_ATTEMPTS = 6
@@ -45,9 +62,14 @@ DEMO_STAFF = (
 )
 
 
-def demo_wallet(index: int) -> str:
-    """Return a deterministic, format-valid local demo wallet identifier."""
-    return "5" + f"DEMO{index:02d}" + "A" * 41
+def demo_login_id(index: int) -> str:
+    """Return the deterministic login id of the demo account at `index`."""
+    return f"demo.staff{index:02d}"
+
+
+def demo_user_id(index: int) -> str:
+    """Return the user id (`users.id`) of the signed-in demo account at `index`."""
+    return SESSIONS[index]["user_id"]
 
 
 def luhn_is_valid(value: str) -> bool:
@@ -98,7 +120,7 @@ def patient_payload(index: int, name: str) -> dict[str, object]:
     return payload
 
 
-def request_json(path: str, payload: dict[str, object] | None, method: str = "POST", actor: str | None = None, reason: str | None = None) -> tuple[int, dict[str, object]]:
+def request_json(path: str, payload: dict[str, object] | None, method: str = "POST", actor: int | str | None = None, reason: str | None = None) -> tuple[int, dict[str, object]]:
     """Send one fixture request, waiting out rate limits; return status and JSON.
 
     Parameters: API path, JSON body (None for a GET), method, acting user and
@@ -113,14 +135,22 @@ def request_json(path: str, payload: dict[str, object] | None, method: str = "PO
     return send_json_once(path, payload, method, actor, reason)
 
 
-def send_json_once(path: str, payload: dict[str, object] | None, method: str, actor: str | None, reason: str | None) -> tuple[int, dict[str, object]]:
+def bearer_for(actor: int | str | None) -> dict[str, str]:
+    """The Authorization header for `actor`: a fixture index, or none when anonymous."""
+    if actor == ANONYMOUS:
+        return {}
+    session = SESSIONS.get(DEFAULT_ACTOR if actor is None else int(actor))
+    return {"Authorization": f"Bearer {session['token']}"} if session else {}
+
+
+def send_json_once(path: str, payload: dict[str, object] | None, method: str, actor: int | str | None, reason: str | None) -> tuple[int, dict[str, object]]:
     """Send a single fixture request and return its status and JSON response."""
     request = Request(
         f"{API_BASE}{path}",
         data=json.dumps(payload).encode("utf-8") if payload is not None else None,
         headers={
             "Content-Type": "application/json",
-            "X-User-Id": actor or ACTOR or "",
+            **bearer_for(actor),
             **({"X-Access-Reason": reason} if reason else {}),
             # The API refuses authenticated mutations without an operation key,
             # and refuses a reused one as a replay, so each write gets a fresh
@@ -148,14 +178,51 @@ def request_registration(payload: dict[str, object]) -> tuple[int, dict[str, obj
     return request_json("/api/register", payload)
 
 
+def sign_in(index: int, login_id: str, password: str) -> bool:
+    """Sign in with `POST /api/auth/login` and keep the session; False on a refusal."""
+    status, body = request_json("/api/auth/login", {
+        "identifier": login_id, "auth_proof": derive_auth_proof(password, login_id),
+    }, actor=ANONYMOUS)
+    user = body.get("user") if isinstance(body.get("user"), dict) else {}
+    if status != 200 or not body.get("access_token") or not user.get("user_id"):
+        return False
+    SESSIONS[index] = {"token": str(body["access_token"]), "user_id": str(user["user_id"])}
+    return True
+
+
+def ensure_account(index: int, login_id: str, role: str, name: str) -> None:
+    """Have a signed-in demo account at `index`: sign in, else register and redeem.
+
+    The administrator (fixture index 1) registers the account, activates it, and
+    the account redeems its one-time credential code choosing DEMO_ACCOUNT_PASSWORD.
+    """
+    if sign_in(index, login_id, DEMO_PASSWORD or ""):
+        return
+    status, reg = request_json("/api/auth/register", {"name": name, "role": role, "login_id": login_id}, actor=1)
+    user_id, code = reg.get("user_id"), reg.get("credential_code")
+    if status not in (200, 201) or not user_id or not code:
+        raise RuntimeError(f"Demo {role} account failed with HTTP {status}: {reg.get('error', reg)}")
+    status, response = request_json(f"/api/users/{user_id}", {"status": "active"}, method="PUT", actor=1)
+    if status not in (200, 204):
+        raise RuntimeError(f"Activating the demo {role} account failed with HTTP {status}: {response.get('error', response)}")
+    status, redeemed = request_json("/api/auth/credentials/redeem", {
+        "identifier": login_id, "code": code, "auth_proof": derive_auth_proof(DEMO_PASSWORD or "", login_id),
+    }, actor=ANONYMOUS)
+    if status != 200 or not sign_in(index, login_id, DEMO_PASSWORD or ""):
+        raise RuntimeError(f"Redeeming the demo {role} credential failed with HTTP {status}: {redeemed.get('error', redeemed)}")
+
+
 def seed_demo_staff() -> None:
-    """Create one explicit demo user for each supported staff role."""
+    """Create one explicit demo user for each supported staff role.
+
+    Index 1 is the administrator the seed itself runs as; the others are
+    registered by it.
+    """
+    if not sign_in(1, SEED_LOGIN_ID or "", SEED_PASSWORD or ""):
+        raise RuntimeError("DEMO_SEED_LOGIN_ID / DEMO_SEED_PASSWORD did not sign in as an administrator.")
     for index, (role, name) in enumerate(DEMO_STAFF, start=1):
-        status, response = request_json("/api/auth/demo-login", {
-            "wallet_address": demo_wallet(index), "role": role, "name": name,
-        })
-        if status not in (200, 201):
-            raise RuntimeError(f"Demo {role} user failed with HTTP {status}: {response.get('error', response)}")
+        if index > 1:
+            ensure_account(index, demo_login_id(index), role, name)
 
 
 def seed_primary_progress_note() -> None:
@@ -179,23 +246,19 @@ def seed_primary_progress_note() -> None:
 
 def seed_primary_guardian(seeded: dict[str, bool]) -> None:
     """Verify one synthetic guardian relationship only when it is absent."""
-    guardian = demo_wallet(7)
-    status, response = request_json("/api/auth/demo-login", {
-        "wallet_address": guardian, "role": "Patient", "name": "Demo Primary Guardian",
-    })
-    if status not in (200, 201):
-        raise RuntimeError(f"Demo guardian user failed with HTTP {status}: {response.get('error', response)}")
+    ensure_account(7, demo_login_id(7), "Patient", "Demo Primary Guardian")
+    guardian = demo_user_id(7)
     if seeded["guardian"]:
         return
     status, response = request_json("/api/guardians/verify", {
-        "guardian_wallet": guardian, "ward_patient_id": "PAT-DEMO-001",
+        "guardian_user_id": guardian, "ward_patient_id": "PAT-DEMO-001",
         "relationship_type": "parent_or_guardian", "permissions": ["view_records"],
         "expires_at": None, "authority_evidence_type": None,
         "authority_evidence_reference": None, "authority_issuing_authority": None,
         "authority_verified_by_role": None, "next_reverification_due": None,
         "child_assent_status": None, "child_assent_notes": None,
         "supersedes_relationship_id": None,
-    }, actor=demo_wallet(1))
+    }, actor=1)
     if status != 201:
         raise RuntimeError(f"Guardian relationship failed with HTTP {status}: {response.get('error', response)}")
 
@@ -204,12 +267,12 @@ def seed_primary_emergency_capsule(seeded: dict[str, bool]) -> None:
     """Publish the primary fixture's capsule once without changing later runs."""
     if seeded["emergency_capsule"]:
         return
-    status, response = request_json("/api/patients/PAT-DEMO-001/emergency-capsule", {}, actor=demo_wallet(2))
+    status, response = request_json("/api/patients/PAT-DEMO-001/emergency-capsule", {}, actor=2)
     if status != 200:
         raise RuntimeError(f"Emergency capsule publication failed with HTTP {status}: {response.get('error', response)}")
 
 
-def create_primary_radiology_order(clinician: str) -> str:
+def create_primary_radiology_order(clinician: int) -> str:
     """Create the radiology order the primary imaging report answers; return its id.
 
     The server assigns order ids, so the report cannot name a fixed one: a
@@ -219,7 +282,7 @@ def create_primary_radiology_order(clinician: str) -> str:
     status, response = request_json("/api/surgical/radiology/order", {
         "patient_id": "PAT-DEMO-001", "study_type": "XRay", "body_part": "Chest",
         "laterality": None, "indication": "Synthetic demonstration imaging order.",
-        "priority": "Routine", "ordering_provider": clinician, "order_time": 1768474800,
+        "priority": "Routine", "ordering_provider": demo_user_id(clinician), "order_time": 1768474800,
         "contrast": False, "allergies_reviewed": True, "creatinine_checked": None,
         "pregnancy_checked": None, "special_instructions": None, "status": "Completed",
     }, actor=clinician)
@@ -232,7 +295,7 @@ def seed_primary_imaging_report(seeded: dict[str, bool]) -> None:
     """Create one stable synthetic imaging report, and its order, only when absent."""
     if seeded["imaging_report"]:
         return
-    clinician = demo_wallet(2)
+    clinician = 2
     order_id = create_primary_radiology_order(clinician)
     status, response = request_json("/api/surgical/radiology/report", {
         "report_id": "RAD-DEMO-001", "patient_id": "PAT-DEMO-001", "order_id": order_id,
@@ -256,7 +319,7 @@ def seed_primary_lab_result() -> None:
         "test_category": "Chemistry", "facility_id": "demo-facility-jhb",
         "results": [{"parameter": "Glucose", "value": "5.4", "unit": "mmol/L", "reference_range": "3.9-7.8", "flag": None}],
         "notes": "Synthetic demonstration laboratory result; mmol/L.",
-    }, actor=demo_wallet(4))
+    }, actor=4)
     if status not in (200, 201):
         raise RuntimeError(f"Primary laboratory result failed with HTTP {status}: {response.get('error', response)}")
 
@@ -265,7 +328,7 @@ def seed_paramedic_emergency_access(seeded: dict[str, bool]) -> None:
     """Perform one idempotent, grant-bound paramedic emergency disclosure."""
     if seeded["paramedic_emergency_access"]:
         return
-    admin, paramedic = demo_wallet(1), demo_wallet(6)
+    admin, paramedic = 1, 6
     status, devices = request_json("/api/devices", None, method="GET", actor=admin)
     if status != 200:
         raise RuntimeError(f"Device list failed with HTTP {status}: {devices.get('error', devices)}")
@@ -302,7 +365,7 @@ def seed_primary_care_relationship(seeded: dict[str, bool]) -> None:
         "preferred_date": time.strftime("%Y-%m-%d", time.gmtime(tomorrow)),
         "preferred_time": "09:00", "scheduled_at": str(tomorrow), "duration_minutes": 30,
         "reason": "Synthetic demonstration follow-up",
-    }, actor=demo_wallet(2))
+    }, actor=2)
     if status not in (200, 201):
         raise RuntimeError(f"Demo care relationship failed with HTTP {status}: {response.get('error', response)}")
 
@@ -315,7 +378,7 @@ def seed_primary_access_history(seeded: dict[str, bool]) -> None:
     """
     if seeded["treatment_session"]:
         return
-    doctor = demo_wallet(2)
+    doctor = 2
     reads = (
         ("/api/patients/PAT-DEMO-001", "Treatment: profile"),
         ("/api/clinical/patient/PAT-DEMO-001/vitals", "Treatment: vitals"),
@@ -356,8 +419,12 @@ def fetch_seed_status() -> dict[str, bool]:
 
 def main() -> int:
     """Seed all fixtures once and report a retry-safe, honest result."""
-    if not ACTOR:
-        print("DEMO_SEED_USER is required and must name an existing demo clinician.", file=sys.stderr)
+    if not (SEED_LOGIN_ID and SEED_PASSWORD and DEMO_PASSWORD):
+        print(
+            "DEMO_SEED_LOGIN_ID and DEMO_SEED_PASSWORD (an existing administrator) and "
+            "DEMO_ACCOUNT_PASSWORD (the password the demo accounts will share) are required.",
+            file=sys.stderr,
+        )
         return 2
     try:
         seed_demo_staff()

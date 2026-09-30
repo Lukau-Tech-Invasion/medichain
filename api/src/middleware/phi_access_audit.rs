@@ -475,7 +475,7 @@ fn build_access_log(
         accessed_at: Utc::now(),
         facility_id: data
             .identity_contexts
-            .facility_for_wallet(&disclosure.accessor_id),
+            .facility_for_user(&disclosure.accessor_id),
         authority_type: authority
             .as_ref()
             .and_then(|a| a.authority_type())
@@ -686,14 +686,14 @@ async fn chart_gate(req: &ServiceRequest, data: &web::Data<AppState>) -> ChartGa
         return ChartGate::NotGated;
     };
     let caller = crate::support::get_current_user_id(req.request())
-        .and_then(|wallet| crate::support::get_user(data, &wallet));
+        .and_then(|user_id| crate::support::get_user(data, &user_id));
     let Some(caller) = caller else {
         return ChartGate::NotGated;
     };
     match crate::care_access::resolve_chart_access(data, &caller, &patient_id).await {
         Ok(crate::care_access::ChartAuthority::SelfAccess) => ChartGate::NotGated,
         Ok(authority) if authority.is_permitted() => {
-            let reason = context_reason(req, data, &caller.wallet_address, &patient_id).await;
+            let reason = context_reason(req, data, &caller.id, &patient_id).await;
             ChartGate::Allowed(authority, reason)
         }
         Ok(_) => ChartGate::Refused(chart_refused(caller.role.can_view_medical_records())),
@@ -837,16 +837,16 @@ mod tests {
         use actix_web::{test, App};
 
         const PATIENT_ID: &str = "PAT-PHI-AUDIT";
-        const DOCTOR_WALLET: &str = "doctor-phi-audit";
-        const PATIENT_WALLET: &str = "patient-phi-audit";
-        const OTHER_PATIENT_WALLET: &str = "other-patient-phi-audit";
+        const DOCTOR_USER: &str = "doctor-phi-audit";
+        const PATIENT_USER: &str = "patient-phi-audit";
+        const OTHER_PATIENT_USER: &str = "other-patient-phi-audit";
 
         /// Build a user with the given role and optional linked patient record.
-        fn user(wallet: &str, role: Role, linked: Option<&str>) -> crate::User {
+        fn user(user_id: &str, role: Role, linked: Option<&str>) -> crate::User {
             crate::User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
-                name: format!("{role} {wallet}"),
+                name: format!("{role} {user_id}"),
                 role,
                 created_at: Utc::now(),
                 created_by: None,
@@ -867,27 +867,20 @@ mod tests {
             let state = AppState::new();
             {
                 let mut users = state.users.write().expect("users lock");
+                users.insert(DOCTOR_USER.into(), user(DOCTOR_USER, Role::Doctor, None));
                 users.insert(
-                    DOCTOR_WALLET.into(),
-                    user(DOCTOR_WALLET, Role::Doctor, None),
+                    PATIENT_USER.into(),
+                    user(PATIENT_USER, Role::Patient, Some(PATIENT_ID)),
                 );
                 users.insert(
-                    PATIENT_WALLET.into(),
-                    user(PATIENT_WALLET, Role::Patient, Some(PATIENT_ID)),
-                );
-                users.insert(
-                    OTHER_PATIENT_WALLET.into(),
-                    user(
-                        OTHER_PATIENT_WALLET,
-                        Role::Patient,
-                        Some("PAT-SOMEONE-ELSE"),
-                    ),
+                    OTHER_PATIENT_USER.into(),
+                    user(OTHER_PATIENT_USER, Role::Patient, Some("PAT-SOMEONE-ELSE")),
                 );
             }
             crate::care_access::record_encounter(
                 &state,
                 PATIENT_ID,
-                DOCTOR_WALLET,
+                DOCTOR_USER,
                 "APT-PHI-AUDIT",
                 Utc::now(),
             )
@@ -895,10 +888,10 @@ mod tests {
             web::Data::new(state)
         }
 
-        /// Call GET vitals as `wallet` (optionally with a reason) and return the status.
+        /// Call GET vitals as `user id` (optionally with a reason) and return the status.
         async fn read_vitals(
             data: &web::Data<AppState>,
-            wallet: &str,
+            user_id: &str,
             reason: Option<&str>,
         ) -> u16 {
             let app = test::init_service(
@@ -910,7 +903,7 @@ mod tests {
             .await;
             let mut request = test::TestRequest::get()
                 .uri(&format!("/api/clinical/patient/{PATIENT_ID}/vitals"))
-                .insert_header(("x-user-id", wallet));
+                .insert_header(crate::test_fixtures::as_user(user_id));
             if let Some(reason) = reason {
                 request = request.insert_header((ACCESS_REASON_HEADER, reason));
             }
@@ -934,13 +927,13 @@ mod tests {
         async fn a_doctor_reading_vitals_leaves_one_row_with_who_why_and_what() {
             let data = state().await;
             assert_eq!(
-                read_vitals(&data, DOCTOR_WALLET, Some("treatment")).await,
+                read_vitals(&data, DOCTOR_USER, Some("treatment")).await,
                 200
             );
             let rows = rows(&data).await;
             assert_eq!(rows.len(), 1, "exactly one disclosure row");
             let row = &rows[0];
-            assert_eq!(row.accessor_id, DOCTOR_WALLET);
+            assert_eq!(row.accessor_id, DOCTOR_USER);
             assert_eq!(row.accessor_role, "Doctor");
             assert_eq!(row.action, DISCLOSURE_ACTION);
             assert_eq!(row.resource_type, "Vital signs");
@@ -951,7 +944,7 @@ mod tests {
         #[actix_web::test]
         async fn a_read_without_a_declared_reason_says_so() {
             let data = state().await;
-            assert_eq!(read_vitals(&data, DOCTOR_WALLET, None).await, 200);
+            assert_eq!(read_vitals(&data, DOCTOR_USER, None).await, 200);
             assert_eq!(
                 rows(&data).await[0].access_reason.as_deref(),
                 Some(REASON_NOT_STATED)
@@ -961,14 +954,14 @@ mod tests {
         #[actix_web::test]
         async fn a_patient_reading_their_own_vitals_is_not_logged_as_a_disclosure() {
             let data = state().await;
-            assert_eq!(read_vitals(&data, PATIENT_WALLET, None).await, 200);
+            assert_eq!(read_vitals(&data, PATIENT_USER, None).await, 200);
             assert!(rows(&data).await.is_empty());
         }
 
         #[actix_web::test]
         async fn a_denied_read_is_never_recorded_as_viewed() {
             let data = state().await;
-            assert_eq!(read_vitals(&data, OTHER_PATIENT_WALLET, None).await, 403);
+            assert_eq!(read_vitals(&data, OTHER_PATIENT_USER, None).await, 403);
             assert!(
                 rows(&data).await.is_empty(),
                 "403 must not appear as 'viewed'"
@@ -990,7 +983,7 @@ mod tests {
             .await;
             let request = test::TestRequest::get()
                 .uri(&format!("/api/records/{PATIENT_ID}"))
-                .insert_header(("x-user-id", DOCTOR_WALLET))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_USER))
                 .to_request();
             assert_eq!(test::call_service(&app, request).await.status(), 200);
             assert!(rows(&data).await.is_empty());
@@ -1006,7 +999,7 @@ mod tests {
     fn patient_is_told_once_per_accessor_per_day() {
         let today = NaiveDate::from_ymd_opt(2026, 9, 26).expect("valid date");
         let tomorrow = today.succ_opt().expect("valid date");
-        let accessor = "wallet-notice-test";
+        let accessor = "user-notice-test";
         let patient = "PAT-NOTICE-TEST";
         assert!(first_notice_today(accessor, patient, today));
         assert!(!first_notice_today(accessor, patient, today));

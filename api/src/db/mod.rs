@@ -80,7 +80,7 @@ const DEFAULT_MAX_RETRIES: u32 = 12;
 /// `FATAL: the database system is starting up` to every attempt in the meantime.
 /// The API gave up at ~30s and — in demo mode — fell back to empty in-memory
 /// storage while still reporting healthy, so every login failed with
-/// "Wallet not registered" on a stack that looked entirely green.
+/// "User id not registered" on a stack that looked entirely green.
 ///
 /// `depends_on: condition: service_healthy` does not save you here: Compose
 /// applies it to `compose up`, not to containers the daemon restarts under a

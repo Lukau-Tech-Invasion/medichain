@@ -102,10 +102,10 @@ export function MyRecordsPage() {
   // the patient is told so rather than left to believe it is complete.
   const [unloadedSections, setUnloadedSections] = useState<string[]>([]);
   const patient = usePatientAuthStore(state => state.patient);
-  // Records name their author by wallet address, which is the API's identity
+  // Records name their author by user id, which is the API's identity
   // and means nothing to a patient. The directory turns it into a name, and
-  // leaves an address it cannot resolve as it is rather than guessing.
-  const { providerName } = useProviderDirectory(patient?.walletAddress);
+  // leaves an id it cannot resolve as it is rather than guessing.
+  const { providerName } = useProviderDirectory(patient?.userId);
 
   const loadRecords = useCallback(async () => {
     setIsLoading(true);

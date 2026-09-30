@@ -30,7 +30,7 @@ import { signIn, settle, type RoleName } from './support';
  *
  * # Why a missing fixture skips rather than fails
  *
- * `GET /api/auth/demo-credentials` only offers accounts that carry a keystore.
+ * `GET /api/auth/demo-credentials` only offers active accounts that have a password set.
  * `bt.admin` is in the server's fixture list and is not returned, so the
  * administrator cannot be signed in here at all. That is a seeding gap, not a
  * product defect, and reporting it as a failed assertion about the product
@@ -64,7 +64,7 @@ async function signInOrSkip(page: Page, role: RoleName) {
   test.skip(
     !offered.has(role),
     `the API offers no demo credential for ${role} (it has: ${[...offered].join(', ') || 'none'}). ` +
-      'Only accounts with a keystore are offered; run scripts/seed-browser-test-fixtures.ts.'
+      'Only active accounts with a password are offered; run scripts/seed-browser-test-fixtures.ts.'
   );
 
   try {

@@ -129,7 +129,7 @@ def main():
         print('')
         print('Use the typed client in client/shared/src/api/ -- it attaches both.')
         print('If a raw fetch is genuinely needed, spread')
-        print("  ...getApiClient().getSessionHeaders(wallet),")
+        print("  ...getApiClient().getSessionHeaders(),")
         print("  'Idempotency-Key': getApiClient().getMutationHeaders()['Idempotency-Key'],")
         return 1
 

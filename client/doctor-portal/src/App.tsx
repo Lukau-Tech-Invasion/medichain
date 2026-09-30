@@ -21,6 +21,7 @@ function PageLoader() {
 
 // Eager-loaded core pages (critical path)
 import LoginPage from './pages/LoginPage';
+import ActivatePage from './pages/ActivatePage';
 import DashboardPage from './pages/DashboardPage';
 
 // Lazy-loaded pages grouped by feature for optimal chunking
@@ -227,6 +228,7 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivatePage />} />
 
       {/* Protected routes - wrapped in Suspense for lazy loading */}
       <Route

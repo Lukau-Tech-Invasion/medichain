@@ -18,7 +18,7 @@ test. A grep is the only thing that sees them, so this is that grep, kept.
 
 WHAT COUNTS AS A CALLER
 
-A mutating request that attaches an identity — `X-User-Id`, an `Authorization`
+A mutating request that attaches an identity — an `Authorization` bearer
 header, or the portals' session helpers — and no `Idempotency-Key`. A request
 with no identity is NOT a finding: `mutation_requires_key` needs
 `subject.is_some()`, so an anonymous caller never needed a key, and attaching
@@ -66,7 +66,7 @@ FETCH = re.compile(
 )
 
 IDENTITY = re.compile(
-    r"X-User-Id|Authorization|authHeaders|sessionHeaders|getMutationHeaders",
+    r"Authorization|authHeaders|sessionHeaders|getMutationHeaders",
     re.IGNORECASE,
 )
 HAS_KEY = re.compile(r"Idempotency-Key|idem_key|idem_args|getMutationHeaders", re.IGNORECASE)
@@ -74,15 +74,16 @@ HAS_KEY = re.compile(r"Idempotency-Key|idem_key|idem_args|getMutationHeaders", r
 # `ESTABLISHES_IDENTITY` in the middleware: endpoints whose whole purpose is to
 # establish a subject, and which therefore cannot present one on the way in.
 # They participate in no keyed operation, so a call to one is never a finding.
-# Kept in sync by hand -- the list is six entries and changes rarely; a gate
+# Kept in sync by hand with `ESTABLISHES_IDENTITY` in
+# api/src/middleware/idempotency.rs -- the list is six entries and changes rarely; a gate
 # that flagged legitimate sign-in calls forever would teach people to ignore it.
 EXEMPT_PATHS = (
-    "/api/auth/challenge",
-    "/api/auth/jwt",
+    "/api/auth/login",
+    "/api/auth/bootstrap",
+    "/api/auth/credentials/redeem",
     "/api/auth/jwt/refresh",
-    "/api/auth/staff/login",
+    "/api/auth/refresh",
     "/api/auth/register",
-    "/api/auth/demo-login",
 )
 
 

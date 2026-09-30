@@ -201,7 +201,7 @@ const RadiologyPage: React.FC = () => {
 
     const now = new Date();
     const nowSeconds = Math.floor(now.getTime() / 1000);
-    const radiologist = user?.walletAddress || '';
+    const radiologist = user?.userId || '';
 
     // This used to mutate local state and announce success without calling the
     // API at all: a radiologist could dictate findings, finalize the report,
@@ -337,7 +337,7 @@ const RadiologyPage: React.FC = () => {
             </div>
           </div>
           <div className="text-sm text-gray-300">
-            {t('docRadiology.radiologistLabel', { name: user?.walletAddress || t('docRadiology.notLoggedIn') })}
+            {t('docRadiology.radiologistLabel', { name: user?.userId || t('docRadiology.notLoggedIn') })}
           </div>
         </div>
       </div>

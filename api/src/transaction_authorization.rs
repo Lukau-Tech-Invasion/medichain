@@ -191,16 +191,40 @@ pub enum ChallengeError {
     TooManyLive,
 }
 
+/// The wallet a user signed in with, from the legacy mapping. Only the wallet
+/// step-up flows that phase C removes need it.
+async fn wallet_for_user<'e, E>(executor: E, user_id: Uuid) -> Result<Option<String>, sqlx::Error>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    sqlx::query_scalar(
+        "SELECT wallet_address FROM legacy_wallet_identities
+         WHERE user_id = $1 AND kind = 'wallet' ORDER BY mapped_at LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(executor)
+    .await
+}
+
 /// Issue a Class C challenge for one exact mutation.
 ///
 /// The server generates it, never the browser: a challenge the client composes
 /// is a challenge the client can choose.
 pub async fn issue_transaction_challenge(
     pool: &PgPool,
-    wallet_address: &str,
+    user_id: &str,
     login_session_id: Uuid,
     intent: &TransactionIntent,
 ) -> Result<IssuedTransactionChallenge, ChallengeError> {
+    let user_uuid = crate::actor_directory::parse_user_id(user_id).ok_or_else(|| {
+        ChallengeError::Database(sqlx::Error::Protocol("user id is not a UUID".into()))
+    })?;
+    let wallet_address = wallet_for_user(pool, user_uuid)
+        .await
+        .map_err(ChallengeError::Database)?
+        .ok_or_else(|| {
+            ChallengeError::Database(sqlx::Error::Protocol("account has no wallet".into()))
+        })?;
     let challenge_id = Uuid::new_v4();
     let nonce = Uuid::new_v4().to_string();
     let expires_at = Utc::now() + Duration::seconds(TRANSACTION_CHALLENGE_TTL_SECS);
@@ -256,13 +280,13 @@ pub async fn issue_transaction_challenge(
 
     sqlx::query(
         "INSERT INTO auth_transaction_challenges
-             (id, login_session_id, wallet_address, action, method, path, body_digest,
+             (id, login_session_id, user_id, action, method, path, body_digest,
               resource_id, expected_state, idempotency_key, nonce_hash, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(challenge_id)
     .bind(login_session_id)
-    .bind(wallet_address)
+    .bind(user_uuid)
     .bind(&intent.action)
     .bind(&intent.method)
     .bind(&intent.path)
@@ -284,7 +308,7 @@ pub async fn issue_transaction_challenge(
     Ok(IssuedTransactionChallenge {
         message: challenge_message(
             &challenge_id.to_string(),
-            wallet_address,
+            &wallet_address,
             &login_session_id.to_string(),
             intent,
             &nonce,
@@ -343,7 +367,7 @@ impl AuthorizationFailure {
 pub async fn record_security_event(
     pool: &PgPool,
     event: SecurityEvent,
-    wallet_address: Option<&str>,
+    user_id: Option<&str>,
     login_session_id: Option<Uuid>,
     challenge_id: Option<Uuid>,
     action: Option<&str>,
@@ -354,11 +378,11 @@ pub async fn record_security_event(
     let recent: Result<i64, _> = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_security_events
          WHERE event_type = $1
-           AND wallet_address IS NOT DISTINCT FROM $2
+           AND user_id IS NOT DISTINCT FROM $2::text::uuid
            AND occurred_at >= NOW() - make_interval(secs => 10)",
     )
     .bind(event.as_str())
-    .bind(wallet_address)
+    .bind(user_id)
     .fetch_one(pool)
     .await;
 
@@ -368,11 +392,11 @@ pub async fn record_security_event(
 
     let write = sqlx::query(
         "INSERT INTO auth_security_events
-             (event_type, wallet_address, login_session_id, challenge_id, action)
-         VALUES ($1, $2, $3, $4, $5)",
+             (event_type, user_id, login_session_id, challenge_id, action)
+         VALUES ($1, $2::text::uuid, $3, $4, $5)",
     )
     .bind(event.as_str())
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(login_session_id)
     .bind(challenge_id)
     .bind(action)
@@ -447,7 +471,7 @@ pub async fn authorize_transaction(
         DateTime<Utc>,
         Option<DateTime<Utc>>,
     )> = sqlx::query_as(
-        "SELECT login_session_id, wallet_address, action, method, path, body_digest,
+        "SELECT login_session_id, user_id::text, action, method, path, body_digest,
                 resource_id, expected_state, idempotency_key, nonce_hash,
                 expires_at, consumed_at
          FROM auth_transaction_challenges
@@ -461,7 +485,7 @@ pub async fn authorize_transaction(
 
     let Some((
         stored_session,
-        stored_wallet,
+        stored_user,
         stored_action,
         stored_method,
         stored_path,
@@ -489,7 +513,7 @@ pub async fn authorize_transaction(
     if stored_session != login_session_id {
         return Err(AuthorizationFailure::WrongSession);
     }
-    if stored_wallet != subject {
+    if stored_user != subject {
         return Err(AuthorizationFailure::WrongSubject);
     }
 
@@ -530,6 +554,14 @@ pub async fn authorize_transaction(
 
     // The signature is verified against the wallet resolved from the stored
     // subject, never against an address supplied with the request.
+    let stored_wallet = match crate::actor_directory::parse_user_id(&stored_user) {
+        Some(user_uuid) => wallet_for_user(&mut *transaction, user_uuid)
+            .await
+            .ok()
+            .flatten()
+            .ok_or(AuthorizationFailure::BadSignature)?,
+        None => return Err(AuthorizationFailure::BadSignature),
+    };
     let message = challenge_message(
         &challenge_id.to_string(),
         &stored_wallet,

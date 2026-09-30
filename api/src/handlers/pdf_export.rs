@@ -29,7 +29,7 @@ pub struct PdfDocumentRequest {
 #[post("/api/pdf/document")]
 pub async fn export_pdf_document(
     // The handler took no application state, so it could only check that an
-    // X-User-Id header existed — and this endpoint renders arbitrary supplied
+    // an identity header existed — and this endpoint renders arbitrary supplied
     // sections into a downloadable clinical document.
     data: web::Data<AppState>,
     req: HttpRequest,

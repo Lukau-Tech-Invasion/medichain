@@ -7,13 +7,18 @@ sealed audit stream now. This gate keeps the removal removed. It scans every
 file `git ls-files` reports, case-insensitively, for chain vocabulary and prints
 `file:line:term` for each hit.
 
-Two term lists:
+Two term lists, both enforced by default:
 
-  * CHAIN_TERMS   always enforced.
-  * WALLET_TERMS  wallet identity (Polkadot, sr25519, SS58, recovery phrases).
-                  Enforced only with `--include-wallet-terms`, because wallet
-                  sign-in is removed in Phase C of docs/BLOCKCHAIN_REMOVAL_PLAN.md.
-                  Phase C makes them the default.
+  * CHAIN_TERMS   blockchain vocabulary.
+  * WALLET_TERMS  wallet identity (Polkadot, sr25519, SS58, recovery phrases,
+                  the word "wallet"). Wallet sign-in was removed in Phase C of
+                  docs/BLOCKCHAIN_REMOVAL_PLAN.md, so these are no longer
+                  opt-in. `--chain-only` skips them, for a run that wants only
+                  the Phase A vocabulary. `--include-wallet-terms` is accepted
+                  and does nothing (it is the default).
+
+The files scanned are every tracked file plus every new file that is not
+ignored, so work in progress cannot slip past the gate by not being committed.
 
 Exclusions, each with its reason. A path is not exempt because it is
 inconvenient; it is exempt because rewriting it would falsify a record.
@@ -26,19 +31,28 @@ inconvenient; it is exempt because rewriting it would falsify a record.
     decided when it was decided. ADR-0005 is an accepted ADR that mentions the
     ledger once in passing; it is a decision record and is not rewritten.
     `docs/adr/README.md` is the index and carries those ADRs' titles.
-  * `docs/BLOCKCHAIN_REMOVAL_PLAN.md`: the removal's own contract.
+  * `docs/BLOCKCHAIN_REMOVAL_*.md`: the removal's own contract and phase specs.
+  * The two migrations that carry the wallet-to-user mapping
+    (`*_identity_key.sql`, `*_drop_wallet_columns.sql`): they must name the
+    columns they remap and drop. Applied history is never rewritten.
   * Dated reports, ledgers, audits, handoffs, plans and pitch or submission
     material (HISTORICAL_FILES below): they describe what was true on their
     date. Rewriting them would misstate the past.
-  * This script: it has to name the terms.
+  * This script and `check-quick-login-identities.py`: they have to name the
+    terms (the second lists the removed sign-in entry points it forbids).
 
 Also ignored, before matching, are the file names that legitimately carry a
 term (`BLOCKCHAIN_REMOVAL_PLAN`, `remove-blockchain`, `remove_blockchain`,
-`check-no-blockchain`, the ADR-0004 file name) and the clinical phrases
-"chain of custody" / `chain_of_custody`, which are specimen-handling records
-and unrelated to blockchains.
+`check-no-blockchain`, the ADR-0004 file name), the names of the legacy mapping
+(`legacy_wallet_identities`, which lets sealed history keep resolving), and the
+clinical phrases "chain of custody" / `chain_of_custody`, which are
+specimen-handling records and unrelated to blockchains.
 
-Usage:  python scripts/check-no-blockchain.py [--include-wallet-terms] [--summary]
+A test that asserts the old wording is NOT shown (`.not.` on a line of a
+`*.test.ts[x]` file) is exempt: it enforces this gate's intent and has to spell
+the term to do so.
+
+Usage:  python scripts/check-no-blockchain.py [--chain-only] [--summary]
 Exit:   0 clean, 1 if any tracked, non-excluded file contains a term.
 """
 import re
@@ -107,8 +121,32 @@ EXCLUDED_FILES = {
     "docs/adr/0010-remove-blockchain-and-wallet-identity.md",
     "docs/adr/README.md",
     "docs/BLOCKCHAIN_REMOVAL_PLAN.md",
+    "docs/BLOCKCHAIN_REMOVAL_PHASE_BC.md",
     "scripts/check-no-blockchain.py",
+    # Names the removed sign-in entry points it forbids.
+    "scripts/check-quick-login-identities.py",
 }
+
+# The removal's own specs and the two migrations that name wallet columns to
+# map and drop them. Matched by path pattern because R1/R2 stamp the versions.
+EXCLUDED_PATTERNS = (
+    re.compile(r"^docs/BLOCKCHAIN_REMOVAL_"),
+    re.compile(r"^api/migrations/[0-9]+_identity_key\.sql$"),
+    re.compile(r"^api/migrations/[0-9]+_drop_wallet_columns\.sql$"),
+)
+
+# Untracked directories that hold local pitch/presentation tooling, not project
+# source. They are not part of the repository, and scanning them would report
+# vocabulary in build output.
+LOCAL_TOOLING_PREFIXES = (
+    ".chart-data-",
+    ".node-bin/",
+    ".presentation-build/",
+    "output/",
+    "target/",
+    "node_modules/",
+    "client/node_modules/",
+)
 
 # Dated or superseded records. Each describes what was true on its date.
 HISTORICAL_FILES = {
@@ -123,6 +161,9 @@ HISTORICAL_FILES = {
     "docs/postgres-implementation-guide.md",
     "docs/medichain-security-deep-dive.md",
     "docs/task_tracker.md",
+    # Dated findings report; it says so in its own preface, and its instructions
+    # for running the journeys are current and wallet-free.
+    "docs/ROLE_JOURNEYS.md",
     # Reports, ledgers and audits.
     "docs/TECHNICAL_DEBT_REGISTER.md",
     "docs/SECURITY_ASSESSMENT.md",
@@ -187,6 +228,8 @@ NAME_TOKENS = [
     "remove_blockchain",
     "check-no-blockchain",
     "0004-commitment-not-plaintext-on-chain",
+    "legacy_wallet_identities",
+    "BLOCKCHAIN_REMOVAL_PHASE_BC",
 ]
 
 # Clinical phrases that share a word with the chain vocabulary. Removed before
@@ -200,10 +243,13 @@ A3_PREFIXES = ("client/", "mobile-examples/", "e2e/")
 
 
 def tracked_files():
+    """Tracked files plus new files that are not ignored."""
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT, check=True, capture_output=True,
     ).stdout
-    return [p for p in out.decode("utf-8").split("\0") if p]
+    seen = sorted({p for p in out.decode("utf-8").split("\0") if p})
+    return [p for p in seen if not p.startswith(LOCAL_TOOLING_PREFIXES)]
 
 
 def is_old_migration(path):
@@ -227,8 +273,8 @@ def exclusion_reason(path):
         return "lockfile"
     if Path(name).suffix.lower() in BINARY_SUFFIXES:
         return "binary"
-    if path in EXCLUDED_FILES:
-        return "decision record / plan / this gate"
+    if path in EXCLUDED_FILES or any(p.search(path) for p in EXCLUDED_PATTERNS):
+        return "decision record / plan / mapping migration / this gate"
     if is_old_migration(path):
         return "applied migration"
     if is_historical(path):
@@ -288,7 +334,7 @@ def owner_of(path):
 
 def main(argv):
     terms = list(CHAIN_TERMS)
-    if "--include-wallet-terms" in argv:
+    if "--chain-only" not in argv:
         terms += WALLET_TERMS
     pattern = build_pattern(terms)
 

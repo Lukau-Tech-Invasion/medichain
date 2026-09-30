@@ -679,7 +679,7 @@ pub fn med_rem_pack_extras(r: &crate::clinical::MedicationReminder) -> serde_jso
 /// **no medication reminder could be stored on a real database at all.**
 ///
 /// Two things hid it. The in-memory backend enforces no CHECK constraint, so
-/// development never saw it; and the handler's ownership test compared a wallet
+/// development never saw it; and the handler's ownership test compared a user id
 /// address to a `PAT-` id, so every patient was refused with a 403 before the
 /// insert was ever attempted.
 ///

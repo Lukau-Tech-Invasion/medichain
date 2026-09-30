@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Synthetic-data-only local run. No PostgreSQL, no checkpoint export, no third-party keys.
+# Synthetic-data-only local run. No checkpoint export, no third-party keys.
 #
-# In-memory repositories are deliberate: the whole process state is ephemeral,
-# so the kill switch is "kill the process" and rollback is "restart it". That is
-# a stronger isolation property than the docker-compose variant, not a weaker one.
+# PostgreSQL is REQUIRED: signing in creates a session row, so an API without a
+# database cannot authenticate anyone. Point DATABASE_URL at a THROWAWAY database
+# (the harness bootstraps an administrator and registers accounts in it); for the
+# isolated one use scripts/run-synthetic-postgres.sh instead.
+#   DATABASE_URL=postgres://... bash scripts/run-synthetic-local.sh
 cd "C:/Users/Admin/RustroverProjects/medichain"
 
-export IS_DEMO=true                 # demo secrets permitted; signature verification off
-export REQUIRE_SIGNATURES=false
+export IS_DEMO=true                 # demo secrets permitted
 
 # The demo-only routes need dev mode AND demo mode, both defaulting to off, so
 # that enabling them is two deliberate acts rather than one omission. This
@@ -15,17 +16,11 @@ export REQUIRE_SIGNATURES=false
 # the same harness scored differently on the two backends for a reason that had
 # nothing to do with storage.
 #
-# `synthetic-e2e-test.sh` needs `POST /api/auth/demo-login` to stand up a SECOND
-# administrator: retention approval is maker-checker controlled, so the admin
-# who requests a token must not be the one who decides it. Without dev mode that
-# call is a deliberate 403 and five assertions fail in a cascade whose first
-# symptom -- "approval is not executable: status 'pending'" -- points at the
-# approval workflow instead of at a missing environment variable.
 export MEDICHAIN_DEV_MODE=1
 export AUDIT_CHECKPOINT_SINK=none    # no checkpoint is exported
 export DISPENSING_POLICY_PATH="C:/Users/Admin/RustroverProjects/medichain/api/data/dispensing_policy.example.json"
-unset MEDICHAIN_STORAGE             # in-memory repositories
-unset DATABASE_URL
+: "${DATABASE_URL:?set DATABASE_URL to a throwaway PostgreSQL database; signing in needs one}"
+export MEDICHAIN_STORAGE=postgres
 
 # Third-party integrations explicitly disabled — testing must never reach a
 # real SMS gateway or a national-ID registry.

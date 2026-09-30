@@ -15,7 +15,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 
 describe('IncidentReportPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     username: 'dr_incident',
   };
 

@@ -40,7 +40,6 @@ describe('AppointmentSchedulerPage', () => {
     // fixed object.
     const state = {
       user: {
-        walletAddress: '5GrwvaEF...mock',
         userId: '5GrwvaEF...mock',
         username: 'Dr. Thabo Mbeki',
         role: 'Doctor',
@@ -105,7 +104,7 @@ describe('AppointmentSchedulerPage', () => {
 
   /**
    * The defect this page was rebuilt for: a signed-in doctor was asked to type
-   * their own 48-character SS58 address into a required "Provider ID" box. The
+   * their own account id into a required "Provider ID" box. The
    * server now derives the provider from the session, so the field must not
    * come back.
    */
@@ -114,7 +113,7 @@ describe('AppointmentSchedulerPage', () => {
     await openForm();
 
     expect(screen.queryByLabelText(/provider id/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/wallet/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/provider id|account id/i)).not.toBeInTheDocument();
   });
 
   it('says whose schedule this is instead of asking', async () => {

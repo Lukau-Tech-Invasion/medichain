@@ -14,7 +14,7 @@ import { usePatientAuthStore } from '../store/authStore';
 
 export function MedicationRemindersPage() {
   const { t } = useTranslation();
-  // Use wallet-authenticated patient from auth store
+  // Use the signed-in patient from the auth store
   const { patient } = usePatientAuthStore();
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
   const [loading, setLoading] = useState(true);

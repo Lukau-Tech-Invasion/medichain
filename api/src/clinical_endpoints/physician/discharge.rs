@@ -336,17 +336,14 @@ pub async fn approve_discharge(
             // Update the data JSON with signed_by and signature_time
             let mut data_value = entity.data.clone();
             if let Some(obj) = data_value.as_object_mut() {
-                obj.insert(
-                    "signed_by".to_string(),
-                    serde_json::json!(current_user.wallet_address),
-                );
+                obj.insert("signed_by".to_string(), serde_json::json!(current_user.id));
                 obj.insert(
                     "signature_time".to_string(),
                     serde_json::json!(chrono::Utc::now().timestamp()),
                 );
             }
             entity.data = data_value;
-            entity.signed_by = Some(current_user.wallet_address.clone());
+            entity.signed_by = Some(current_user.id.clone());
             entity.signed_at = Some(Utc::now());
             entity.updated_at = Utc::now();
             match data.repositories.discharge_summaries.update(entity).await {
@@ -354,7 +351,7 @@ pub async fn approve_discharge(
                     "success": true,
                     "message": "Discharge approved",
                     "summary_id": summary_id,
-                    "signed_by": current_user.wallet_address
+                    "signed_by": current_user.id
                 })),
                 Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
                     error: e.to_string(),

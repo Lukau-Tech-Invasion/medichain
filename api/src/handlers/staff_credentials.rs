@@ -129,6 +129,9 @@ pub struct StaffLoginRequest {
 #[derive(Debug, Serialize)]
 pub struct StaffLoginResponse {
     pub success: bool,
+    pub user_id: String,
+    /// The wallet the keystore holds, for the wallet challenge that follows.
+    /// Removed with wallet sign-in.
     pub wallet_address: String,
     /// Polkadot encrypted JSON. Only the client can open it.
     pub encrypted_keystore: String,
@@ -141,6 +144,7 @@ pub struct StaffLoginResponse {
 /// endpoints, so carrying the verifier or keystore on it would risk leaking
 /// them into an unrelated response.
 struct CredentialRow {
+    user_id: String,
     wallet_address: String,
     credential_verifier: String,
     encrypted_keystore: String,
@@ -181,28 +185,41 @@ pub async fn staff_login(
         });
     }
 
-    let row: Option<CredentialRow> =
-        sqlx::query_as::<_, (String, Option<String>, Option<String>, String)>(
-            r#"
-        SELECT wallet_address, credential_verifier, encrypted_keystore, status
-        FROM users
-        WHERE (lower(login_id) = $1 OR lower(email) = $1)
+    let row: Option<CredentialRow> = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        ),
+    >(
+        r#"
+        SELECT u.id::text,
+               (SELECT l.wallet_address FROM legacy_wallet_identities l
+                 WHERE l.user_id = u.id AND l.kind = 'wallet'
+                 ORDER BY l.mapped_at LIMIT 1),
+               u.credential_verifier, u.encrypted_keystore, u.status
+        FROM users u
+        WHERE (lower(u.login_id) = $1 OR lower(u.email) = $1)
         LIMIT 1
         "#,
-        )
-        .bind(&identifier)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|(wallet, verifier, keystore, status)| {
-            Some(CredentialRow {
-                wallet_address: wallet,
-                credential_verifier: verifier?,
-                encrypted_keystore: keystore?,
-                status,
-            })
-        });
+    )
+    .bind(&identifier)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|(user_id, wallet, verifier, keystore, status)| {
+        Some(CredentialRow {
+            user_id,
+            wallet_address: wallet?,
+            credential_verifier: verifier?,
+            encrypted_keystore: keystore?,
+            status,
+        })
+    });
 
     // Always verify something, so an unknown identifier costs the same Argon2id
     // work as a known one. `verify_secret` is constant-time internally.
@@ -238,7 +255,7 @@ pub async fn staff_login(
         return invalid_credentials();
     }
 
-    let Some(user) = crate::get_user(&data, &row.wallet_address) else {
+    let Some(user) = crate::get_user(&data, &row.user_id) else {
         return invalid_credentials();
     };
 
@@ -250,7 +267,8 @@ pub async fn staff_login(
     // possession of this response alone authorizes nothing.
     HttpResponse::Ok().json(StaffLoginResponse {
         success: true,
-        wallet_address: user.wallet_address.clone(),
+        user_id: user.id.clone(),
+        wallet_address: row.wallet_address,
         encrypted_keystore: row.encrypted_keystore,
         name: user.name.clone(),
         role: user.role.to_string(),
@@ -365,13 +383,13 @@ pub async fn enrol_credentials(
             encrypted_keystore = $3,
             credential_updated_at = NOW(),
             updated_at = NOW()
-        WHERE wallet_address = $4
+        WHERE id = $4::text::uuid
         "#,
     )
     .bind(&login_id)
     .bind(&verifier)
     .bind(&body.encrypted_keystore)
-    .bind(&caller.wallet_address)
+    .bind(&caller.id)
     .execute(pool)
     .await;
 
@@ -380,7 +398,7 @@ pub async fn enrol_credentials(
             clear_failures(&login_id.to_lowercase());
             log::info!(
                 "CREDENTIALS_ENROLLED wallet={} login_id={}",
-                caller.wallet_address,
+                caller.id,
                 login_id
             );
             HttpResponse::Ok().json(serde_json::json!({
@@ -506,7 +524,7 @@ pub async fn rotate_credentials(
 
     let stored: Option<(String, Option<String>, String)> = sqlx::query_as(
         r#"
-        SELECT wallet_address, credential_verifier, status
+        SELECT id::text, credential_verifier, status
         FROM users
         WHERE LOWER(login_id) = $1
         "#,
@@ -524,7 +542,7 @@ pub async fn rotate_credentials(
         .unwrap_or_else(|| timing_equaliser());
     let proof_ok = medichain_crypto::password::verify_secret(&body.current_auth_proof, verifier);
 
-    let Some((wallet_address, _, status)) = stored.clone() else {
+    let Some((owner_id, _, status)) = stored.clone() else {
         record_failure(&identifier);
         log::warn!(
             "CREDENTIAL_ROTATE_UNKNOWN identifier_hash={}",
@@ -536,11 +554,11 @@ pub async fn rotate_credentials(
     // The credentials being rotated must be the caller's own. Without this an
     // authenticated clinician who learned a colleague's password could rotate
     // it and lock them out of their own signing key.
-    if wallet_address != caller.wallet_address {
+    if owner_id != caller.id {
         record_failure(&identifier);
         log::warn!(
             "CREDENTIAL_ROTATE_WRONG_OWNER caller={} identifier_hash={}",
-            caller.wallet_address,
+            caller.id,
             hash_id(&identifier)
         );
         return invalid_credentials();
@@ -581,12 +599,12 @@ pub async fn rotate_credentials(
             encrypted_keystore = $2,
             credential_updated_at = NOW(),
             updated_at = NOW()
-        WHERE wallet_address = $3
+        WHERE id = $3::text::uuid
         "#,
     )
     .bind(&new_verifier)
     .bind(&body.new_encrypted_keystore)
-    .bind(&caller.wallet_address)
+    .bind(&caller.id)
     .execute(pool)
     .await;
 
@@ -594,8 +612,8 @@ pub async fn rotate_credentials(
         Ok(r) if r.rows_affected() == 1 => {
             clear_failures(&identifier);
             log::info!(
-                "CREDENTIALS_ROTATED wallet={} identifier_hash={}",
-                caller.wallet_address,
+                "CREDENTIALS_ROTATED user={} identifier_hash={}",
+                caller.id,
                 hash_id(&identifier)
             );
             HttpResponse::Ok().json(serde_json::json!({
@@ -662,7 +680,7 @@ pub async fn set_my_avatar(
         Err(resp) => return resp,
     };
     let now = chrono::Utc::now();
-    let wallet = caller.wallet_address.clone();
+    let wallet = caller.id.clone();
 
     let submitted = req
         .into_inner()
@@ -742,7 +760,7 @@ pub async fn set_my_avatar(
 /// Readable by any signed-in caller, because this is the picture shown beside
 /// their name on records they authored — an avatar nobody else can load is a
 /// picture of nothing.
-#[get("/api/users/{wallet_address}/avatar")]
+#[get("/api/users/{user_id}/avatar")]
 pub async fn get_user_avatar(
     data: web::Data<AppState>,
     http_req: HttpRequest,
@@ -751,9 +769,9 @@ pub async fn get_user_avatar(
     if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
         return resp;
     }
-    let wallet = path.into_inner();
+    let user_id = path.into_inner();
 
-    match data.repositories.user_avatars.get_by_owner(&wallet).await {
+    match data.repositories.user_avatars.get_by_owner(&user_id).await {
         Ok(rows) => {
             let avatar = rows
                 .into_iter()

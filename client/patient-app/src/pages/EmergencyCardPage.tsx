@@ -68,13 +68,13 @@ export function EmergencyCardPage() {
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const patient = usePatientAuthStore(state => state.patient);
-  // Who opened the card is stored as a wallet; the patient needs a name.
-  const { providerName } = useProviderDirectory(patient?.walletAddress);
+  // Who opened the card is stored as a user id; the patient needs a name.
+  const { providerName } = useProviderDirectory(patient?.userId);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrError, setQrError] = useState(false);
 
-  // Canonical patient record id; the wallet is the authenticated caller.
+  // Canonical patient record id; the user id is the authenticated caller.
   const patientId = patient?.healthId || null;
 
   // --- Who has opened this card ----------------------------------------------
@@ -165,7 +165,7 @@ export function EmergencyCardPage() {
       cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated ?? null,
     };
-    // `walletAddress` went with the hand-rolled session headers; the typed
+    // `userId` went with the hand-rolled session headers; the typed
     // client reads the session itself.
   }, [patientId]);
 

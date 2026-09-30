@@ -4,6 +4,6 @@ Purpose: Shared code and utilities used by both frontends, including the typed `
 
 Key files:
 - `src/api/endpoints.ts` — canonical endpoint definitions
-- `src/api/client.ts` — HTTP wrapper, handles `X-User-Id` injection and base URL
+- `src/api/client.ts` — HTTP wrapper: base URL, bearer-token session, refresh, retry
 
 Recommendation: Migrate remaining ad-hoc `fetch` callsites to use these wrappers to centralize headers and error handling.

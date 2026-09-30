@@ -60,7 +60,7 @@ pub async fn create_peds(
         // Who performed the assessment is the authenticated caller, not a
         // value the client asserts — the pages were sending a literal
         // "Current Doctor" placeholder, which is what ended up on the record.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .get("assessment_datetime")
             .and_then(|v| v.as_str())
@@ -307,7 +307,7 @@ pub async fn create_ob(
         // Who performed the assessment is the authenticated caller, not a
         // value the client asserts — the pages were sending a literal
         // "Current Doctor" placeholder, which is what ended up on the record.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .get("assessment_datetime")
             .and_then(|v| v.as_str())

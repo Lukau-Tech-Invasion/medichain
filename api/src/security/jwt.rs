@@ -137,7 +137,7 @@ pub fn issue_context_access_token(
     let claims = Claims {
         iss: JWT_ISSUER.to_string(),
         aud: JWT_AUDIENCE.to_string(),
-        sub: context.wallet_address.clone(),
+        sub: context.user_id.clone(),
         role: context.role.clone().unwrap_or_default(),
         context: Some(
             match context.context_type {

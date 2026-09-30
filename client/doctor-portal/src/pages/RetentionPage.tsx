@@ -414,12 +414,12 @@ function RetentionPage() {
                     </p>
                   </div>
                   <div className="flex gap-2 flex-wrap justify-end">
-                    {approval.status === 'pending' && approval.requested_by === user?.walletAddress && (
+                    {approval.status === 'pending' && approval.requested_by === user?.userId && (
                       <span className="text-xs text-content-muted whitespace-nowrap">
                         {t('docRetention.needsSecondAdmin')}
                       </span>
                     )}
-                    {approval.status === 'pending' && approval.requested_by !== user?.walletAddress && (
+                    {approval.status === 'pending' && approval.requested_by !== user?.userId && (
                       <>
                         <button
                           type="button"

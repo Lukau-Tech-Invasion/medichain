@@ -1,15 +1,15 @@
 //! Adulthood transition: a patient claims their own, already-existing
-//! medical identity with a wallet of their own choosing.
+//! medical identity with a user id of their own choosing.
 //!
 //! A newborn/minor's `MedicalIdentity` (`patient_id`) is created independently
 //! of any account (see `handlers::general::register_patient`) and managed via
 //! `GuardianRelationship`s until the patient is ready to control it directly.
 //! This endpoint performs that one-time hand-off: it links the CALLER's own
-//! wallet as `User.linked_patient_id` for an existing, unclaimed identity,
+//! user id as `User.linked_patient_id` for an existing, unclaimed identity,
 //! after the caller proves they are its subject. Per the architecture's core
 //! invariant, there is **no data migration** — the medical identity, its
 //! records, and its encryption-key versions (already independent of any
-//! wallet — see `EncryptionKeyring`) are untouched. Existing guardian
+//! user id — see `EncryptionKeyring`) are untouched. Existing guardian
 //! relationships are also left active; the newly self-owning patient gets
 //! the same revoke path Admin already has (see `handlers::rbac::revoke_guardian_relationship`),
 //! so they can end a guardian's access themselves without disruption on day one.
@@ -33,7 +33,7 @@ pub struct ClaimIdentityResponse {
     pub message: String,
 }
 
-/// Claim an existing, unclaimed medical identity for the caller's own wallet.
+/// Claim an existing, unclaimed medical identity for the caller's own user id.
 #[post("/api/identity/claim")]
 pub async fn claim_medical_identity(
     data: web::Data<AppState>,
@@ -48,8 +48,8 @@ pub async fn claim_medical_identity(
         Some(u) => u,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Wallet not registered".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
+                error: "Account not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
             })
         }
     };
@@ -66,19 +66,9 @@ pub async fn claim_medical_identity(
         .users
         .read()
         .map(|users| {
-            users.values().any(|u| {
-                // Ignore the placeholder account that `register_patient`
-                // auto-creates for every new patient. That account is keyed
-                // by the patient_id itself (`wallet_address == patient_id`,
-                // "placeholder until wallet is linked") and already carries
-                // `linked_patient_id`, so counting it as a claim made this
-                // endpoint return IDENTITY_ALREADY_CLAIMED for EVERY
-                // patient — the wallet-linking flow could never succeed for
-                // anyone. A real claim comes from a wallet that is not the
-                // patient_id.
-                u.linked_patient_id.as_deref() == Some(body.patient_id.as_str())
-                    && u.wallet_address != body.patient_id
-            })
+            users
+                .values()
+                .any(|u| u.linked_patient_id.as_deref() == Some(body.patient_id.as_str()))
         })
         .unwrap_or(false);
     if already_claimed {
@@ -164,7 +154,7 @@ pub async fn claim_medical_identity(
         .users
         .write()
         .map_err(|_| ())
-        .map(|mut users| users.insert(updated_user.wallet_address.clone(), updated_user))
+        .map(|mut users| users.insert(updated_user.id.clone(), updated_user))
         .is_err()
     {
         return HttpResponse::ServiceUnavailable().finish();
@@ -179,12 +169,12 @@ pub async fn claim_medical_identity(
 
 pub(crate) async fn link_user_with_audit(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    wallet_address: &str,
+    user_id: &str,
     patient_id: &str,
     event: &crate::audit_outbox::AuditEvent,
 ) -> Result<(), sqlx::Error> {
-    let updated = sqlx::query("UPDATE users SET linked_patient_id = $2, updated_at = NOW() WHERE wallet_address = $1 AND linked_patient_id IS NULL")
-        .bind(wallet_address).bind(patient_id).execute(&mut **transaction).await?;
+    let updated = sqlx::query("UPDATE users SET linked_patient_id = $2, updated_at = NOW() WHERE id = $1::text::uuid AND linked_patient_id IS NULL")
+        .bind(user_id).bind(patient_id).execute(&mut **transaction).await?;
     if updated.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }

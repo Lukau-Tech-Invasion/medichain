@@ -26,7 +26,6 @@ if command -v tasklist >/dev/null 2>&1; then
 fi
 
 export IS_DEMO=true
-export REQUIRE_SIGNATURES=false
 export AUDIT_CHECKPOINT_SINK=none
 
 export MEDICHAIN_STORAGE=postgres

@@ -70,7 +70,7 @@ async fn require_card_access(
     let is_provider = get_user(data, caller)
         .map(|u| u.role.is_healthcare_provider())
         .unwrap_or(false);
-    // The owner is the patient RECORD (`PAT-...`), and `caller` is a wallet;
+    // The owner is the patient RECORD (`PAT-...`), and `caller` is a user id;
     // comparing them directly refused every patient their own card.
     if !is_provider && !crate::support::caller_owns_patient_record(data, caller, &existing.owner_id)
     {
@@ -104,7 +104,7 @@ pub async fn list_insurance_cards(
         let is_provider = get_user(&data, &uid)
             .map(|u| u.role.is_healthcare_provider())
             .unwrap_or(false);
-        // Wallet against record id, through the shared helper: a bare
+        // User id against record id, through the shared helper: a bare
         // `uid != patient_id` refused every patient their own cards, while the
         // create path above accepted them -- so a patient could file a card
         // and never see, change or remove it.
@@ -178,8 +178,7 @@ pub async fn create_insurance_card(
             })
         }
     };
-    let is_self =
-        caller.linked_patient_id.as_deref() == Some(patient_id.as_str()) || caller_id == patient_id;
+    let is_self = caller.linked_patient_id.as_deref() == Some(patient_id.as_str());
     if !is_self && !caller.role.is_healthcare_provider() && !caller.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "You may not create an insurance card for this patient".to_string(),
@@ -477,7 +476,7 @@ pub async fn delete_insurance_card(
 
 /// A patient can keep the insurance cards they file: list, change and remove
 /// them. Every owner check compared the stored `PAT-` record id with the
-/// caller's wallet, so the create path accepted a card the patient could then
+/// caller's user id, so the create path accepted a card the patient could then
 /// never see again.
 #[cfg(test)]
 mod patient_card_access_tests {
@@ -490,18 +489,10 @@ mod patient_card_access_tests {
         let state = AppState::new();
         let mut me = staff("5PatientCard", Role::Patient);
         me.linked_patient_id = Some("PAT-CARD-1".to_string());
-        state
-            .users
-            .write()
-            .unwrap()
-            .insert(me.wallet_address.clone(), me);
+        state.users.write().unwrap().insert(me.id.clone(), me);
         let mut other = staff("5OtherPatient", Role::Patient);
         other.linked_patient_id = Some("PAT-CARD-2".to_string());
-        state
-            .users
-            .write()
-            .unwrap()
-            .insert(other.wallet_address.clone(), other);
+        state.users.write().unwrap().insert(other.id.clone(), other);
         register(&state, "5ClerkDoc", Role::Doctor);
         let app = test::init_service(
             App::new()
@@ -513,7 +504,7 @@ mod patient_card_access_tests {
         )
         .await;
         let as_ = |who: &str, req: test::TestRequest| {
-            req.insert_header(("X-User-Id", who.to_string()))
+            req.insert_header(crate::test_fixtures::as_user(who))
                 .to_request()
         };
 

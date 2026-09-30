@@ -87,7 +87,7 @@ fn eob_audit(
 ) -> crate::repositories::traits::AccessLogEntity {
     crate::repositories::traits::AccessLogEntity {
         id: crate::middleware::secure_tokens::generate_access_id(),
-        accessor_id: caller.wallet_address.clone(),
+        accessor_id: caller.id.clone(),
         accessor_role: caller.role.to_string(),
         patient_id: Some(patient_id.to_string()),
         resource_type: "eob_document".to_string(),
@@ -115,7 +115,7 @@ async fn store_eob(
         data,
         &file,
         Some(&claim.patient_id),
-        &caller.wallet_address,
+        &caller.id,
         "explanation_of_benefits",
     )
     .await
@@ -124,7 +124,7 @@ async fn store_eob(
         id: format!("EOB-{}", uuid::Uuid::new_v4()),
         claim_id: claim.claim_id.clone(),
         patient_id: claim.patient_id.clone(),
-        uploaded_by: caller.wallet_address.clone(),
+        uploaded_by: caller.id.clone(),
         filename: file.filename,
         content_type: file.content_type.to_string(),
         size_bytes: stored.size_bytes,
@@ -198,7 +198,7 @@ fn notify_eob_received(data: &web::Data<AppState>, patient_id: String) {
 /// themselves, or an administrator.
 fn may_read_eob(data: &web::Data<AppState>, caller: &crate::User, patient_id: &str) -> bool {
     caller.role == crate::Role::Admin
-        || crate::support::caller_owns_patient_record(data, &caller.wallet_address, patient_id)
+        || crate::support::caller_owns_patient_record(data, &caller.id, patient_id)
 }
 
 /// Download an EOB document (the claim's patient, or an administrator).
@@ -384,7 +384,7 @@ mod tests {
     async fn call(
         state: &web::Data<AppState>,
         request: test::TestRequest,
-        wallet: &str,
+        user_id: &str,
     ) -> actix_web::dev::ServiceResponse {
         let app = test::init_service(
             App::new()
@@ -396,7 +396,9 @@ mod tests {
         .await;
         test::call_service(
             &app,
-            request.insert_header(("x-user-id", wallet)).to_request(),
+            request
+                .insert_header(crate::test_fixtures::as_user(user_id))
+                .to_request(),
         )
         .await
     }
@@ -410,10 +412,10 @@ mod tests {
             .set_payload(EOB_PDF.to_vec())
     }
 
-    async fn claims_as(state: &web::Data<AppState>, wallet: &str) -> serde_json::Value {
+    async fn claims_as(state: &web::Data<AppState>, user_id: &str) -> serde_json::Value {
         let list =
             test::TestRequest::get().uri(&format!("/api/insurance/claims/patient/{PATIENT_ID}"));
-        test::read_body_json(call(state, list, wallet).await).await
+        test::read_body_json(call(state, list, user_id).await).await
     }
 
     #[actix_web::test]

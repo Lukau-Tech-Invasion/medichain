@@ -18,8 +18,8 @@ vi.mock('@medichain/shared', async importOriginal => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-const doctorId = 'doctor-wallet';
-const patientId = 'patient-wallet';
+const doctorId = 'doctor-user-id';
+const patientId = 'patient-user-id';
 const inbound = {
   message_id: 'msg-1',
   sender_id: patientId,
@@ -79,7 +79,7 @@ describe('MessagesPage', () => {
     replySent = false;
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: doctorId, role: 'Doctor', fullName: 'Dr Smith' },
+      user: { userId: doctorId, role: 'Doctor', fullName: 'Dr Smith' },
       isAuthenticated: true,
     });
     vi.mocked(shared.markMessageRead).mockResolvedValue({ success: true, message_id: 'msg-1', read: true });

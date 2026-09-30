@@ -192,7 +192,7 @@ const DrugInteractionsPage: React.FC = () => {
 
   useEffect(() => {
     const fetchDrugs = async () => {
-      if (!user?.walletAddress) return;
+      if (!user?.userId) return;
       
       try {
         const data = await getApiClient().get<{ success?: boolean; drugs?: Drug[] }>(
@@ -210,7 +210,7 @@ const DrugInteractionsPage: React.FC = () => {
     };
     
     fetchDrugs();
-  }, [user?.walletAddress, user?.role, t]);
+  }, [user?.userId, user?.role, t]);
 
   // Interaction Database - fetched from API
   const [interactionDatabase, setInteractionDatabase] = useState<Interaction[]>([]);
@@ -218,7 +218,7 @@ const DrugInteractionsPage: React.FC = () => {
   // Load interaction database from API
   useEffect(() => {
     const fetchInteractions = async () => {
-      if (!user?.walletAddress) return;
+      if (!user?.userId) return;
       
       try {
         const data = await getApiClient().get<{ success?: boolean; interactions?: Interaction[] }>(
@@ -233,7 +233,7 @@ const DrugInteractionsPage: React.FC = () => {
     };
     
     fetchInteractions();
-  }, [user?.walletAddress, user?.role]);
+  }, [user?.userId, user?.role]);
 
   // Search drugs
   useEffect(() => {
@@ -267,7 +267,7 @@ const DrugInteractionsPage: React.FC = () => {
   };
 
   const handleCheckInteractions = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     
     setIsChecking(true);
     
@@ -341,7 +341,7 @@ const DrugInteractionsPage: React.FC = () => {
           minor: foundInteractions.filter((i) => i.severity === 'minor').length,
           unknown: foundInteractions.filter((i) => i.severity === 'unknown').length,
         },
-        checkedBy: user?.userId || user?.walletAddress || 'Unknown',
+        checkedBy: user?.userId || user?.userId || 'Unknown',
       };
       
       // A check for a patient is filed on their chart; the history is what the

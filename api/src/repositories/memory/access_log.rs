@@ -66,7 +66,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
 
     async fn get_by_accessor(
         &self,
-        accessor_id: &str,
+        accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
         let storage = self
@@ -79,13 +79,12 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
 
-        let mut logs: Vec<AccessLogEntity> = match accessor_index.get(accessor_id) {
-            Some(ids) => ids
-                .iter()
-                .filter_map(|id| storage.get(id).cloned())
-                .collect(),
-            None => Vec::new(),
-        };
+        let mut logs: Vec<AccessLogEntity> = accessor_ids
+            .iter()
+            .filter_map(|accessor_id| accessor_index.get(accessor_id))
+            .flatten()
+            .filter_map(|id| storage.get(id).cloned())
+            .collect();
 
         logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 

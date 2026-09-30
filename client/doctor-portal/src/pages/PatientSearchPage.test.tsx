@@ -21,7 +21,7 @@ describe('PatientSearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '0x123', role: 'Doctor' },
+      user: { userId: '0x123', role: 'Doctor' },
       isAuthenticated: true,
     });
     global.fetch = vi.fn().mockResolvedValue({

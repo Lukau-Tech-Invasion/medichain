@@ -23,7 +23,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
 
 describe('WoundCarePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Nurse',
   };
 

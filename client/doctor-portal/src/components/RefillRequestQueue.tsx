@@ -156,7 +156,7 @@ function RefillRow({ request, outcome, onOutcome }: RefillRowProps) {
     }, t('docEPrescribe.refillActionFailed'));
   const signAndSend = (newId: string) =>
     run(async () => {
-      await signEPrescription(newId, { signature_method: 'wallet', attestation: PRESCRIBER_ATTESTATION });
+      await signEPrescription(newId, { signature_method: 'password', attestation: PRESCRIBER_ATTESTATION });
       await transmitEPrescription(newId);
       return { kind: 'sent' };
     }, t('docEPrescribe.refillSignFailed'));

@@ -715,7 +715,7 @@ mod tests {
         repo.create(consent).await.unwrap();
 
         let revoked = repo
-            .revoke("CON-REVOKE-001", "guardian-wallet", Some("withdrawn"))
+            .revoke("CON-REVOKE-001", "guardian-user_id", Some("withdrawn"))
             .await
             .unwrap();
         assert!(!revoked.consent_given);
@@ -724,7 +724,7 @@ mod tests {
             crate::types::ConsentStatus::Withdrawn.as_str()
         );
         assert!(repo
-            .revoke("CON-REVOKE-001", "guardian-wallet", None)
+            .revoke("CON-REVOKE-001", "guardian-user_id", None)
             .await
             .is_err());
     }

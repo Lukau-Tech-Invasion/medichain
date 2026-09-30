@@ -21,7 +21,7 @@ pub async fn create_immunization(
     // fills in. It was stored as sent, so any clinician could attribute a
     // vaccination to a colleague -- and the page's own fallback, when it had
     // no user, was the invented `USER-001`.
-    record.administered_by = caller.wallet_address.clone();
+    record.administered_by = caller.id.clone();
     // The id is the primary key, so it is the server's to assign. A blank or
     // absent one used to be stored verbatim, so the second such record
     // collided and failed with an opaque 500.
@@ -97,7 +97,7 @@ pub async fn create_family_history(
     // Who changed it, and when, are the server's to state. Both were stored as
     // the page sent them -- the author falling back to the invented `USER-001`
     // -- so the history could name anybody as having recorded it.
-    history.updated_by = caller.wallet_address.clone();
+    history.updated_by = caller.id.clone();
     history.last_updated = now.timestamp_millis();
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
@@ -152,7 +152,7 @@ pub async fn get_family_history(
     .await;
     let provider_grant = if caller.role.can_view_medical_records() {
         data.patient_access
-            .provider_has_active_grant(&id, &caller.wallet_address, Utc::now())
+            .provider_has_active_grant(&id, &caller.id, Utc::now())
             .await
             .unwrap_or(false)
     } else {
@@ -210,10 +210,7 @@ pub async fn get_my_family_history(
         Ok(caller) => caller,
         Err(response) => return response,
     };
-    let patient_id = caller
-        .linked_patient_id
-        .clone()
-        .unwrap_or(caller.wallet_address);
+    let patient_id = caller.linked_patient_id.clone().unwrap_or(caller.id);
 
     match data
         .repositories
@@ -429,7 +426,7 @@ pub async fn create_blood_type_screen(
             "order_time": screen.order_time,
             // The orderer is the authenticated caller. A blood product order is
             // signed work, and a client-asserted name is not a signature.
-            "ordered_by": caller.wallet_address,
+            "ordered_by": caller.id,
             "created_at": now.to_rfc3339(),
         }),
         created_at: now,
@@ -569,7 +566,7 @@ pub async fn create_transfusion(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
@@ -746,7 +743,7 @@ pub async fn create_death_certificate(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let certificate = req.into_inner();
 
@@ -925,7 +922,7 @@ pub async fn draft_death_certificate(
     req: web::Json<DraftDeathCertificateRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let draft = req.into_inner();
@@ -988,7 +985,7 @@ pub async fn update_death_certificate_draft(
     req: web::Json<DraftDeathCertificateRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let id = path.into_inner();
@@ -1079,7 +1076,7 @@ pub async fn file_death_certificate(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
     let id = path.into_inner();
 
     let existing = match data
@@ -1259,7 +1256,7 @@ pub async fn create_autopsy_report(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut report = req.into_inner();
     // Server-generated. The page numbered reports from the length of its own
@@ -1513,7 +1510,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate/draft")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(complete())
                 .to_request(),
         )
@@ -1523,7 +1520,7 @@ mod death_certificate_lifecycle_tests {
         let file = |id: String| {
             test::TestRequest::post()
                 .uri(&format!("/api/surgical/death-certificate/{id}/file"))
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .to_request()
         };
         assert_eq!(
@@ -1562,7 +1559,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate/draft")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(serde_json::json!({ "patient_id": "PAT-DC-1" }))
                 .to_request(),
         )
@@ -1572,7 +1569,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/surgical/death-certificate/{id}/file"))
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .to_request(),
         )
         .await;
@@ -1598,7 +1595,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(body)
                 .to_request(),
         )

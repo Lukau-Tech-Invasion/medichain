@@ -60,7 +60,7 @@ function messageTimestamp(value: number | string): string {
  * Convert the persisted API contract into presentation state. Timestamps are
  * Unix seconds on the wire and must not be handed to `Date` as milliseconds.
  */
-function normalizeConversation(raw: MessageConversation, patientWallet: string): Conversation {
+function normalizeConversation(raw: MessageConversation, patientUserId: string): Conversation {
   return {
     id: raw.id,
     providerId: raw.providerId,
@@ -78,7 +78,7 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
       content: message.content,
       timestamp: messageTimestamp(message.sent_at),
       read: Boolean(message.read),
-      isPatient: message.sender_id === patientWallet,
+      isPatient: message.sender_id === patientUserId,
       attachments: message.attachments ?? [],
     })),
   };
@@ -128,7 +128,7 @@ export function MessagesPage() {
       const data = await getMessages('all');
       setApiConnected(true);
       const loaded = data.conversations.map(
-        (conversation) => normalizeConversation(conversation, patient.walletAddress)
+        (conversation) => normalizeConversation(conversation, patient.userId)
       );
       setConversations(loaded);
       return loaded;
@@ -194,8 +194,8 @@ export function MessagesPage() {
 
   const selectProvider = (provider: BookableProvider) => {
     setSelectedConversation({
-      id: provider.wallet_address,
-      providerId: provider.wallet_address,
+      id: provider.user_id,
+      providerId: provider.user_id,
       providerName: provider.name,
       providerRole: provider.role,
       specialty: provider.specialty || provider.role,
@@ -396,7 +396,7 @@ export function MessagesPage() {
           <h2 className="font-semibold text-content">Choose a provider</h2>
           {providers.map(provider => (
             <button
-              key={provider.wallet_address}
+              key={provider.user_id}
               onClick={() => selectProvider(provider)}
               className="w-full rounded-lg border border-border p-3 text-left hover:border-brand"
             >

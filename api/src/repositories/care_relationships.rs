@@ -558,6 +558,19 @@ mod pg_tests {
         .execute(&pool)
         .await
         .unwrap();
+        // The clinician columns reference `users`, so the clinicians are real.
+        let doctor = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let stranger = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let relationship = |id: &str, source: &str, days: i64| {
+            let mut row = relationship(id, source, days);
+            row.clinician_id = Some(doctor.clone());
+            row
+        };
+        let break_glass = |id: &str, hours: i64| {
+            let mut row = break_glass(id, hours);
+            row.clinician_id = stranger.clone();
+            row
+        };
         let repo = PgCareRelationshipRepository::new(pool.clone());
         let source = format!("APT-{}", uuid::Uuid::new_v4());
         let first = repo
@@ -593,7 +606,7 @@ mod pg_tests {
         let context = |hours: i64| AccessContextEntity {
             id: format!("ACX-{}", uuid::Uuid::new_v4()),
             patient_id: "PAT-CARE".into(),
-            clinician_id: "doctor_care".into(),
+            clinician_id: doctor.clone(),
             reason: "Treatment".into(),
             authority_type: "care_relationship".into(),
             authority_id: None,

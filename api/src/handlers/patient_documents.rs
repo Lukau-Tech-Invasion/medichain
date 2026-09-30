@@ -35,7 +35,7 @@ fn authorize(
 ) -> Result<(), HttpResponse> {
     let caller_id = get_current_user_id(http_req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Missing X-User-Id header".to_string(),
+            error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
@@ -422,7 +422,7 @@ pub async fn list_patient_intake_output(
 /// a clinician route, in both directions:
 ///
 ///   * **Refusing the patient is a defect, not a safe default.** `patient_id`
-///     is a `PAT-` id and the caller id is a wallet address, so the obvious
+///     is a `PAT-` id and the caller id is a user id, so the obvious
 ///     comparison fails closed and locks a patient out of their own discharge
 ///     papers. `caller_owns_patient_record` is what bridges the two namespaces,
 ///     and this table exists so a refactor cannot quietly remove it.
@@ -490,10 +490,10 @@ mod patient_document_access_tests {
         "ems-handoffs",
     ];
 
-    fn state_with(role: Role, wallet: &str, linked: Option<&str>) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str, linked: Option<&str>) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -512,13 +512,13 @@ mod patient_document_access_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
     async fn status_for(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         patient_id: &str,
         route: &str,
     ) -> u16 {
@@ -543,7 +543,7 @@ mod patient_document_access_tests {
         .await;
         let req = test::TestRequest::get()
             .uri(&format!("/api/clinical/patient/{patient_id}/{route}"))
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         test::call_service(&app, req).await.status().as_u16()
     }
@@ -554,9 +554,9 @@ mod patient_document_access_tests {
     #[actix_rt::test]
     async fn a_patient_can_open_their_own_documents() {
         for route in ROUTES {
-            let data = state_with(Role::Patient, "5Wallet-Own", Some("PAT-1"));
+            let data = state_with(Role::Patient, "5User-Own", Some("PAT-1"));
             assert_eq!(
-                status_for(data, "5Wallet-Own", "PAT-1", route).await,
+                status_for(data, "5User-Own", "PAT-1", route).await,
                 200,
                 "a patient was refused their own {route}"
             );
@@ -566,9 +566,9 @@ mod patient_document_access_tests {
     #[actix_rt::test]
     async fn a_patient_cannot_open_someone_elses_documents() {
         for route in ROUTES {
-            let data = state_with(Role::Patient, "5Wallet-Other", Some("PAT-2"));
+            let data = state_with(Role::Patient, "5User-Other", Some("PAT-2"));
             assert_eq!(
-                status_for(data, "5Wallet-Other", "PAT-1", route).await,
+                status_for(data, "5User-Other", "PAT-1", route).await,
                 403,
                 "one patient could read another's {route}"
             );
@@ -579,21 +579,21 @@ mod patient_document_access_tests {
     #[actix_rt::test]
     async fn a_clinician_can_read_a_patients_documents() {
         for route in ROUTES {
-            let data = state_with(Role::Doctor, "5Wallet-Doc", None);
+            let data = state_with(Role::Doctor, "5User-Doc", None);
             assert_eq!(
-                status_for(data, "5Wallet-Doc", "PAT-1", route).await,
+                status_for(data, "5User-Doc", "PAT-1", route).await,
                 200,
                 "a clinician was refused a patient's {route}"
             );
         }
     }
 
-    /// `X-User-Id` is caller-supplied, so it is resolved against the user store
-    /// before any scoping decision. An unregistered wallet is not a caller.
+    /// A token's subject is resolved against the user store
+    /// before any scoping decision. An unregistered user id is not a caller.
     #[actix_rt::test]
     async fn an_unknown_caller_is_refused() {
         for route in ROUTES {
-            let data = state_with(Role::Doctor, "5Wallet-Doc", None);
+            let data = state_with(Role::Doctor, "5User-Doc", None);
             assert_eq!(
                 status_for(data, "5Nobody-At-All", "PAT-1", route).await,
                 401,
@@ -614,10 +614,10 @@ mod records_summary_tests {
 
     async fn state() -> web::Data<AppState> {
         let state = AppState::new();
-        for (wallet, linked) in [(PATIENT, PATIENT_ID), (OTHER, "PAT-ELSEWHERE")] {
-            let mut user = crate::test_fixtures::staff(wallet, crate::Role::Patient);
+        for (user_id, linked) in [(PATIENT, PATIENT_ID), (OTHER, "PAT-ELSEWHERE")] {
+            let mut user = crate::test_fixtures::staff(user_id, crate::Role::Patient);
             user.linked_patient_id = Some(linked.into());
-            state.users.write().unwrap().insert(wallet.into(), user);
+            state.users.write().unwrap().insert(user_id.into(), user);
         }
         crate::test_fixtures::seed_patient(&state, PATIENT_ID).await;
         web::Data::new(state)
@@ -625,7 +625,7 @@ mod records_summary_tests {
 
     async fn summary(
         data: &web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         query: &str,
     ) -> (u16, serde_json::Value) {
         let app = test::init_service(
@@ -638,7 +638,7 @@ mod records_summary_tests {
             .uri(&format!(
                 "/api/patients/{PATIENT_ID}/records-summary{query}"
             ))
-            .insert_header(("x-user-id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let response = test::call_service(&app, request).await;
         let status = response.status().as_u16();

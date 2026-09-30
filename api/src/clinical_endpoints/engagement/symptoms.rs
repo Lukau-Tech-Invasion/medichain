@@ -27,17 +27,17 @@ pub async fn start_symptom_check(
     // The session belongs to the PATIENT, under the id their own history is
     // read by.
     //
-    // This used to key the session on the caller's wallet address, while
+    // This used to key the session on the caller's user id, while
     // `GET /api/symptoms/history/{patient_id}` looks it up by health id
     // (`PAT-…`) — the id every patient-app screen holds. The two namespaces
     // never met, so a patient's symptom-check history was permanently empty
     // and the triage that told them to go to an emergency department left no
-    // record anyone could find. The wallet remains the fallback for a caller
+    // record anyone could find. The user id remains the fallback for a caller
     // with no linked patient record.
     let current_user_id = caller
         .linked_patient_id
         .clone()
-        .unwrap_or_else(|| caller.wallet_address.clone());
+        .unwrap_or_else(|| caller.id.clone());
 
     // Generate initial follow-up questions based on primary symptom
     let follow_up_questions = generate_symptom_questions(&req.primary_symptom);
@@ -181,7 +181,7 @@ pub async fn submit_symptom_answers(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -212,8 +212,8 @@ pub async fn submit_symptom_answers(
         }
     };
 
-    // Same wallet-vs-record-id namespace mismatch fixed elsewhere: a symptom
-    // session is keyed by patient_id, the caller by wallet.
+    // Same user id-vs-record-id namespace mismatch fixed elsewhere: a symptom
+    // session is keyed by patient_id, the caller by user id.
     if !crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Session does not belong to you".to_string(),
@@ -378,7 +378,7 @@ pub async fn get_symptom_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -432,11 +432,11 @@ pub async fn get_symptom_checker_history(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
-    // Allow the patient or a registered healthcare provider. Wallet addresses
+    // Allow the patient or a registered healthcare provider. User id addresses
     // are opaque identifiers, so a legacy `0xPROV` prefix is not authorization.
     let is_provider = crate::get_user(&data, &current_user_id)
         .is_some_and(|user| user.role.is_healthcare_provider());

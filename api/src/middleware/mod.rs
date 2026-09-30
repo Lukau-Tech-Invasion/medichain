@@ -2,7 +2,7 @@
 //!
 //! This module contains middleware for the MediChain API including:
 //! - Rate limiting to prevent DoS attacks
-//! - Signature authentication for wallet verification (SEC-005)
+//! - Signature authentication for user id verification (SEC-005)
 //! - Request validation
 //! - Error handling utilities
 //!

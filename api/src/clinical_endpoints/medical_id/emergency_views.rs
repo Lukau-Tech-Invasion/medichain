@@ -39,7 +39,7 @@ async fn primary_guardian_contact_json(
     let Some(primary) = relationships.into_iter().next() else {
         return serde_json::Value::Null;
     };
-    let contact = get_user(data, &primary.guardian_wallet);
+    let contact = get_user(data, &primary.guardian_user_id);
     serde_json::json!({
         "name": contact.as_ref().map(|u| u.name.clone()),
         "phone": contact.as_ref().and_then(|u| u.phone.clone()),
@@ -764,9 +764,9 @@ mod hz_001_regression_tests {
     async fn exchanged_token_grants_access_and_expires() {
         let state = crate::AppState::new();
         state.users.write().unwrap().insert(
-            "responder-wallet".to_string(),
+            "responder-user".to_string(),
             crate::User {
-                wallet_address: "responder-wallet".to_string(),
+                id: "responder-user".to_string(),
                 username: None,
                 name: "EMS responder".to_string(),
                 role: crate::Role::Paramedic,
@@ -797,7 +797,7 @@ mod hz_001_regression_tests {
 
         let valid_token = super::super::emergency_access::issue_emergency_token(
             patient_id,
-            "responder-wallet",
+            "responder-user",
             &device_id,
             "trauma",
             120,
@@ -805,7 +805,7 @@ mod hz_001_regression_tests {
         .unwrap();
         let expired_token = super::super::emergency_access::issue_emergency_token(
             patient_id,
-            "responder-wallet",
+            "responder-user",
             &device_id,
             "trauma",
             -10,
@@ -839,7 +839,7 @@ mod hz_001_regression_tests {
         // Removing emergency authority invalidates a previously issued grant.
         let revoked_token = super::super::emergency_access::issue_emergency_token(
             patient_id,
-            "responder-wallet",
+            "responder-user",
             &device_id,
             "trauma",
             120,
@@ -849,7 +849,7 @@ mod hz_001_regression_tests {
             .users
             .write()
             .unwrap()
-            .get_mut("responder-wallet")
+            .get_mut("responder-user")
             .unwrap()
             .role = crate::Role::Patient;
         let revoked_request = test::TestRequest::get()

@@ -184,7 +184,7 @@ pub async fn get_drug_database(
     http_req: HttpRequest,
 ) -> impl Responder {
     // Validate user is authenticated
-    let _current_user_id = match require_x_user_id_header(&http_req) {
+    let _current_user_id = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };
@@ -205,7 +205,7 @@ pub async fn get_interaction_database(
     http_req: HttpRequest,
 ) -> impl Responder {
     // Validate user is authenticated
-    let _current_user_id = match require_x_user_id_header(&http_req) {
+    let _current_user_id = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };

@@ -12,6 +12,7 @@ import {
   saveUserSettings,
   setMyAvatar,
   getUserAvatar,
+  getRememberedLoginId,
   useTranslation,
 } from '@medichain/shared';
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
@@ -94,7 +95,7 @@ function SettingsPage() {
   // user's settings blob and nothing else. No secret was generated, no
   // authenticator was paired, and the server's `user_mfa` state was untouched —
   // so the screen said two-factor was on while `mfa_enabled()` returned false
-  // for that wallet. A security control that reports itself enabled when it is
+  // for that account. A security control that reports itself enabled when it is
   // not is worse than one that is plainly absent.
   //
   // This is not cosmetic. `require_privileged_assurance` gates role assignment
@@ -257,9 +258,9 @@ function SettingsPage() {
   };
 
   useEffect(() => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     let cancelled = false;
-    getUserAvatar(user.walletAddress)
+    getUserAvatar(user.userId)
       .then((res) => {
         if (!cancelled) setAvatar(res.avatar ?? null);
       })
@@ -268,7 +269,7 @@ function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.walletAddress]);
+  }, [user?.userId]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -571,7 +572,7 @@ function SettingsPage() {
                     The switch that used to sit here wrote
                     `twoFactorEnabled: true` into the settings blob and paired
                     no authenticator, so the screen reported two-factor as on
-                    while the server held no enrolment for that wallet. */}
+                    while the server held no enrolment for that account. */}
                 <div className="py-3 border-b border-border">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
@@ -863,7 +864,7 @@ function SettingsPage() {
 
       {showPasswordDialog && (
         <ChangePasswordDialog
-          loginId={user?.username || ''}
+          loginId={getRememberedLoginId() ?? ''}
           onClose={() => setShowPasswordDialog(false)}
         />
       )}

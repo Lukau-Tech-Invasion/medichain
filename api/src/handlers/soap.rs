@@ -27,7 +27,7 @@ pub async fn create_soap_note(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -185,7 +185,7 @@ pub async fn get_soap_note(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -234,7 +234,7 @@ pub async fn get_soap_note(
 
     // Healthcare providers or the patient viewing their own record.
     //
-    // The patient arm compared a wallet address to a `PAT-` id and was
+    // The patient arm compared a user id to a `PAT-` id and was
     // therefore dead: a patient could not read a note written about them.
     if !current_user.role.is_healthcare_provider()
         && !crate::support::caller_owns_patient_record(&data, &current_user_id, &note.patient_id)
@@ -262,7 +262,7 @@ pub async fn get_patient_soap_notes(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -331,7 +331,7 @@ pub async fn add_soap_addendum(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }

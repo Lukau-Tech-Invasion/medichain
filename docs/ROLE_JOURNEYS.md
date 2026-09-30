@@ -4,6 +4,11 @@
 a reachability sweep, driven against a live PostgreSQL-backed API.
 `scripts/role-journeys.ts`.
 
+> **Identity vocabulary.** The findings below were written when a user was named
+> by a wallet address, and they use that word. ADR-0010 removed wallets: a user
+> is now `users.id`, and the journeys sign in with a login id and a password
+> proof (see "Running it"). The defects and what they teach are unchanged.
+
 Two passes, **56 defects**. The second pass ran after the first pass's findings
 were fixed and found sixteen more — several in code the first pass had read
 carefully — because each one is a disagreement between two places that are
@@ -88,9 +93,20 @@ cd client && MEDICHAIN_API_URL=http://127.0.0.1/api \
   ./node_modules/.bin/vite-node ../scripts/role-journeys.ts
 ```
 
-`--only=nurse,doctor` runs a subset. The per-wallet challenge limiter is five
-per minute, so two full runs inside a minute will legitimately skip some
-sign-ins; that is a control working and is reported as a SKIP, never a failure.
+`--only=nurse,doctor` runs a subset.
+
+Every actor signs in the way a person does: `POST /api/auth/login` with the login
+id and a proof derived from the password (`client/shared/src/auth/proof.ts`),
+answered with a bearer token. There is no identity header and no key material. The
+accounts come from `.browser-test/fixtures.json`, which the seeder writes as
+`{user_id, login_id, password, linked_patient_id, nfc_tag_id}` per account: staff
+are registered by the administrator and redeem a one-time credential code, and each
+patient is registered by a doctor and redeems an activation code, choosing a
+username. PostgreSQL is required: signing in creates a session row.
+
+A per-address rate limit that refuses a sign-in is reported as a SKIP, never a
+failure: it is a control doing its job. A locked account (`429 ACCOUNT_LOCKED`) is
+a failure, because a fixture that is locked out means the run before it locked it.
 
 ## Result
 
@@ -501,10 +517,11 @@ and closing them turned up five more defects of the same shapes.
   would reasonably take for the real thing. Recorded in the debt register; it
   needs a decision (migrate the handlers, or remove the traits) rather than a
   deletion.
-* **The administrator has no browser coverage.** `bt.admin` is in the server's
-  demo-fixture list and carries no keystore, so `GET /api/auth/demo-credentials`
-  does not offer it and no browser test can sign in as an administrator — 14
-  screens unreachable by the Playwright suites.
+* **The administrator's browser coverage depends on the demo-credentials list.**
+  `bt.admin` is in the server's demo-fixture list; the browser suites sign in with
+  the fixture's own password through the sign-in form, so they reach the
+  administrator's 14 screens whenever the seeder has run. The API-level journey
+  covers the role either way.
 * **39 files still bypassing the typed API client.** Two CI gates now hold the
   correctness floor (headers, and the response being examined); the migration
   itself is recorded in the debt register.

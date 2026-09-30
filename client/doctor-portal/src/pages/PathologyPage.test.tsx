@@ -43,7 +43,7 @@ const SPECIMEN = {
 
 describe('PathologyPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Pathologist',
   };
 

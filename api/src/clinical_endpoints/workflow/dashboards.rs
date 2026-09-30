@@ -98,7 +98,7 @@ pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) 
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let patients: Vec<DashboardPatient> = required_dashboard_read!(
         data.repositories
@@ -353,7 +353,7 @@ async fn ward_context(data: &web::Data<AppState>, patient_id: &str) -> WardConte
 #[get("/api/dashboard/nurse")]
 pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -472,7 +472,7 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
 #[get("/api/dashboard/lab")]
 pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -685,7 +685,7 @@ async fn resolve_patient_names(
 #[get("/api/dashboard/admin")]
 pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -884,7 +884,7 @@ pub async fn pharmacist_dashboard(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1085,7 +1085,7 @@ mod lab_rejection_tests {
 
     fn lab_tech() -> crate::User {
         crate::User {
-            wallet_address: "lab_wallet".to_string(),
+            id: "lab_user".to_string(),
             username: None,
             name: "Lab Test".to_string(),
             role: crate::Role::LabTechnician,
@@ -1117,7 +1117,7 @@ mod lab_rejection_tests {
             .users
             .write()
             .unwrap()
-            .insert("lab_wallet".to_string(), lab_tech());
+            .insert("lab_user".to_string(), lab_tech());
 
         let patient_id = "PAT-REJ-1";
         let now = chrono::Utc::now();
@@ -1175,7 +1175,7 @@ mod lab_rejection_tests {
                 rejection_reason: "Haemolysed sample".to_string(),
                 rejection_category: "collection_error".to_string(),
                 detailed_notes: None,
-                rejected_by: "lab_wallet".to_string(),
+                rejected_by: "lab_user".to_string(),
                 rejected_at: now,
                 recollection_required: false,
                 recollection_scheduled: None,
@@ -1199,7 +1199,7 @@ mod lab_rejection_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/lab")
-                .insert_header(("x-user-id", "lab_wallet"))
+                .insert_header(crate::test_fixtures::as_user("lab_user"))
                 .to_request(),
         )
         .await;
@@ -1226,7 +1226,7 @@ mod pharmacy_tile_tests {
 
     fn pharmacist() -> crate::User {
         crate::User {
-            wallet_address: "tile_pharm".to_string(),
+            id: "tile_pharm".to_string(),
             username: None,
             name: "Tile Pharm".to_string(),
             role: crate::Role::Pharmacist,
@@ -1304,7 +1304,7 @@ mod pharmacy_tile_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/pharmacist")
-                .insert_header(("x-user-id", "tile_pharm"))
+                .insert_header(crate::test_fixtures::as_user("tile_pharm"))
                 .to_request(),
         )
         .await;
@@ -1335,7 +1335,7 @@ mod pharmacy_queue_tests {
 
     fn pharmacist() -> crate::User {
         crate::User {
-            wallet_address: "pharm_wallet".to_string(),
+            id: "pharm_user".to_string(),
             username: None,
             name: "Pharm Test".to_string(),
             role: crate::Role::Pharmacist,
@@ -1366,7 +1366,7 @@ mod pharmacy_queue_tests {
             .users
             .write()
             .unwrap()
-            .insert("pharm_wallet".to_string(), pharmacist());
+            .insert("pharm_user".to_string(), pharmacist());
 
         let patient_id = "PAT-PHARM-1";
         let now = chrono::Utc::now();
@@ -1453,7 +1453,7 @@ mod pharmacy_queue_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/pharmacist")
-                .insert_header(("x-user-id", "pharm_wallet"))
+                .insert_header(crate::test_fixtures::as_user("pharm_user"))
                 .to_request(),
         )
         .await;
@@ -1475,7 +1475,7 @@ mod pending_lab_tile_tests {
 
     fn doctor() -> crate::User {
         crate::User {
-            wallet_address: "dash_doctor".to_string(),
+            id: "dash_doctor".to_string(),
             username: None,
             name: "Dr Dashboard".to_string(),
             role: crate::Role::Doctor,
@@ -1564,7 +1564,7 @@ mod pending_lab_tile_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/doctor")
-                .insert_header(("x-user-id", "dash_doctor"))
+                .insert_header(crate::test_fixtures::as_user("dash_doctor"))
                 .to_request(),
         )
         .await;
@@ -1660,7 +1660,7 @@ mod pharmacy_interaction_panel_tests {
         .await;
         let req = test::TestRequest::get()
             .uri("/api/dashboard/pharmacist")
-            .insert_header(("X-User-Id", "5Pharm"))
+            .insert_header(crate::test_fixtures::as_user("5Pharm"))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
 

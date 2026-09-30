@@ -11,6 +11,7 @@ import {
   StatusBar
 } from 'react-native';
 import Constants from 'expo-constants';
+import { deriveAuthProof } from './src/auth/proof';
 
 /**
  * MediChain Connection Tester
@@ -64,9 +65,6 @@ function getDefaultApiUrl(): string {
   return 'http://YOUR_COMPUTER_IP:8080';
 }
 
-// Sample wallet address for testing (from MediChain demo data)
-const SAMPLE_WALLET = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-
 interface LogEntry {
   time: string;
   message: string;
@@ -76,7 +74,10 @@ interface LogEntry {
 export default function App() {
   // Configuration - initialize from environment
   const [apiUrl, setApiUrl] = useState(getDefaultApiUrl());
-  const [walletAddress, setWalletAddress] = useState(SAMPLE_WALLET);
+  const [loginId, setLoginId] = useState('');
+  const [password, setPassword] = useState('');
+  // Held in memory for this diagnostics session only.
+  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
   
   // State
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -146,38 +147,42 @@ export default function App() {
   // TEST 2: Authentication Check
   // ============================================================================
   const testAuth = async () => {
-    log('Testing authentication with wallet address...', 'info');
-    
-    // Validate wallet address format first
-    if (!walletAddress || walletAddress.length !== 48 || !walletAddress.startsWith('5')) {
-      log(`❌ Invalid wallet address format`, 'error');
-      log(`   Expected: 48 chars starting with "5" (SS58)`, 'warning');
-      log(`   Got: ${walletAddress.length} chars, starts with "${walletAddress[0]}"`, 'warning');
+    log('Testing sign-in with a username and password...', 'info');
+
+    if (!loginId.trim() || !password) {
+      log('❌ Enter a username and password first', 'error');
       return false;
     }
-    
+
     try {
-      const res = await fetch(`${apiUrl}/api/auth/me`, {
-        headers: {
-          'X-User-Id': walletAddress,
-          'Content-Type': 'application/json'
-        }
+      // The proof, never the password, is what is sent.
+      const res = await fetch(`${apiUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: loginId.trim(),
+          auth_proof: deriveAuthProof(password, loginId),
+        }),
       });
-      
+
       const data = await res.json();
-      
-      if (res.ok) {
-        log(`✅ Auth OK - User found`, 'success');
-        log(`   Role: ${data.role || 'unknown'}`, 'info');
-        log(`   Name: ${data.name || data.username || 'N/A'}`, 'info');
+
+      if (res.ok && data.access_token) {
+        setAccessToken(data.access_token);
+        log(`✅ Sign-in OK`, 'success');
+        log(`   Role: ${data.user?.role || 'unknown'}`, 'info');
+        log(`   Name: ${data.user?.name || 'N/A'}`, 'info');
         return true;
+      } else if (data.mfa_required) {
+        log('⚠️ This account needs an authenticator code; use the app sign-in screen', 'warning');
+        return false;
       } else {
-        log(`⚠️ Auth response: ${res.status}`, 'warning');
-        log(`   ${data.error || JSON.stringify(data)}`, 'warning');
+        log(`⚠️ Sign-in response: ${res.status}`, 'warning');
+        log(`   ${data.error?.message || data.error || JSON.stringify(data)}`, 'warning');
         return false;
       }
     } catch (err: any) {
-      log(`❌ Auth FAILED: ${err.message}`, 'error');
+      log(`❌ Sign-in FAILED: ${err.message}`, 'error');
       return false;
     }
   };
@@ -191,7 +196,7 @@ export default function App() {
     try {
       const res = await fetch(`${apiUrl}/api/patients`, {
         headers: {
-          'X-User-Id': walletAddress,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
           'Content-Type': 'application/json'
         }
       });
@@ -286,12 +291,21 @@ export default function App() {
             autoCorrect={false}
           />
           
-          <Text style={styles.label}>Test Wallet Address (SS58)</Text>
+          <Text style={styles.label}>Test username</Text>
           <TextInput
-            style={[styles.input, styles.monoInput]}
-            value={walletAddress}
-            onChangeText={setWalletAddress}
-            placeholder="5Grw..."
+            style={styles.input}
+            value={loginId}
+            onChangeText={setLoginId}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <Text style={styles.label}>Test password</Text>
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -360,7 +374,7 @@ export default function App() {
           <Text style={styles.tipText}>• Use your machine's LAN IP, not localhost</Text>
           <Text style={styles.tipText}>• Ensure API server is running (cargo run -p medichain-api)</Text>
           <Text style={styles.tipText}>• For Android HTTP, enable cleartext in AndroidManifest</Text>
-          <Text style={styles.tipText}>• Wallet address must be 48 chars starting with "5"</Text>
+          <Text style={styles.tipText}>• Sign-in needs an activated account (username and password)</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

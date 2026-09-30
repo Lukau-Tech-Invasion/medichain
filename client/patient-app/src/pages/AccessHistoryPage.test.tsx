@@ -25,7 +25,7 @@ function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}
   return {
     access_id: id,
     patient_id: PATIENT_ID,
-    accessor_id: 'wallet-dlamini',
+    accessor_id: 'user-dlamini',
     accessor_name: 'Dr N. Dlamini',
     accessor_role: 'Doctor',
     access_type: 'view',

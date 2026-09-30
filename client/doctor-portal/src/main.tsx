@@ -6,18 +6,8 @@ import { useAuthStore } from './store/authStore';
 import { ToastProvider } from './components/Toast';
 import './index.css';
 
-// Clear old auth data on app load (one-time migration)
-const AUTH_MIGRATION_KEY = 'medichain_auth_migrated_v3';
-if (!localStorage.getItem(AUTH_MIGRATION_KEY)) {
-  console.log('[MediChain] Clearing old auth data for fresh start...');
-  // Clear all old auth/wallet related keys
-  ['medichain-provider-auth', 'medichain_provider_auth', 'medichain_wallet', 
-   'medichain_patient_auth', 'medichain_accounts', 'medichain_auth_migrated_v2'].forEach(key => {
-    localStorage.removeItem(key);
-  });
-  localStorage.setItem(AUTH_MIGRATION_KEY, 'true');
-  console.log('[MediChain] Auth data cleared. Please login with demo users.');
-}
+// Browser state left by earlier sign-in designs is removed by
+// `purgeLegacyIdentityStorage`, which `@medichain/shared` runs once when it loads.
 
 // Initialize app - restore session if needed
 async function initApp() {

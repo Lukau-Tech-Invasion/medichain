@@ -104,8 +104,8 @@ export function DashboardPage() {
           const activities: RecentActivity[] = (logsData.access_logs || []).slice(0, 5).map((log) => ({
             id: log.access_id,
             type: log.access_type === 'view' ? 'access' : log.access_type === 'consent' ? 'consent' : 'update',
-            // The clinician's name, falling back to the wallet only when the
-            // server could not resolve it. A patient reading "5GnPcTux4PX1F8..."
+            // The clinician's name, falling back to the id only when the
+            // server could not resolve it. A patient reading a bare UUID
             // learns nothing about who opened their record.
             // Say what was seen when the server recorded it ("viewed Lab results").
             description: `${log.accessor_name || log.accessor_id} ${

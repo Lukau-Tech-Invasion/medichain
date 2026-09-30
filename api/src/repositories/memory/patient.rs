@@ -13,7 +13,6 @@ pub struct MemoryPatientRepository {
     storage: RwLock<HashMap<String, PatientEntity>>,
     health_id_index: RwLock<HashMap<String, String>>,
     national_id_index: RwLock<HashMap<String, String>>,
-    wallet_index: RwLock<HashMap<String, String>>,
 }
 
 impl MemoryPatientRepository {
@@ -22,7 +21,6 @@ impl MemoryPatientRepository {
             storage: RwLock::new(HashMap::new()),
             health_id_index: RwLock::new(HashMap::new()),
             national_id_index: RwLock::new(HashMap::new()),
-            wallet_index: RwLock::new(HashMap::new()),
         }
     }
 
@@ -77,11 +75,6 @@ impl PatientRepository for MemoryPatientRepository {
             national_index.insert(patient.national_id_hash.clone(), patient.id.clone());
         }
 
-        if let Some(ref wallet) = patient.wallet_address {
-            let mut wallet_index = self.wallet_index.write().map_err(Self::lock_error)?;
-            wallet_index.insert(wallet.clone(), patient.id.clone());
-        }
-
         Ok(patient)
     }
 
@@ -109,17 +102,6 @@ impl PatientRepository for MemoryPatientRepository {
             national_index.get(hash).cloned().ok_or_else(|| {
                 RepositoryError::NotFound("National ID hash not found".to_string())
             })?
-        };
-        self.get_by_id(&id).await
-    }
-
-    async fn get_by_wallet(&self, wallet: &str) -> RepositoryResult<PatientEntity> {
-        let id = {
-            let wallet_index = self.wallet_index.read().map_err(Self::lock_error)?;
-            wallet_index
-                .get(wallet)
-                .cloned()
-                .ok_or_else(|| RepositoryError::NotFound("Wallet address not found".to_string()))?
         };
         self.get_by_id(&id).await
     }
@@ -364,7 +346,6 @@ mod tests {
             dnr_verified_at: None,
             dnr_document_ref: None,
             primary_provider_id: None,
-            wallet_address: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             registered_by: None,

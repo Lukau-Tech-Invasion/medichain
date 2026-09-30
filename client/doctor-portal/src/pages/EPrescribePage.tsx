@@ -84,7 +84,7 @@ export default function EPrescribePage() {
       const prescriptionId = created?.prescription_id;
       if (prescriptionId) {
         await signEPrescription(prescriptionId, {
-          signature_method: 'wallet',
+          signature_method: 'password',
           attestation: PRESCRIBER_ATTESTATION,
         });
         await transmitEPrescription(prescriptionId);

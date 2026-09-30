@@ -43,7 +43,7 @@ function AccessLogsPage() {
   const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
   const { user } = useAuthStore();
-  // Resolves a wallet to the person's name for the CSV export; the table
+  // Resolves a user id to the person's name for the CSV export; the table
   // itself renders `<StaffName>`, which cannot be called inside a `.map()`.
   const staffName = useStaffDirectory();
   const [logs, setLogs] = useState<AccessLog[]>([]);
@@ -111,7 +111,7 @@ function AccessLogsPage() {
       setIsLoading(true);
       try {
         const user = useAuthStore.getState().user;
-        if (!user?.walletAddress) {
+        if (!user?.userId) {
           setLogs([]);
           return;
         }
@@ -208,9 +208,9 @@ function AccessLogsPage() {
   );
 
   const handleExport = () => {
-    // The accessor's NAME as well as their wallet. This file is the artefact
-    // somebody reads during an access review, and a column of SS58 addresses
-    // answers "was this access appropriate?" for nobody. The wallet stays
+    // The accessor's NAME as well as their id. This file is the artefact
+    // somebody reads during an access review, and a column of UUIDs
+    // answers "was this access appropriate?" for nobody. The id stays
     // beside it because it is the unambiguous identifier.
     const csvContent = [
       'Access ID,Patient ID,Accessor ID,Accessor Name,Role,Access Type,Location,Timestamp,Emergency',

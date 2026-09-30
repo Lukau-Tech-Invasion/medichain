@@ -78,7 +78,7 @@ async fn authorize_and_load(
 ) -> Result<LoadedPatient, HttpResponse> {
     let caller_id = get_current_user_id(http_req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Missing X-User-Id header".to_string(),
+            error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         })
     })?;
@@ -116,7 +116,6 @@ async fn save_profile(
 ) -> Result<(), HttpResponse> {
     let mut updated = patient_profile_to_entity(profile, &data.encryption_keyring);
     updated.health_id = original.health_id.clone();
-    updated.wallet_address = original.wallet_address.clone();
     updated.is_verified = original.is_verified;
     updated.registered_by = original.registered_by.clone();
     updated.primary_provider_id = original.primary_provider_id.clone();

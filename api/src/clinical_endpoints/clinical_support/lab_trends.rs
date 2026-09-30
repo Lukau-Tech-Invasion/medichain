@@ -235,7 +235,7 @@ pub async fn get_lab_trends(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -438,7 +438,7 @@ mod lab_trend_read_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/lab-trends/patient/PAT-LT")
-                .insert_header(("X-User-Id", caller))
+                .insert_header(crate::test_fixtures::as_user(caller))
                 .to_request(),
         )
         .await

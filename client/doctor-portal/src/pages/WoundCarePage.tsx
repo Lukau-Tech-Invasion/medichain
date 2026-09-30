@@ -155,7 +155,7 @@ const WoundCarePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
-  const { providerName } = useProviderDirectory(user?.walletAddress);
+  const { providerName } = useProviderDirectory(user?.userId);
 
   // The assessment tab was previously pure markup: no state, no handler, and a
   // Save button with no onClick at all, so nothing a nurse typed was ever sent.
@@ -182,16 +182,16 @@ const WoundCarePage: React.FC = () => {
   // patient with no wound yet could never be selected — i.e. a first assessment
   // was impossible. Load the real roster instead.
   useEffect(() => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     getPatients({ limit: 100 })
       .then(rows => setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name }))))
       .catch(() => setPatients([]));
-  }, [user?.walletAddress]);
+  }, [user?.userId]);
 
   const { errors, validate, validateField, clearField } = useValidatedForm(woundAssessmentSchema);
 
   const saveAssessment = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     // Was a banner naming two fields at once, which cannot say which control
     // is wrong -- that association is the whole of WCAG 3.3.1. The dimensions
     // stay optional: a blank one means "not measured", and forcing a 0 would
@@ -242,7 +242,7 @@ const WoundCarePage: React.FC = () => {
 
   useEffect(() => {
     const fetchWounds = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setError(t('docWoundCare.errNotAuth'));
         setLoading(false);
         return;
@@ -270,7 +270,7 @@ const WoundCarePage: React.FC = () => {
   // until the rate limiter began refusing the page's other requests.
   const selectedWoundId = selectedWound?.id;
   useEffect(() => {
-    if (!selectedWoundId || !user?.walletAddress) return;
+    if (!selectedWoundId || !user?.userId) return;
     let cancelled = false;
     getWound(selectedWoundId)
       .then((detail) => {
@@ -287,7 +287,7 @@ const WoundCarePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedWoundId, user?.walletAddress]);
+  }, [selectedWoundId, user?.userId]);
 
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {

@@ -65,7 +65,7 @@ describe('RetentionPage', () => {
       patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
     ] as never);
     vi.clearAllMocks();
-    vi.mocked(useAuthStore).mockReturnValue({ user: { walletAddress: ADMIN, role: 'Admin' } });
+    vi.mocked(useAuthStore).mockReturnValue({ user: { userId: ADMIN, role: 'Admin' } });
     vi.mocked(shared.getRetentionReport).mockResolvedValue({
       success: true,
       assessment: assessment(),

@@ -65,7 +65,7 @@ pub async fn create_esignature_prescription(
     req: web::Json<CreateEPrescriptionRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -331,7 +331,7 @@ pub async fn sign_e_prescription(
     let prescription_id = path.into_inner();
 
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -459,7 +459,7 @@ pub async fn transmit_e_prescription(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let mut prescription = match load_prescription(&data, &prescription_id).await {
         Ok(prescription) => prescription,
@@ -642,7 +642,7 @@ async fn transition_verification(
                 .collect(),
             audit: prescription_audit(
                 prescription,
-                &actor.wallet_address,
+                &actor.id,
                 &actor.role.to_string(),
                 audit_action,
             ),
@@ -748,7 +748,7 @@ async fn transition_status(
             events: Vec::new(),
             audit: prescription_audit(
                 prescription,
-                &actor.wallet_address,
+                &actor.id,
                 &actor.role.to_string(),
                 audit_action,
             ),
@@ -789,8 +789,7 @@ pub async fn receive_prescription(
         Ok(p) => p,
         Err(resp) => return resp,
     };
-    prescription.secondary_verification.first_pharmacist_id =
-        Some(current_user.wallet_address.clone());
+    prescription.secondary_verification.first_pharmacist_id = Some(current_user.id.clone());
     if let Err(resp) = transition_status(
         &data,
         &mut prescription,
@@ -879,7 +878,7 @@ pub async fn request_secondary_verification(
         .secondary_verification
         .first_pharmacist_id
         .as_deref()
-        != Some(current_user.wallet_address.as_str())
+        != Some(current_user.id.as_str())
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Only the first pharmacist may request verification".to_string(),
@@ -909,7 +908,7 @@ pub async fn request_secondary_verification(
     prescription.secondary_verification.status =
         crate::clinical::SecondaryVerificationStatus::Pending;
     prescription.secondary_verification.request_id = Some(request_id.clone());
-    prescription.secondary_verification.requested_by = Some(current_user.wallet_address.clone());
+    prescription.secondary_verification.requested_by = Some(current_user.id.clone());
     prescription.secondary_verification.requested_at = Some(now.timestamp());
     prescription.secondary_verification.expires_at =
         Some((now + chrono::Duration::seconds(ttl)).timestamp());
@@ -920,7 +919,7 @@ pub async fn request_secondary_verification(
         &prescription,
         request_id.clone(),
         "verification_requested",
-        &current_user.wallet_address,
+        &current_user.id,
         None,
         false,
     );
@@ -1018,7 +1017,7 @@ pub async fn decide_secondary_verification(
     {
         return verification_state_conflict(&prescription.secondary_verification.status);
     }
-    if verifier_is_not_distinct(&prescription, &current_user.wallet_address) {
+    if verifier_is_not_distinct(&prescription, &current_user.id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "A distinct second pharmacist is required".to_string(),
             code: "SECOND_PHARMACIST_MUST_BE_DISTINCT".to_string(),
@@ -1053,7 +1052,7 @@ pub async fn decide_secondary_verification(
     } else {
         crate::clinical::SecondaryVerificationStatus::Rejected
     };
-    prescription.secondary_verification.verified_by = Some(current_user.wallet_address.clone());
+    prescription.secondary_verification.verified_by = Some(current_user.id.clone());
     prescription.secondary_verification.verified_at = Some(now.timestamp());
     prescription.secondary_verification.decision_reason =
         body.reason.as_deref().map(str::trim).map(str::to_string);
@@ -1070,7 +1069,7 @@ pub async fn decide_secondary_verification(
         } else {
             "verification_rejected"
         },
-        &current_user.wallet_address,
+        &current_user.id,
         body.reason.as_deref(),
         true,
     );
@@ -1122,7 +1121,7 @@ async fn expire_secondary_verification(
         &prescription,
         format!("RXV-EXP-{}", uuid::Uuid::new_v4()),
         "verification_expired",
-        &actor.wallet_address,
+        &actor.id,
         None,
         true,
     )];
@@ -1188,9 +1187,9 @@ pub async fn revoke_secondary_verification(
         return verification_state_conflict(&expected);
     }
     let authorized_pharmacist = prescription.secondary_verification.requested_by.as_deref()
-        == Some(current_user.wallet_address.as_str())
+        == Some(current_user.id.as_str())
         || prescription.secondary_verification.verified_by.as_deref()
-            == Some(current_user.wallet_address.as_str());
+            == Some(current_user.id.as_str());
     if current_user.role != crate::Role::Admin && !authorized_pharmacist {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Only a party to the verification or an administrator may revoke it".to_string(),
@@ -1211,7 +1210,7 @@ pub async fn revoke_secondary_verification(
         &prescription,
         format!("RXV-REV-{}", uuid::Uuid::new_v4()),
         "verification_revoked",
-        &current_user.wallet_address,
+        &current_user.id,
         Some(body.reason.trim()),
         true,
     ));
@@ -1322,7 +1321,7 @@ pub async fn dispense_prescription(
             "dispense_event_id": event_id,
             "prescription_id": prescription_id,
             "patient_id": prescription.patient_id,
-            "pharmacist_id": current_user.wallet_address,
+            "pharmacist_id": current_user.id,
             "quantity": body.quantity,
             "quantity_unit": prescription.medication.quantity_unit,
             "dispensed_total_after": new_total,
@@ -1352,7 +1351,7 @@ pub async fn dispense_prescription(
             )],
             audit: prescription_audit(
                 &prescription,
-                &current_user.wallet_address,
+                &current_user.id,
                 &current_user.role.to_string(),
                 audit_action,
             ),
@@ -1481,7 +1480,7 @@ pub async fn reverse_dispense(
             "reverses_event_id": body.dispense_event_id,
             "prescription_id": prescription_id,
             "patient_id": prescription.patient_id,
-            "pharmacist_id": current_user.wallet_address,
+            "pharmacist_id": current_user.id,
             "quantity": reversed_quantity,
             "correction": true,
             "reason": body.reason.trim(),
@@ -1510,7 +1509,7 @@ pub async fn reverse_dispense(
             ],
             audit: prescription_audit(
                 &prescription,
-                &current_user.wallet_address,
+                &current_user.id,
                 &current_user.role.to_string(),
                 "prescription_dispense_reversed",
             ),
@@ -1593,7 +1592,7 @@ pub async fn get_esignature_prescription(
     let prescription_id = path.into_inner();
 
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1635,7 +1634,7 @@ pub async fn get_patient_e_prescriptions(
     // run, making that check dead code for patients. The prescribe/dispense
     // routes in this file keep the staff gate.
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1690,7 +1689,7 @@ mod lifecycle_tests {
 
     fn prescriber() -> crate::User {
         crate::User {
-            wallet_address: "doctor_rx".to_string(),
+            id: "doctor_rx".to_string(),
             username: None,
             name: "Dr Prescriber".to_string(),
             role: crate::Role::Doctor,
@@ -1707,11 +1706,11 @@ mod lifecycle_tests {
         }
     }
 
-    fn pharmacist(wallet: &str) -> crate::User {
+    fn pharmacist(user_id: &str) -> crate::User {
         crate::User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
-            name: format!("Pharmacist {wallet}"),
+            name: format!("Pharmacist {user_id}"),
             role: crate::Role::Pharmacist,
             created_at: chrono::Utc::now(),
             created_by: None,
@@ -1720,7 +1719,7 @@ mod lifecycle_tests {
             phone: None,
             department: None,
             specialty: None,
-            license_number: Some(format!("SAPC-{wallet}")),
+            license_number: Some(format!("SAPC-{user_id}")),
             status: "active".to_string(),
             last_login: None,
         }
@@ -1730,11 +1729,7 @@ mod lifecycle_tests {
     async fn state_with(id: &str, status: crate::clinical::PrescriptionStatus) -> crate::AppState {
         let state = crate::AppState::new();
         let user = prescriber();
-        state
-            .users
-            .write()
-            .unwrap()
-            .insert(user.wallet_address.clone(), user);
+        state.users.write().unwrap().insert(user.id.clone(), user);
 
         // Built from the real type, not hand-written JSON. A shape mismatch
         // here does not fail loudly: the handler's
@@ -1828,8 +1823,8 @@ mod lifecycle_tests {
             .await
             .unwrap();
         let mut users = state.users.write().unwrap();
-        for wallet in ["pharmacist_a", "pharmacist_b", "pharmacist_c"] {
-            users.insert(wallet.to_string(), pharmacist(wallet));
+        for user_id in ["pharmacist_a", "pharmacist_b", "pharmacist_c"] {
+            users.insert(user_id.to_string(), pharmacist(user_id));
         }
     }
 
@@ -1865,7 +1860,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-1/sign")
-                .insert_header(("x-user-id", "doctor_rx"))
+                .insert_header(crate::test_fixtures::as_user("doctor_rx"))
                 .set_json(serde_json::json!({
                     "signature_method": "password",
                     "attestation": "I attest"
@@ -1897,7 +1892,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-2/sign")
-                .insert_header(("x-user-id", "doctor_rx"))
+                .insert_header(crate::test_fixtures::as_user("doctor_rx"))
                 .insert_header(("user-agent", "MediChainTest/9.9"))
                 .set_json(serde_json::json!({
                     "signature_method": "password",
@@ -1965,7 +1960,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-3/transmit")
-                .insert_header(("x-user-id", "doctor_rx"))
+                .insert_header(crate::test_fixtures::as_user("doctor_rx"))
                 .to_request(),
         )
         .await;
@@ -1975,7 +1970,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-3/transmit")
-                .insert_header(("x-user-id", "doctor_rx"))
+                .insert_header(crate::test_fixtures::as_user("doctor_rx"))
                 .to_request(),
         )
         .await;
@@ -2006,7 +2001,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-V1/dispense")
-                .insert_header(("x-user-id", "pharmacist_a"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist_a"))
                 .set_json(serde_json::json!({ "quantity": 1 }))
                 .to_request(),
         )
@@ -2017,7 +2012,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-V1/verification/request")
-                .insert_header(("x-user-id", "pharmacist_a"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist_a"))
                 .to_request(),
         )
         .await;
@@ -2027,7 +2022,7 @@ mod lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/e-prescriptions/RX-V1/verification/decide")
-                .insert_header(("x-user-id", "pharmacist_a"))
+                .insert_header(crate::test_fixtures::as_user("pharmacist_a"))
                 .set_json(serde_json::json!({ "approve": true }))
                 .to_request(),
         )
@@ -2055,27 +2050,27 @@ mod lifecycle_tests {
         .await;
         let request = test::TestRequest::post()
             .uri("/api/e-prescriptions/RX-V2/verification/request")
-            .insert_header(("x-user-id", "pharmacist_a"))
+            .insert_header(crate::test_fixtures::as_user("pharmacist_a"))
             .to_request();
         assert_eq!(test::call_service(&app, request).await.status(), 200);
 
         let approve = test::TestRequest::post()
             .uri("/api/e-prescriptions/RX-V2/verification/decide")
-            .insert_header(("x-user-id", "pharmacist_b"))
+            .insert_header(crate::test_fixtures::as_user("pharmacist_b"))
             .set_json(serde_json::json!({ "approve": true }))
             .to_request();
         assert_eq!(test::call_service(&app, approve).await.status(), 200);
 
         let replay = test::TestRequest::post()
             .uri("/api/e-prescriptions/RX-V2/verification/decide")
-            .insert_header(("x-user-id", "pharmacist_c"))
+            .insert_header(crate::test_fixtures::as_user("pharmacist_c"))
             .set_json(serde_json::json!({ "approve": true }))
             .to_request();
         assert_eq!(test::call_service(&app, replay).await.status(), 409);
 
         let dispense = test::TestRequest::post()
             .uri("/api/e-prescriptions/RX-V2/dispense")
-            .insert_header(("x-user-id", "pharmacist_a"))
+            .insert_header(crate::test_fixtures::as_user("pharmacist_a"))
             .set_json(serde_json::json!({ "quantity": 1 }))
             .to_request();
         assert_eq!(test::call_service(&app, dispense).await.status(), 200);
@@ -2183,7 +2178,7 @@ mod patient_required_tests {
         ] {
             let req = test::TestRequest::post()
                 .uri("/api/e-prescriptions")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(prescription_for(patient_id))
                 .to_request();
             let resp = test::call_service(&app, req).await;

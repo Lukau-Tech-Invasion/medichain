@@ -67,14 +67,14 @@ def main():
             authed = bool(AUTHN.search(body))
             # Does it ever compare a body actor field to the caller?
             compared = any(
-                re.search(r"(current_user\w*|caller\w*|user\.wallet_address|"
+                re.search(r"(current_user\w*|caller\w*|user\.id|"
                           r"\buser_id\b)\s*(==|!=)\s*[^;\n]*req\.%s\b" % f, body)
                 or re.search(r"req\.%s\b\s*(==|!=)\s*[^;\n]*(current_user\w*|caller\w*|"
-                             r"user\.wallet_address)" % f, body)
+                             r"user\.id)" % f, body)
                 for f in fields)
             # Or does it just overwrite the body value with the caller?
             overwritten = any(
-                re.search(r"%s\s*:\s*(current_user\w*|caller\w*|user\.wallet_address"
+                re.search(r"%s\s*:\s*(current_user\w*|caller\w*|user\.id"
                           r"|actor\w*)" % f.replace("_id", "").replace("_name", ""), body)
                 for f in fields)
             rows.append(OrderedDict(

@@ -74,7 +74,7 @@ pub async fn create_anesthesia(
         Ok(user) => user,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let record = req.into_inner();
     let owner_id = record.patient_id.clone();
@@ -227,10 +227,7 @@ pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -
     } else {
         data.repositories
             .anesthesia_records
-            .get_by_provider(
-                &caller.wallet_address,
-                crate::repositories::Pagination::new(0, 200),
-            )
+            .get_by_provider(&caller.id, crate::repositories::Pagination::new(0, 200))
             .await
             .map(|page| page.items)
     };
@@ -272,7 +269,7 @@ pub async fn create_radiology_order(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut order = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -281,7 +278,7 @@ pub async fn create_radiology_order(
     order.order_id = format!("RAD-{}", uuid::Uuid::new_v4().simple());
     // Stamp it from the session so the stored record cannot disagree with the
     // authenticated identity even if the check above is ever relaxed.
-    order.ordering_provider = caller.wallet_address.clone();
+    order.ordering_provider = caller.id.clone();
     let owner_id = order.patient_id.clone();
 
     // Log access
@@ -372,7 +369,7 @@ pub async fn create_radiology_report(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let report = req.into_inner();
     let owner_id = report.patient_id.clone();
@@ -518,7 +515,7 @@ pub async fn create_pathology(
         Ok(user) => user,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let body = req.into_inner();
     let id = body.specimen_id.clone();
@@ -737,7 +734,7 @@ pub async fn update_pathology_report(
     report.immunohistochemistry = Some(serde_json::json!(body.ihc_markers));
     report.comments = (!body.snomed_code.trim().is_empty()).then_some(body.snomed_code.clone());
     report.status = body.status;
-    report.pathologist_id = caller.wallet_address.clone();
+    report.pathologist_id = caller.id.clone();
     report.report_date = now;
     report.updated_at = now;
     let payload = report.data.as_object_mut();
@@ -762,7 +759,7 @@ pub async fn update_pathology_report(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: report.patient_id.clone(),
-            accessor_id: caller.wallet_address,
+            accessor_id: caller.id,
             accessor_role: caller.role.to_string(),
             access_type: "update_pathology_report".to_string(),
             location: None,
@@ -841,10 +838,10 @@ mod anesthesia_round_trip_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -863,7 +860,7 @@ mod anesthesia_round_trip_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
@@ -899,7 +896,7 @@ mod anesthesia_round_trip_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         body: serde_json::Value,
     ) -> (u16, u16, String) {
         let app = test::init_service(
@@ -915,14 +912,14 @@ mod anesthesia_round_trip_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/surgical/anesthesia")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri("/api/surgical/anesthesia/list")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();
@@ -1000,7 +997,7 @@ mod anesthesia_round_trip_tests {
         .await;
         let create = test::TestRequest::post()
             .uri("/api/surgical/pathology")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({
                 "specimen_id": "SP-PATH-1", "patient_id": "PAT-1", "status": "received"
             }))
@@ -1013,7 +1010,7 @@ mod anesthesia_round_trip_tests {
         let finalise = || {
             test::TestRequest::put()
             .uri("/api/surgical/pathology/SP-PATH-1")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({
                 "gross_description": "Two tissue fragments", "microscopic_description": "Benign tissue",
                 "diagnosis": "Benign lesion", "status": "final"
@@ -1042,7 +1039,7 @@ mod anesthesia_round_trip_tests {
         .await;
         let create = test::TestRequest::post()
             .uri("/api/surgical/pathology")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({"specimen_id": "SP-PATH-2", "patient_id": "PAT-1"}))
             .to_request();
         assert_eq!(
@@ -1050,7 +1047,7 @@ mod anesthesia_round_trip_tests {
             201
         );
         let incomplete = test::TestRequest::put().uri("/api/surgical/pathology/SP-PATH-2")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({"gross_description": "Gross", "microscopic_description": "", "diagnosis": "", "status": "final"}))
             .to_request();
         assert_eq!(

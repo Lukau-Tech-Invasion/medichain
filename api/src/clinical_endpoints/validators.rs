@@ -3,35 +3,28 @@
 //! `crate::clinical_endpoints::*` grew to ~478 handlers largely by copy/paste, and
 //! two request-validation blocks were duplicated verbatim at the top of dozens of
 //! them:
-//!   1. Extracting the caller's id from the `X-User-Id` header, 401'ing with a
-//!      fixed `ErrorResponse` body if absent (60 occurrences across the crate).
+//!   1. Extracting the caller's id from the request, 401'ing with a fixed
+//!      `ErrorResponse` body if absent (60 occurrences across the crate).
 //!   2. Looking the id up in `data.users`, 401'ing with a fixed `ErrorResponse`
 //!      body if unknown (28 occurrences).
 //!
-//! These helpers are a pure extraction of that exact duplicated code — same
-//! status codes, same JSON bodies, same field values — not a behavior change.
-//!
-//! `require_x_user_id_header` deliberately checks **only** the legacy
-//! `X-User-Id` header, matching what every inlined call site did before this
-//! extraction. It does NOT fall back to a JWT bearer token the way
-//! `crate::support::get_current_user_id` does; folding JWT support into these
-//! call sites would change what a request needs to authenticate and is left
-//! for a separate, deliberate pass rather than bundled into this refactor.
+//! These helpers are a pure extraction of that duplicated code.
+//! `require_caller_id` reads the caller from the verified access token
+//! (`crate::support::get_current_user_id`); there is no header to fall back to.
 
 use super::*;
 
-/// Extract the caller's wallet address from the legacy `X-User-Id` header, or
-/// return the canonical 401 response every handler inlined for a missing header.
+/// The authenticated caller's user id, or the canonical 401 response every
+/// handler inlined for a missing identity.
 ///
-/// Callers propagate the error with `let id = match require_x_user_id_header(&req) { Ok(id) => id, Err(resp) => return resp };`
-pub(crate) fn require_x_user_id_header(req: &HttpRequest) -> Result<String, HttpResponse> {
-    match req.headers().get("X-User-Id") {
-        Some(id) => Ok(id.to_str().unwrap_or("").to_string()),
-        None => Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Missing X-User-Id header".to_string(),
+/// Callers propagate the error with `let id = match require_caller_id(&req) { Ok(id) => id, Err(resp) => return resp };`
+pub(crate) fn require_caller_id(req: &HttpRequest) -> Result<String, HttpResponse> {
+    crate::support::get_current_user_id(req).ok_or_else(|| {
+        HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
-        })),
-    }
+        })
+    })
 }
 
 /// Look up a user record by id in the in-memory user store, or return the
@@ -57,17 +50,17 @@ mod tests {
     use actix_web::test::TestRequest;
 
     #[test]
-    fn require_x_user_id_header_extracts_present_header() {
+    fn require_caller_id_extracts_present_header() {
         let req = TestRequest::default()
-            .insert_header(("X-User-Id", "wallet-123"))
+            .insert_header(crate::test_fixtures::as_user("user-123"))
             .to_http_request();
-        assert_eq!(require_x_user_id_header(&req).unwrap(), "wallet-123");
+        assert_eq!(require_caller_id(&req).unwrap(), "user-123");
     }
 
     #[test]
-    fn require_x_user_id_header_401s_when_missing() {
+    fn require_caller_id_401s_when_missing() {
         let req = TestRequest::default().to_http_request();
-        let err = require_x_user_id_header(&req).unwrap_err();
+        let err = require_caller_id(&req).unwrap_err();
         assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 }
